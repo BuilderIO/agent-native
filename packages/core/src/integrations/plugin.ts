@@ -1008,12 +1008,17 @@ export function createIntegrationsPlugin(
       // sees the request. Keep the device secret in a dedicated TLS-only
       // header as a transport fallback; the value is still hashed and looked
       // up by authenticateRemoteDeviceToken, never persisted raw.
-      const token =
-        extractBearerToken(getRequestHeader(event, "authorization")) ??
-        (getRequestHeader(event, "x-agent-native-device-token")?.trim() ||
-          null);
-      const device = await authenticateRemoteDeviceToken(token);
-      if (device) return device;
+      const candidates = [
+        getRequestHeader(event, "x-agent-native-device-token")?.trim() || null,
+        extractBearerToken(getRequestHeader(event, "authorization")),
+      ].filter(
+        (token, index, all): token is string =>
+          Boolean(token) && all.indexOf(token) === index,
+      );
+      for (const token of candidates) {
+        const device = await authenticateRemoteDeviceToken(token);
+        if (device) return device;
+      }
       setResponseStatus(event, 401);
       return null;
     }

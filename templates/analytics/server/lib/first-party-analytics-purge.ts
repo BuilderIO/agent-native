@@ -23,8 +23,8 @@ type CountTable =
 
 type CountTimeColumn = "received_at" | "event_date";
 
-const PURGE_BATCH_SIZE = 5_000;
-const PURGE_BATCH_TIMEOUT_MS = 30_000;
+const PURGE_BATCH_SIZE = 50_000;
+const PURGE_BATCH_TIMEOUT_MS = 60_000;
 
 function purgeWhereSql(
   table: CountTable,
@@ -159,13 +159,12 @@ export async function purgeFirstPartyAnalyticsPostgresRows(
           LIMIT ?
         )
         DELETE FROM ${table}
-        WHERE id IN (SELECT id FROM candidates)
-        RETURNING id`,
+        WHERE id IN (SELECT id FROM candidates)`,
         args: [...args, PURGE_BATCH_SIZE],
         timeoutMs: PURGE_BATCH_TIMEOUT_MS,
         maxAttempts: 1,
       });
-      if (result.rows.length < PURGE_BATCH_SIZE) break;
+      if (Number(result.rowsAffected ?? 0) < PURGE_BATCH_SIZE) break;
     }
   }
   return counts;

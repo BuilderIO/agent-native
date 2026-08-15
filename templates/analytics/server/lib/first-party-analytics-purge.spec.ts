@@ -82,17 +82,15 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
 });
 
 describe("purgeFirstPartyAnalyticsPostgresRows", () => {
-  it("deletes each scoped table in bounded returning batches", async () => {
+  it("deletes each scoped table in bounded batches", async () => {
     execute
       .mockResolvedValueOnce({ rows: [{ row_count: "5" }] })
       .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
       .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
-      .mockResolvedValueOnce({
-        rows: Array.from({ length: 5_000 }, () => ({ id: "id" })),
-      })
-      .mockResolvedValueOnce({ rows: [{ id: "last" }] })
-      .mockResolvedValueOnce({ rows: [{ id: "rollup" }] })
-      .mockResolvedValueOnce({ rows: [{ id: "user-day" }] });
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 50_000 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
 
     await expect(
       purgeFirstPartyAnalyticsPostgresRows(scope, false, window),
@@ -103,10 +101,10 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
       4,
       expect.objectContaining({
         sql: expect.stringMatching(
-          /WITH candidates[\s\S]*LIMIT \?[\s\S]*DELETE FROM analytics_events[\s\S]*RETURNING id/,
+          /WITH candidates[\s\S]*LIMIT \?[\s\S]*DELETE FROM analytics_events/,
         ),
-        args: ["org-1", "2026-07-01T00:00:00.000Z", 5_000],
-        timeoutMs: 30_000,
+        args: ["org-1", "2026-07-01T00:00:00.000Z", 50_000],
+        timeoutMs: 60_000,
         maxAttempts: 1,
       }),
     );
