@@ -448,7 +448,8 @@ function parsePortalEnvValue(value: string): string {
 
 function portalBranchName(now: Date, handoffId: string): string {
   const timestamp = now.toISOString().replace(/\D/g, "").slice(0, 14);
-  return `portal/${timestamp}-${handoffId.slice(0, 8)}`;
+  const suffix = handoffId.slice(0, 8).replace(/[-.]+$/g, "") || "handoff";
+  return `portal/${timestamp}-${suffix}`;
 }
 
 function stringField(value: unknown): string | undefined {

@@ -346,9 +346,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
 
     expect(hubSource).toContain(
-      "(app: ChatFirstAppItem) => openChatFirstApp(app.id)",
+      'terminalPreferences.enabled ? "side" : "main"',
     );
-    expect(hubSource).toContain("(app: AppConfig) => openChatFirstApp(app.id)");
     expect(hubSource).toContain("<AppWebview");
     expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
     expect(hubSource).toContain(

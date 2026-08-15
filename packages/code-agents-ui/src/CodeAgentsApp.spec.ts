@@ -116,8 +116,9 @@ describe("CodeAgentsApp project folder picker", () => {
 
     expect(source).toContain("<span>Add folder...</span>");
     expect(source).not.toContain('aria-label="Add folder"');
-    expect(source).toContain('value="remote"');
-    expect(source).toContain("onRemoteSelect?.();");
+    expect(source).toContain('value="portal"');
+    expect(source).toContain('description="Continue on a paired computer"');
+    expect(source).not.toContain("onRemoteSelect?.();");
     expect(source).toContain('description="Use the selected folder directly"');
     expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
       source.indexOf('aria-label="Select workspace"'),

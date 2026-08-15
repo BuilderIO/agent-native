@@ -3049,6 +3049,7 @@ function reconcileInterruptedCodeAgentRun(
       ))
   )
     return;
+  if (isPortalCodeAgentRunRecord(currentRecord)) return;
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
   if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(currentRecord))
     return;
