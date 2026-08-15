@@ -110,7 +110,7 @@ jobs:
 
       - name: Create Release PR or publish to npm
         id: changesets
-        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # v2.1.0
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           # When changesets/action finds no pending changesets, it runs
           # `publish`. @changesets/cli publishes packages concurrently, which
