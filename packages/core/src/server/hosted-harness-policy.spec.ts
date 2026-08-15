@@ -53,6 +53,27 @@ describe("hosted harness environment gate", () => {
     );
   });
 
+  it("defaults every organization on when the deployment flag is enabled", async () => {
+    vi.stubEnv("AGENT_NATIVE_HOSTED_HARNESS", "true");
+
+    await expect(
+      resolveHostedHarnessPolicy({
+        config: { runtimes: ["codex"] },
+        orgId: "org-1",
+      }),
+    ).resolves.toMatchObject({
+      enabled: true,
+      configEnabled: true,
+      envEnabled: true,
+      organizationEnabled: true,
+      runtimes: ["codex"],
+    });
+    expect(getOrgSettingMock).toHaveBeenCalledWith(
+      "org-1",
+      "agent-harness.enabled",
+    );
+  });
+
   it("does not enable an opted-in app without an org or env gate", async () => {
     await expect(
       resolveHostedHarnessPolicy({ config: { runtimes: ["codex"] } }),

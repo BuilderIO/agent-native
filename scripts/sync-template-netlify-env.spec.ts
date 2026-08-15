@@ -17,6 +17,12 @@ describe("isAllowedHostedTemplateEnvKey", () => {
     expect(isAllowedHostedTemplateEnvKey("SENTRY_DSN")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("SENTRY_SERVER_DSN")).toBe(true);
   });
+
+  it("allows the hosted tools-only harness deployment gate", () => {
+    expect(isAllowedHostedTemplateEnvKey("AGENT_NATIVE_HOSTED_HARNESS")).toBe(
+      true,
+    );
+  });
 });
 
 describe("isForbiddenHostedTemplateEnvKey", () => {

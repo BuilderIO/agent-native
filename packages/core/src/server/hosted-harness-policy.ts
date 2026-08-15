@@ -50,8 +50,11 @@ export async function resolveHostedHarnessPolicy(options: {
   const organizationSetting = options.orgId
     ? await getOrgSetting(options.orgId, HOSTED_HARNESS_ORG_SETTING_KEY)
     : null;
-  const organizationEnabled = organizationSetting?.enabled === true;
   const envEnabled = isHostedHarnessEnvEnabled();
+  // The deployment flag is the fleet-level default. An org setting is only
+  // needed when a deployment has not enabled the hosted harness globally.
+  const organizationEnabled =
+    envEnabled || organizationSetting?.enabled === true;
   const configEnabled = isHostedHarnessConfigured(config);
   return {
     enabled: configEnabled && (envEnabled || organizationEnabled),
