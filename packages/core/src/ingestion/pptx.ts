@@ -2204,12 +2204,14 @@ function parseShapeFill(
 function parseShapeLine(
   shapeProperties: Record<string, unknown> | null,
   context?: ColorContext,
-): {
-  color: string;
-  width?: number;
-  headEnd?: ParsedPptxLineEnd;
-  tailEnd?: ParsedPptxLineEnd;
-} | undefined {
+):
+  | {
+      color: string;
+      width?: number;
+      headEnd?: ParsedPptxLineEnd;
+      tailEnd?: ParsedPptxLineEnd;
+    }
+  | undefined {
   const line = record(shapeProperties?.["a:ln"]);
   if (!line || line["a:noFill"] !== undefined) return undefined;
   const color = parseColor(record(line["a:solidFill"]), context);

@@ -345,7 +345,13 @@ function buildFidelityElement(
           heightPx,
         )
       : "";
-    const caps = lineEndCaps(element, widthEmu, refBox.width, widthPx, heightPx);
+    const caps = lineEndCaps(
+      element,
+      widthEmu,
+      refBox.width,
+      widthPx,
+      heightPx,
+    );
     return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}">${stroke}${caps}</div>`;
   }
 
@@ -1470,9 +1476,7 @@ function lineEndCaps(
 }
 
 /** The cap's radius as a multiple of the line's stroke width, or `undefined` for an end this does not draw. */
-function ovalCapRadius(
-  end: ParsedElement["lineHeadEnd"],
-): number | undefined {
+function ovalCapRadius(end: ParsedElement["lineHeadEnd"]): number | undefined {
   if (end?.type !== "oval") return undefined;
   return (LINE_END_SCALE[end.w ?? "med"] ?? LINE_END_SCALE.med) / 2;
 }
