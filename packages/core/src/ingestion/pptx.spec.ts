@@ -1176,6 +1176,129 @@ describe("parsePptxPresentation", () => {
     expect(first.slides[0]?.elements[0]?.id).toBe("152");
     expect(second.slides[0]?.elements[0]?.id).toBe("152");
   });
+
+  it("reads a custGeom path's commands in document order, not grouped by tag name", async () => {
+    // The command sequence is the whole shape: a tree built without
+    // `preserveOrder` groups the two `a:lnTo`s together and would replay this
+    // outline as move/line/line/curve, which is a different shape.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="7" name="Freeform"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr>
+                <a:xfrm flipH="1"><a:off x="0" y="0"/><a:ext cx="4000" cy="2000"/></a:xfrm>
+                <a:custGeom>
+                  <a:pathLst>
+                    <a:path w="200" h="100">
+                      <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+                      <a:lnTo><a:pt x="200" y="0"/></a:lnTo>
+                      <a:cubicBezTo>
+                        <a:pt x="180" y="40"/><a:pt x="120" y="80"/><a:pt x="60" y="100"/>
+                      </a:cubicBezTo>
+                      <a:lnTo><a:pt x="0" y="50"/></a:lnTo>
+                      <a:close/>
+                    </a:path>
+                  </a:pathLst>
+                </a:custGeom>
+                <a:solidFill><a:srgbClr val="112233"/></a:solidFill>
+              </p:spPr>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const element = presentation.slides[0]?.elements[0];
+    expect(element?.kind).toBe("shape");
+    expect(element?.flipH).toBe(true);
+    expect(element?.geometry?.kind).toBe("custom");
+    const path = element?.geometry?.paths[0];
+    expect(path?.w).toBe(200);
+    expect(path?.h).toBe(100);
+    expect(path?.commands.map((command) => command.kind)).toEqual([
+      "moveTo",
+      "lnTo",
+      "cubicBezTo",
+      "lnTo",
+      "close",
+    ]);
+    expect(path?.commands[2]).toEqual({
+      kind: "cubicBezTo",
+      points: [
+        { x: 180, y: 40 },
+        { x: 120, y: 80 },
+        { x: 60, y: 100 },
+      ],
+    });
+  });
+
+  it("drops a custGeom path it cannot fully read rather than emitting a shorter outline", async () => {
+    // `x="wd2"` is a guide reference, not a number. A path missing one of its
+    // segments is not a simpler shape, it is a wrong one, so the whole
+    // geometry is dropped and the shape falls back to its plain box.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="8" name="Freeform"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="4000" cy="2000"/></a:xfrm>
+                <a:custGeom>
+                  <a:pathLst>
+                    <a:path w="200" h="100">
+                      <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+                      <a:lnTo><a:pt x="wd2" y="0"/></a:lnTo>
+                    </a:path>
+                  </a:pathLst>
+                </a:custGeom>
+                <a:solidFill><a:srgbClr val="112233"/></a:solidFill>
+              </p:spPr>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const element = presentation.slides[0]?.elements[0];
+    expect(element?.kind).toBe("shape");
+    expect(element?.fill).toBe("#112233");
+    expect(element?.geometry).toBeUndefined();
+  });
+
+  it("records a preset's authored avLst adjustments instead of leaving the default in force", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="9" name="Arc"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="4000" cy="4000"/></a:xfrm>
+                <a:prstGeom prst="blockArc">
+                  <a:avLst>
+                    <a:gd fmla="val 8786043" name="adj1"/>
+                    <a:gd fmla="val 12102207" name="adj2"/>
+                    <a:gd fmla="pin 0 adj3 50000" name="adj3"/>
+                  </a:avLst>
+                </a:prstGeom>
+                <a:solidFill><a:srgbClr val="FECF4F"/></a:solidFill>
+              </p:spPr>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    // The `pin` guide is a formula, not a value — reproducing it would mean
+    // shipping OOXML's whole guide language, so it is left out.
+    expect(presentation.slides[0]?.elements[0]?.shapeAdjustments).toEqual({
+      adj1: 8786043,
+      adj2: 12102207,
+    });
+  });
 });
 
 /** A 1×1 transparent PNG — real bytes, so `loadPptxImage` produces a browser-renderable image. */
