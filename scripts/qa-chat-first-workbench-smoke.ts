@@ -643,7 +643,14 @@ async function openElectronAgentSurface(page: Page): Promise<void> {
 async function installElectronAppCreationSmokeMock(
   electronApp: ElectronApplication,
 ): Promise<void> {
-  const apps = ["content", "design", "mail", "calendar", "clips"].map((id) => ({
+  const apps = [
+    "mail",
+    "calendar",
+    "design",
+    "clips",
+    "content",
+    "analytics",
+  ].map((id) => ({
     id,
     name: id[0].toUpperCase() + id.slice(1),
     icon: "Code",
@@ -860,15 +867,34 @@ async function runElectronSmoke(): Promise<void> {
         elements.map((element) => element.getAttribute("data-app-id")),
       );
     assert.deepEqual(
-      defaultAppIds.slice(0, 5),
-      ["content", "design", "mail", "calendar", "clips"],
-      "Electron first-run apps should use the shared default order",
+      defaultAppIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron first-run apps should use the desktop default order",
     );
     assert.equal(
       await page.getByRole("button", { name: "Show more" }).count(),
       1,
       "Electron app rail should progressively disclose the remaining apps",
     );
+    await page.locator("[data-chat-first-all-apps]").click();
+    await page
+      .locator(".desktop-apps-grid--full-page")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    const allAppsIds = await page
+      .locator(".desktop-apps-grid--full-page [data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      allAppsIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron All apps view should use the desktop default order",
+    );
+    await page.getByRole("button", { name: "Back to chats" }).click();
+    await page.locator(".desktop-apps-grid--full-page").waitFor({
+      state: "detached",
+      timeout: 15_000,
+    });
     assert.equal(
       await page.locator("[data-chat-first-main-chat]").count(),
       0,
