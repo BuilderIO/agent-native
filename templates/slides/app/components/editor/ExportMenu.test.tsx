@@ -81,7 +81,51 @@ import {
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
 
-import { ExportMenu } from "./ExportMenu";
+import { canExportPptxFromServer, ExportMenu } from "./ExportMenu";
+
+const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+/** The exact wrapper server/handlers/import/html-converter.ts writes per PPTX slide. */
+const importedSlide = (body: string) =>
+  `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="12192125" data-slide-height-emu="6858000" style="position: relative; background: #013445;">${body}</div>`;
+
+/** An object carried over from the source file: geometry came from the XML. */
+const importedShape =
+  '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" data-slide-object-id="108" style="position: absolute; left: 40px; top: 60px; width: 320px; height: 180px;"></div>';
+
+/** An object the editor positioned by measuring the browser's own layout. */
+const editorTextBox =
+  '<div class="fmd-text-box" data-slide-object-id="0c6f2a1e-9d3b-4d64-8f2a-2b7f0f6d1a55" style="position:absolute;left:120px;top:80px;width:320px">Added in the editor</div>';
+
+const importedDeck = (contents: string[]) => ({
+  id: "deck-1",
+  slides: contents.map((content, index) => ({ id: `s${index}`, content })),
+  sourceImport: {
+    format: "pptx",
+    fidelity: "source-faithful",
+    slideCount: contents.length,
+  },
+});
+
+const pptxResponse = () =>
+  new Response(new Blob(["PK"], { type: PPTX_MIME }), {
+    status: 200,
+    headers: {
+      "content-disposition": 'attachment; filename="quarterly-review.pptx"',
+      "content-type": PPTX_MIME,
+    },
+  });
+
+function captureDownloadNames() {
+  const names: string[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    names.push(this.download);
+  });
+  return names;
+}
 
 function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
   return render(
@@ -106,6 +150,9 @@ function openExportMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Editor-authored by default: only imported decks leave the browser path.
+  getDeckMock.mockReturnValue(undefined);
+  flushDeckSaveMock.mockResolvedValue(undefined);
   globalThis.fetch = vi.fn(async () => new Response()) as typeof fetch;
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pptx");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
