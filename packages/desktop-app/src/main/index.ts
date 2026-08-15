@@ -4349,7 +4349,9 @@ async function spawnCodeAgentRunner(
   const { command, args } = invocation;
   try {
     const runMetadata = isObject(runRecord?.metadata) ? runRecord.metadata : {};
-    const isDesktopAppCreation = runMetadata.kind === "desktop-create-app";
+    const isDesktopAppCreation =
+      runMetadata.kind === "desktop-create-app" ||
+      runMetadata.kind === "desktop-local-code-change";
     const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd, {
       includeWorkspaceApps: !isDesktopAppCreation,
     });
@@ -5151,6 +5153,8 @@ async function createCodeAgentRun(
   }
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
+  const isDesktopLocalCodeChange =
+    userMetadata.kind === "desktop-local-code-change";
   const requestedExecutionTarget = firstStringValue(payload.executionTarget);
   if (
     requestedExecutionTarget &&
@@ -5166,12 +5170,14 @@ async function createCodeAgentRun(
   }
   const executionTarget = requestedExecutionTarget ?? "local";
   const provider = ensureCodeAgentLlmProvider();
-  if (!provider.ok && !isDesktopAppCreation && executionTarget !== "portal") {
-    return {
-      ok: false,
-      message: "Connect a model provider before starting a coding chat.",
-      error: provider.error,
-    };
+  if (!provider.ok && !isDesktopAppCreation) {
+    if (!isDesktopLocalCodeChange && executionTarget !== "portal") {
+      return {
+        ok: false,
+        message: "Connect a model provider before starting a coding chat.",
+        error: provider.error,
+      };
+    }
   }
 
   // App creation must still produce a visible chat when setup is incomplete.
