@@ -919,10 +919,27 @@ export async function patchBulletIndentsInPptxBlob(
   });
 }
 
+/** Placement on the page; inside a standalone raster it is drawn a second time. */
+const SVG_PLACEMENT_PROPERTIES = [
+  "bottom",
+  "left",
+  "position",
+  "right",
+  "top",
+  "transform",
+];
+
 function svgDataUrl(svg: SVGSVGElement) {
   const copy = svg.cloneNode(true) as SVGSVGElement;
   if (!copy.getAttribute("xmlns")) {
     copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+  // The rotation belongs to the shape's slot on the slide and is re-applied to
+  // the <img> that replaces it. Serialized into the SVG's own viewport it
+  // rotates the drawing a second time and pushes it off frame: infog1's arrows
+  // came back as slivers in the corner of an otherwise empty 810px bitmap.
+  for (const property of SVG_PLACEMENT_PROPERTIES) {
+    copy.style.removeProperty(property);
   }
   const serialized = new XMLSerializer().serializeToString(copy);
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;

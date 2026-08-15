@@ -60,6 +60,7 @@ export default function RootLayout() {
               name="oauth-complete"
               options={{ headerShown: false }}
             />
+            <Stack.Screen name="+not-found" options={{ headerShown: false }} />
           </Stack>
         </CaptureSyncProvider>
       </KeyboardProvider>
