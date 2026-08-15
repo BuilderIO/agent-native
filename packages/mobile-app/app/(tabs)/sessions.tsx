@@ -16,7 +16,10 @@ import {
 } from "react-native";
 
 import AppWebView from "@/components/AppWebView";
-import { SafeAreaView } from "@/components/uniwind-interop";
+import {
+  ModalSafeAreaProvider,
+  SafeAreaView,
+} from "@/components/uniwind-interop";
 import { getAppUrl } from "@/lib/get-app-url";
 import {
   appendRemoteFollowUp,
@@ -833,27 +836,29 @@ export default function SessionsScreen() {
         animationType="slide"
         onRequestClose={() => setSignInOpen(false)}
       >
-        <SafeAreaView
-          edges={["top", "bottom"]}
-          className="flex-1 bg-background-dark"
-        >
-          <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
-            <Text className="px-2 text-[17px] font-bold text-foreground">
-              Sign in to Dispatch
-            </Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Close Dispatch sign in"
-              onPress={() => setSignInOpen(false)}
-              className="px-2 py-2 active:opacity-75"
-            >
-              <Text className="text-[15px] font-semibold text-text-muted">
-                Close
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <SafeAreaView
+            edges={["top", "bottom"]}
+            className="flex-1 bg-background-dark"
+          >
+            <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
+              <Text className="px-2 text-[17px] font-bold text-foreground">
+                Sign in to Dispatch
               </Text>
-            </TouchableOpacity>
-          </View>
-          <AppWebView url={getAppUrl(dispatchApp)} captureSessionToken />
-        </SafeAreaView>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Close Dispatch sign in"
+                onPress={() => setSignInOpen(false)}
+                className="px-2 py-2 active:opacity-75"
+              >
+                <Text className="text-[15px] font-semibold text-text-muted">
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <AppWebView url={getAppUrl(dispatchApp)} captureSessionToken />
+          </SafeAreaView>
+        </ModalSafeAreaProvider>
       </Modal>
     </SafeAreaView>
   );

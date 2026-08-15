@@ -618,6 +618,49 @@ describe("convertToSlideHtml stroke geometry", () => {
     );
   });
 
+  it("draws a connector's oval end decorations as dots on both ends of the line", () => {
+    // A chevron timeline's rules: 1.5pt, zero-width, `oval` at both ends. The
+    // dots are a decoration on top of the stroke, so the border that draws the
+    // line cannot draw them and the import lost them entirely.
+    const html = convertToSlideHtml(
+      shapeSlide({
+        shapeType: "straightConnector1",
+        width: 0,
+        height: 921775,
+        lineColor: "#3A3838",
+        lineWidth: 19050,
+        lineHeadEnd: { type: "oval", w: "med", len: "med" },
+        lineTailEnd: { type: "oval", w: "med", len: "med" },
+      }),
+    );
+
+    expect(styleAttr(html, "shape")).toContain(
+      "border-left: 1.5px solid #3A3838",
+    );
+    // 3x the 1.5px stroke across, centred on the line's two endpoints.
+    expect(html).toContain('<circle cx="2.25" cy="2.25" r="2.25"');
+    expect(html).toContain('<circle cx="2.25" cy="74.813" r="2.25"');
+  });
+
+  it("leaves a line bare when its ends are types it cannot draw", () => {
+    const html = convertToSlideHtml(
+      shapeSlide({
+        shapeType: "straightConnector1",
+        width: 0,
+        height: 921775,
+        lineColor: "#3A3838",
+        lineWidth: 19050,
+        lineHeadEnd: { type: "none" },
+        lineTailEnd: { type: "triangle" },
+      }),
+    );
+
+    expect(styleAttr(html, "shape")).toContain(
+      "border-left: 1.5px solid #3A3838",
+    );
+    expect(html).not.toContain("<svg");
+  });
+
   it("keeps a border on a preset the renderer draws with radii rather than a clip", () => {
     // `border-radius` follows the border, so an ellipse or a roundRect has no
     // reason to pay for an SVG overlay.

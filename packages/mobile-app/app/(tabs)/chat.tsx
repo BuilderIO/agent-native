@@ -36,7 +36,10 @@ import {
   type ChatTarget,
 } from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
-import { SafeAreaView } from "@/components/uniwind-interop";
+import {
+  ModalSafeAreaProvider,
+  SafeAreaView,
+} from "@/components/uniwind-interop";
 import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
@@ -586,31 +589,33 @@ export default function ChatTab() {
         animationType="fade"
         onRequestClose={() => setActionsFor(null)}
       >
-        <Pressable
-          className="flex-1 bg-overlay-dark justify-end"
-          onPress={() => setActionsFor(null)}
-          accessibilityLabel="Dismiss message actions"
-        >
-          <View className="mx-3 mb-8 rounded-2xl bg-card-dark border border-border-dark overflow-hidden">
-            <ActionSheetRow
-              label="Copy Message"
-              onPress={() => actionsFor && copyMessage(actionsFor)}
-            >
-              <IconCopy color="#fafafa" size={18} strokeWidth={1.9} />
-            </ActionSheetRow>
-            <View className="h-px bg-border-dark" />
-            <ActionSheetRow
-              label="Copy Request ID"
-              onPress={() => actionsFor && copyRequestId(actionsFor)}
-            >
-              <IconId color="#fafafa" size={18} strokeWidth={1.9} />
-            </ActionSheetRow>
-            <View className="h-px bg-border-dark" />
-            <ActionSheetRow label="Fork Chat" onPress={forkChat}>
-              <IconGitFork color="#fafafa" size={18} strokeWidth={1.9} />
-            </ActionSheetRow>
-          </View>
-        </Pressable>
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <Pressable
+            className="flex-1 bg-overlay-dark justify-end"
+            onPress={() => setActionsFor(null)}
+            accessibilityLabel="Dismiss message actions"
+          >
+            <View className="mx-3 mb-8 rounded-2xl bg-card-dark border border-border-dark overflow-hidden">
+              <ActionSheetRow
+                label="Copy Message"
+                onPress={() => actionsFor && copyMessage(actionsFor)}
+              >
+                <IconCopy color="#fafafa" size={18} strokeWidth={1.9} />
+              </ActionSheetRow>
+              <View className="h-px bg-border-dark" />
+              <ActionSheetRow
+                label="Copy Request ID"
+                onPress={() => actionsFor && copyRequestId(actionsFor)}
+              >
+                <IconId color="#fafafa" size={18} strokeWidth={1.9} />
+              </ActionSheetRow>
+              <View className="h-px bg-border-dark" />
+              <ActionSheetRow label="Fork Chat" onPress={forkChat}>
+                <IconGitFork color="#fafafa" size={18} strokeWidth={1.9} />
+              </ActionSheetRow>
+            </View>
+          </Pressable>
+        </ModalSafeAreaProvider>
       </Modal>
 
       <ThreadHistorySheet
@@ -634,25 +639,27 @@ export default function ChatTab() {
         animationType="slide"
         onRequestClose={() => setSignInOpen(false)}
       >
-        <SafeAreaView
-          edges={["top", "bottom"]}
-          className="flex-1 bg-background-dark"
-        >
-          <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
-            <Text className="px-2 text-[17px] font-bold text-foreground">
-              Sign in to Chat
-            </Text>
-            <HeaderButton
-              label="Close sign in"
-              onPress={() => setSignInOpen(false)}
-            >
-              <Text className="text-[15px] font-semibold text-text-muted">
-                Close
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <SafeAreaView
+            edges={["top", "bottom"]}
+            className="flex-1 bg-background-dark"
+          >
+            <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
+              <Text className="px-2 text-[17px] font-bold text-foreground">
+                Sign in to Chat
               </Text>
-            </HeaderButton>
-          </View>
-          <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
-        </SafeAreaView>
+              <HeaderButton
+                label="Close sign in"
+                onPress={() => setSignInOpen(false)}
+              >
+                <Text className="text-[15px] font-semibold text-text-muted">
+                  Close
+                </Text>
+              </HeaderButton>
+            </View>
+            <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
+          </SafeAreaView>
+        </ModalSafeAreaProvider>
       </Modal>
     </SafeAreaView>
   );

@@ -20,7 +20,10 @@ import {
   View,
 } from "react-native";
 
-import { SafeAreaView } from "@/components/uniwind-interop";
+import {
+  ModalSafeAreaProvider,
+  SafeAreaView,
+} from "@/components/uniwind-interop";
 import {
   fetchModelCatalog,
   PROVIDER_KEY_OPTIONS,
@@ -455,192 +458,200 @@ export function ChatSettingsSheet({
       presentationStyle="formSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-[#09090b]">
-        <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-zinc-800">
-          <Text className="text-white text-base font-bold">Configure</Text>
-          <Pressable
-            className="p-1.5 active:opacity-75"
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close settings"
-          >
-            <IconX color="#71717a" size={18} strokeWidth={2.5} />
-          </Pressable>
-        </View>
+      <ModalSafeAreaProvider style={{ flex: 1 }}>
+        <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-[#09090b]">
+          <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-zinc-800">
+            <Text className="text-white text-base font-bold">Configure</Text>
+            <Pressable
+              className="p-1.5 active:opacity-75"
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close settings"
+            >
+              <IconX color="#71717a" size={18} strokeWidth={2.5} />
+            </Pressable>
+          </View>
 
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-          {catalogLoading && (
-            <View className="py-8 items-center justify-center">
-              <ActivityIndicator color="#2563eb" />
-            </View>
-          )}
+          <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+            {catalogLoading && (
+              <View className="py-8 items-center justify-center">
+                <ActivityIndicator color="#2563eb" />
+              </View>
+            )}
 
-          {catalog && (
-            <View className="bg-[#18181b] border-y border-zinc-800 mt-4">
-              {pickerSection ? (
-                <>
-                  <Pressable
-                    onPress={() => setPickerSection(null)}
-                    className="flex-row items-center gap-2 px-4 py-3.5 border-b border-zinc-800 active:bg-white/5"
-                    accessibilityRole="button"
-                    accessibilityLabel="Back to picker sections"
-                  >
-                    <IconChevronLeft
-                      color="#a1a1aa"
-                      size={17}
-                      strokeWidth={2.2}
-                    />
-                    <Text className="text-zinc-300 text-[14px] font-semibold">
-                      {pickerSection === "agent"
-                        ? "Agent"
-                        : pickerSection === "model"
-                          ? "Model"
-                          : "Effort"}
-                    </Text>
-                  </Pressable>
+            {catalog && (
+              <View className="bg-[#18181b] border-y border-zinc-800 mt-4">
+                {pickerSection ? (
+                  <>
+                    <Pressable
+                      onPress={() => setPickerSection(null)}
+                      className="flex-row items-center gap-2 px-4 py-3.5 border-b border-zinc-800 active:bg-white/5"
+                      accessibilityRole="button"
+                      accessibilityLabel="Back to picker sections"
+                    >
+                      <IconChevronLeft
+                        color="#a1a1aa"
+                        size={17}
+                        strokeWidth={2.2}
+                      />
+                      <Text className="text-zinc-300 text-[14px] font-semibold">
+                        {pickerSection === "agent"
+                          ? "Agent"
+                          : pickerSection === "model"
+                            ? "Model"
+                            : "Effort"}
+                      </Text>
+                    </Pressable>
 
-                  {pickerSection === "agent" &&
-                    MOBILE_AGENT_OPTIONS.map((agent) => {
-                      const available =
-                        agent.id === "default" ||
-                        ("engine" in agent &&
-                          catalog.groups.some(
-                            (group) => group.engine === agent.engine,
-                          ));
-                      return (
-                        <AgentItem
-                          key={agent.id}
-                          label={agent.label}
-                          description={agent.description}
-                          selected={agent.id === activeAgentId}
-                          available={available}
-                          onPress={() => chooseAgent(agent.id)}
-                        />
-                      );
-                    })}
+                    {pickerSection === "agent" &&
+                      MOBILE_AGENT_OPTIONS.map((agent) => {
+                        const available =
+                          agent.id === "default" ||
+                          ("engine" in agent &&
+                            catalog.groups.some(
+                              (group) => group.engine === agent.engine,
+                            ));
+                        return (
+                          <AgentItem
+                            key={agent.id}
+                            label={agent.label}
+                            description={agent.description}
+                            selected={agent.id === activeAgentId}
+                            available={available}
+                            onPress={() => chooseAgent(agent.id)}
+                          />
+                        );
+                      })}
 
-                  {pickerSection === "model" && (
-                    <>
-                      {activeAgentId === "default" && (
-                        <AutoItem
-                          selected={!settings.model}
+                    {pickerSection === "model" && (
+                      <>
+                        {activeAgentId === "default" && (
+                          <AutoItem
+                            selected={!settings.model}
+                            onPress={() =>
+                              update({
+                                ...settings,
+                                model: undefined,
+                                engine: undefined,
+                              })
+                            }
+                          />
+                        )}
+                        {modelGroups.map((group) => (
+                          <View
+                            key={`${group.engine}-${group.label}`}
+                            className="border-b border-zinc-800/20"
+                          >
+                            <Text className="text-zinc-500 text-[11px] font-semibold uppercase tracking-wider pl-10 pr-4 pt-3 pb-1">
+                              {group.label}
+                            </Text>
+                            {group.models.map((model) => (
+                              <ModelItem
+                                key={model}
+                                label={formatMobileModelLabel(model)}
+                                selected={settings.model === model}
+                                onPress={() => chooseModel(model, group.engine)}
+                              />
+                            ))}
+                          </View>
+                        ))}
+                        {modelGroups.length === 0 && (
+                          <Text className="text-zinc-500 text-[13px] leading-5 px-10 py-5">
+                            This agent is not available on the active app.
+                          </Text>
+                        )}
+                      </>
+                    )}
+
+                    {pickerSection === "effort" &&
+                      EFFORT_OPTIONS.map((option) => (
+                        <ModelItem
+                          key={option.label}
+                          label={option.label}
+                          selected={settings.effort === option.value}
                           onPress={() =>
-                            update({
-                              ...settings,
-                              model: undefined,
-                              engine: undefined,
-                            })
+                            update({ ...settings, effort: option.value })
                           }
                         />
-                      )}
-                      {modelGroups.map((group) => (
-                        <View
-                          key={`${group.engine}-${group.label}`}
-                          className="border-b border-zinc-800/20"
-                        >
-                          <Text className="text-zinc-500 text-[11px] font-semibold uppercase tracking-wider pl-10 pr-4 pt-3 pb-1">
-                            {group.label}
-                          </Text>
-                          {group.models.map((model) => (
-                            <ModelItem
-                              key={model}
-                              label={formatMobileModelLabel(model)}
-                              selected={settings.model === model}
-                              onPress={() => chooseModel(model, group.engine)}
-                            />
-                          ))}
-                        </View>
                       ))}
-                      {modelGroups.length === 0 && (
-                        <Text className="text-zinc-500 text-[13px] leading-5 px-10 py-5">
-                          This agent is not available on the active app.
-                        </Text>
-                      )}
-                    </>
-                  )}
-
-                  {pickerSection === "effort" &&
-                    EFFORT_OPTIONS.map((option) => (
-                      <ModelItem
-                        key={option.label}
-                        label={option.label}
-                        selected={settings.effort === option.value}
-                        onPress={() =>
-                          update({ ...settings, effort: option.value })
-                        }
-                      />
-                    ))}
-                </>
-              ) : (
-                <>
-                  <PickerSectionRow
-                    label="Agent"
-                    value={activeAgentLabel}
-                    onPress={() => setPickerSection("agent")}
-                  />
-                  <PickerSectionRow
-                    label="Model"
-                    value={activeModelLabel}
-                    onPress={() => setPickerSection("model")}
-                  />
-                  <PickerSectionRow
-                    label="Effort"
-                    value={activeEffortLabel}
-                    onPress={() => setPickerSection("effort")}
-                  />
-                </>
-              )}
-
-              <View>
-                <GroupHeader
-                  label="API Keys"
-                  expanded={!!expandedGroups["api-keys"]}
-                  onPress={() => toggleGroup("api-keys")}
-                />
-                {!!expandedGroups["api-keys"] && (
+                  </>
+                ) : (
                   <>
-                    {PROVIDER_KEY_OPTIONS.filter(
-                      (option) =>
-                        !catalog.configurableProviders ||
-                        catalog.configurableProviders.length === 0 ||
-                        catalog.configurableProviders.includes(option.provider),
-                    ).map((option) => (
-                      <View key={option.provider}>
-                        <Text className="text-zinc-400 text-[12px] font-semibold pl-10 pr-4 pt-3">
-                          {option.label}
-                        </Text>
-                        <ProviderKeyRow
-                          label={option.label}
-                          placeholder={option.placeholder}
-                          onSave={async (apiKey) => {
-                            await saveProviderApiKey(option.provider, apiKey, {
-                              baseUrl,
-                            });
-                            loadCatalog();
-                          }}
-                        />
-                      </View>
-                    ))}
-                    <Text className="text-zinc-600 text-[11px] leading-4 pl-10 pr-4 py-3">
-                      Keys are stored server-side in your workspace vault, not
-                      on this device. Newly configured providers appear in the
-                      model list above.
-                    </Text>
+                    <PickerSectionRow
+                      label="Agent"
+                      value={activeAgentLabel}
+                      onPress={() => setPickerSection("agent")}
+                    />
+                    <PickerSectionRow
+                      label="Model"
+                      value={activeModelLabel}
+                      onPress={() => setPickerSection("model")}
+                    />
+                    <PickerSectionRow
+                      label="Effort"
+                      value={activeEffortLabel}
+                      onPress={() => setPickerSection("effort")}
+                    />
                   </>
                 )}
-              </View>
-            </View>
-          )}
 
-          {catalog && catalog.groups.length === 0 && !catalogLoading && (
-            <View className="px-4 py-8 items-center justify-center">
-              <Text className="text-zinc-500 text-sm text-center">
-                No models available. Add an API key in the API Keys section.
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
+                <View>
+                  <GroupHeader
+                    label="API Keys"
+                    expanded={!!expandedGroups["api-keys"]}
+                    onPress={() => toggleGroup("api-keys")}
+                  />
+                  {!!expandedGroups["api-keys"] && (
+                    <>
+                      {PROVIDER_KEY_OPTIONS.filter(
+                        (option) =>
+                          !catalog.configurableProviders ||
+                          catalog.configurableProviders.length === 0 ||
+                          catalog.configurableProviders.includes(
+                            option.provider,
+                          ),
+                      ).map((option) => (
+                        <View key={option.provider}>
+                          <Text className="text-zinc-400 text-[12px] font-semibold pl-10 pr-4 pt-3">
+                            {option.label}
+                          </Text>
+                          <ProviderKeyRow
+                            label={option.label}
+                            placeholder={option.placeholder}
+                            onSave={async (apiKey) => {
+                              await saveProviderApiKey(
+                                option.provider,
+                                apiKey,
+                                {
+                                  baseUrl,
+                                },
+                              );
+                              loadCatalog();
+                            }}
+                          />
+                        </View>
+                      ))}
+                      <Text className="text-zinc-600 text-[11px] leading-4 pl-10 pr-4 py-3">
+                        Keys are stored server-side in your workspace vault, not
+                        on this device. Newly configured providers appear in the
+                        model list above.
+                      </Text>
+                    </>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {catalog && catalog.groups.length === 0 && !catalogLoading && (
+              <View className="px-4 py-8 items-center justify-center">
+                <Text className="text-zinc-500 text-sm text-center">
+                  No models available. Add an API key in the API Keys section.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </ModalSafeAreaProvider>
     </Modal>
   );
 }

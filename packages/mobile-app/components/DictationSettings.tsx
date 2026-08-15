@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 
+import { ModalSafeAreaProvider } from "@/components/uniwind-interop";
 import {
   addDictationVocabularyTerm,
   DICTATION_CLEANUP_STYLES,
@@ -347,59 +348,61 @@ export default function DictationSettings() {
         transparent
         visible={languageOpen}
       >
-        <View className="flex-1 justify-center bg-black/60 p-5">
-          <View className="max-h-[90%] rounded-2xl border border-gray-border-medium bg-card-dark p-4">
-            <Text className="text-white text-lg font-bold mb-2.5">
-              Spoken language
-            </Text>
-            <ScrollView style={{ maxHeight: 400 }}>
-              <View className="border-t border-border-dark">
-                {DICTATION_LANGUAGE_OPTIONS.map((option) => {
-                  const selected = preferences.language === option.value;
-                  return (
-                    <Pressable
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: selected }}
-                      key={option.value ?? "system"}
-                      onPress={() => {
-                        setPreferences((current) =>
-                          current
-                            ? { ...current, language: option.value }
-                            : current,
-                        );
-                        setLanguageOpen(false);
-                      }}
-                      className="min-h-12 flex-row items-center justify-between border-b border-border-dark px-0.75 active:opacity-70"
-                    >
-                      <View>
-                        <Text className="text-white text-sm font-medium">
-                          {option.label}
-                        </Text>
-                        <Text className="text-text-muted text-xs mt-0.25">
-                          {option.value ?? "Automatic"}
-                        </Text>
-                      </View>
-                      {selected ? (
-                        <IconCheck
-                          color="#d4d4d8"
-                          size={18}
-                          strokeWidth={2.2}
-                        />
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setLanguageOpen(false)}
-              className="h-10.5 rounded-lg items-center justify-center mt-3 bg-gray-medium-dark active:opacity-70"
-            >
-              <Text className="text-white text-sm font-semibold">Cancel</Text>
-            </Pressable>
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <View className="flex-1 justify-center bg-black/60 p-5">
+            <View className="max-h-[90%] rounded-2xl border border-gray-border-medium bg-card-dark p-4">
+              <Text className="text-white text-lg font-bold mb-2.5">
+                Spoken language
+              </Text>
+              <ScrollView style={{ maxHeight: 400 }}>
+                <View className="border-t border-border-dark">
+                  {DICTATION_LANGUAGE_OPTIONS.map((option) => {
+                    const selected = preferences.language === option.value;
+                    return (
+                      <Pressable
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selected }}
+                        key={option.value ?? "system"}
+                        onPress={() => {
+                          setPreferences((current) =>
+                            current
+                              ? { ...current, language: option.value }
+                              : current,
+                          );
+                          setLanguageOpen(false);
+                        }}
+                        className="min-h-12 flex-row items-center justify-between border-b border-border-dark px-0.75 active:opacity-70"
+                      >
+                        <View>
+                          <Text className="text-white text-sm font-medium">
+                            {option.label}
+                          </Text>
+                          <Text className="text-text-muted text-xs mt-0.25">
+                            {option.value ?? "Automatic"}
+                          </Text>
+                        </View>
+                        {selected ? (
+                          <IconCheck
+                            color="#d4d4d8"
+                            size={18}
+                            strokeWidth={2.2}
+                          />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setLanguageOpen(false)}
+                className="h-10.5 rounded-lg items-center justify-center mt-3 bg-gray-medium-dark active:opacity-70"
+              >
+                <Text className="text-white text-sm font-semibold">Cancel</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </ModalSafeAreaProvider>
       </Modal>
     </View>
   );

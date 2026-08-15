@@ -8,7 +8,10 @@ import {
 import { useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 
-import { SafeAreaView } from "@/components/uniwind-interop";
+import {
+  ModalSafeAreaProvider,
+  SafeAreaView,
+} from "@/components/uniwind-interop";
 import type { RemoteHost } from "@/lib/remote-sessions-api";
 
 export type ChatTarget = "cloud" | "computer";
@@ -129,74 +132,78 @@ export function MobileWorkspaceControls({
         animationType="fade"
         onRequestClose={() => setHostOpen(false)}
       >
-        <Pressable
-          className="flex-1 justify-end bg-black/60"
-          onPress={() => setHostOpen(false)}
-          accessibilityLabel="Dismiss computer picker"
-        >
-          <Pressable className="mx-3 overflow-hidden rounded-2xl border border-border-dark bg-card-dark">
-            <SafeAreaView edges={["bottom"]}>
-              <View className="flex-row items-center justify-between border-b border-border-dark px-4 py-3">
-                <Text className="text-white text-[15px] font-semibold">
-                  Computer
-                </Text>
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <Pressable
+            className="flex-1 justify-end bg-black/60"
+            onPress={() => setHostOpen(false)}
+            accessibilityLabel="Dismiss computer picker"
+          >
+            <Pressable className="mx-3 overflow-hidden rounded-2xl border border-border-dark bg-card-dark">
+              <SafeAreaView edges={["bottom"]}>
+                <View className="flex-row items-center justify-between border-b border-border-dark px-4 py-3">
+                  <Text className="text-white text-[15px] font-semibold">
+                    Computer
+                  </Text>
+                  <Pressable
+                    className="p-1 active:opacity-75"
+                    onPress={() => setHostOpen(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close computer picker"
+                  >
+                    <IconX color="#71717a" size={18} strokeWidth={2.2} />
+                  </Pressable>
+                </View>
+                {hosts.map((host) => (
+                  <Pressable
+                    key={host.id}
+                    className="flex-row items-center gap-3 border-b border-border-dark px-4 py-3.5 active:bg-white/5"
+                    onPress={() => {
+                      onHostChange(host.id);
+                      setHostOpen(false);
+                    }}
+                    accessibilityRole="radio"
+                    accessibilityState={{
+                      selected: host.id === selectedHostId,
+                    }}
+                    accessibilityLabel={host.name}
+                  >
+                    <View className="h-8 w-8 items-center justify-center rounded-lg bg-gray-medium-dark">
+                      <IconDeviceDesktop
+                        color="#d4d4d8"
+                        size={17}
+                        strokeWidth={1.8}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white text-[14px] font-medium">
+                        {host.name}
+                      </Text>
+                      <Text className="text-status-gray text-[12px] mt-0.5">
+                        {host.status === "online" ? "Available" : host.status}
+                      </Text>
+                    </View>
+                    {host.id === selectedHostId ? (
+                      <IconCheck color="#d4d4d8" size={17} strokeWidth={2.2} />
+                    ) : null}
+                  </Pressable>
+                ))}
                 <Pressable
-                  className="p-1 active:opacity-75"
-                  onPress={() => setHostOpen(false)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close computer picker"
-                >
-                  <IconX color="#71717a" size={18} strokeWidth={2.2} />
-                </Pressable>
-              </View>
-              {hosts.map((host) => (
-                <Pressable
-                  key={host.id}
-                  className="flex-row items-center gap-3 border-b border-border-dark px-4 py-3.5 active:bg-white/5"
+                  className="flex-row items-center justify-center px-4 py-3.5 active:bg-white/5"
                   onPress={() => {
-                    onHostChange(host.id);
                     setHostOpen(false);
+                    onConnectComputer();
                   }}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: host.id === selectedHostId }}
-                  accessibilityLabel={host.name}
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage connected computers"
                 >
-                  <View className="h-8 w-8 items-center justify-center rounded-lg bg-gray-medium-dark">
-                    <IconDeviceDesktop
-                      color="#d4d4d8"
-                      size={17}
-                      strokeWidth={1.8}
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      {host.name}
-                    </Text>
-                    <Text className="text-status-gray text-[12px] mt-0.5">
-                      {host.status === "online" ? "Available" : host.status}
-                    </Text>
-                  </View>
-                  {host.id === selectedHostId ? (
-                    <IconCheck color="#d4d4d8" size={17} strokeWidth={2.2} />
-                  ) : null}
+                  <Text className="text-text-light text-[13px] font-semibold">
+                    Manage computers
+                  </Text>
                 </Pressable>
-              ))}
-              <Pressable
-                className="flex-row items-center justify-center px-4 py-3.5 active:bg-white/5"
-                onPress={() => {
-                  setHostOpen(false);
-                  onConnectComputer();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Manage connected computers"
-              >
-                <Text className="text-text-light text-[13px] font-semibold">
-                  Manage computers
-                </Text>
-              </Pressable>
-            </SafeAreaView>
+              </SafeAreaView>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </ModalSafeAreaProvider>
       </Modal>
     </>
   );

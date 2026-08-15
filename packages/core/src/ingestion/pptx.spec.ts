@@ -1299,6 +1299,40 @@ describe("parsePptxPresentation", () => {
     expect(second.slides[0]?.elements[0]?.id).toBe("152");
   });
 
+  it("reads a connector's headEnd/tailEnd decorations", async () => {
+    // Real `a:ln` from a chevron timeline: each rule terminates in a round dot
+    // at both ends, and dropping the two `End` elements is the whole reason
+    // the imported deck drew bare lines where the source has dotted ones.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:cxnSp>
+              <p:nvCxnSpPr><p:cNvPr id="153" name="Rule"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>
+              <p:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="921775"/></a:xfrm>
+                <a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>
+                <a:ln cap="flat" cmpd="sng" w="19050">
+                  <a:solidFill><a:srgbClr val="3A3838"/></a:solidFill>
+                  <a:headEnd len="med" w="med" type="oval"/>
+                  <a:tailEnd type="triangle"/>
+                </a:ln>
+              </p:spPr>
+            </p:cxnSp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const connector = presentation.slides[0]?.elements[0];
+    expect(connector?.lineHeadEnd).toEqual({
+      type: "oval",
+      w: "med",
+      len: "med",
+    });
+    expect(connector?.lineTailEnd).toEqual({ type: "triangle" });
+  });
+
   it("reads a custGeom path's commands in document order, not grouped by tag name", async () => {
     // The command sequence is the whole shape: a tree built without
     // `preserveOrder` groups the two `a:lnTo`s together and would replay this

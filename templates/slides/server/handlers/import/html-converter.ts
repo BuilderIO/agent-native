@@ -345,7 +345,8 @@ function buildFidelityElement(
           heightPx,
         )
       : "";
-    return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}">${stroke}</div>`;
+    const caps = lineEndCaps(element, widthEmu, refBox.width, widthPx, heightPx);
+    return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}">${stroke}${caps}</div>`;
   }
 
   const textStyle = textBoxStyle(
@@ -1373,20 +1374,107 @@ function strokeDecoration(
   heightPx: number,
 ): string {
   if (!element.lineColor) return "";
-  const stroke = Math.max(
+  const stroke = strokeWidthPx(element, widthEmu, refWidthPx);
+  const color = esc(element.lineColor);
+  const axis = lineAxis(widthPx, heightPx, stroke);
+  if (axis === "x") return `border-top: ${stroke}px solid ${color};`;
+  if (axis === "y") return `border-left: ${stroke}px solid ${color};`;
+  return `border: ${stroke}px solid ${color};`;
+}
+
+function strokeWidthPx(
+  element: ParsedElement,
+  widthEmu: number,
+  refWidthPx: number,
+): number {
+  return Math.max(
     1,
     toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx),
   );
-  const color = esc(element.lineColor);
-  // The longer axis has to win, or a small square outline (a 2px dot, say)
-  // would lose three of its four edges.
-  if (heightPx < stroke * 2 && widthPx > heightPx) {
-    return `border-top: ${stroke}px solid ${color};`;
-  }
-  if (widthPx < stroke * 2 && heightPx > widthPx) {
-    return `border-left: ${stroke}px solid ${color};`;
-  }
-  return `border: ${stroke}px solid ${color};`;
+}
+
+/**
+ * The axis a degenerate box draws its line along, or `undefined` for a box
+ * with room for a real four-sided outline. The longer axis has to win, or a
+ * small square outline (a 2px dot, say) would lose three of its four edges.
+ */
+function lineAxis(
+  widthPx: number,
+  heightPx: number,
+  stroke: number,
+): "x" | "y" | undefined {
+  if (heightPx < stroke * 2 && widthPx > heightPx) return "x";
+  if (widthPx < stroke * 2 && heightPx > widthPx) return "y";
+  return undefined;
+}
+
+/**
+ * `a:headEnd`/`a:tailEnd` `@_w` sizes, as multiples of the line's own width:
+ * PowerPoint scales a line end with its stroke rather than to a fixed size, so
+ * a 1.5pt connector and a 6pt one do not get the same dot.
+ */
+const LINE_END_SCALE: Record<string, number> = { sm: 2, med: 3, lg: 5 };
+
+/**
+ * The round dots a connector terminates in (`<a:headEnd type="oval"/>` — the
+ * ends of every rule on a chevron timeline) are a decoration on top of the
+ * stroke, not part of it, so neither the border above nor
+ * `customGeometryStroke` draws them and they were dropped on import.
+ *
+ * Only `oval` is reproduced. An arrowhead's shape and orientation are not
+ * something this can get right unverified, and a wrong arrowhead reads worse
+ * than the bare line the source at least still communicates; the parsed end
+ * survives on the element either way, so an unrendered one stays
+ * distinguishable from a line the source drew bare.
+ */
+function lineEndCaps(
+  element: ParsedElement,
+  widthEmu: number,
+  refWidthPx: number,
+  widthPx: number,
+  heightPx: number,
+): string {
+  const head = ovalCapRadius(element.lineHeadEnd);
+  const tail = ovalCapRadius(element.lineTailEnd);
+  if (!element.lineColor || (!head && !tail)) return "";
+  const stroke = strokeWidthPx(element, widthEmu, refWidthPx);
+  const axis = lineAxis(widthPx, heightPx, stroke);
+  // Only the line case: on a four-sided outline there is no "end" to cap.
+  if (!axis) return "";
+  // The border paints its line half a stroke inside the box's own edge, and a
+  // cap is centred on the line's endpoint, not offset from it.
+  const along = axis === "x" ? widthPx : heightPx;
+  const flipped = axis === "x" ? element.flipH : element.flipV;
+  const point = (distance: number, radius: number) => ({
+    radius: radius * stroke,
+    x: axis === "x" ? distance : stroke / 2,
+    y: axis === "x" ? stroke / 2 : distance,
+  });
+  const caps = [
+    head ? point(flipped ? along : 0, head) : undefined,
+    tail ? point(flipped ? 0 : along, tail) : undefined,
+  ].filter((cap) => cap !== undefined);
+  // A zero-width viewBox disables rendering, and every capped line has one
+  // degenerate axis — the overlay is inset by its own largest cap so both the
+  // box and the part of the cap hanging past the line's end stay inside it.
+  const pad = Math.max(...caps.map((cap) => cap.radius));
+  const boxWidth = round3(widthPx + pad * 2);
+  const boxHeight = round3(heightPx + pad * 2);
+  const circles = caps
+    .map(
+      (cap) =>
+        `<circle cx="${round3(cap.x + pad)}" cy="${round3(cap.y + pad)}" r="${round3(cap.radius)}" fill="${esc(element.lineColor ?? "")}" />`,
+    )
+    .join("");
+  return `<svg viewBox="0 0 ${boxWidth} ${boxHeight}" style="position:absolute;left:${round3(-pad)}px;top:${round3(-pad)}px;width:${boxWidth}px;height:${boxHeight}px;overflow:visible;pointer-events:none;">${circles}</svg>`;
+}
+
+/** The cap's radius as a multiple of the line's stroke width, or `undefined` for an end this does not draw. */
+function ovalCapRadius(
+  end: ParsedElement["lineHeadEnd"],
+): number | undefined {
+  if (end?.type !== "oval") return undefined;
+  return (LINE_END_SCALE[end.w ?? "med"] ?? LINE_END_SCALE.med) / 2;
 }
 
 function shapeDecoration(
