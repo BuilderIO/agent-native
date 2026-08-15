@@ -178,6 +178,8 @@ export async function parsePptxPresentation(
         : `ppt/${relationship.target}`,
     ];
   });
+  if (process.env.PPTX_PROBE)
+    console.error("PROBE slideIds", slideIds, "slidePaths", slidePaths);
   if (slidePaths.length === 0) {
     slidePaths.push(
       ...Object.keys(zip.files)
@@ -249,12 +251,17 @@ export async function parsePptxPresentation(
   >();
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
+    if (process.env.PPTX_PROBE) console.error("PROBE enter", slidePath);
     const xml = await zip.file(slidePath)?.async("string");
-    if (!xml) continue;
+    if (!xml) {
+      if (process.env.PPTX_PROBE) console.error("PROBE skip:no-xml", slidePath);
+      continue;
+    }
     let slide: unknown;
     try {
       slide = parseXml(xml);
     } catch {
+      if (process.env.PPTX_PROBE) console.error("PROBE skip:throw", slidePath);
       continue;
     }
     // `show="0"` is the author having removed this slide from the deck's own
