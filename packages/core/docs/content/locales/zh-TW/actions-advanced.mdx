@@ -1,0 +1,152 @@
+---
+title: "進階與舊版"
+description: "用於仍在推出中的 action 的功能旗標閘控，以及為了一次性開發腳本而保留的舊版 CLI-only action 風格（export default async function(args) 加上 parseArgs）。"
+---
+
+# 進階與舊版
+
+## 保護分階段功能 {#feature-flags}
+
+功能旗標是為了一種特定情境而存在：一個 action 已經可以安全部署，但您想先為少數帳號開啟它，之後才讓所有人取得。要達成這件事需要三個必要步驟，加上第四個給 UI 用的選用步驟。
+
+<Steps>
+
+### 宣告旗標
+
+在伺服器與用戶端都能匯入的模組中宣告此旗標，因為同一個旗標鍵值必須同時傳達到雙方：
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key` 是其他所有程式碼都會參照的唯一欄位，因此它必須保持穩定。`displayName` 與 `description` 只會在之後，於某人實際開啟此旗標的操作人員 UI 中出現。在這裡宣告旗標並不會啟用任何東西，每個旗標一開始對每個帳號都是關閉的。
+
+### 在啟動時註冊它
+
+用一個 Nitro 外掛註冊此旗標，讓執行中的伺服器知道它的存在：
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+一個未註冊的旗標一律會被評估為 `false`，無論操作人員之後設定了什麼。這個步驟才是讓旗標對伺服器來說「真實存在」的關鍵。它仍然不會為任何人開啟此旗標，那要透過本節末尾所描述的操作人員 action 才會發生。
+
+### 守衛此 action
+
+這是真正重要的檢查，因為每一位呼叫者，無論是代理、前端，還是腳本，都必須通過它：
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+`isFeatureFlagEnabled()` 會從 `ctx` 讀取呼叫者的身分（請參閱 [ctx 引數](/docs/actions-run-context#ctx)），並針對該特定使用者與組織評估此旗標。若旗標對他們來說尚未開啟，此 action 會在做任何其他事情之前先拋出例外。這項檢查必須放在 `run()` 內，因為 `run()` 是保證每一條分派路徑都會經過的唯一地方。
+
+### 在 UI 中隱藏它（選用）
+
+在用戶端使用相同的旗標，向那些反正也無法呼叫此功能的人隱藏它：
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+`useFeatureFlag()` 會回傳一個單純的布林值，評估方式與伺服器端檢查對已登入使用者的評估方式相同。當它是 `false` 時隱藏按鈕，可以避免有人點進一個他們還不能使用的功能，但這只是呈現層面的處理。它完全不會阻止對此 action 的直接呼叫。這正是為什麼前一步驟中 `run()` 裡的檢查仍然必須存在，無論 UI 顯示什麼。
+
+</Steps>
+
+一旦旗標被宣告並註冊，要為真實帳號開啟它就得透過三個已掛載的 action。`get-feature-flags` 就是 `useFeatureFlag()` 本身所呼叫的那一個：它對任何已登入的呼叫者開放，因為每位使用者都需要檢查自己的旗標。`list-feature-flags` 與 `set-feature-flag` 是兩個管理用的 action，兩者都僅限組織的擁有者與管理員（或無組織的管理者）使用，且兩者都會被稽核。
+
+`set-feature-flag` 是操作人員實際變更旗標開啟對象的方式：
+
+| 操作                                              | 作用                                 | 範例引數                                                                                                        |
+| ------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | 只為您自己的帳號開啟此旗標。         | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | 為所有人關閉此旗標，並重設所有規則。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`，模式 `"on"`                      | 為所有人開啟此旗標。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`，模式 `"rules"` 搭配 `emails`     | 為特定的帳號清單開啟它。             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`，模式 `"rules"` 搭配 `orgIds`     | 為特定的組織開啟它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`，模式 `"rules"` 搭配 `percentage` | 以百分比推出的方式開啟它。           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet 操作人員 UI 是透過範圍嚴格限定的 A2A 委派來呼叫這些相同的 action，而不是共用登入，且 Analytics 是它們唯一的操作人員 UI。應用程式不應該自行建置旗標設定面板，旗標的寫入也絕不應該透過通用的設定端點或原始 SQL 進行。
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+絕不要把驗證、授權、稽核、密鑰，或 SSR 快取行為放在執行期旗標之後。這些必須無條件正確，而不是可以被切換的。
+
+</Callout>
+
+## 舊版 CLI 風格的 actions {#legacy-cli-actions}
+
+框架仍然支援未包在 `defineAction()` 中的舊版 `export default async function(args)` action。這對於不需要曝露給代理或 HTTP 的一次性開發腳本很有用。它們是 CLI-only 的：不會以代理工具的形式出現、不會掛載 HTTP 端點，也不會取得型別安全的前端掛鉤。
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+新程式碼應該優先使用 `defineAction()`。只有在您刻意不想讓此 action 曝露給代理或 UI 時，才使用這種模式。
+
+### `parseArgs(args)` {#parseargs}
+
+給舊版風格 action 使用的輔助函式。解析 `--key value` 或 `--key=value` 格式的 CLI 引數：
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## 實用工具函式 {#utility-functions}
+
+這些是撰寫腳本用的小型輔助函式，來自與上方 `parseArgs()` 相同的 `@agent-native/core` 匯入。它們並非專屬於舊版 CLI 風格的 action 樣式。可以在任何一次性開發腳本中使用它們：載入環境變數、驗證路徑引數，或以明確的錯誤中止執行。
+
+| 函式                    | 回傳值                   | 說明                                                                                                                       |
+| ----------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | 從專案根目錄或自訂路徑載入 `.env`（與 `.env.local`）。在企業工作區中會回退使用工作區根目錄的 `.env`。                      |
+| `camelCaseArgs(args)`   | `Record<string, string>` | 將 kebab-case 鍵值轉換成 camelCase。                                                                                       |
+| `isValidPath(p)`        | `boolean`                | 驗證一個相對路徑（不可有路徑穿越、不可為絕對路徑）。                                                                       |
+| `isValidProjectPath(p)` | `boolean`                | 驗證一個專案 slug（例如 `my-project` 或 `group/my-project`）。                                                             |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` 輔助函式。                                                                                                      |
+| `fail(message)`         | `never`                  | 拋出一個錯誤以中止腳本。CLI 執行器會攔截它並以代碼 1 結束。伺服器內的呼叫者（代理工具、A2A）則會改為收到一個工具呼叫錯誤。 |
+
+## 下一步是什麼
+
+- [**定義 Actions**](/docs/actions-defining) — 此舊版風格所早於的 `defineAction()` 模式
+- [**總覽**](/docs/actions-overview) — action 是什麼，以及 hello-world 示範
+- [**其他介面**](/docs/actions-other-surfaces) — 這些工具與舊版 action 所支援的 CLI 執行器
+- [**功能旗標**](/docs/feature-flags) — 超越單一 action 閘控的完整旗標生命週期

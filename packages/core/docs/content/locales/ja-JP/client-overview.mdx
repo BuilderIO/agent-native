@@ -92,7 +92,7 @@ description: "app/ と public/ ディレクトリ: agent-native アプリの表�
 
 ## クライアントが担う役割 {#role}
 
-ブラウザからのリクエスト、エージェント ループ、外部 API クライアントは、すべて同じアクションと同じ SQL データベースに解決されます。このレイヤーがエージェントの手が届かない「アプリのバックエンド」に別途話しかけることはありません。ここで機能を構築するということは、エージェントが既に持っている操作の上に UI を構築すること、または新しいアクションを定義して同時にその UI も手に入れることを意味します。この契約の操作側については [Actions](/docs/actions) を参照してください。
+ブラウザからのリクエスト、エージェント ループ、外部 API クライアントは、すべて同じアクションと同じ SQL データベースに解決されます。このレイヤーがエージェントの手が届かない「アプリのバックエンド」に別途話しかけることはありません。ここで機能を構築するということは、エージェントが既に持っている操作の上に UI を構築すること、または新しいアクションを定義して同時にその UI も手に入れることを意味します。この契約の操作側については [Actions](/docs/actions-overview) を参照してください。
 
 このページでは、`app/` の中で作業するディレクトリと、他のどこにも文書化されていないブラウザ ランタイムの部分 (`root.tsx`、`public/`) を扱います。コンポーネントをアクションやエージェントに接続する React フックは、それぞれ専用のページで扱っています。
 
@@ -201,6 +201,6 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**同期の内部**](/docs/client-sync-internals) — 生の `useQuery` を同期する `useChangeVersion`
 - [**エントリーポイント**](/docs/client-entry-points) — SSR ブートストラップのカスタマイズ
 - [**Routing**](/docs/client-routing) — ファイルベースのページ、動的パラメータ、ナビゲーション
-- [**Actions**](/docs/actions) — すべてのデータ フックの背後にある `defineAction` サーフェス
+- [**Actions**](/docs/actions-overview) — すべてのデータ フックの背後にある `defineAction` サーフェス
 - [**カスタム デザイン システム**](/docs/custom-design-system) — `app/design-system.ts` で独自のコンポーネント ライブラリに切り替える
 - [**Authentication**](/docs/authentication) — `AppProviders` がプライベート パスで実行するセッション チェック

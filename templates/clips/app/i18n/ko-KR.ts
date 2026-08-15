@@ -1125,6 +1125,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     searchNextMatch: "다음 일치 항목",
     searchClose: "검색 닫기",
   },
+  bulletLink: {
+    jumpToTranscript: "기록에서 {{time}}(으)로 이동",
+    noMatchingMoment: "일치하는 순간을 찾을 수 없음",
+  },
   editorLayout: {
     trimmed: "잘라냈습니다",
     trimFailed: "자르기 실패",

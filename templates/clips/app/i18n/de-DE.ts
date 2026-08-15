@@ -1161,6 +1161,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     searchNextMatch: "Nächster Treffer",
     searchClose: "Suche schließen",
   },
+  bulletLink: {
+    jumpToTranscript: "Zu {{time}} im Transkript springen",
+    noMatchingMoment: "Kein passender Moment gefunden",
+  },
   editorLayout: {
     trimmed: "Getrimmt",
     trimFailed: "Trimmen fehlgeschlagen",

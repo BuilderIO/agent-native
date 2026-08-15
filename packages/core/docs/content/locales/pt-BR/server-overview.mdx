@@ -5,7 +5,7 @@ description: "A camada de servidor Nitro em um aplicativo nativo do agente: para
 
 # Servidor
 
-O diretório `server/` é a camada de infraestrutura de um aplicativo nativo do agente. Ele cuida de tarefas de inicialização, autenticação e das superfícies HTTP que as actions não cobrem. A maior parte do comportamento do produto pertence a [Actions](/docs/actions). O servidor é o que torna essas actions disponíveis.
+O diretório `server/` é a camada de infraestrutura de um aplicativo nativo do agente. Ele cuida de tarefas de inicialização, autenticação e das superfícies HTTP que as actions não cobrem. A maior parte do comportamento do produto pertence a [Actions](/docs/actions-overview). O servidor é o que torna essas actions disponíveis.
 
 <Diagram id="doc-block-server-overview-1" title="Como as requisições fluem pelo servidor" summary="Os chamadores chegam ao servidor Nitro, que trata a maioria das requisições por meio de Actions. Middleware e Rotas cobrem os casos que as Actions não conseguem. Os dois caminhos podem consultar o banco de dados.">
 
@@ -223,11 +223,11 @@ A arquitetura do Agent Native é diferente. Sempre que pensar em um novo recurso
 - Ferramentas chamáveis por MCP e A2A.
 - Comandos CLI para desenvolvimento.
 
-Use rotas `/api/*` personalizadas apenas quando precisar de um protocolo em forma de rota ou de comportamento binário/streaming. Para mais detalhes, consulte [Actions](/docs/actions).
+Use rotas `/api/*` personalizadas apenas quando precisar de um protocolo em forma de rota ou de comportamento binário/streaming. Para mais detalhes, consulte [Actions](/docs/actions-overview).
 
 ## O que vem a seguir {#whats-next}
 
-- [**Actions**](/docs/actions): a superfície de operação padrão. Recorra a uma rota personalizada apenas quando ela não se encaixar.
+- [**Actions**](/docs/actions-overview): a superfície de operação padrão. Recorra a uma rota personalizada apenas quando ela não se encaixar.
 - [**Banco de dados**](/docs/server-database): o padrão `getDb()`/esquema que rotas personalizadas e actions importam
 - [**Middleware**](/docs/server-middleware): guardas de autenticação e o diretório `server/middleware/`
 - [**Plugins**](/docs/server-plugins): plugins de inicialização para migrações, auth e o agente
