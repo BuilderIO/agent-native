@@ -1447,10 +1447,10 @@ function ModelSelector({
   const setPickerOpen = useCallback(
     (nextOpen: boolean) => {
       if (controlledOpen === undefined) setInternalOpen(nextOpen);
-      if (nextOpen) setDetailSection(null);
+      if (nextOpen) setDetailSection(agentOnly ? "agent" : null);
       onModelSelectorOpenChange?.(nextOpen);
     },
-    [controlledOpen, onModelSelectorOpenChange],
+    [agentOnly, controlledOpen, onModelSelectorOpenChange],
   );
 
   const visibleProviderGroups = modelProviderGroups;
