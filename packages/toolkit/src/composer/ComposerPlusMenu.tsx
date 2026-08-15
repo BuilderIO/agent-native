@@ -202,15 +202,17 @@ function MenuItemHelp({
   description,
 }: {
   label: string;
-  description: string;
+  description?: string;
 }) {
+  const normalizedDescription = description?.trim();
+  if (!normalizedDescription) return null;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span
           role="img"
           tabIndex={0}
-          aria-label={`${label}: ${description}`}
+          aria-label={`${label}: ${normalizedDescription}`}
           onClick={(event) => event.stopPropagation()}
           className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
@@ -222,7 +224,7 @@ function MenuItemHelp({
         </span>
       </TooltipTrigger>
       <TooltipContent side="right" className="max-w-xs">
-        {description}
+          {normalizedDescription}
       </TooltipContent>
     </Tooltip>
   );
