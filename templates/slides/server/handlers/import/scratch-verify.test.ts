@@ -21,7 +21,12 @@ describe("scratch", () => {
         const tables = html.match(/fmd-pptx-table/g)?.length ?? 0;
         if (tables === 0) return;
         const cells = html.match(/<td /g)?.length ?? 0;
-        const borders = html.match(/border-(top|right|bottom|left):/g)?.length ?? 0;
+        const tableMarkup = html.slice(
+          html.indexOf("<table"),
+          html.indexOf("</table>"),
+        );
+        const borders =
+          tableMarkup.match(/border-(top|right|bottom|left):/g)?.length ?? 0;
         const colgroup = html.match(/<col /g)?.length ?? 0;
         const rows = html.match(/<tr/g)?.length ?? 0;
         const colors = [
