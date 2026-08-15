@@ -1046,7 +1046,7 @@ const GRADIENT_SIDE_ANGLES: Record<string, number> = {
   "to left": 270,
 };
 
-/** Split a CSS argument list on its top-level commas, so `rgb(1, 2, 3) 40%` stays one stop. */
+/** Split a CSS argument list on top-level commas so functional color values stay one stop. */
 function splitTopLevel(list: string): string[] | undefined {
   const parts: string[] = [];
   let depth = 0;
@@ -1104,7 +1104,7 @@ function appendGradientStops(
 /**
  * A CSS gradient as an SVG paint server for the traced outline. Without this
  * the outline is filled with `background-color`, which a gradient-filled shape
- * leaves at `rgba(0, 0, 0, 0)`: canyon's layout draws 20 `gradFill` freeforms
+ * leaves the paint fully transparent: canyon's layout draws 20 `gradFill` freeforms
  * behind every slide, and each one rasterized to a fully transparent PNG that
  * the export then shipped as a successful render.
  *

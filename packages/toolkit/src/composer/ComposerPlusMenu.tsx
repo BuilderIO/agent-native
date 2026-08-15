@@ -347,8 +347,8 @@ function ComposerPlusMenuTerminal({
           <button
             type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            aria-label="Terminal options"
-            title="Terminal options"
+            aria-label="Terminal options" /* i18n-ignore -- portable toolkit label */
+            title="Terminal options" /* i18n-ignore -- portable toolkit label */
           >
             <IconPlus className="h-4 w-4" />
           </button>
@@ -376,12 +376,12 @@ function ComposerPlusMenuTerminal({
           <div className="my-1 border-t border-border/70" />
           <div className="flex items-center justify-between gap-3 px-2.5 py-2">
             <span className="text-[12px] font-medium text-foreground">
-              Terminal mode
+              {"Terminal mode" /* i18n-ignore -- portable toolkit label */}
             </span>
             <Switch
               checked={terminalModeControl.enabled}
               onCheckedChange={terminalModeControl.onChange}
-              aria-label="Terminal mode"
+              aria-label="Terminal mode" /* i18n-ignore -- portable toolkit label */
             />
           </div>
         </PopoverContent>

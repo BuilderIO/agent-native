@@ -1573,7 +1573,7 @@ export function cssGradientToDrawingMl(css: string): string | undefined {
   return `<a:gradFill rotWithShape="1"><a:gsLst>${stops.join("")}</a:gsLst>${geometry}</a:gradFill>`;
 }
 
-/** `#013445 20%` split into its color and position; a stop may omit the position. */
+/** Split a gradient stop into its color token and optional position. */
 function splitGradientStop(arg: string): { color: string; position?: number } {
   const match = arg.match(/\s([\d.]+)%$/);
   return match
