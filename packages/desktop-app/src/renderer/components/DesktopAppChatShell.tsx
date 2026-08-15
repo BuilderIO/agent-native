@@ -3,15 +3,37 @@ import {
   AgentSidebar,
 } from "@agent-native/core/client/agent-chat";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
-import { IconArrowUpRight, IconLock } from "@tabler/icons-react";
+import { DESKTOP_LOCAL_CODE_CHANGE_EVENT } from "@agent-native/core/client/chat";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
+import {
+  IconAlertCircle,
+  IconArrowUpRight,
+  IconCircleCheck,
+  IconLoader2,
+  IconLock,
+} from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+
+import type {
+  DesktopAppRuntimeStatus,
+  DesktopPrepareLocalCodeChangeResult,
+} from "@shared/ipc-channels";
 
 import {
   installDesktopChatFetchRelay,
@@ -56,7 +78,16 @@ export interface DesktopAppChatShellProps {
   children: ReactNode;
   authState?: AppWebviewAuthState;
   onSignInRequest?: () => void;
+  onLocalCodeChangeStarted?: (
+    result: DesktopPrepareLocalCodeChangeResult,
+  ) => void;
 }
+
+type LocalCodeChangeState =
+  | { status: "idle" }
+  | { status: "starting"; message?: string }
+  | { status: "ready" }
+  | { status: "error"; message: string };
 
 export default function DesktopAppChatShell({
   appId,
@@ -64,13 +95,18 @@ export default function DesktopAppChatShell({
   children,
   authState = "unknown",
   onSignInRequest,
+  onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
+  const shellRootRef = useRef<HTMLDivElement>(null);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [localAgentModels, setLocalAgentModels] = useState<
     CodeAgentModelOption[]
   >([]);
   const [localAgentModelsLoading, setLocalAgentModelsLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState("default");
+  const [localCodeChangePrompt, setLocalCodeChangePrompt] = useState("");
+  const [localCodeChange, setLocalCodeChange] =
+    useState<LocalCodeChangeState>({ status: "idle" });
 
   useEffect(() => {
     try {
