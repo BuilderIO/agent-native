@@ -19,7 +19,11 @@ import {
   Text,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import {
+  KeyboardAvoidingView,
+  useReanimatedKeyboardAnimation,
+} from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
 import AppWebView from "@/components/AppWebView";
 import {
@@ -37,6 +41,7 @@ import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
 import { getAppUrl } from "@/lib/get-app-url";
 import { getSessionToken } from "@/lib/session-token-store";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 const chatApp = TEMPLATE_APPS.find((a) => a.id === "chat")!;
 
@@ -85,11 +90,12 @@ function ActionSheetRow({
   );
 }
 
-// The tabs layout pins the bar to a fixed height; the keyboard overlaps that
-// strip first, so keyboard padding must be reduced by it.
-const TAB_BAR_HEIGHT = 22;
-
 export default function ChatTab() {
+  const { contentInset } = useTabBarLayout();
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const tabBarSpacerStyle = useAnimatedStyle(() => ({
+    height: contentInset * (1 - keyboardProgress.value),
+  }));
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -219,7 +225,10 @@ export default function ChatTab() {
 
   if (authState === "signed-out") {
     return (
-      <SafeAreaView className="flex-1 bg-background-dark">
+      <SafeAreaView
+        className="flex-1 bg-background-dark"
+        style={{ paddingBottom: contentInset }}
+      >
         <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
       </SafeAreaView>
     );
@@ -242,11 +251,7 @@ export default function ChatTab() {
         </HeaderButton>
       </View>
 
-      <KeyboardAvoidingView
-        behavior="padding"
-        keyboardVerticalOffset={TAB_BAR_HEIGHT}
-        className="flex-1"
-      >
+      <KeyboardAvoidingView behavior="padding" className="flex-1">
         {chat.historyLoading ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator color="#d4d4d8" />
@@ -272,6 +277,10 @@ export default function ChatTab() {
             })
           }
         />
+        {/* The glass tab bar floats over the screen, so the composer has to
+            hold its own space — and give it back while the keyboard covers
+            the bar anyway. */}
+        <Animated.View style={tabBarSpacerStyle} />
       </KeyboardAvoidingView>
 
       {notice && (

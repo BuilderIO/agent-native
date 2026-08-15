@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useMinimizeOnScroll } from "expo-glass-tabs";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -13,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { SafeAreaView } from "@/components/uniwind-interop";
 import {
@@ -38,6 +40,7 @@ import {
   type RemoteTranscriptEvent,
   type RemoteTranscriptEventType,
 } from "@/lib/remote-sessions-api";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 
 const POLL_INTERVAL_MS = 4000;
@@ -66,6 +69,8 @@ function withPollTimeout<T>(
 
 export default function SessionsScreen() {
   const router = useRouter();
+  const { contentInset } = useTabBarLayout();
+  const onScroll = useMinimizeOnScroll();
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
   const [runs, setRuns] = useState<RemoteRun[]>([]);
   const [events, setEvents] = useState<RemoteTranscriptEvent[]>([]);
@@ -494,8 +499,9 @@ export default function SessionsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={80}
       >
-        <ScrollView
-          contentContainerClassName="p-4 pb-9"
+        <Animated.ScrollView
+          contentContainerStyle={{ padding: 16, paddingBottom: contentInset }}
+          onScroll={onScroll}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -503,6 +509,7 @@ export default function SessionsScreen() {
               onRefresh={() => void refresh(false)}
             />
           }
+          scrollEventThrottle={16}
         >
           <View className="flex-row items-center gap-3 pb-3">
             <View className="w-10.5 h-10.5 rounded-lg bg-gray-medium-dark items-center justify-center border border-gray-border-light">
@@ -830,7 +837,7 @@ export default function SessionsScreen() {
               )}
             </>
           )}
-        </ScrollView>
+        </Animated.ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

@@ -13,11 +13,16 @@
 - Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
   ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
 
+- A floating liquid-glass bottom tab bar that minimizes as you scroll, with a
+  quick-actions button for capture, Apps, and Settings.
+
 ### Changed
 
 - Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
+- Moved Apps and Settings out of the tab bar, and rebuilt Settings with a
+  clearer workspace-apps list.
 
 ## 0.1.2
 

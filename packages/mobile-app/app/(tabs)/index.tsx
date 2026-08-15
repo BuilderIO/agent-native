@@ -9,6 +9,7 @@ import {
   IconTerminal2,
   IconUsers,
 } from "@tabler/icons-react-native";
+import { useMinimizeOnScroll } from "expo-glass-tabs";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
   useCallback,
@@ -21,10 +22,10 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
-  ScrollView,
   Text,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import UpcomingMeetingCard from "@/components/UpcomingMeetingCard";
@@ -36,6 +37,7 @@ import {
   syncPendingCaptureJobs,
 } from "@/lib/clips-api";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 interface QuickActionProps {
   title: string;
@@ -100,6 +102,8 @@ function jobIcon(job: CaptureJob) {
 
 export function HomeScreen() {
   const router = useRouter();
+  const { contentInset } = useTabBarLayout();
+  const onScroll = useMinimizeOnScroll();
   const [jobs, setJobs] = useState<CaptureJob[]>([]);
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -162,8 +166,9 @@ export function HomeScreen() {
   return (
     <View className="bg-background-dark flex-1">
       <SafeAreaView edges={["top"]} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerClassName="p-5 pb-8.5"
+        <Animated.ScrollView
+          contentContainerStyle={{ padding: 20, paddingBottom: contentInset }}
+          onScroll={onScroll}
           refreshControl={
             <RefreshControl
               onRefresh={() => void refresh()}
@@ -171,6 +176,7 @@ export function HomeScreen() {
               tintColor="#f4f4f5"
             />
           }
+          scrollEventThrottle={16}
         >
           <View className="items-end flex-row justify-between">
             <View>
@@ -366,7 +372,7 @@ export function HomeScreen() {
               })}
             </View>
           )}
-        </ScrollView>
+        </Animated.ScrollView>
       </SafeAreaView>
     </View>
   );

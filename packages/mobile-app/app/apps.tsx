@@ -1,4 +1,5 @@
 import {
+  IconChevronLeft,
   IconChevronRight,
   IconMicrophone,
   IconSettings,
@@ -10,8 +11,13 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 
 import AppCard from "@/components/AppCard";
 import { SafeAreaView } from "@/components/uniwind-interop";
-import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useApps } from "@/lib/use-apps";
+
+/** Apps with a native screen — everything else opens in the shared webview. */
+const NATIVE_APP_ROUTES: Record<string, string> = {
+  chat: "/chat",
+  clips: "/clips",
+};
 
 export default function AppsScreen() {
   const router = useRouter();
@@ -19,7 +25,7 @@ export default function AppsScreen() {
 
   const openApp = useCallback(
     (id: string) => {
-      router.push(getAppRoute(id) as never);
+      router.push((NATIVE_APP_ROUTES[id] ?? `/app/${id}`) as never);
     },
     [router],
   );
@@ -28,9 +34,25 @@ export default function AppsScreen() {
     <SafeAreaView edges={["top"]} className="bg-background-dark flex-1">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }}>
         <View className="items-center flex-row justify-between">
-          <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
-            Apps
-          </Text>
+          <View className="items-center flex-row gap-2.5">
+            <Pressable
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.back()}
+              className="items-center bg-card-dark border border-border-dark rounded-full h-11 w-11 justify-center active:opacity-75"
+            >
+              <IconChevronLeft color="#f4f4f5" size={22} strokeWidth={1.8} />
+            </Pressable>
+            <View>
+              <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px]">
+                YOUR WORKSPACE
+              </Text>
+              <Text className="text-foreground text-[30px] font-bold tracking-[-1px] mt-0.5">
+                Apps
+              </Text>
+            </View>
+          </View>
           <Pressable
             accessibilityLabel="Settings"
             accessibilityRole="button"
@@ -41,10 +63,11 @@ export default function AppsScreen() {
           </Pressable>
         </View>
 
-        <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px] mb-2.5 mt-7">
-          WORKSPACE APPS
+        <Text className="text-text-muted text-[15px] leading-5.5 mb-4.5 mt-3.5">
+          Open the full workspace apps when you need them. Capture and remote
+          work stay native and one tap away from Home.
         </Text>
-        <View className="flex-row flex-wrap -mx-[6px]">
+        <View className="flex-row flex-wrap -mx-1.5">
           {enabledApps.map((app) => (
             <View key={app.id} className="w-[50%]">
               <AppCard app={app} onPress={() => openApp(app.id)} />
@@ -87,17 +110,17 @@ export default function AppsScreen() {
         <Pressable
           accessibilityRole="button"
           onPress={() => router.push("/settings" as never)}
-          className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row mt-4 p-[14px] active:opacity-75"
+          className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row mt-4.5 p-3.5 active:opacity-75"
         >
-          <View className="items-center bg-accent-green-dim rounded-xl h-[42px] w-[42px] justify-center">
-            <IconSettings color="#d4d4d8" size={20} strokeWidth={1.8} />
+          <View className="items-center bg-accent-green-dim rounded-xl h-10.5 w-10.5 justify-center">
+            <IconSettings color="#c7f36b" size={20} strokeWidth={1.8} />
           </View>
           <View className="flex-1 ml-3">
             <Text className="text-text-light text-[15px] font-semibold">
               Customize navigation
             </Text>
-            <Text className="text-status-gray text-xs leading-[17px] mt-0.5">
-              Choose which apps sit beside Chat.
+            <Text className="text-status-gray text-xs leading-4.25 mt-0.5">
+              Choose which workspace companions are available here.
             </Text>
           </View>
           <IconChevronRight color="#71717a" size={20} />
