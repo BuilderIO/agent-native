@@ -2052,6 +2052,7 @@ function resolvePortalRelayUrl(input: unknown): string {
         (candidate) => candidate.id === "dispatch",
       );
       return appConfig ? getAppOrigin(appConfig) : undefined;
+      // coercion-ok: An unavailable app registry is an absent relay URL candidate.
     } catch {
       return undefined;
     }
@@ -2124,6 +2125,7 @@ async function portalRelayRequest(
       try {
         const parsed = JSON.parse(text);
         if (isObject(parsed)) payload = parsed;
+        // coercion-ok: Non-JSON relay errors still have an explicit HTTP failure below.
       } catch {
         // The status and safe fallback below are enough for a user-facing error.
       }

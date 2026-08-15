@@ -399,6 +399,7 @@ export function listPortalEnvironmentFiles(
   return [...new Set(names)].filter((name) => {
     try {
       return fs.statSync(path.join(root, name)).isFile();
+      // coercion-ok: A missing local env file is an intentional absent value.
     } catch {
       return false;
     }
