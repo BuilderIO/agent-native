@@ -89,7 +89,6 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
-import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -834,8 +833,6 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
-  const [remoteWaitlistOpen, setRemoteWaitlistOpen] = useState(false);
-  const remoteWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -1423,9 +1420,10 @@ export default function CodeAgentsApp({
     () => getLocalRuntimeOptions(modelOptions),
     [modelOptions],
   );
-  const supportsExecutionTarget = CODE_AGENT_LOCAL_ENGINES.has(
-    selectedModelSelection.engine ?? "",
-  );
+  const supportsExecutionTarget =
+    CODE_AGENT_LOCAL_ENGINES.has(selectedModelSelection.engine ?? "") ||
+    Boolean(host.createRun);
+  const portalSelected = newRunExecutionTarget === "portal";
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -2497,7 +2495,8 @@ export default function CodeAgentsApp({
                           <div className="code-agents-start">
                             <h2>What should we do today?</h2>
                             {!activeNewSessionExtension &&
-                              providerGate.blocked && (
+                              providerGate.blocked &&
+                              !portalSelected && (
                                 <ProviderGateNotice
                                   description={providerGate.description}
                                   connecting={builderConnecting}
@@ -2513,18 +2512,7 @@ export default function CodeAgentsApp({
                                   }
                                 />
                               )}
-                            <RemoteWaitlistPopover
-                              open={remoteWaitlistOpen}
-                              onOpenChange={(open) => {
-                                if (!open && remoteWaitlistOpeningRef.current) {
-                                  remoteWaitlistOpeningRef.current = false;
-                                  return;
-                                }
-                                setRemoteWaitlistOpen(open);
-                              }}
-                              submit={host.submitRemoteWaitlist}
-                            >
-                              <NewSessionComposer
+                            <NewSessionComposer
                                 prompt={newPrompt}
                                 promptSeed={newPromptSeed}
                                 inputRef={newPromptRef}
@@ -2538,11 +2526,12 @@ export default function CodeAgentsApp({
                                 disabled={
                                   activeNewSessionExtension
                                     ? activeNewSessionExtension.disabled
-                                    : providerGate.blocked
+                                    : providerGate.blocked && !portalSelected
                                 }
                                 onDisabledClick={
                                   !activeNewSessionExtension &&
-                                  providerGate.blocked
+                                  providerGate.blocked &&
+                                  !portalSelected
                                     ? bounceProviderGate
                                     : undefined
                                 }
@@ -2575,37 +2564,23 @@ export default function CodeAgentsApp({
                                     ? connectLocalRuntime
                                     : undefined
                                 }
+                            />
+                            {(projects.length > 0 || canChooseProjectFolder) && (
+                              <ProjectFolderPicker
+                                variant="bar"
+                                projects={projects}
+                                selectedPath={selectedProjectPath}
+                                executionTarget={newRunExecutionTarget}
+                                showExecutionTarget={supportsExecutionTarget}
+                                loading={loadingProjects}
+                                canChoose={canChooseProjectFolder}
+                                onSelect={selectProjectFolder}
+                                onChoose={chooseProjectFolder}
+                                onExecutionTargetChange={
+                                  setNewRunExecutionTarget
+                                }
                               />
-                              {(projects.length > 0 ||
-                                canChooseProjectFolder) && (
-                                <ProjectFolderPicker
-                                  variant="bar"
-                                  projects={projects}
-                                  selectedPath={selectedProjectPath}
-                                  executionTarget={newRunExecutionTarget}
-                                  showExecutionTarget={supportsExecutionTarget}
-                                  loading={loadingProjects}
-                                  canChoose={canChooseProjectFolder}
-                                  onSelect={selectProjectFolder}
-                                  onChoose={chooseProjectFolder}
-                                  onRemoteSelect={() => {
-                                    remoteWaitlistOpeningRef.current = true;
-                                    // Radix Select renders its menu in a portal;
-                                    // wait until that dismissal finishes before
-                                    // opening the surrounding waitlist popover.
-                                    globalThis.setTimeout(() => {
-                                      setRemoteWaitlistOpen(true);
-                                      globalThis.setTimeout(() => {
-                                        remoteWaitlistOpeningRef.current = false;
-                                      }, 0);
-                                    }, 0);
-                                  }}
-                                  onExecutionTargetChange={
-                                    setNewRunExecutionTarget
-                                  }
-                                />
-                              )}
-                            </RemoteWaitlistPopover>
+                            )}
                             {overviewFooterSlot ? (
                               <div className="code-agents-overview-footer">
                                 {overviewFooterSlot}
@@ -2921,7 +2896,6 @@ function ProjectFolderPicker({
   canChoose,
   onSelect,
   onChoose,
-  onRemoteSelect,
   onExecutionTargetChange,
 }: {
   variant?: "rail" | "bar";
@@ -2933,7 +2907,6 @@ function ProjectFolderPicker({
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
-  onRemoteSelect?: () => void;
   onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
@@ -2987,13 +2960,9 @@ function ProjectFolderPicker({
         {showExecutionTarget && onExecutionTargetChange ? (
           <Select
             value={executionTarget}
-            onValueChange={(value) => {
-              if (value === "remote") {
-                onRemoteSelect?.();
-                return;
-              }
-              onExecutionTargetChange(value as CodeAgentExecutionTarget);
-            }}
+            onValueChange={(value) =>
+              onExecutionTargetChange(value as CodeAgentExecutionTarget)
+            }
           >
             <SelectTrigger
               className="code-agents-project-select code-agents-execution-target-select"
@@ -3022,12 +2991,12 @@ function ProjectFolderPicker({
                   </span>
                 </SelectItem>
                 <SelectItem
-                  value="remote"
-                  description="Run in the cloud - join the waitlist"
+                  value="portal"
+                  description="Continue on a paired computer"
                 >
                   <span className="code-agents-project-select__item">
                     <IconCloud size={14} strokeWidth={1.8} />
-                    <span>Remote</span>
+                    <span>Portal</span>
                   </span>
                 </SelectItem>
               </SelectGroup>
@@ -3039,7 +3008,9 @@ function ProjectFolderPicker({
         {active?.path ??
           (executionTarget === "worktree"
             ? "A new isolated worktree will be created for this chat."
-            : "Runs use the selected folder as cwd.")}
+            : executionTarget === "portal"
+              ? "Code is pushed to a paired computer before the run starts."
+              : "Runs use the selected folder as cwd.")}
       </p>
     </div>
   );
