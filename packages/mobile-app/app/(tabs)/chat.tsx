@@ -478,6 +478,17 @@ export default function ChatTab() {
         </HeaderButton>
       </View>
 
+      {authState === "connected" ? (
+        <MobileWorkspaceControls
+          target={chatTarget}
+          hosts={remoteHosts}
+          selectedHostId={selectedRemoteHostId}
+          onTargetChange={setChatTarget}
+          onHostChange={setSelectedRemoteHostId}
+          onConnectComputer={() => router.push("/sessions" as never)}
+        />
+      ) : null}
+
       <KeyboardAvoidingView
         behavior="padding"
         keyboardVerticalOffset={TAB_BAR_HEIGHT}
@@ -492,14 +503,8 @@ export default function ChatTab() {
           </View>
         ) : authState === "signed-out" ? (
           <View className="flex-1 items-center justify-center px-7">
-            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-gray-charcoal">
-              <IconMessageCircle color="#d4d4d8" size={27} strokeWidth={1.7} />
-            </View>
-            <Text className="mt-5 text-center text-2xl font-bold text-foreground">
-              Native Chat
-            </Text>
-            <Text className="mt-2 max-w-[300px] text-center text-[15px] leading-6 text-text-muted">
-              Sign in once to use the native chat experience on your phone.
+            <Text className="text-center text-[22px] font-bold text-foreground">
+              Sign in to start chatting
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -512,35 +517,44 @@ export default function ChatTab() {
               </Text>
             </Pressable>
           </View>
-        ) : chat.historyLoading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#d4d4d8" />
-          </View>
         ) : (
-          <MessagesList
-            chat={chat}
-            bottomInset={8}
-            onMessageActions={setActionsFor}
-            onConnectDesktop={() => router.push("/sessions" as never)}
-          />
+          <>
+            {chatTarget === "computer" ? (
+              <ComputerMessages
+                events={remoteEvents}
+                loading={remoteLoading}
+                host={selectedRemoteHost}
+                onConnect={() => router.push("/sessions" as never)}
+              />
+            ) : chat.historyLoading ? (
+              <View className="flex-1 items-center justify-center">
+                <ActivityIndicator color="#d4d4d8" />
+              </View>
+            ) : (
+              <MessagesList
+                chat={chat}
+                bottomInset={8}
+                onMessageActions={setActionsFor}
+              />
+            )}
+            {chatTarget === "computer" && remoteError ? (
+              <Text className="px-5 pb-1 text-center text-error-text text-[12px]">
+                {remoteError}
+              </Text>
+            ) : null}
+          </>
         )}
-        {authState === "connected" &&
-          chat.messages.length === 0 &&
-          !chat.historyLoading && (
-            <MobileWorkspaceControls
-              folder={workspaceFolder}
-              target={workspaceTarget}
-              onFolderChange={setWorkspaceFolder}
-              onTargetChange={setWorkspaceTarget}
-            />
-          )}
         {authState === "connected" ? (
           <Composer
-            isStreaming={chat.isStreaming}
+            isStreaming={
+              chatTarget === "computer" ? remoteSending : chat.isStreaming
+            }
             settings={settings}
             baseUrl={chat.baseUrl}
-            onSend={chat.send}
-            onStop={chat.stop}
+            onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}
+            onStop={
+              chatTarget === "computer" ? handleRemoteStop : chat.stop
+            }
             onOpenSettings={() => setSettingsOpen(true)}
             onToggleMode={() =>
               setSettings({
