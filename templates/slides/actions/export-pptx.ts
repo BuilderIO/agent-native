@@ -1051,7 +1051,7 @@ function importedLineStroke(
   innerHtml: string,
   dims: SlideDims,
 ):
-  | Pick<
+  | (Pick<
       ShapeElement,
       | "shapeType"
       | "lineColor"
@@ -1060,8 +1060,8 @@ function importedLineStroke(
       | "lineDashType"
       | "lineHeadType"
       | "lineTailType"
-    >
-      & Partial<Pick<ShapeElement, "w" | "h">>>
+    > &
+      Partial<Pick<ShapeElement, "w" | "h">>)
   | undefined {
   for (const [property, axis] of Object.entries(SINGLE_EDGE_BORDER_AXES)) {
     const border = parseCssBorder(getStyle(style, property));
