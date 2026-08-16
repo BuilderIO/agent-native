@@ -17,6 +17,7 @@ import type {
 } from "./protocol";
 
 const SESSION_STORAGE_KEY = "agentNativeBrowserTaskSessions";
+const TEARDOWN_STORAGE_KEY = "agentNativeBrowserPendingTeardowns";
 
 type TaskSession = {
   taskId: string;
@@ -28,6 +29,7 @@ type TaskSession = {
 type StoredTaskSession = Omit<TaskSession, "allowedOrigins"> & {
   allowedOrigins: string[];
 };
+type StoredTeardown = { taskId: string; tabId: number };
 
 type AxValue = { value?: unknown };
 type AxNode = {
@@ -193,73 +195,116 @@ export class BrowserControlService {
   private readonly tabReservations = new Map<number, string>();
   private readonly teardownTabs = new Set<number>();
   private readonly teardownOwners = new Map<number, string>();
+  private readonly teardownOperations = new Map<
+    number,
+    Promise<Error | undefined>
+  >();
   private readonly taskGenerations = new Map<string, number>();
   private readonly taskOperationCounts = new Map<string, number>();
   private readonly taskTeardowns = new Set<string>();
   private readonly taskQueues = new Map<string, Promise<unknown>>();
   private stateQueue: Promise<void> = Promise.resolve();
   private persistQueue: Promise<void> = Promise.resolve();
+  private emergencyStopPromise: Promise<void> | undefined;
 
   get activeTaskCount(): number {
     return this.sessions.size;
   }
 
   async restore(): Promise<void> {
-    const stored = await chrome.storage.session.get(SESSION_STORAGE_KEY);
-    const candidates = stored[SESSION_STORAGE_KEY];
-    if (!Array.isArray(candidates)) return;
-    for (const candidate of candidates as StoredTaskSession[]) {
-      if (
-        !candidate ||
-        typeof candidate.taskId !== "string" ||
-        !Number.isInteger(candidate.tabId) ||
-        !Array.isArray(candidate.allowedOrigins)
-      ) {
-        continue;
+    const stored = await chrome.storage.session.get([
+      SESSION_STORAGE_KEY,
+      TEARDOWN_STORAGE_KEY,
+    ]);
+    const pendingTeardowns = stored[TEARDOWN_STORAGE_KEY];
+    const pendingTaskIds = new Set<string>();
+    if (Array.isArray(pendingTeardowns)) {
+      for (const candidate of pendingTeardowns as StoredTeardown[]) {
+        if (
+          candidate &&
+          typeof candidate.taskId === "string" &&
+          Number.isInteger(candidate.tabId)
+        ) {
+          this.beginTeardown(candidate.tabId, candidate.taskId);
+          pendingTaskIds.add(candidate.taskId);
+        }
       }
-      const session: TaskSession = {
-        taskId: candidate.taskId,
-        tabId: candidate.tabId,
-        allowedOrigins: new Set(candidate.allowedOrigins),
-      };
-      try {
-        await sendDebuggerCommand(source(session.tabId), "Page.getFrameTree");
-        await this.assertSessionAllowed(session);
-        this.sessions.set(session.taskId, session);
-        this.tabOwners.set(session.tabId, session.taskId);
-      } catch {
-        this.beginTeardown(session.tabId, session.taskId);
+    }
+    const candidates = stored[SESSION_STORAGE_KEY];
+    if (Array.isArray(candidates)) {
+      for (const candidate of candidates as StoredTaskSession[]) {
+        if (
+          !candidate ||
+          typeof candidate.taskId !== "string" ||
+          !Number.isInteger(candidate.tabId) ||
+          !Array.isArray(candidate.allowedOrigins)
+        ) {
+          continue;
+        }
+        if (this.teardownOwners.has(candidate.tabId)) continue;
+        const session: TaskSession = {
+          taskId: candidate.taskId,
+          tabId: candidate.tabId,
+          allowedOrigins: new Set(candidate.allowedOrigins),
+        };
         try {
-          const teardownError = await this.teardownDebugger(
-            session.tabId,
-            session.taskId,
-          );
-          if (teardownError) {
+          await sendDebuggerCommand(source(session.tabId), "Page.getFrameTree");
+          await this.assertSessionAllowed(session);
+          this.sessions.set(session.taskId, session);
+          this.tabOwners.set(session.tabId, session.taskId);
+        } catch {
+          this.beginTeardown(session.tabId, session.taskId);
+          pendingTaskIds.add(session.taskId);
+          try {
+            const teardownError = await this.teardownDebugger(
+              session.tabId,
+              session.taskId,
+            );
+            if (teardownError) {
+              console.warn(
+                "[browser-control] stale restored session cleanup is still pending",
+                {
+                  tabId: session.tabId,
+                  taskId: session.taskId,
+                  error: teardownError,
+                },
+              );
+            }
+          } catch (cleanupError) {
             console.warn(
-              "[browser-control] stale restored session cleanup is still pending",
+              "[browser-control] stale restored session cleanup failed",
               {
                 tabId: session.tabId,
                 taskId: session.taskId,
-                error: teardownError,
+                error: cleanupError,
               },
             );
           }
-        } catch (cleanupError) {
-          console.warn(
-            "[browser-control] stale restored session cleanup failed",
-            {
-              tabId: session.tabId,
-              taskId: session.taskId,
-              error: cleanupError,
-            },
-          );
         }
+      }
+    }
+    for (const taskId of pendingTaskIds) {
+      try {
+        await this.retryPendingTeardown(taskId);
+      } catch (error) {
+        console.warn(
+          "[browser-control] restored pending teardown remains unresolved",
+          { taskId, error },
+        );
       }
     }
     await this.persist();
   }
 
   execute(request: NativeRequest): Promise<unknown> {
+    if (this.emergencyStopPromise) {
+      return Promise.reject(
+        new BrowserControlError(
+          "BROWSER_STOPPING",
+          "Chrome control is stopping; retry after it completes.",
+        ),
+      );
+    }
     if (request.command.type === "stop" || request.command.type === "detach") {
       this.retainTask(request.taskId);
       const result = this.executeCommand(request.taskId, request.command);
@@ -292,6 +337,20 @@ export class BrowserControlService {
   }
 
   async emergencyStopAll(): Promise<void> {
+    const existing = this.emergencyStopPromise;
+    if (existing) return existing;
+    const operation = this.performEmergencyStop();
+    this.emergencyStopPromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (this.emergencyStopPromise === operation) {
+        this.emergencyStopPromise = undefined;
+      }
+    }
+  }
+
+  private async performEmergencyStop(): Promise<void> {
     const sessions = [...this.sessions.values()];
     const pendingOperations = [...this.taskQueues.values()];
     const tabsToTeardown = new Set([
@@ -485,6 +544,7 @@ export class BrowserControlService {
               "[browser-control] retaining a superseded tab until debugger teardown succeeds",
               { tabId: previous.tabId, taskId, error: teardownError },
             );
+            await this.persist();
           }
         }
         this.assertTaskGeneration(taskId, expectedGeneration);
@@ -549,25 +609,17 @@ export class BrowserControlService {
     this.beginTeardown(session.tabId, taskId);
     this.taskQueues.delete(taskId);
     await this.enqueueState(async () => {
-      const teardownError = await this.teardownDebugger(session.tabId, taskId);
-      await this.persist();
-      this.maybeReclaimTaskGeneration(taskId);
-      if (teardownError) {
-        throw teardownError;
+      const errors: Error[] = [];
+      if (this.teardownOwners.get(session.tabId) === taskId) {
+        const teardownError = await this.teardownDebugger(
+          session.tabId,
+          taskId,
+        );
+        if (teardownError) errors.push(teardownError);
       }
-    });
-  }
-
-  private async retryPendingTeardown(taskId: string): Promise<void> {
-    await this.enqueueState(async () => {
-      const pendingTabs = [...this.teardownOwners.entries()]
-        .filter(([, owner]) => owner === taskId)
-        .map(([tabId]) => tabId);
-      const errors = (
-        await Promise.all(
-          pendingTabs.map((tabId) => this.teardownDebugger(tabId, taskId)),
-        )
-      ).flatMap((error) => (error ? [error] : []));
+      errors.push(
+        ...(await this.retryPendingTeardownInState(taskId, session.tabId)),
+      );
       await this.persist();
       this.maybeReclaimTaskGeneration(taskId);
       if (errors.length === 1) throw errors[0];
@@ -575,6 +627,32 @@ export class BrowserControlService {
         throw new AggregateError(errors, "Chrome teardown failed.");
       }
     });
+  }
+
+  private async retryPendingTeardown(taskId: string): Promise<void> {
+    await this.enqueueState(async () => {
+      const errors = await this.retryPendingTeardownInState(taskId);
+      await this.persist();
+      this.maybeReclaimTaskGeneration(taskId);
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "Chrome teardown failed.");
+      }
+    });
+  }
+
+  private async retryPendingTeardownInState(
+    taskId: string,
+    excludedTabId?: number,
+  ): Promise<Error[]> {
+    const pendingTabs = [...this.teardownOwners.entries()]
+      .filter(([tabId, owner]) => owner === taskId && tabId !== excludedTabId)
+      .map(([tabId]) => tabId);
+    return (
+      await Promise.all(
+        pendingTabs.map((tabId) => this.teardownDebugger(tabId, taskId)),
+      )
+    ).flatMap((error) => (error ? [error] : []));
   }
 
   private getSession(taskId: string): TaskSession {
@@ -697,6 +775,29 @@ export class BrowserControlService {
   }
 
   private async teardownDebugger(
+    tabId: number,
+    taskId: string,
+  ): Promise<Error | undefined> {
+    const existing = this.teardownOperations.get(tabId);
+    if (existing) return existing;
+    const operation = this.runTeardownDebugger(tabId, taskId);
+    this.teardownOperations.set(tabId, operation);
+    void operation.then(
+      () => {
+        if (this.teardownOperations.get(tabId) === operation) {
+          this.teardownOperations.delete(tabId);
+        }
+      },
+      () => {
+        if (this.teardownOperations.get(tabId) === operation) {
+          this.teardownOperations.delete(tabId);
+        }
+      },
+    );
+    return operation;
+  }
+
+  private async runTeardownDebugger(
     tabId: number,
     taskId: string,
   ): Promise<Error | undefined> {
@@ -1127,8 +1228,14 @@ export class BrowserControlService {
       tabId: session.tabId,
       allowedOrigins: [...session.allowedOrigins],
     }));
+    const pendingTeardowns: StoredTeardown[] = [...this.teardownOwners].map(
+      ([tabId, taskId]) => ({ taskId, tabId }),
+    );
     const write = this.persistQueue.then(() =>
-      chrome.storage.session.set({ [SESSION_STORAGE_KEY]: stored }),
+      chrome.storage.session.set({
+        [SESSION_STORAGE_KEY]: stored,
+        [TEARDOWN_STORAGE_KEY]: pendingTeardowns,
+      }),
     );
     this.persistQueue = write.then(
       () => undefined,

@@ -397,6 +397,7 @@ describe("BrowserControlService", () => {
     });
     expect(persist).toHaveBeenLastCalledWith({
       agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
     });
     expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
     expect(service.activeTaskCount).toBe(0);
@@ -457,6 +458,42 @@ describe("BrowserControlService", () => {
     await expect(emergencyStop).resolves.toBeUndefined();
     expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
     expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("rejects new browser commands while emergency stop is active", async () => {
+    const service = new BrowserControlService();
+    let releaseDetach: (() => void) | undefined;
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        releaseDetach = callback;
+      },
+    );
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const emergencyStop = service.emergencyStopAll();
+
+    await expect(
+      service.execute({
+        id: "late-attach-request",
+        taskId: "task-2",
+        command: {
+          type: "attach",
+          tabId: 43,
+          allowedOrigins: ["https://example.com"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BROWSER_STOPPING" });
+
+    releaseDetach?.();
+    await expect(emergencyStop).resolves.toBeUndefined();
   });
 
   it("reserves a created tab until its handoff finishes", async () => {
@@ -633,9 +670,124 @@ describe("BrowserControlService", () => {
       );
 
     expect(competingError).toMatchObject({ code: "TAB_ALREADY_OWNED" });
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [
+        {
+          taskId: "task-1",
+          tabId: 77,
+          allowedOrigins: ["https://example.com"],
+        },
+      ],
+      agentNativeBrowserPendingTeardowns: [{ taskId: "task-1", tabId: 42 }],
+    });
     await expect(service.emergencyStopAll()).resolves.toBeUndefined();
     expect(service.activeTaskCount).toBe(0);
     expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+  });
+
+  it("retries a superseded teardown when stopping a live handoff", async () => {
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        runtimeLastError = { message: "old debugger detach failed" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+
+    await expect(
+      service.execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      }),
+    ).resolves.toEqual({
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+
+    await expect(
+      service.execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).resolves.toEqual({ detached: true });
+    expect(detach).toHaveBeenCalledTimes(3);
+    expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("coordinates stop with a handoff teardown already in progress", async () => {
+    const service = new BrowserControlService();
+    let releaseOldDetach: (() => void) | undefined;
+    let detachCalls = 0;
+    detach.mockImplementation(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        detachCalls += 1;
+        if (detachCalls === 1) {
+          releaseOldDetach = callback;
+          return;
+        }
+        if (detachCalls === 3) {
+          runtimeLastError = { message: "duplicate debugger detach" };
+          callback?.();
+          runtimeLastError = undefined;
+          return;
+        }
+        callback?.();
+      },
+    );
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseOldDetach).toBeDefined());
+
+    const stopPromise = service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    releaseOldDetach?.();
+
+    await expect(openPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(stopPromise).resolves.toEqual({ detached: true });
+    expect(detachCalls).toBe(2);
   });
 
   it("detaches the debugger when injected input release fails", async () => {
@@ -760,8 +912,14 @@ describe("BrowserControlService", () => {
         callback?.({});
       },
     );
-    detach.mockImplementationOnce(
+    let staleDetachAttempts = 0;
+    detach.mockImplementation(
       (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        staleDetachAttempts += 1;
+        if (staleDetachAttempts > 2) {
+          callback?.();
+          return;
+        }
         runtimeLastError = { message: "stale debugger detach failed" };
         callback?.();
         runtimeLastError = undefined;
@@ -780,6 +938,25 @@ describe("BrowserControlService", () => {
           allowedOrigins: ["https://example.com"],
         },
       ],
+      agentNativeBrowserPendingTeardowns: [{ taskId: "stale-task", tabId: 41 }],
+    });
+  });
+
+  it("restores and retries durable pending teardowns", async () => {
+    storageGet.mockResolvedValue({
+      agentNativeBrowserPendingTeardowns: [
+        { taskId: "pending-task", tabId: 41 },
+      ],
+    });
+    const service = new BrowserControlService();
+
+    await expect(service.restore()).resolves.toBeUndefined();
+
+    expect(detach).toHaveBeenCalledWith({ tabId: 41 }, expect.any(Function));
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
     });
   });
 
@@ -1038,6 +1215,7 @@ describe("BrowserControlService", () => {
     expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
     expect(persist).toHaveBeenLastCalledWith({
       agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
     });
   });
 
@@ -1170,6 +1348,7 @@ describe("BrowserControlService", () => {
     expect(service.activeTaskCount).toBe(0);
     expect(persist).toHaveBeenLastCalledWith({
       agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
     });
   });
 
