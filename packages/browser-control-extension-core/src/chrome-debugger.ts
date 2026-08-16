@@ -7,6 +7,10 @@ function lastErrorMessage(fallback: string): string {
   return chrome.runtime.lastError?.message || fallback;
 }
 
+function isAlreadyDetachedError(message: string): boolean {
+  return /debugger\s+is\s+not\s+attached/i.test(message);
+}
+
 export function attachDebugger(source: DebuggerSource): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.debugger.attach(source, PROTOCOL_VERSION, () => {
@@ -20,9 +24,14 @@ export function attachDebugger(source: DebuggerSource): Promise<void> {
 export function detachDebugger(source: DebuggerSource): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.debugger.detach(source, () => {
-      if (chrome.runtime.lastError)
-        reject(new Error(lastErrorMessage("Could not detach from tab.")));
-      else resolve();
+      const error = chrome.runtime.lastError;
+      if (!error) {
+        resolve();
+        return;
+      }
+      const message = error.message ?? "Could not detach from tab.";
+      if (isAlreadyDetachedError(message)) resolve();
+      else reject(new Error(message));
     });
   });
 }

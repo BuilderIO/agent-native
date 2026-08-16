@@ -1560,19 +1560,90 @@ describe("BrowserControlService", () => {
       );
     await vi.waitFor(() => expect(releaseKeyDown).toBeDefined());
 
-    await expect(
-      service.execute({
+    let stopSettled = false;
+    const stopPromise = service
+      .execute({
         id: "stop-request",
         taskId: "task-1",
         command: { type: "stop" },
-      }),
-    ).resolves.toEqual({ detached: true });
+      })
+      .then(() => {
+        stopSettled = true;
+      });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(stopSettled).toBe(false);
+    expect(detach).not.toHaveBeenCalled();
 
     await expect(keyPromise).resolves.toMatchObject({
       code: "TASK_HANDOFF_CANCELLED",
     });
     expect(keyUps).not.toContain("Enter");
     releaseKeyDown?.();
+    await expect(stopPromise).resolves.toBeUndefined();
+  });
+
+  it("clears stale restored ownership when Chrome is already detached", async () => {
+    storageGet.mockResolvedValue({
+      agentNativeBrowserTaskSessions: [
+        {
+          taskId: "stale-task",
+          tabId: 41,
+          allowedOrigins: ["https://example.com"],
+        },
+      ],
+    });
+    let staleFrameTreeFailed = false;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.getFrameTree" && !staleFrameTreeFailed) {
+          staleFrameTreeFailed = true;
+          runtimeLastError = { message: "stale restored session" };
+          callback?.({});
+          runtimeLastError = undefined;
+          return;
+        }
+        callback?.({});
+      },
+    );
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        runtimeLastError = {
+          message: "Debugger is not attached to the tab with id: 41.",
+        };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+    const service = new BrowserControlService();
+
+    await expect(service.restore()).resolves.toBeUndefined();
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
+    });
+
+    await expect(
+      service.execute({
+        id: "new-attach-request",
+        taskId: "task-2",
+        command: {
+          type: "attach",
+          tabId: 41,
+          allowedOrigins: ["https://example.com"],
+        },
+      }),
+    ).resolves.toEqual({
+      tabId: 41,
+      origin: "https://example.com",
+    });
   });
 
   it("does not wait behind an existing handoff teardown during emergency stop", async () => {

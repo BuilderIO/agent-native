@@ -226,6 +226,10 @@ export class BrowserControlService {
     Set<Promise<chrome.tabs.Tab>>
   >();
   private readonly pendingTabCleanups = new Map<string, Set<Promise<void>>>();
+  private readonly pendingInputOperations = new Map<
+    number,
+    Set<Promise<unknown>>
+  >();
   private readonly taskCancellationWaiters = new Map<
     string,
     Map<number, Set<() => void>>
@@ -895,6 +899,34 @@ export class BrowserControlService {
     }
   }
 
+  private trackPendingInputOperation(
+    tabId: number,
+    operation: Promise<unknown>,
+  ): void {
+    const operations =
+      this.pendingInputOperations.get(tabId) ?? new Set<Promise<unknown>>();
+    operations.add(operation);
+    this.pendingInputOperations.set(tabId, operations);
+    const cleanup = () => {
+      operations.delete(operation);
+      if (
+        operations.size === 0 &&
+        this.pendingInputOperations.get(tabId) === operations
+      ) {
+        this.pendingInputOperations.delete(tabId);
+      }
+    };
+    void operation.then(cleanup, cleanup);
+  }
+
+  private async drainPendingInputOperations(tabId: number): Promise<void> {
+    for (;;) {
+      const operations = [...(this.pendingInputOperations.get(tabId) ?? [])];
+      if (operations.length === 0) return;
+      await Promise.allSettled(operations);
+    }
+  }
+
   private getSession(taskId: string): TaskSession {
     const session = this.sessions.get(taskId);
     if (!session)
@@ -1099,9 +1131,16 @@ export class BrowserControlService {
     method: string,
     params: Record<string, unknown> = {},
   ): Promise<T> {
-    return this.withTaskCancellation(taskId, expectedGeneration, () =>
-      sendDebuggerCommand<T>(source(tabId), method, params),
-    );
+    return this.withTaskCancellation(taskId, expectedGeneration, () => {
+      const operation = sendDebuggerCommand<T>(source(tabId), method, params);
+      if (
+        method === "Input.dispatchKeyEvent" ||
+        method === "Input.dispatchMouseEvent"
+      ) {
+        this.trackPendingInputOperation(tabId, operation);
+      }
+      return operation;
+    });
   }
 
   private scheduleLateAttachTeardown(
@@ -1159,6 +1198,7 @@ export class BrowserControlService {
     taskId: string,
   ): Promise<Error | undefined> {
     let releaseError: Error | undefined;
+    await this.drainPendingInputOperations(tabId);
     try {
       await releaseInjectedInput(tabId);
     } catch (error) {
