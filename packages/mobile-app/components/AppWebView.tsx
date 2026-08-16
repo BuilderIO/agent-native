@@ -26,6 +26,7 @@ import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import { useNativeAppAuthEnabled } from "@/lib/native-app-auth";
+import { validateNativeSession } from "@/lib/native-auth";
 import { completeOAuthCallback, rememberOAuthState } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
@@ -271,8 +272,13 @@ function AppWebView(
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
   const nativeAuthEnabled = useNativeAppAuthEnabled();
   const effectiveCaptureSessionToken = captureSessionToken && nativeAuthEnabled;
+  const shouldHideEmbeddedAuth =
+    nativeAuthEnabled && (!workspaceAppId || workspaceEmbedState === "ready");
   const resolvedParentSessionTokenKey =
     parentSessionTokenKey ?? sessionTokenKey;
+  const canCaptureSessionToken =
+    effectiveCaptureSessionToken &&
+    (!workspaceAppId || sessionTokenKey !== resolvedParentSessionTokenKey);
 
   // Remember the current route so the oauth-complete fallback can return here
   // instead of Home if the deep link leaks to the OS (Android resets the stack,
@@ -298,11 +304,33 @@ function AppWebView(
       getSessionToken(sessionTokenKey),
       getSessionToken(resolvedParentSessionTokenKey),
     ]);
-    lastTokenRef.current = targetToken;
-    setSessionToken(targetToken);
-    setParentSessionToken(parentToken);
+    let nextTargetToken = targetToken;
+    let nextParentToken = parentToken;
+    if (nativeAuthEnabled && parentToken) {
+      const validParent = await validateNativeSession(parentToken);
+      if (!validParent) {
+        const currentParentToken = await getSessionToken(
+          resolvedParentSessionTokenKey,
+        );
+        if (currentParentToken === parentToken) {
+          await clearSessionToken(resolvedParentSessionTokenKey);
+          nextParentToken = null;
+          if (sessionTokenKey === resolvedParentSessionTokenKey) {
+            nextTargetToken = null;
+          }
+        } else {
+          nextParentToken = currentParentToken;
+          if (sessionTokenKey === resolvedParentSessionTokenKey) {
+            nextTargetToken = currentParentToken;
+          }
+        }
+      }
+    }
+    lastTokenRef.current = nextTargetToken;
+    setSessionToken(nextTargetToken);
+    setParentSessionToken(nextParentToken);
     setSessionLoaded(true);
-  }, [resolvedParentSessionTokenKey, sessionTokenKey]);
+  }, [nativeAuthEnabled, resolvedParentSessionTokenKey, sessionTokenKey]);
 
   // Load stored session tokens on mount. The parent token and target app token
   // are intentionally separate for Clips and other app-scoped sessions.
@@ -376,6 +404,18 @@ function AppWebView(
       };
     }, [readStoredSessions]),
   );
+
+  useEffect(() => {
+    if (
+      !effectiveCaptureSessionToken ||
+      !sessionLoaded ||
+      parentSessionToken ||
+      !isFocusedRef.current
+    ) {
+      return;
+    }
+    setNativeSignInOpen(true);
+  }, [effectiveCaptureSessionToken, parentSessionToken, sessionLoaded]);
 
   // When the app returns to foreground, check if the session token was updated
   // (e.g. by the oauth-complete deep link handler storing a new token in
@@ -542,7 +582,7 @@ function AppWebView(
       try {
         const msg = JSON.parse(event.nativeEvent.data);
         if (
-          effectiveCaptureSessionToken &&
+          canCaptureSessionToken &&
           isFocusedRef.current &&
           msg.type === "agent-native-session" &&
           typeof msg.token === "string" &&
@@ -575,7 +615,7 @@ function AppWebView(
           return;
         }
         if (
-          effectiveCaptureSessionToken &&
+          canCaptureSessionToken &&
           isFocusedRef.current &&
           msg.type === "agent-native-session-cleared"
         ) {
@@ -623,6 +663,7 @@ function AppWebView(
     },
     [
       effectiveCaptureSessionToken,
+      canCaptureSessionToken,
       resolvedParentSessionTokenKey,
       sessionOwnerKey,
       sessionTokenKey,
@@ -635,7 +676,7 @@ function AppWebView(
     (event: { nativeEvent: { url: string } }) => {
       setLoading(false);
       if (
-        effectiveCaptureSessionToken &&
+        canCaptureSessionToken &&
         isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)
       ) {
         try {
@@ -649,7 +690,7 @@ function AppWebView(
         webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
       }
     },
-    [effectiveCaptureSessionToken, trustedOrigin],
+    [canCaptureSessionToken, trustedOrigin],
   );
 
   // Append the session token as a query param so the server can promote it to
@@ -792,7 +833,7 @@ function AppWebView(
         onOpenWindow={handleOpenWindow}
         onMessage={handleMessage}
         injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}${
-          nativeAuthEnabled ? `\n${FORCE_REDIRECT_AUTH_SCRIPT}` : ""
+          shouldHideEmbeddedAuth ? `\n${FORCE_REDIRECT_AUTH_SCRIPT}` : ""
         }`}
         javaScriptEnabled
         domStorageEnabled

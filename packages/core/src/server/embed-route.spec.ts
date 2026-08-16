@@ -301,6 +301,7 @@ describe("createEmbedStartRouteHandler", () => {
           {
             accept: "application/json",
             origin,
+            "sec-fetch-dest": "iframe",
             "x-agent-native-embed-transplant": "1",
           },
         ),
@@ -318,6 +319,33 @@ describe("createEmbedStartRouteHandler", () => {
       });
     },
   );
+
+  it("does not expose a transplant location to a JSON fetch without document context", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "GET",
+        { ticket: "ticket-123" },
+        {
+          accept: "application/json",
+          origin: "https://design.agent-native.com",
+          "x-agent-native-embed-transplant": "1",
+        },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Content-Type")).not.toContain("application/json");
+  });
 
   it("allows opaque sandboxed MCP app frames to fetch embed start redirects", async () => {
     consumeEmbedSessionTicket.mockResolvedValue({
@@ -338,6 +366,33 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("null");
     expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Location");
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+
+  it("does not expose a transplant location to opaque origins", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent(
+        "GET",
+        { ticket: "ticket-123" },
+        {
+          accept: "application/json",
+          origin: "null",
+          "sec-fetch-dest": "iframe",
+          "x-agent-native-embed-transplant": "1",
+        },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Content-Type")).not.toContain("application/json");
   });
 
   it("preserves the MCP chat bridge flag on the signed app route", async () => {

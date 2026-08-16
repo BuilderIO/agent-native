@@ -80,6 +80,24 @@ async function readSessionIdentity(
   return { email, token, ...(orgId ? { orgId } : {}) };
 }
 
+/**
+ * Check whether the stored credential is still a valid native parent session.
+ * Child app sessions are intentionally not interchangeable with this token.
+ */
+export async function validateNativeSession(
+  token: string | null,
+  baseUrl = NATIVE_AUTH_BASE_URL,
+): Promise<NativeAuthResult | null> {
+  if (!token) return null;
+  try {
+    return await readSessionIdentity(token, baseUrl);
+  } catch (error) {
+    console.warn("[mobile auth] stored session validation failed", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return null;
+  }
+}
 async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
   const authUrl = new URL(
     `${cleanBaseUrl(baseUrl)}/_agent-native/google/auth-url`,

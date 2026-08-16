@@ -192,7 +192,10 @@ function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
     // keeps production from trusting arbitrary localhost callers.
   });
   if (allowedOrigin) {
-    return { origin: allowedOrigin, credentials: true };
+    return {
+      origin: allowedOrigin,
+      credentials: shouldAllowMcpEmbedCredentials(allowedOrigin),
+    };
   }
   if (origin && isMcpEmbedCorsOrigin(origin)) {
     return {

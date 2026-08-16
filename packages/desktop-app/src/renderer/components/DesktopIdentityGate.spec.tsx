@@ -36,10 +36,10 @@ describe("DesktopIdentityGate", () => {
       );
     });
 
-    expect(container.textContent).toContain("Sign in to Agent Native");
-    expect(container.textContent).toContain("magic link");
+    expect(container.textContent).toContain("Sign in once to open your workspace");
+    expect(container.textContent).toContain("Continue with Google or magic link");
     container
-      .querySelector(".desktop-identity-gate__alternate")
+      .querySelector(".desktop-identity-gate__provider")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSignIn).toHaveBeenCalledOnce();
   });

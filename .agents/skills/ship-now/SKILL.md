@@ -15,6 +15,20 @@ merge soak: local `pnpm prep`, or targeted recovery of its failed lanes, is the
 validation gate. The user has authorized `--admin` merging once feedback is
 handled. Remote CI, release, and deploy results are monitored after merge.
 
+## Fast-path contract
+
+`/ship-now` never means “ship every dirty file in the checkout.” It publishes
+only this agent's owned paths. A shared-checkout status line is not permission
+to stage peer work: record the ownership baseline, and if a path is unfamiliar
+or changes under another agent during the flow, leave it untouched and out of
+the commit. Re-check ownership immediately before every stage, commit, and
+push.
+
+The fast gate is local `pnpm prep`, or the narrowest successful recovery check
+for each failed prep lane. Once that gate and review resolution pass, admin
+merge immediately. Do not wait for a full prep rerun, remote CI, release or
+deploy checks, or the normal `/ship` soak; monitor those after the merge.
+
 ## Workflow
 
 1. Inspect the current branch before writing or moving it:
@@ -60,10 +74,12 @@ handled. Remote CI, release, and deploy results are monitored after merge.
    `pnpm prep` again only when the fix crosses several validation boundaries or
    the failure cannot be isolated. For a file-scoped type failure, a green
    package typecheck is the recovery gate; for a test failure, a green targeted
-   test is the recovery gate. Record that prep recovered through targeted
-   checks - do not claim the entire `pnpm prep` command itself exited 0 when it
-   did not. Preserve exact unrelated peer-check or environment failures rather
-   than calling them green.
+   test is the recovery gate. Once the targeted recovery is green, continue to
+   the owned-path push - do not wait for a redundant full prep rerun. Record
+   that prep recovered through targeted checks - do not claim the entire
+   `pnpm prep` command itself exited 0 when it did not. Preserve exact
+   unrelated peer-check or environment failures rather than calling them
+   green.
 
 4. Publish only the current agent's owned paths immediately after the local
    gate passes:
@@ -74,11 +90,12 @@ handled. Remote CI, release, and deploy results are monitored after merge.
    git push origin HEAD
    ```
 
-   Never use `pnpm ship:push`, `git add -A`, or another whole-worktree helper
-   here when peer changes are present: those commands publish other agents'
-   local work. Verify the push landed on the current branch and update the
-   existing ready PR. Do not create a second PR. Recheck the PR's
-   mergeability and current review comment reply coverage after the push.
+   Re-check the ownership baseline immediately before staging. Use explicit
+   owned paths only. Never use `pnpm ship:push`, `git add -A`, or another
+   whole-worktree helper: those commands can publish other agents' local work.
+   Verify the push landed on the current branch and update the existing ready
+   PR. Do not create a second PR. Recheck the PR's mergeability and current
+   review comment reply coverage after the push.
 
 5. Admin-merge immediately when the explicit fast-path gates are true:
 

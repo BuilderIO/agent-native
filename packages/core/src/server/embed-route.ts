@@ -92,6 +92,7 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
 function embedStartCorsOrigin(event: H3Event): string | null {
   const origin = getHeader(event, "origin");
   if (!origin) return null;
+  if (origin === "null") return origin;
   if (isMcpEmbedTransplantOrigin(origin)) return origin;
   return readCorsAllowedOrigins().includes(origin) ? origin : null;
 }
@@ -200,9 +201,13 @@ function firstQueryValue(value: unknown): string {
 
 function wantsTransplantLocationResponse(event: H3Event): boolean {
   const origin = getHeader(event, "origin");
+  const fetchDestination = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDestination !== "document" && fetchDestination !== "iframe") {
+    return false;
+  }
   const canReadLocation =
     !origin ||
-    embedStartCorsOrigin(event) !== null ||
+    (origin !== "null" && embedStartCorsOrigin(event) !== null) ||
     isMcpEmbedTransplantOrigin(origin);
   if (!canReadLocation) return false;
   if (getHeader(event, "x-agent-native-embed-transplant") === "1") {

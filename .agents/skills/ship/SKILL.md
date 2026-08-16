@@ -16,6 +16,11 @@ Ship the current agent's owned work end-to-end: commit and push only those
 paths, open or update a ready PR, run `/babysit-pr`, merge when its normal gates
 are satisfied, then run `/new-branch` after the merge lands.
 
+`/ship` means this agent's owned work only. “Ship my latest local changes”
+does not turn every dirty path into this PR: record the shared-checkout
+ownership baseline, and leave unfamiliar or peer-created paths untouched and
+uncommitted. Re-check ownership before every stage, commit, and push.
+
 ## Non-Negotiable Shipping Invariant
 
 `/ship` ships the current agent's **owned work**, not every dirty path in a
@@ -64,7 +69,8 @@ code/config fix and ship that follow-up until production is live.
 
 2. **Check local changes**: run `git status --short` and `git diff --stat` to
    establish the owned-path baseline. Multiple agents may have added work;
-   preserve those paths, but do not stage or push them automatically.
+   preserve those paths, but do not stage or push them automatically. If you
+   cannot establish ownership, leave the path out of this ship.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Push the first safe slice before running `pnpm run prep` or

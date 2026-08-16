@@ -24,6 +24,9 @@ describe("chat-first macOS window controls", () => {
     );
     expect(shellCss).toContain("display: block;");
     expect(shellCss).toContain("z-index: 200;");
+    expect(hubSource).toContain(
+      "setNativeTrafficLightsVisible(!chatFirstRailCollapsed);",
+    );
   });
 
   it("fades the green control and background in on hover", () => {

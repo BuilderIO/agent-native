@@ -1986,7 +1986,6 @@ function applyCorsHeaders(event: H3Event): {
       Boolean(getHeader(event, "authorization")));
   const allowedOrigin = getAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
-    allowLocalhostWhenNoAllowlist: true,
   });
   const responseOrigin = mcpEmbedCorsRequest ? origin : allowedOrigin;
   if (!responseOrigin) return { hasOrigin: true, allowed: false };
