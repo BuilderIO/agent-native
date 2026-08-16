@@ -1149,7 +1149,10 @@ async function readWorkspaceAppsFromGateway(): Promise<
     }
 
     if (!authHeaders.Authorization) return null;
-    const actionResponse = await fetch(gatewayUrl(WORKSPACE_APPS_ACTION_PATH), {
+    const actionUrl = gatewayUrl(WORKSPACE_APPS_ACTION_PATH);
+    actionUrl.searchParams.set("includeAgentCards", "false");
+    actionUrl.searchParams.set("audience", "all");
+    const actionResponse = await fetch(actionUrl, {
       headers,
       signal: controller.signal,
     });

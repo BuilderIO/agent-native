@@ -287,7 +287,7 @@ describe("listWorkspaceApps", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
-      "https://agent-workspace.builder.io/_agent-native/actions/list-workspace-apps",
+      "https://agent-workspace.builder.io/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
     );
     expect(fetchMock.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
