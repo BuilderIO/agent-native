@@ -37,6 +37,7 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   // input.tsx — mail uses h-9 instead of h-10 for intentional compact sizing
   // in its dense UI.
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
+  ["input.tsx", "factory", "app-specific input sizing and layout behavior"],
 
   // macros.tsx primitives — macros has a distinct visual system while the
   // shared canonical primitives re-export toolkit UI.
@@ -79,6 +80,11 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "macros",
     "custom: transition-all hover:border-ring/50 animation",
   ],
+  [
+    "textarea.tsx",
+    "factory",
+    "app-specific textarea behavior for factory forms",
+  ],
 ];
 
 // Local implementations are exceptional. Most app-level UI files should be
@@ -106,12 +112,14 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "popover.tsx",
     "uses wider collision padding for form-editor controls",
   ],
+  ["factory", "input.tsx", "factory-specific input implementation"],
   ["macros", "button.tsx", "part of the custom Macros visual system"],
   ["macros", "card.tsx", "part of the custom Macros visual system"],
   ["macros", "dialog.tsx", "part of the custom Macros visual system"],
   ["macros", "input.tsx", "part of the custom Macros visual system"],
   ["macros", "tabs.tsx", "part of the custom Macros visual system"],
   ["macros", "textarea.tsx", "part of the custom Macros visual system"],
+  ["factory", "textarea.tsx", "factory-specific textarea implementation"],
   ["mail", "input.tsx", "uses compact sizing for Mail's dense interface"],
   ["mail", "sonner.tsx", "uses Mail-specific toast visuals and actions"],
   [

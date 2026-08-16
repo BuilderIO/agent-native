@@ -258,6 +258,42 @@ const messages = {
     passwordProtected: "이 클립은 비밀번호로 보호되어 있습니다",
     linkExpired: "링크가 만료되었습니다",
     linkExpiredMessage: "작성자는 이 공유 링크에 만료를 설정했습니다.",
+    privateClip: "비공개 클립",
+    privateClipMessage:
+      "이 클립은 비공개입니다. 액세스를 요청하면 소유자에게 알림이 전송됩니다.",
+    privateClipSignedOutMessage:
+      "이 클립은 비공개입니다. 로그인하거나 이메일을 입력해 액세스를 요청하세요.",
+    requestAccess: "액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "이 클립을 공유할 때 소유자가 나를 확인할 방법을 선택하세요.",
+    requestAccessSignIn: "로그인 또는 가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인해 클립을 볼 수 있습니다.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
+    requestingAccess: "액세스 요청 중...",
+    accessRequested: "액세스 요청됨",
+    accessRequestSent: "클립 소유자에게 알림을 보냈습니다.",
+    accessRequestSentWithEmail:
+      "소유자에게 이 클립을 {{email}} 님과 공유해 달라고 요청했습니다.",
+    accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 클립을 볼 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 클립에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 클립 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenClip: "클립 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
     clipUnavailable: "클립을 사용할 수 없음",
     clipUnavailableMessage:
       "이 녹음 파일은 공개되지 않았거나 링크가 유효하지 않습니다. 귀하의 클립인 경우 로그인하여 액세스 권한을 확인하세요.",
@@ -508,8 +544,13 @@ const messages = {
     },
     roles: {
       viewer: "뷰어",
+      commenter: "댓글 작성자",
       editor: "편집자",
       admin: "관리자",
+    },
+    recordingCommenter: {
+      label: "댓글 작성자",
+      description: "보고 댓글을 달고 반응할 수 있습니다",
     },
   },
   quickAsk: {
@@ -646,13 +687,13 @@ const messages = {
     collapse: "접기",
     changelogMarkdown: `# 변경 로그
 
-Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd+K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
+Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
 
 ## 2026-06-23
 
 ### 추가됨
 
-- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
+- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd K)와 설정에 있습니다.`,
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -966,6 +1007,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     includeTranscriptDescription:
       "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
     transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    agentLinkDescription:
+      "이 임시 링크를 사용하면 회의 메모를 공개하지 않고 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
     transcript: "스크립트",
     copyTranscript: "스크립트 복사",
     transcriptCopied: "스크립트가 복사되었습니다",
@@ -1082,6 +1125,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     searchNextMatch: "다음 일치 항목",
     searchClose: "검색 닫기",
   },
+  bulletLink: {
+    jumpToTranscript: "기록에서 {{time}}(으)로 이동",
+    noMatchingMoment: "일치하는 순간을 찾을 수 없음",
+  },
   editorLayout: {
     trimmed: "잘라냈습니다",
     trimFailed: "자르기 실패",
@@ -1190,7 +1237,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     seekTo: "Seek to {{time}} (현지화됨)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (현지화됨)",
     playPauseTooltip: "Play / Pause (Space) (현지화됨)",
     sourceDuration: "({{duration}} src) (현지화됨)",
     previewSpeed: "Preview speed (현지화됨)",
@@ -1538,13 +1585,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptPending: "Transcript pending (현지화됨)",
     notesPending: "Notes pending (현지화됨)",
     pastRecordings: "Past recordings (현지화됨)",
+    loadOlder: "이전 항목 불러오기",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
-    googleMayShowWarning: "Google 액세스 검토",
-    googleNotVerifiedTitle: "연결하기 전에 앱을 확인하세요",
-    googleWarningBeforeAdvanced:
-      "앱 이름과 요청된 Calendar 액세스가 신뢰하는 Clips 배포와 일치하는지 확인하세요. Google에서 확인되지 않은 앱 경고를 표시하거나 신원이 낯설게 보이면 중단하고 워크스페이스 관리자에게 문의하세요.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",
@@ -1553,6 +1597,16 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarConnected: "Calendar connected (현지화됨)",
     calendarDisconnected: "Calendar disconnected (현지화됨)",
     calendarSettings: "Calendar settings (현지화됨)",
+    calendarAccountsButton: "캘린더",
+    connectedAccounts: "연결된 계정",
+    calendarConnectedLabel: "연결됨",
+    calendarNeedsReconnectLabel: "다시 연결 필요",
+    calendarDisconnectedLabel: "연결 해제됨",
+    calendarStatusUnavailable: "상태를 확인할 수 없음",
+    reconnectCalendar: "캘린더 다시 연결",
+    addAnotherCalendarAccount: "계정 추가",
+    connectCalendar: "캘린더 연결",
+    disconnectCalendarAccount: "계정 연결 해제",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (현지화됨)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",

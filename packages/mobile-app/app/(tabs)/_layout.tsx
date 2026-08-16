@@ -1,20 +1,18 @@
-import {
-  IconApps,
-  IconHome,
-  IconMessageCircle,
-  IconSparkles,
-  IconTerminal2,
-} from "@tabler/icons-react-native";
 import { Tabs } from "expo-router";
+
+import ChatFirstBottomTabs from "@/components/ChatFirstBottomTabs";
 
 const HIDDEN_APP_ROUTES = [
   "analytics",
+  "assets",
   "brain",
   "calendar",
   "content",
   "design",
   "dispatch",
   "forms",
+  "mail",
+  "plan",
   "settings",
   "slides",
 ] as const;
@@ -22,7 +20,8 @@ const HIDDEN_APP_ROUTES = [
 export default function TabLayout() {
   return (
     <Tabs
-      initialRouteName="index"
+      initialRouteName="chat"
+      tabBar={(props) => <ChatFirstBottomTabs {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: "#f4f4f5",
@@ -38,48 +37,22 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <IconHome color={color} size={size} strokeWidth={1.8} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="clips"
         options={{
           title: "Clips",
-          tabBarIcon: ({ color, size }) => (
-            <IconSparkles color={color} size={size} strokeWidth={1.8} />
-          ),
+          href: null,
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
           title: "Chat",
-          tabBarIcon: ({ color, size }) => (
-            <IconMessageCircle color={color} size={size} strokeWidth={1.8} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="sessions"
-        options={{
-          title: "Sessions",
-          tabBarIcon: ({ color, size }) => (
-            <IconTerminal2 color={color} size={size} strokeWidth={1.8} />
-          ),
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
-          title: "Apps",
-          tabBarIcon: ({ color, size }) => (
-            <IconApps color={color} size={size} strokeWidth={1.8} />
-          ),
+          title: "More",
         }}
       />
       {HIDDEN_APP_ROUTES.map((name) => (

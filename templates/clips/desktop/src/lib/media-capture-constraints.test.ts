@@ -5,6 +5,7 @@ import {
   getAudioStreamWithFallback,
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
+  voiceFocusedAudioConstraints,
 } from "./media-capture-constraints";
 
 const originalNavigator = globalThis.navigator;
@@ -60,6 +61,19 @@ describe("desktop media capture constraints", () => {
     expect(isMediaConstraintFailure(new Error("Permission denied"))).toBe(
       false,
     );
+  });
+
+  it("uses browser voice processing by default and supports an explicit raw path", () => {
+    expect(voiceFocusedAudioConstraints()).toMatchObject({
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true },
+    });
+    expect(voiceFocusedAudioConstraints(undefined, false)).toMatchObject({
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    });
   });
 
   it("retries a stale exact mic id with a saved-label mic rematch", async () => {

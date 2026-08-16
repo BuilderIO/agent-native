@@ -2345,6 +2345,7 @@
   box-shadow: none;
   opacity: 0.55;
   pointer-events: none;
+  /* compositing-ok: drag preview — transient, transformed every frame. */
   will-change: transform;
 }
 .notion-drag-preview > * {

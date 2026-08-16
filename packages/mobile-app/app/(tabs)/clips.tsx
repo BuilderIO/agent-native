@@ -13,6 +13,7 @@ import {
 } from "@/lib/clips-session";
 import { getAppUrl } from "@/lib/get-app-url";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
 
 const clips = TEMPLATE_APPS.find((a) => a.id === "clips")!;
 
@@ -64,7 +65,7 @@ export default function ClipsTab() {
 
   if (authState === "checking") {
     return (
-      <SafeAreaView className="flex-1 bg-background-dark">
+      <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
         <View className="items-center flex-1 justify-center">
           <ActivityIndicator color="#d4d4d8" />
           <Text className="text-status-gray text-[13px] mt-2.5">
@@ -91,10 +92,12 @@ export default function ClipsTab() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <AppWebView
         url={getAppUrl(clips)}
         captureSessionToken
+        workspaceAppId="clips"
+        parentSessionTokenKey={SESSION_TOKEN_KEY}
         sessionOwnerKey={CLIPS_SESSION_OWNER_KEY}
         sessionTokenKey={CLIPS_SESSION_TOKEN_KEY}
       />

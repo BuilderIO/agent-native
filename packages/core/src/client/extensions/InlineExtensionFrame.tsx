@@ -87,6 +87,7 @@ function normalizeRole(value: unknown): ExtensionBridgeRole {
   return value === "owner" ||
     value === "admin" ||
     value === "editor" ||
+    value === "commenter" ||
     value === "viewer"
     ? value
     : "viewer";
@@ -490,7 +491,7 @@ export function InlineExtensionFrame({
         sendToAgentChat({
           message: text,
           context: serializeChatValue((message as any).context),
-          submit: (message as any).submit !== false,
+          submit: (message as any).submit === true,
           openSidebar: (message as any).openSidebar !== false,
         });
         return;

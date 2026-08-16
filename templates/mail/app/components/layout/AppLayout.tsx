@@ -5,6 +5,7 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
@@ -372,6 +373,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const perAppChatOpen = usePerAppChatOpen();
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -384,7 +386,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
   }, [sidebarCollapsed]);
   const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
-  const showCollapsedSidebar = sidebarPinned && sidebarCollapsed && !isMobile;
+  const showCollapsedSidebar =
+    !isMobile &&
+    showSidebar &&
+    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
@@ -1054,10 +1059,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
-  const inboxSidebarUnreadCount =
-    labelThreadCounts.unread["__inboxTotal"] ??
-    labelThreadCounts.unread["inbox"] ??
-    0;
+  // The rail badge represents the whole inbox. The top-bar "Other" tab can
+  // only count loaded rows when pinned filters are active, but Gmail's label
+  // count covers the mailbox beyond the current page.
+  const inboxSidebarUnreadCount = getInboxCount("unread");
   const railNavItems = [
     {
       id: "inbox",

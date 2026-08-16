@@ -40,8 +40,8 @@ import {
 } from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
 import {
-  deleteMcpOAuthCredentials,
   getMcpOAuthAccessToken,
+  revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   type McpOAuthCredentialBundle,
 } from "./oauth-client.js";
@@ -251,34 +251,54 @@ export async function addOAuthRemoteServer(
 ): Promise<
   { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
 > {
+  const serverUrl = validateRemoteUrl(input.url);
+  const credentialResource = validateRemoteUrl(input.credentials.serverUrl);
+  if (
+    !serverUrl.ok ||
+    !serverUrl.url ||
+    !credentialResource.ok ||
+    !credentialResource.url ||
+    serverUrl.url.toString() !== credentialResource.url.toString()
+  ) {
+    return {
+      ok: false,
+      error: "MCP server URL must match the OAuth credential resource URL",
+    };
+  }
+  const credentials = {
+    ...input.credentials,
+    serverUrl: credentialResource.url.toString(),
+  };
   const oauthSecretKey = `mcp_oauth:${shortId()}`;
   try {
     await saveMcpOAuthCredentials({
       key: oauthSecretKey,
       scope,
       scopeId,
-      credentials: input.credentials,
+      credentials,
     });
     const result = await addRemoteServerInternal(scope, scopeId, {
       name: input.name,
-      url: input.url,
+      url: credentials.serverUrl,
       description: input.description,
       oauthSecretKey,
     });
     if (!result.ok) {
-      await deleteMcpOAuthCredentials({
+      await revokeMcpOAuthCredentials({
         key: oauthSecretKey,
         scope,
         scopeId,
-      });
+        serverUrl: credentials.serverUrl,
+      }).catch(() => undefined);
     }
     return result;
   } catch (err: any) {
-    await deleteMcpOAuthCredentials({
+    await revokeMcpOAuthCredentials({
       key: oauthSecretKey,
       scope,
       scopeId,
-    }).catch(() => {});
+      serverUrl: credentials.serverUrl,
+    }).catch(() => undefined);
     return {
       ok: false,
       error: `Failed to save MCP OAuth credentials: ${err?.message ?? err}`,
@@ -468,6 +488,32 @@ export async function removeRemoteServer(
   const removed = existing.find((s) => s.id === id);
   const next = existing.filter((s) => s.id !== id);
   if (next.length === existing.length) return false;
+  if (removed?.oauthSecretKey) {
+    try {
+      const result = await revokeMcpOAuthCredentials({
+        key: removed.oauthSecretKey,
+        scope,
+        scopeId,
+        serverUrl: removed.url,
+      });
+      if (result.local === "replaced") {
+        console.warn(
+          `[mcp-client] MCP OAuth credentials changed while removing ${removed.name}; the server was kept so the newer connection remains manageable.`,
+        );
+        return false;
+      }
+      if (result.remote === "failed") {
+        console.warn(
+          `[mcp-client] MCP OAuth revocation failed for ${removed.name}; local credentials were removed.`,
+        );
+      }
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
+      );
+    }
+  }
   if (next.length === 0) {
     if (scope === "user") {
       await deleteUserSetting(scopeId, SETTINGS_KEY);
@@ -491,20 +537,6 @@ export async function removeRemoteServer(
       // eslint-disable-next-line no-console
       console.warn(
         `[mcp-client] Failed to delete MCP header secret ${removed.headerSecretKey}: ${err?.message ?? err}`,
-      );
-    }
-  }
-  if (removed?.oauthSecretKey) {
-    try {
-      await deleteMcpOAuthCredentials({
-        key: removed.oauthSecretKey,
-        scope,
-        scopeId,
-      });
-    } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
       );
     }
   }

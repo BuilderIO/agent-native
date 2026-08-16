@@ -29,6 +29,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
@@ -39,6 +40,7 @@ import {
   countRecordingViews,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
@@ -153,12 +155,14 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
+    const canCommentRecording = canEditRecording || access.role === "commenter";
     // This action is on a 1-3s poll from the player, so every read here shares
     // one Promise.all instead of adding serial round-trips.
     const [
       cleanupStateRaw,
       builderCreditsRaw,
       verificationPending,
+      seekableRepairPending,
       viewCount,
       agentViewCount,
     ] = await Promise.all([
@@ -170,6 +174,12 @@ export default defineAction({
         ownerEmail: rec.ownerEmail,
         recordingId: args.recordingId,
         recordingStatus: rec.status,
+      }),
+      isSeekableRepairPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+        videoUrl: rec.videoUrl,
       }),
       countRecordingViews(args.recordingId).catch(() => 0),
       countRecordingAgentViews(args.recordingId).catch(() => 0),
@@ -305,6 +315,7 @@ export default defineAction({
 
     return {
       role: access.role,
+      canComment: canCommentRecording,
       viewCount,
       agentViewCount,
       recording: {
@@ -312,7 +323,7 @@ export default defineAction({
         organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
-        thumbnailUrl: rec.thumbnailUrl,
+        thumbnailUrl: resolvePlayerThumbnailUrl(rec),
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
         filmstripUrl: rec.filmstripUrl ?? null,
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
@@ -333,6 +344,7 @@ export default defineAction({
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
         verificationPending,
+        seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that

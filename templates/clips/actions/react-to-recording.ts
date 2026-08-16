@@ -30,7 +30,7 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+    await assertAccess("recording", args.recordingId, "commenter");
 
     const viewerEmail = getRequestUserEmail();
     if (!viewerEmail) {

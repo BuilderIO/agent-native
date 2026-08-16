@@ -12,6 +12,7 @@ import {
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import {
+  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   runAgentLoopDirectWithSoftTimeout,
   BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
   MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
@@ -307,6 +308,61 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationMessages).toHaveLength(1);
   });
 
+  it("carries an interrupted streamed prefix into the resume context", async () => {
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "make a list" }] },
+    ];
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({ type: "text", text: "Here are the first three items: " });
+        throw new EngineError("Builder gateway timed out after 45s", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal),
+      60_000,
+    );
+
+    const checkpoint = messages.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text.startsWith(AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT),
+        ),
+    );
+    expect(checkpoint).toBeDefined();
+    expect(checkpoint?.content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("Here are the first three items:"),
+    });
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "user" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT),
+          ),
+      ),
+    ).toBe(true);
+  });
+
   it("includes unfinished action-preparation guidance on foreground resume", async () => {
     let attempts = 0;
     const messages: EngineMessage[] = [
@@ -424,6 +480,16 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       "preparing the `edit-design` action input",
     );
     expect(continuationText).toContain("smaller `edit-design` payload");
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" && part.text.includes("partial lead-in"),
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("does not report an unmeasured run as a measured empty one", async () => {
@@ -1178,21 +1244,19 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
-  // Fix 4: emit 'clear' before resumable-error continuation
-  it("emits a clear event before resuming after a resumable engine error", async () => {
-    // The partial text was already streamed to the client but the model needs
-    // to re-generate from the beginning of the sentence. Without 'clear' the
-    // fold duplicates the streamed text inside one assistant message.
-    const sentEvents: import("./types.js").AgentChatEvent[] = [];
+  it("clears the streamed prefix when a resume emits only the suffix", async () => {
+    const sentEvents: AgentChatEvent[] = [];
     let attempts = 0;
 
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
       if (attempts === 1) {
+        opts.send({ type: "text", text: "prefix " });
         throw new EngineError("Builder gateway timed out after 45s", {
           errorCode: "builder_gateway_timeout",
         });
       }
+      opts.send({ type: "text", text: "suffix" });
       return {
         inputTokens: 10,
         outputTokens: 5,
@@ -1212,12 +1276,18 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
-    // A 'clear' event must have been emitted before the second attempt.
-    expect(sentEvents).toContainEqual({ type: "clear" });
-    // It must appear before the continuation message is appended (i.e. sent
-    // while retrying, not after).
-    const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
-    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(sentEvents.filter((event) => event.type === "clear")).toHaveLength(
+      1,
+    );
+    expect(
+      sentEvents
+        .filter(
+          (event): event is Extract<AgentChatEvent, { type: "text" }> =>
+            event.type === "text",
+        )
+        .map((event) => event.text)
+        .join(""),
+    ).toBe("prefix suffix");
   });
 
   it("does not emit clear when there is no resumable error", async () => {
@@ -1240,6 +1310,44 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       60_000,
     );
 
+    expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
+  });
+
+  it("keeps user-visible output when the ledger read fails mid-recovery", async () => {
+    // `clear` WIPES what the user already sees. A ledger blip must not be read
+    // as "no completed side effect", which is what made it wipe tool cards.
+    mockGetCurrentTurnEventsForThread.mockRejectedValue(
+      new Error("neon: connection lost"),
+    );
+    const sentEvents: import("./types.js").AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
     expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
   });
 
@@ -1280,7 +1388,10 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
-    expect(mockGetCurrentTurnEventsForThread).toHaveBeenCalledWith("thread-1");
+    expect(mockGetCurrentTurnEventsForThread).toHaveBeenCalledWith(
+      "thread-1",
+      undefined,
+    );
 
     const journalNote = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))

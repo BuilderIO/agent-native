@@ -14,6 +14,7 @@ import {
   IconKey,
   IconPencil,
   IconPlugConnected,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { EditorView } from "@tiptap/pm/view";
@@ -28,14 +29,27 @@ import React, {
   useMemo,
 } from "react";
 
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
-import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
+import {
+  ComposerPlusMenu,
+  type ComposerTerminalModeControl,
+} from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import {
+  isClaudeCodeAgentId,
+  isLunaModel,
+  resolvePreferredAgentModel,
+} from "./model-selection.js";
 import {
   createPastedAttachmentFile,
   readClipboardPaste,
@@ -52,6 +66,7 @@ import {
   type AgentChatContextItem,
   type AgentComposerReference,
   type AgentComposerReferenceInsertPayload,
+  type ComposerTranslate,
   type ReasoningEffort,
   type VoiceContextPack,
   useComposerRuntimeAdapters,
@@ -289,10 +304,12 @@ export function getOversizedDocumentAttachmentError(
   options: {
     maxBytes?: number;
     label?: string;
+    translate?: ComposerTranslate;
   } = {},
 ): string | null {
   const maxBytes = options.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
   const label = options.label ?? "PDFs";
+  const t = options.translate;
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object") continue;
     const candidate = attachment as Record<string, unknown>;
@@ -306,7 +323,17 @@ export function getOversizedDocumentAttachmentError(
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
     const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
-    return `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+    return (
+      t?.("agentChat.composer.documentTooLarge", {
+        defaultValue:
+          '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+        name,
+        size: mb,
+        label,
+        maxSize: maxMb,
+      }) ??
+      `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`
+    );
   }
   return null;
 }
@@ -356,10 +383,13 @@ export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
   attachmentCount: number;
+  attachedContextFallback?: string;
 }): string {
   const modePrompt =
     options.trimmedText ||
-    (options.attachmentCount > 0 ? "Use the attached context." : "");
+    (options.attachmentCount > 0
+      ? (options.attachedContextFallback ?? "Use the attached context.")
+      : "");
   return `${options.messagePrefix}${modePrompt}`;
 }
 
@@ -408,14 +438,52 @@ export function handleComposerFileDrop(options: {
   return true;
 }
 
-const BUILT_IN_COMMANDS: SlashCommand[] = [
-  { name: "clear", description: "Start a new chat", icon: "clear" },
-  { name: "new", description: "Start a new chat", icon: "new" },
-  { name: "history", description: "Browse all chats", icon: "history" },
-  { name: "plan", description: "Switch to read-only planning", icon: "plan" },
-  { name: "act", description: "Switch back to acting", icon: "act" },
-  { name: "help", description: "Show available commands", icon: "help" },
-];
+function builtInCommands(t: ComposerTranslate): SlashCommand[] {
+  return [
+    {
+      name: "clear",
+      description: t("agentChat.commands.clearShort", {
+        defaultValue: "Start a new chat",
+      }),
+      icon: "clear",
+    },
+    {
+      name: "new",
+      description: t("agentChat.commands.newShort", {
+        defaultValue: "Start a new chat",
+      }),
+      icon: "new",
+    },
+    {
+      name: "history",
+      description: t("agentChat.commands.history", {
+        defaultValue: "Browse all chats",
+      }),
+      icon: "history",
+    },
+    {
+      name: "plan",
+      description: t("agentChat.commands.plan", {
+        defaultValue: "Switch to read-only planning",
+      }),
+      icon: "plan",
+    },
+    {
+      name: "act",
+      description: t("agentChat.commands.act", {
+        defaultValue: "Switch back to acting",
+      }),
+      icon: "act",
+    },
+    {
+      name: "help",
+      description: t("agentChat.commands.help", {
+        defaultValue: "Show available commands",
+      }),
+      icon: "help",
+    },
+  ];
+}
 
 function normalizeSlashCommandName(name: string): string {
   return name.replace(/^\/+/, "").trim().toLowerCase();
@@ -448,19 +516,13 @@ function mergeSlashSkills(skills: SkillResult[]): SkillResult[] {
 const COMPOSER_MODE_CONFIGS: Record<
   ComposerMode,
   {
-    label: string;
     icon: React.ComponentType<{ className?: string }>;
-    placeholder: string;
-    messagePrefix: string;
     getContext: (prompt: string) => string;
     beforeSend?: () => void;
   }
 > = {
   skill: {
-    label: "Create Skill",
     icon: IconBulb,
-    placeholder: "Describe the skill you want to create...",
-    messagePrefix: "Create a skill: ",
     getContext: (prompt) =>
       `The user wants to create an agent skill. Their description: "${prompt}"
 
@@ -482,10 +544,7 @@ After creating, update the shared AGENTS.md resource to reference the new skill 
 Keep the skill concise (under 500 lines) and actionable.`,
   },
   job: {
-    label: "Schedule Task",
     icon: IconClock,
-    placeholder: "Describe what should happen and when...",
-    messagePrefix: "Create a recurring job: ",
     getContext: (prompt) =>
       `The user wants to create a recurring job. Their description: "${prompt}"
 
@@ -498,10 +557,7 @@ Use the manage-jobs tool with action "create" to create this. You need to:
 The job will run automatically on the schedule. Make the instructions specific — include which actions to call and what to do with results.`,
   },
   automation: {
-    label: "Create Automation",
     icon: IconBolt,
-    placeholder: "Describe what you want to automate...",
-    messagePrefix: "Create an automation: ",
     beforeSend: () => {
       window.dispatchEvent(
         new CustomEvent("agent-panel:set-mode", {
@@ -515,10 +571,7 @@ The job will run automatically on the schedule. Make the instructions specific �
 Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
   },
   extension: {
-    label: "Create Extension",
     icon: IconTool,
-    placeholder: "Describe the interactive extension you want to build...",
-    messagePrefix: "Create an extension: ",
     getContext: (prompt) =>
       `The user wants to create an interactive extension (sandboxed mini-app). Their description: "${prompt}"
 
@@ -532,6 +585,60 @@ Prefer appAction()/appFetch() for app data. Some actions return JSON strings for
   },
 };
 
+function localizedComposerModeConfig(mode: ComposerMode, t: ComposerTranslate) {
+  const config = COMPOSER_MODE_CONFIGS[mode];
+  const copies: Record<
+    ComposerMode,
+    { label: string; placeholder: string; messagePrefix: string }
+  > = {
+    skill: {
+      label: t("agentChat.composer.createSkill", {
+        defaultValue: "Create Skill",
+      }),
+      placeholder: t("agentChat.composer.describeSkill", {
+        defaultValue: "Describe the skill you want to create...",
+      }),
+      messagePrefix: t("agentChat.composer.createSkillPrefix", {
+        defaultValue: "Create a skill: ",
+      }),
+    },
+    job: {
+      label: t("agentChat.composer.scheduleTask", {
+        defaultValue: "Schedule Task",
+      }),
+      placeholder: t("agentChat.composer.describeSchedule", {
+        defaultValue: "Describe what should happen and when...",
+      }),
+      messagePrefix: t("agentChat.composer.scheduleTaskPrefix", {
+        defaultValue: "Create a recurring job: ",
+      }),
+    },
+    automation: {
+      label: t("agentChat.composer.createAutomation", {
+        defaultValue: "Create Automation",
+      }),
+      placeholder: t("agentChat.composer.describeAutomation", {
+        defaultValue: "Describe what you want to automate...",
+      }),
+      messagePrefix: t("agentChat.composer.createAutomationPrefix", {
+        defaultValue: "Create an automation: ",
+      }),
+    },
+    extension: {
+      label: t("agentChat.composer.createExtension", {
+        defaultValue: "Create Extension",
+      }),
+      placeholder: t("agentChat.composer.describeExtension", {
+        defaultValue: "Describe the interactive extension you want to build...",
+      }),
+      messagePrefix: t("agentChat.composer.createExtensionPrefix", {
+        defaultValue: "Create an extension: ",
+      }),
+    },
+  };
+  return { ...config, ...copies[mode] };
+}
+
 function ComposerModeChip({
   mode,
   onRemove,
@@ -539,7 +646,8 @@ function ComposerModeChip({
   mode: ComposerMode;
   onRemove: () => void;
 }) {
-  const config = COMPOSER_MODE_CONFIGS[mode];
+  const t = useComposerRuntimeAdapters().translate!;
+  const config = localizedComposerModeConfig(mode, t);
   const Icon = config.icon;
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground">
@@ -557,6 +665,21 @@ function ComposerModeChip({
 }
 
 type ExecMode = "build" | "plan";
+
+export interface ComposerAgentOption {
+  /** Stable host-defined identifier for the agent runtime. */
+  id: string;
+  /** Human-readable runtime name shown in the picker. */
+  label: string;
+  /** Optional icon shown beside the runtime name. */
+  icon?: React.ReactNode;
+  /** Optional short detail shown below the runtime name. */
+  description?: string;
+  /** Whether this runtime can be selected right now. */
+  configured?: boolean;
+  /** Optional status text such as "Installed" or "Sign in". */
+  statusLabel?: string;
+}
 
 export interface TiptapComposerProps {
   placeholder?: string;
@@ -580,7 +703,7 @@ export interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
@@ -631,10 +754,12 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
+  modelSelectorOpen?: boolean;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
@@ -648,8 +773,20 @@ export interface TiptapComposerProps {
   modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort */
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. Defaults to the built-in agent. */
+  selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
+  /** Mark the selected runtime as the hosted tools-only harness mode. */
+  hostedHarness?: boolean;
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
+  onModelSelectorOpenChange?: (open: boolean) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
    * state through another channel, such as Electron IPC.
@@ -681,7 +818,9 @@ export interface TiptapComposerProps {
    * that opens the file picker directly. `"hidden"` hides attachment controls
    * for text-only prompt surfaces.
    */
-  plusMenuMode?: "full" | "upload-only" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /**
    * Include extension creation in the full "+" menu. Defaults to false so
    * apps opt into the extension capability deliberately.
@@ -761,25 +900,37 @@ function ModeSelector({
   mode,
   onChange,
   planModeDisabled = false,
-  planModeDisabledReason = "Open Agent Native Desktop to use Plan mode.",
+  planModeDisabledReason,
 }: {
   mode: ExecMode;
   onChange: (mode: ExecMode) => void;
   planModeDisabled?: boolean;
   planModeDisabledReason?: string;
 }) {
+  const t = useComposerRuntimeAdapters().translate!;
   const [open, setOpen] = useState(false);
+  const resolvedPlanModeDisabledReason =
+    planModeDisabledReason ??
+    t("agentChat.composer.planDesktopRequired", {
+      defaultValue: "Open Agent Native Desktop to use Plan mode.",
+    });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          aria-label={
+            mode === "build"
+              ? t("agentChat.composer.actMode", { defaultValue: "Act mode" })
+              : t("agentChat.plan.mode", { defaultValue: "Plan mode" })
+          }
           data-agent-composer-slot="mode-button"
           className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          {mode === "build" ? "Act" : "Plan"}
+          {mode === "build"
+            ? t("agentChat.plan.act", { defaultValue: "Act" })
+            : t("agentChat.composer.plan", { defaultValue: "Plan" })}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverTrigger>
@@ -802,19 +953,23 @@ function ModeSelector({
         >
           <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground text-[13px]">Act</span>
+            <span className="font-medium text-foreground text-[13px]">
+              {t("agentChat.plan.act", { defaultValue: "Act" })}
+            </span>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Use tools and make approved changes
+              {t("agentChat.composer.actDescription", {
+                defaultValue: "Use tools and make approved changes",
+              })}
             </p>
           </div>
           {mode === "build" && (
-            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <IconCheck className="size-4 shrink-0 text-primary" />
           )}
         </button>
         <button
           type="button"
           disabled={planModeDisabled}
-          title={planModeDisabled ? planModeDisabledReason : undefined}
+          title={planModeDisabled ? resolvedPlanModeDisabledReason : undefined}
           onClick={() => {
             if (planModeDisabled) return;
             onChange("plan");
@@ -829,16 +984,18 @@ function ModeSelector({
           <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
             <span className="font-medium text-foreground text-[13px]">
-              Plan
+              {t("agentChat.composer.plan", { defaultValue: "Plan" })}
             </span>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {planModeDisabled
-                ? planModeDisabledReason
-                : "Read-only research and approval first"}
+                ? resolvedPlanModeDisabledReason
+                : t("agentChat.composer.planDescription", {
+                    defaultValue: "Read-only research and approval first",
+                  })}
             </p>
           </div>
           {mode === "plan" && !planModeDisabled && (
-            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <IconCheck className="size-4 shrink-0 text-primary" />
           )}
         </button>
       </PopoverContent>
@@ -849,16 +1006,60 @@ function ModeSelector({
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
   "codex-cli": "Codex",
+  "claude-cli": "Claude Code",
+  "pi-cli": "Pi",
+  "opencode-cli": "OpenCode",
   "claude-fable-5": "Fable 5",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
 };
 
+const LOCAL_RUNTIME_ENGINES = new Set([
+  "codex-cli",
+  "claude-cli",
+  "pi-cli",
+  "opencode-cli",
+]);
+
+function isOpenAiModelId(model: string): boolean {
+  const normalizedModel = model.toLowerCase();
+  return (
+    normalizedModel.startsWith("gpt-") ||
+    normalizedModel.startsWith("openai/gpt-")
+  );
+}
+
+export function isOpenAiModelProviderGroup(group: {
+  engine: string;
+  label: string;
+  models: string[];
+}): boolean {
+  const engine = group.engine.toLowerCase();
+  const label = group.label.toLowerCase();
+  if (engine === "codex-cli") {
+    return group.models.some(isOpenAiModelId);
+  }
+  return (
+    engine.includes("openai") ||
+    label.includes("openai") ||
+    group.models.some(isOpenAiModelId)
+  );
+}
+
+const HARNESS_AGENTS_DOCS_URL =
+  "https://www.agent-native.com/docs/harness-agents";
+
 export const MODEL_SELECTOR_POPOVER_STYLE = {
   fontSize: 13,
   maxHeight: "min(500px, var(--radix-popover-content-available-height, 500px))",
 } satisfies React.CSSProperties;
+
+const MODEL_SELECTOR_POPOVER_CLASS =
+  "box-border w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none";
+const PICKER_HELP_BUTTON_CLASS =
+  "flex size-3 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground";
+const PICKER_HELP_ICON_CLASS = "size-2";
 
 export function shouldShowModelSelectorSkeleton(
   isLoading: boolean,
@@ -879,7 +1080,14 @@ export function shouldShowOnlyConnectPath(
   return showBuilderCta && groups.every((group) => !group.configured);
 }
 
-function friendlyModelName(model: string): string {
+function friendlyModelName(model: string, t?: ComposerTranslate): string {
+  if (model === "auto") {
+    return (
+      t?.("agentChat.composer.defaultModel", {
+        defaultValue: "Default model",
+      }) ?? "Default model"
+    );
+  }
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
   const claude = model.match(
@@ -929,23 +1137,74 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
-export function compactComposerModelName(model: string): string {
+export function compactComposerModelName(
+  model: string,
+  t?: ComposerTranslate,
+): string {
   const gpt56Variant = model.match(
     /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
   )?.[1];
   if (gpt56Variant) {
-    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+    const variant =
+      gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+    return `GPT-5.6 ${variant}`;
   }
-  return friendlyModelName(model);
+  return friendlyModelName(model, t);
 }
 
 export function compactComposerReasoningEffortLabel(
   effort: ReasoningEffort,
+  t?: ComposerTranslate,
 ): string {
-  if (effort === "medium" || effort === "auto") return "Med";
-  if (effort === "minimal") return "Min";
-  if (effort === "xhigh") return "XHigh";
-  return reasoningEffortLabel(effort);
+  if (effort === "medium" || effort === "auto") {
+    return (
+      t?.("agentChat.composer.reasoningMediumShort", {
+        defaultValue: "Med",
+      }) ?? "Med"
+    );
+  }
+  if (effort === "minimal") {
+    return (
+      t?.("agentChat.composer.reasoningMinimalShort", {
+        defaultValue: "Min",
+      }) ?? "Min"
+    );
+  }
+  if (effort === "xhigh") {
+    return (
+      t?.("agentChat.composer.reasoningExtraHighShort", {
+        defaultValue: "XHigh",
+      }) ?? "XHigh"
+    );
+  }
+  return t
+    ? localizedReasoningEffortLabel(t, effort, reasoningEffortLabel(effort))
+    : reasoningEffortLabel(effort);
+}
+
+function localizedReasoningEffortLabel(
+  t: ComposerTranslate,
+  effort: ReasoningEffort,
+  defaultValue: string,
+): string {
+  switch (effort) {
+    case "auto":
+      return t("agentChat.composer.reasoningEffort.auto", { defaultValue });
+    case "none":
+      return t("agentChat.composer.reasoningEffort.none", { defaultValue });
+    case "minimal":
+      return t("agentChat.composer.reasoningEffort.minimal", { defaultValue });
+    case "low":
+      return t("agentChat.composer.reasoningEffort.low", { defaultValue });
+    case "medium":
+      return t("agentChat.composer.reasoningEffort.medium", { defaultValue });
+    case "high":
+      return t("agentChat.composer.reasoningEffort.high", { defaultValue });
+    case "xhigh":
+      return t("agentChat.composer.reasoningEffort.xhigh", { defaultValue });
+    case "max":
+      return t("agentChat.composer.reasoningEffort.max", { defaultValue });
+  }
 }
 
 /**
@@ -963,7 +1222,7 @@ function latestModelsOnly(models: string[]): string[] {
       return true;
     }
     // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI reasoning: each is its own family
+    // OpenAI effort: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
     if (gemini) {
@@ -997,27 +1256,22 @@ const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
   ["pro", 3],
 ];
 
-const COST_TIER_LABELS = { 1: "Lower", 2: "Medium", 3: "Higher" } as const;
-
 export function composerModelCostTier(model: string): 1 | 2 | 3 | undefined {
   const normalized = model.toLowerCase();
   return MODEL_COST_TIERS.find(([token]) => normalized.includes(token))?.[1];
 }
 
 function ModelCostTier({ model }: { model: string }) {
+  const t = useComposerRuntimeAdapters().translate!;
   const tier = composerModelCostTier(model);
   if (!tier) return null;
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60"
-      >
-        {"$".repeat(tier)}
-      </span>
-      <span className="sr-only">{COST_TIER_LABELS[tier]} cost</span>
-    </>
-  );
+  const costLabel =
+    tier === 1
+      ? t("agentChat.composer.costLower", { defaultValue: "Lower cost" })
+      : tier === 2
+        ? t("agentChat.composer.costMedium", { defaultValue: "Medium cost" })
+        : t("agentChat.composer.costHigher", { defaultValue: "Higher cost" });
+  return <span className="sr-only">{costLabel}</span>;
 }
 
 /**
@@ -1050,10 +1304,17 @@ function ModelSelector({
   model,
   effort,
   engines,
+  agents,
+  selectedAgent,
+  agentOnly = false,
+  hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  open: controlledOpen,
   onChange,
   onEffortChange,
+  onAgentChange,
+  onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
   onConnectLocalRuntime,
@@ -1061,6 +1322,9 @@ function ModelSelector({
 }: {
   model: string;
   effort?: ReasoningEffort;
+  agents?: ComposerAgentOption[];
+  selectedAgent?: string;
+  hostedHarness?: boolean;
   engines: Array<{
     engine: string;
     label: string;
@@ -1069,22 +1333,30 @@ function ModelSelector({
     statusLabel?: string;
     isSubscription?: boolean;
   }>;
+  agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onModelSelectorOpenChange?: (open: boolean) => void;
   imageModel?: ComposerImageModelMenu;
+  open?: boolean;
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const isClaudeCodeAgent = isClaudeCodeAgentId(selectedAgent);
   const autoModelGroup = showAutoModelOption
-    ? engines.find((group) => group.models.includes("auto"))
+    ? isClaudeCodeAgent
+      ? undefined
+      : engines.find((group) => group.models.includes("auto"))
     : undefined;
   const providerGroups = useMemo(
     () =>
@@ -1096,68 +1368,105 @@ function ModelSelector({
         .filter((group) => group.models.length > 0),
     [engines],
   );
-  const effortOptions =
-    reasoning?.getOptionsForModel?.(model) ??
-    getComposerReasoningEffortOptions(model);
+  const isCodexAgent =
+    selectedAgent === "codex" || selectedAgent === "codex-cli";
+  const modelProviderGroups = useMemo(() => {
+    const hasCodexLocalGroup = providerGroups.some(
+      (group) => group.engine === "codex-cli",
+    );
+    const groups = providerGroups.flatMap((group) => {
+      if (group.engine === "codex-cli") {
+        return isCodexAgent && isOpenAiModelProviderGroup(group) ? [group] : [];
+      }
+      if (
+        isCodexAgent &&
+        hasCodexLocalGroup &&
+        group.engine === "ai-sdk:openai"
+      ) {
+        return [];
+      }
+      if (LOCAL_RUNTIME_ENGINES.has(group.engine)) return [];
+      if (!isCodexAgent) return [group];
+      if (!isOpenAiModelProviderGroup(group)) return [];
+
+      const isExplicitOpenAiProvider =
+        group.engine.toLowerCase().includes("openai") ||
+        group.label.toLowerCase().includes("openai");
+      const models = isExplicitOpenAiProvider
+        ? group.models
+        : group.models.filter(isOpenAiModelId);
+      return models.length > 0 ? [{ ...group, models }] : [];
+    });
+    if (!isClaudeCodeAgent) return groups;
+    return groups
+      .map((group) => ({
+        ...group,
+        models: group.models.filter((candidate) => !isLunaModel(candidate)),
+      }))
+      .filter((group) => group.models.length > 0);
+  }, [isClaudeCodeAgent, isCodexAgent, providerGroups]);
+  const preferredAgentModel = useMemo(
+    () => resolvePreferredAgentModel(selectedAgent, providerGroups),
+    [providerGroups, selectedAgent],
+  );
+  useEffect(() => {
+    if (!isClaudeCodeAgent || !isLunaModel(model) || !preferredAgentModel) {
+      return;
+    }
+    if (
+      preferredAgentModel.model === model &&
+      preferredAgentModel.engine ===
+        engines.find((group) => group.models.includes(model))?.engine
+    ) {
+      return;
+    }
+    onChange(preferredAgentModel.model, preferredAgentModel.engine);
+  }, [engines, isClaudeCodeAgent, model, onChange, preferredAgentModel]);
+  const effortOptions = agentOnly
+    ? []
+    : (reasoning?.getOptionsForModel?.(model) ??
+      getComposerReasoningEffortOptions(model));
   const selectedEffort =
     reasoning?.resolve?.(model, effort) ??
     resolveReasoningEffortSelection(model, effort ?? defaultEffort);
-  const effortLabel = reasoning?.label ?? reasoningEffortLabel;
+  const effortLabel = useCallback(
+    (value: ReasoningEffort) =>
+      localizedReasoningEffortLabel(
+        t,
+        value,
+        (reasoning?.label ?? reasoningEffortLabel)(value),
+      ),
+    [reasoning?.label, t],
+  );
+  const selectedAgentOption = agents?.find(
+    (agent) => agent.id === (selectedAgent ?? "default"),
+  );
+  const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
+  const selectedModelLabel = friendlyModelName(model, t).replace(/^GPT-/, "");
 
-  // Collapse non-selected families by default. The family containing the
-  // currently-selected model stays expanded so the user sees their pick at
-  // a glance; clicking another family's header expands it inline.
-  const selectedGroupKey = useMemo(() => {
-    const found = providerGroups.find((g) => g.models.includes(model));
-    return found ? `${found.engine}:${found.label}` : null;
-  }, [model, providerGroups]);
+  const [detailSection, setDetailSection] = useState<
+    "agent" | "model" | "effort" | null
+  >(null);
+  const resolvedSection = detailSection ?? (agentOnly ? "agent" : "model");
 
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set(selectedGroupKey ? [selectedGroupKey] : []),
+  const setPickerOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) setInternalOpen(nextOpen);
+      if (nextOpen) setDetailSection(agentOnly ? "agent" : null);
+      onModelSelectorOpenChange?.(nextOpen);
+    },
+    [agentOnly, controlledOpen, onModelSelectorOpenChange],
   );
 
-  // Reset expansion when the popover re-opens so the picker always lands
-  // on the "selected family expanded, others collapsed" view.
-  useEffect(() => {
-    if (open) {
-      setExpandedGroups(new Set(selectedGroupKey ? [selectedGroupKey] : []));
-    }
-  }, [open, selectedGroupKey]);
-
-  const toggleGroup = useCallback((key: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  // The reasoning effort list is collapsed by default — it's a secondary
-  // control most users don't touch, so it stays tucked behind a header that
-  // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setReasoningExpanded(false);
-  }, [open]);
-
-  // The optional image-model section follows the same collapsed-by-default
-  // pattern; the current selection shows next to the header.
-  const [imageExpanded, setImageExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setImageExpanded(false);
-  }, [open]);
-  const imageModelLabel =
-    imageModel?.options.find((option) => option.value === imageModel.value)
-      ?.label ?? imageModel?.value;
+  const visibleProviderGroups = modelProviderGroups;
   const showModelListSkeleton = shouldShowModelSelectorSkeleton(
     modelListLoading,
     engines.length,
   );
 
-  // When Builder.io isn't connected, surface a one-click connect path —
-  // it unlocks every model family (Claude, OpenAI, Gemini) without the
-  // user having to paste individual API keys.
+  // Keep setup actions beside model choices while any visible provider still
+  // needs configuration. The model rows remain visible so the user can see
+  // what becomes available after connecting or adding a key.
   const builderFlow = adapters.builder!.useConnectFlow!({
     enabled: providerConnectStatusEnabled,
     trackingSource: "composer_builder_cta",
@@ -1168,51 +1477,71 @@ function ModelSelector({
   const hasConnectedSubscription = providerGroups.some(
     (group) => group.configured && group.isSubscription,
   );
-  const showBuilderCta =
-    (builderFlow.hasFetchedStatus ||
-      (!providerConnectStatusEnabled && !!onConnectProvider)) &&
-    !builderFlow.configured &&
-    !builderFlow.envManaged &&
-    !hasConfiguredBuilderModels &&
-    !hasConnectedSubscription;
-  const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
-    showBuilderCta,
-    providerGroups,
+  const hasUnconfiguredVisibleModels = modelProviderGroups.some(
+    (group) => !group.configured,
   );
+  const showBuilderAction =
+    hasUnconfiguredVisibleModels &&
+    (Boolean(onConnectProvider) ||
+      (providerConnectStatusEnabled &&
+        !builderFlow.configured &&
+        !builderFlow.envManaged &&
+        !hasConfiguredBuilderModels &&
+        !hasConnectedSubscription));
+  const showAddKeysAction = hasUnconfiguredVisibleModels;
+  const showProviderActions = showBuilderAction || showAddKeysAction;
+  const onlyConnectPathAvailable =
+    shouldShowOnlyConnectPath(showBuilderAction, providerGroups) &&
+    modelProviderGroups.length === 0;
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
     } catch {}
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
-    setOpen(false);
-  }, []);
+    setPickerOpen(false);
+  }, [setPickerOpen]);
   const connectLocalRuntime = useCallback(
     (engine: string) => {
       onConnectLocalRuntime?.(engine);
-      setOpen(false);
+      setPickerOpen(false);
     },
-    [onConnectLocalRuntime],
+    [onConnectLocalRuntime, setPickerOpen],
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setPickerOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
           data-agent-composer-slot="model-button"
-          aria-label={`Model: ${friendlyModelName(model)}${
+          aria-label={`${t("agentChat.composer.model", {
+            defaultValue: "Model",
+          })}: ${friendlyModelName(model, t)}${
             effortOptions.length > 0
-              ? `. Reasoning: ${effortLabel(selectedEffort)}`
+              ? `. ${t("agentChat.composer.effort", {
+                  defaultValue: "Effort",
+                })}: ${effortLabel(selectedEffort)}`
+              : ""
+          }${
+            selectedAgentOption && selectedAgentOption.id !== "default"
+              ? `. Agent: ${selectedAgentLabel}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
-            {compactComposerModelName(model)}
+            {selectedAgentOption?.icon ? (
+              <span className="me-1 inline-flex shrink-0 align-[-2px] text-muted-foreground">
+                {selectedAgentOption.icon}
+              </span>
+            ) : null}
+            {selectedAgentOption && selectedAgentOption.id !== "default"
+              ? selectedAgentLabel
+              : compactComposerModelName(model, t)}
           </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {compactComposerReasoningEffortLabel(selectedEffort)}
+              · {compactComposerReasoningEffortLabel(selectedEffort, t)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -1224,298 +1553,559 @@ function ModelSelector({
         sideOffset={6}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
-        className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
+        className={`z-[260] overflow-visible ${MODEL_SELECTOR_POPOVER_CLASS}`}
         style={MODEL_SELECTOR_POPOVER_STYLE}
       >
-        {showBuilderCta && (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                if (onConnectProvider) {
-                  onConnectProvider();
-                } else {
-                  builderFlow.start();
-                }
-              }}
-              disabled={!onConnectProvider && builderFlow.connecting}
-              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
+        <Popover open={detailSection !== null} onOpenChange={() => undefined}>
+          <PopoverAnchor asChild>
+            <div
+              className="flex flex-col"
+              role="tablist"
+              aria-label={t("agentChat.composer.pickerSections", {
+                defaultValue: "Picker sections",
+              })}
             >
-              <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
-              <span className="flex-1 min-w-0">
-                <span className="block text-[12px] font-medium text-foreground">
-                  {!onConnectProvider && builderFlow.connecting
-                    ? t("agentPanel.connectingBuilder", {
-                        defaultValue: "Connecting Builder.io…",
-                      })
-                    : t("agentPanel.connectBuilderIo", {
-                        defaultValue: "Connect Builder.io",
-                      })}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
-              </span>
-            </button>
-            {!onConnectProvider && builderFlow.error && (
-              <p
-                role="alert"
-                className="px-3 pb-2 ps-9 text-[11px] text-destructive"
-              >
-                {builderFlow.error}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={openLlmSettings}
-              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50"
-            >
-              <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[12px] font-medium text-foreground">
-                  {t("agentPanel.addOwnKeys", {
-                    defaultValue: "Add your own keys",
-                  })}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {t("agentPanel.configureProviderKeys", {
-                    defaultValue: "Choose a cloud, gateway, or local provider",
-                  })}
-                </span>
-              </span>
-            </button>
-            {!onlyConnectPathAvailable && (
-              <div className="my-1 border-t border-border" />
-            )}
-          </>
-        )}
-        {imageModel && imageModel.options.length > 0 && (
-          <>
-            <div className="flex items-center hover:bg-accent/30">
-              <button
-                type="button"
-                aria-expanded={imageExpanded}
-                onClick={() => setImageExpanded((prev) => !prev)}
-                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-              >
-                {imageExpanded ? (
-                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                )}
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                  {imageModel.label ?? "Image model"}
-                </span>
-                {!imageExpanded && imageModelLabel && (
-                  <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {imageModelLabel}
+              {agents && agents.length > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "agent"}
+                  onClick={() => setDetailSection("agent")}
+                  onMouseEnter={() => setDetailSection("agent")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "agent"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center">
+                    <span className="shrink-0 text-[12px] font-medium">
+                      Agent
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          role="img"
+                          aria-label={t("agentChat.composer.harnessAgentHelp", {
+                            defaultValue: "Learn about harness agents",
+                          })}
+                          onClick={(event) => event.stopPropagation()}
+                          className={`ms-1.5 ${PICKER_HELP_BUTTON_CLASS}`}
+                        >
+                          <IconHelpCircle
+                            aria-hidden="true"
+                            className={PICKER_HELP_ICON_CLASS}
+                            strokeWidth={1.8}
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="z-[400] max-w-xs">
+                        <span className="block">
+                          {hostedHarness
+                            ? t("agentChat.composer.hostedHarnessDescription", {
+                                defaultValue:
+                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent Native Desktop.",
+                              })
+                            : t("agentChat.composer.harnessAgentDescription", {
+                                defaultValue:
+                                  "Harnesses run their own coding loop and local tools.",
+                              })}
+                        </span>
+                        <a
+                          href={HARNESS_AGENTS_DOCS_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block underline underline-offset-2 hover:no-underline"
+                        >
+                          {t("agentChat.composer.learnMoreHarnessAgents", {
+                            defaultValue: "Learn more about harness agents",
+                          })}
+                        </a>
+                      </TooltipContent>
+                    </Tooltip>
                   </span>
-                )}
-              </button>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedAgentLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {!agentOnly && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "model"}
+                  onClick={() => setDetailSection("model")}
+                  onMouseEnter={() => setDetailSection("model")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "model"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    Model
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedModelLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {!agentOnly && effortOptions.length > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "effort"}
+                  onClick={() => setDetailSection("effort")}
+                  onMouseEnter={() => setDetailSection("effort")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "effort"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    {t("agentChat.composer.effort", {
+                      defaultValue: "Effort",
+                    })}
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {effortLabel(selectedEffort)}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
             </div>
-            {imageExpanded &&
-              imageModel.options.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    imageModel.onChange(option.value);
-                    setImageExpanded(false);
-                  }}
-                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
-                >
-                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {option.label}
-                  </span>
-                  {option.value === imageModel.value && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                  )}
-                </button>
-              ))}
-            <div className="my-1 border-t border-border" />
-          </>
-        )}
-        {showModelListSkeleton && <ModelSelectorSkeleton />}
-        {autoModelGroup && !onlyConnectPathAvailable && (
-          <button
-            type="button"
-            onClick={() => {
-              onChange("auto", autoModelGroup.engine);
-              setOpen(false);
-            }}
-            className="flex w-full items-center gap-3 px-3 py-1.5 text-start hover:bg-accent/50"
+          </PopoverAnchor>
+          <PopoverContent
+            side="right"
+            align="start"
+            sideOffset={4}
+            alignOffset={-8}
+            collisionPadding={8}
+            className={`z-[320] overflow-visible ${MODEL_SELECTOR_POPOVER_CLASS}`}
+            style={MODEL_SELECTOR_POPOVER_STYLE}
           >
-            <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-              Auto
-            </span>
-            {model === "auto" && (
-              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-            )}
-          </button>
-        )}
-        {autoModelGroup &&
-          providerGroups.length > 0 &&
-          !onlyConnectPathAvailable && (
-            <div className="my-1 border-t border-border" />
-          )}
-        {!onlyConnectPathAvailable &&
-          providerGroups.map((group) => {
-            const models = latestModelsOnly(group.models);
-            const groupKey = `${group.engine}:${group.label}`;
-            const isExpanded = expandedGroups.has(groupKey);
-            const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
-            const isLocalRuntime =
-              group.engine === "codex-cli" || group.engine === "claude-cli";
-            const canConnectLocalRuntime =
-              isLocalRuntime && Boolean(onConnectLocalRuntime);
-            const statusLabel =
-              group.statusLabel ??
-              (!group.configured
-                ? canConnectLocalRuntime
-                  ? "sign in"
-                  : "needs API key"
-                : undefined);
-            return (
-              <div key={groupKey}>
-                <div className="flex items-center hover:bg-accent/30">
-                  <button
-                    type="button"
-                    aria-expanded={isExpanded}
-                    onClick={() => toggleGroup(groupKey)}
-                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-                  >
-                    <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                      {group.label}
-                    </span>
-                    {!isExpanded && groupKey === selectedGroupKey && (
-                      <span className="text-[11px] text-muted-foreground/80 truncate">
-                        {friendlyModelName(model)}
-                      </span>
+            <div className="max-h-[min(500px,var(--radix-popover-content-available-height,500px))] overflow-y-auto">
+              <div
+                className="min-h-0 min-w-0"
+                role="tabpanel"
+                aria-label={resolvedSection}
+              >
+                {resolvedSection === "agent" && agents && (
+                  <div className="flex flex-col">
+                    {agents.map((agent) => {
+                      const isSelected =
+                        agent.id === (selectedAgent ?? "default");
+                      const isConfigured = agent.configured !== false;
+                      const canConnect =
+                        !isConfigured && Boolean(onConnectLocalRuntime);
+                      const statusLabel =
+                        agent.statusLabel ??
+                        (!isConfigured ? "Unavailable" : undefined);
+                      return (
+                        <div
+                          key={agent.id}
+                          className="group flex items-center rounded-md hover:bg-accent/30"
+                        >
+                          <button
+                            type="button"
+                            disabled={!isConfigured || !onAgentChange}
+                            aria-current={isSelected ? "true" : undefined}
+                            onClick={() => {
+                              if (!isConfigured) return;
+                              onAgentChange?.(agent.id);
+                              setPickerOpen(false);
+                            }}
+                            className={`flex min-w-0 flex-1 items-center gap-0.5 px-2 py-2 text-start ${
+                              isConfigured
+                                ? "hover:bg-accent/50"
+                                : "cursor-default opacity-50"
+                            }`}
+                          >
+                            {agent.icon ? (
+                              <span
+                                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                                aria-hidden="true"
+                              >
+                                {agent.icon}
+                              </span>
+                            ) : null}
+                            <span
+                              className={`min-w-0 truncate text-[12px] ${
+                                isSelected
+                                  ? "text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {agent.label}
+                            </span>
+                            {agent.description && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    role="img"
+                                    aria-label={`${agent.label} details`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className={PICKER_HELP_BUTTON_CLASS}
+                                  >
+                                    <IconHelpCircle
+                                      aria-hidden="true"
+                                      className={PICKER_HELP_ICON_CLASS}
+                                      strokeWidth={1.8}
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side="left"
+                                  className="z-[400] max-w-xs"
+                                >
+                                  {agent.description}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            <span
+                              className="min-w-0 flex-1"
+                              aria-hidden="true"
+                            />
+                            {isSelected && isConfigured && (
+                              <IconCheck className="size-4 shrink-0 text-primary" />
+                            )}
+                          </button>
+                          {!isConfigured && statusLabel && (
+                            <button
+                              type="button"
+                              disabled={!canConnect}
+                              className="ms-auto max-w-[6rem] shrink-0 truncate px-2 py-2 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:cursor-default"
+                              onClick={() => {
+                                if (canConnect) connectLocalRuntime(agent.id);
+                              }}
+                            >
+                              {statusLabel}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {resolvedSection === "model" && (
+                  <>
+                    {showProviderActions && (
+                      <>
+                        {showBuilderAction && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onConnectProvider) {
+                                  onConnectProvider();
+                                } else {
+                                  builderFlow.start();
+                                }
+                              }}
+                              disabled={
+                                !onConnectProvider && builderFlow.connecting
+                              }
+                              className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
+                            >
+                              <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-[12px] font-medium text-foreground">
+                                  {!onConnectProvider && builderFlow.connecting
+                                    ? t("agentPanel.connectingBuilder", {
+                                        defaultValue: "Connecting Builder.io…",
+                                      })
+                                    : t("agentPanel.connectBuilderIo", {
+                                        defaultValue: "Connect Builder.io",
+                                      })}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {t("agentPanel.builderModelCredits", {
+                                    defaultValue:
+                                      "Free credits for Claude, OpenAI & Gemini",
+                                  })}
+                                </span>
+                              </span>
+                            </button>
+                            {!onConnectProvider && builderFlow.error && (
+                              <p
+                                role="alert"
+                                className="px-2 pb-2 ps-8 text-[11px] text-destructive"
+                              >
+                                {builderFlow.error}
+                              </p>
+                            )}
+                          </>
+                        )}
+                        {showAddKeysAction && (
+                          <button
+                            type="button"
+                            onClick={openLlmSettings}
+                            className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                          >
+                            <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[12px] font-medium text-foreground">
+                                {t("agentPanel.addOwnKeys", {
+                                  defaultValue: "Add your own keys",
+                                })}
+                              </span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                {t("agentPanel.configureProviderKeys", {
+                                  defaultValue:
+                                    "Choose a cloud, gateway, or local provider",
+                                })}
+                              </span>
+                            </span>
+                          </button>
+                        )}
+                      </>
                     )}
-                  </button>
-                  {!group.configured && statusLabel && (
-                    <button
-                      type="button"
-                      className="ms-auto max-w-[9rem] shrink-0 text-end text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
-                      onClick={() =>
-                        canConnectLocalRuntime
-                          ? connectLocalRuntime(group.engine)
-                          : openLlmSettings()
-                      }
-                    >
-                      {statusLabel}
-                    </button>
-                  )}
-                  {group.configured && statusLabel && (
-                    <span className="ms-auto max-w-[9rem] shrink-0 pe-3 text-end text-[10px] text-muted-foreground/70">
-                      {statusLabel}
-                    </span>
-                  )}
-                </div>
-                {isExpanded &&
-                  models.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => {
-                        if (!group.configured) {
-                          if (canConnectLocalRuntime) {
-                            connectLocalRuntime(group.engine);
-                          } else {
-                            openLlmSettings();
-                          }
-                          return;
-                        }
-                        onChange(m, group.engine);
-                        const nextOptions =
-                          getReasoningEffortOptionsForModel(m);
-                        if (
-                          nextOptions.length > 0 &&
-                          !nextOptions.includes(selectedEffort)
-                        ) {
-                          onEffortChange?.(defaultEffort);
-                        }
-                        setOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
-                        group.configured
-                          ? "hover:bg-accent/50"
-                          : "opacity-40 cursor-default"
-                      }`}
-                    >
-                      <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                        {friendlyModelName(m)}
-                      </span>
-                      <ModelCostTier model={m} />
-                      {m === model && group.configured && (
-                        <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    {imageModel && imageModel.options.length > 0 && (
+                      <div className="mt-2 pt-1">
+                        <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {imageModel.label ??
+                            t("agentChat.composer.imageModel", {
+                              defaultValue: "Image model",
+                            })}
+                        </div>
+                        {imageModel.options.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => {
+                              imageModel.onChange(option.value);
+                              setPickerOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                          >
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[12px] ${
+                                option.value === imageModel.value
+                                  ? "text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {option.label}
+                            </span>
+                            {option.value === imageModel.value && (
+                              <IconCheck className="size-4 shrink-0 text-primary" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {showModelListSkeleton && <ModelSelectorSkeleton />}
+                    {isCodexAgent &&
+                      !showModelListSkeleton &&
+                      !onlyConnectPathAvailable &&
+                      modelProviderGroups.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={openLlmSettings}
+                          className="flex w-full items-center rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+                            {t("agentChat.composer.noOpenAiModels", {
+                              defaultValue: "No OpenAI models configured",
+                            })}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                            Configure
+                          </span>
+                        </button>
                       )}
-                    </button>
-                  ))}
-              </div>
-            );
-          })}
-        {!showModelListSkeleton &&
-          !onlyConnectPathAvailable &&
-          effortOptions.length > 0 && (
-            <>
-              <div className="my-1 border-t border-border" />
-              <div className="flex items-center hover:bg-accent/30">
-                <button
-                  type="button"
-                  aria-expanded={reasoningExpanded}
-                  onClick={() => setReasoningExpanded((prev) => !prev)}
-                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-                >
-                  {reasoningExpanded ? (
-                    <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                  )}
-                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Reasoning
-                  </span>
-                  {!reasoningExpanded && (
-                    <span className="text-[11px] text-muted-foreground/80 truncate">
-                      {effortLabel(selectedEffort)}
-                    </span>
-                  )}
-                </button>
-              </div>
-              {reasoningExpanded &&
-                effortOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => onEffortChange?.(option)}
-                    className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
-                  >
-                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                      {effortLabel(option)}
-                    </span>
-                    {option === selectedEffort && (
-                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    {autoModelGroup && !onlyConnectPathAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onChange("auto", autoModelGroup.engine);
+                          setPickerOpen(false);
+                        }}
+                        className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
+                      >
+                        <span
+                          className={`min-w-0 flex-1 truncate text-[13px] ${
+                            model === "auto"
+                              ? "text-foreground"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {t("agentChat.composer.auto", {
+                            defaultValue: "Auto",
+                          })}
+                        </span>
+                        {model === "auto" && (
+                          <IconCheck className="size-4 shrink-0 text-primary" />
+                        )}
+                      </button>
                     )}
-                  </button>
-                ))}
-            </>
-          )}
+                    {!onlyConnectPathAvailable &&
+                      visibleProviderGroups.map((group, groupIndex) => {
+                        const models = latestModelsOnly(group.models);
+                        const showProviderLabels =
+                          visibleProviderGroups.length > 1;
+                        const isLocalRuntime =
+                          group.engine === "codex-cli" ||
+                          group.engine === "claude-cli";
+                        const canConnectLocalRuntime =
+                          isLocalRuntime && Boolean(onConnectLocalRuntime);
+                        const statusLabel =
+                          group.statusLabel ??
+                          (!group.configured
+                            ? canConnectLocalRuntime
+                              ? t("agentChat.auth.logIn", {
+                                  defaultValue: "Sign in",
+                                })
+                              : t("agentChat.composer.needsApiKey", {
+                                  defaultValue: "needs API key",
+                                })
+                            : undefined);
+                        return (
+                          <div
+                            key={`${group.engine}:${group.label}`}
+                            className={
+                              showProviderLabels && groupIndex > 0
+                                ? "mt-2 pt-1"
+                                : ""
+                            }
+                          >
+                            {showProviderLabels && (
+                              <div className="group flex items-center px-2 py-1">
+                                <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  {group.label}
+                                </span>
+                                {!group.configured && statusLabel && (
+                                  <button
+                                    type="button"
+                                    aria-label={statusLabel}
+                                    className="ms-auto max-w-[9rem] shrink-0 cursor-pointer truncate px-0 py-1 text-end text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100"
+                                    onClick={() =>
+                                      canConnectLocalRuntime
+                                        ? connectLocalRuntime(group.engine)
+                                        : openLlmSettings()
+                                    }
+                                  >
+                                    {statusLabel}
+                                  </button>
+                                )}
+                                {group.configured && statusLabel && (
+                                  <span className="ms-auto max-w-[9rem] shrink-0 truncate py-1 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                                    {statusLabel}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {models.map((m) => {
+                              const isSelected =
+                                m === model && group.configured;
+                              return (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => {
+                                    if (!group.configured) {
+                                      if (canConnectLocalRuntime) {
+                                        connectLocalRuntime(group.engine);
+                                      } else {
+                                        openLlmSettings();
+                                      }
+                                      return;
+                                    }
+                                    onChange(m, group.engine);
+                                    const nextOptions =
+                                      getReasoningEffortOptionsForModel(m);
+                                    if (
+                                      nextOptions.length > 0 &&
+                                      !nextOptions.includes(selectedEffort)
+                                    ) {
+                                      onEffortChange?.(defaultEffort);
+                                    }
+                                    setPickerOpen(false);
+                                  }}
+                                  className={`group flex w-full items-center gap-3 rounded-md px-2 py-2 text-start ${
+                                    group.configured
+                                      ? "hover:bg-accent/50"
+                                      : "cursor-default opacity-40"
+                                  }`}
+                                >
+                                  <span
+                                    className={`min-w-0 flex-1 truncate text-[12px] ${
+                                      isSelected
+                                        ? "text-foreground"
+                                        : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    {friendlyModelName(m, t)}
+                                  </span>
+                                  <ModelCostTier model={m} />
+                                  {!showProviderLabels && statusLabel && (
+                                    <span className="hidden max-w-[9rem] shrink-0 truncate text-[10px] text-muted-foreground/70 group-hover:inline">
+                                      {statusLabel}
+                                    </span>
+                                  )}
+                                  {isSelected && (
+                                    <IconCheck className="size-4 shrink-0 text-primary" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                  </>
+                )}
+                {resolvedSection === "effort" && effortOptions.length > 0 && (
+                  <div className="flex flex-col">
+                    {effortOptions.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => onEffortChange?.(option)}
+                        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                      >
+                        <span
+                          className={`min-w-0 flex-1 truncate text-[12px] ${
+                            option === selectedEffort
+                              ? "text-foreground"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {effortLabel(option)}
+                        </span>
+                        {option === selectedEffort && (
+                          <IconCheck className="size-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </PopoverContent>
     </Popover>
   );
 }
 
 function ModelSelectorSkeleton() {
+  const t = useComposerRuntimeAdapters().translate!;
   return (
     <div
       className="space-y-1 px-2 py-2"
       role="status"
-      aria-label="Loading models"
+      aria-label={t("agentChat.composer.loadingModels", {
+        defaultValue: "Loading models",
+      })}
     >
-      <span className="sr-only">Loading models…</span>
+      <span className="sr-only">
+        {t("agentChat.composer.loadingModelsProgress", {
+          defaultValue: "Loading models…",
+        })}
+      </span>
       {["w-24", "w-32", "w-20", "w-28"].map((width, index) => (
         <div key={index} className="flex items-center gap-1.5 px-1 py-1.5">
           <Skeleton className="size-3 rounded-sm" />
@@ -1534,7 +2124,7 @@ type PopoverState = {
 } | null;
 
 export function TiptapComposer({
-  placeholder = "Message agent...",
+  placeholder,
   disabled = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -1566,10 +2156,17 @@ export function TiptapComposer({
   selectedModel,
   selectedEffort,
   showAutoModelOption = true,
+  modelSelectorOpen,
   availableModels,
   modelListLoading,
   onModelChange,
   onEffortChange,
+  availableAgents,
+  selectedAgent,
+  agentOnly = false,
+  hostedHarness,
+  onAgentChange,
+  onModelSelectorOpenChange,
   providerConnectStatusEnabled,
   onConnectProvider,
   onConnectLocalRuntime,
@@ -1578,6 +2175,7 @@ export function TiptapComposer({
   contextItems = [],
   onRemoveContextItem,
   plusMenuMode = "full",
+  terminalModeControl,
   extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
@@ -1649,10 +2247,10 @@ export function TiptapComposer({
   const allSlashCommands = useMemo(
     () =>
       mergeSlashCommands([
-        ...(includeDefaultSlashCommands ? BUILT_IN_COMMANDS : []),
+        ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
         ...slashCommands,
       ]),
-    [includeDefaultSlashCommands, slashCommands],
+    [includeDefaultSlashCommands, slashCommands, t],
   );
 
   const allSlashSkills = useMemo(
@@ -1734,12 +2332,14 @@ export function TiptapComposer({
   }, [composerRuntime]);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
-  const placeholderRef = useRef(placeholder);
-  useEffect(() => {
-    placeholderRef.current = composerMode
-      ? COMPOSER_MODE_CONFIGS[composerMode].placeholder
-      : placeholder;
-  }, [placeholder, composerMode]);
+  const resolvedPlaceholder = composerMode
+    ? localizedComposerModeConfig(composerMode, t).placeholder
+    : (placeholder ??
+      t("agentChat.composer.messageAgent", {
+        defaultValue: "Message agent...",
+      }));
+  const placeholderRef = useRef(resolvedPlaceholder);
+  placeholderRef.current = resolvedPlaceholder;
 
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
@@ -1828,7 +2428,10 @@ export function TiptapComposer({
             const msg =
               error instanceof Error
                 ? error.message
-                : "Could not attach the pasted image. Try a different format.";
+                : t("agentChat.composer.pastedImageError", {
+                    defaultValue:
+                      "Could not attach the pasted image. Try a different format.",
+                  });
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -1849,7 +2452,9 @@ export function TiptapComposer({
               const msg =
                 error instanceof Error
                   ? error.message
-                  : "Could not attach the pasted text.";
+                  : t("agentChat.composer.pastedTextError", {
+                      defaultValue: "Could not attach the pasted text.",
+                    });
               onAttachmentErrorRef.current?.(msg);
             });
           return true;
@@ -1868,7 +2473,10 @@ export function TiptapComposer({
             const msg =
               error instanceof Error
                 ? error.message
-                : "Could not attach the dropped file. Try a different format.";
+                : t("agentChat.composer.droppedFileError", {
+                    defaultValue:
+                      "Could not attach the dropped file. Try a different format.",
+                  });
             onAttachmentErrorRef.current?.(msg);
           },
         });
@@ -2046,6 +2654,13 @@ export function TiptapComposer({
       },
     },
   });
+
+  // Placeholder decorations are computed by ProseMirror. Dispatching an empty
+  // transaction makes a locale or composer-mode change visible immediately.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr.setSelection(editor.state.selection));
+  }, [editor, resolvedPlaceholder]);
 
   // A tab can stay mounted while becoming the active composer later. Publish
   // its existing draft when the host starts observing it so contextual UI is
@@ -2287,7 +2902,12 @@ export function TiptapComposer({
       3200,
     );
     if (activeContext) {
-      snippets.push({ label: "Active app context", value: activeContext });
+      snippets.push({
+        label: t("agentChat.composer.activeAppContext", {
+          defaultValue: "Active app context",
+        }),
+        value: activeContext,
+      });
     }
 
     const selectedReferences = trimVoiceContextValue(
@@ -2296,7 +2916,9 @@ export function TiptapComposer({
     );
     if (selectedReferences) {
       snippets.push({
-        label: "Selected references",
+        label: t("agentChat.composer.selectedReferences", {
+          defaultValue: "Selected references",
+        }),
         value: selectedReferences,
       });
     }
@@ -2304,16 +2926,35 @@ export function TiptapComposer({
     const draft = isComposerEditorUsable(editor)
       ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
       : null;
-    if (draft) snippets.push({ label: "Current draft", value: draft });
+    if (draft) {
+      snippets.push({
+        label: t("agentChat.composer.currentDraft", {
+          defaultValue: "Current draft",
+        }),
+        value: draft,
+      });
+    }
 
     if (typeof document !== "undefined") {
       const title = trimVoiceContextValue(document.title, 160);
-      if (title) snippets.push({ label: "Page title", value: title });
+      if (title) {
+        snippets.push({
+          label: t("agentChat.composer.pageTitle", {
+            defaultValue: "Page title",
+          }),
+          value: title,
+        });
+      }
     }
 
     if (typeof window !== "undefined") {
       const route = trimVoiceContextValue(window.location.pathname, 240);
-      if (route) snippets.push({ label: "Route", value: route });
+      if (route) {
+        snippets.push({
+          label: t("agentChat.composer.route", { defaultValue: "Route" }),
+          value: route,
+        });
+      }
     }
 
     if (snippets.length === 0) return undefined;
@@ -2322,7 +2963,7 @@ export function TiptapComposer({
       mode: "dictation",
       snippets,
     };
-  }, [adapters, contextItems, editor, slotReferences]);
+  }, [adapters, contextItems, editor, slotReferences, t]);
 
   const voice = useVoiceDictation({
     onTranscript: insertTranscript,
@@ -2552,6 +3193,7 @@ export function TiptapComposer({
         {
           maxBytes: maxDocumentAttachmentBytes,
           label: documentAttachmentLimitLabel,
+          translate: t,
         },
       );
       if (oversizedDocumentError) {
@@ -2609,16 +3251,23 @@ export function TiptapComposer({
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
-        const config = COMPOSER_MODE_CONFIGS[composerMode];
+        const config = localizedComposerModeConfig(composerMode, t);
         config.beforeSend?.();
         const message = displayableComposerModeMessage({
           messagePrefix: config.messagePrefix,
           trimmedText: trimmed,
           attachmentCount: attachments.length,
+          attachedContextFallback: t("agentChat.composer.useAttachedContext", {
+            defaultValue: "Use the attached context.",
+          }),
         });
         const modePrompt =
           trimmed ||
-          (attachments.length > 0 ? "Use the attached context." : "");
+          (attachments.length > 0
+            ? t("agentChat.composer.useAttachedContext", {
+                defaultValue: "Use the attached context.",
+              })
+            : "");
         if (attachments.length > 0) {
           composerRuntime.setText(
             `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
@@ -2651,7 +3300,13 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
-        onSubmit(text, references, attachments, { intent });
+        try {
+          await onSubmit(text, references, attachments, { intent });
+        } catch {
+          // Hosts own their submit errors. Keep the draft and attachments
+          // available for recovery when a host rejects the submission.
+          return;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
@@ -2687,6 +3342,7 @@ export function TiptapComposer({
       syncComposerState,
       voice,
       allSlashCommands,
+      t,
     ],
   );
 
@@ -2938,7 +3594,10 @@ export function TiptapComposer({
                     editor.commands.focus("end");
                   }
                 }}
-                aria-label={`Remove ${slotReferenceTitle(ref)} reference`}
+                aria-label={t("agentChat.composer.removeReference", {
+                  defaultValue: "Remove {{name}} reference",
+                  name: slotReferenceTitle(ref),
+                })}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
@@ -2966,7 +3625,10 @@ export function TiptapComposer({
                   setSelectedContextItemKey(null);
                   onRemoveContextItem?.(item.key);
                 }}
-                aria-label={`Remove ${item.title} context`}
+                aria-label={t("agentChat.composer.removeContext", {
+                  defaultValue: "Remove {{name}} context",
+                  name: item.title,
+                })}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
@@ -3000,6 +3662,7 @@ export function TiptapComposer({
             <ComposerPlusMenu
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
+              terminalModeControl={terminalModeControl}
               extensionTools={extensionTools}
               onAttachmentError={onAttachmentError}
             />
@@ -3009,12 +3672,19 @@ export function TiptapComposer({
         {selectedModel && availableModels && onModelChange && (
           <ModelSelector
             model={selectedModel}
+            open={modelSelectorOpen}
             effort={selectedEffort}
             engines={availableModels}
+            agents={availableAgents}
+            selectedAgent={selectedAgent}
+            agentOnly={agentOnly}
+            hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
             onChange={onModelChange}
             onEffortChange={onEffortChange}
+            onAgentChange={onAgentChange}
+            onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}

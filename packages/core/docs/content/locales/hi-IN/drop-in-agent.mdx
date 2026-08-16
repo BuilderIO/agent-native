@@ -228,7 +228,7 @@ Follow-up और revision prompts को मौजूदा AgentSidebar thread 
 
 जब उसी रूट को MCP ऐप के रूप में एम्बेड किया जाता है, सबमिट किया जाता है
 `sendToAgentChat()` कॉल होस्ट चैट पर अग्रेषित की जाती हैं जहां समर्थित है; देखें
-MCP ऐप ब्रिज व्यवहार के लिए [Client](/docs/client#sendtoagentchat)।
+MCP ऐप ब्रिज व्यवहार के लिए [एजेंट चैट](/docs/client-agent-chat#sendtoagentchat)।
 
 यदि आप लोडिंग स्थिति चाहते हैं, तो `useSendToAgentChat()` हुक का उपयोग करें - यह `send` और `isGenerating` दोनों लौटाता है:
 
@@ -279,7 +279,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-टाइप-सुरक्षित तर्क आपके `defineAction()` में ज़ोड स्कीमा से आते हैं। संपूर्ण कार्य प्रणाली के लिए [Actions](/docs/actions) देखें।
+टाइप-सुरक्षित तर्क आपके `defineAction()` में ज़ोड स्कीमा से आते हैं। संपूर्ण कार्य प्रणाली के लिए [Actions](/docs/actions-overview) देखें।
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## आगे क्या
 
-- [**Actions**](/docs/actions) - `defineAction()` और `useActionMutation()`
+- [**Actions**](/docs/actions-overview) - `defineAction()` और `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) - चयन, नेविगेशन, व्यू-स्क्रीन
 - [**एजेंट संसाधन**](/docs/agent-resources) - एजेंट संसाधन टैब में क्या शामिल है (skills, मेमोरी, MCP सर्वर, शेड्यूल किए गए कार्य)
 - [**Voice Input**](/docs/voice-input) - चैट कंपोजर में माइक्रोफोन

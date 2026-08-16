@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { setSentryUser, trackSessionStatus } from "./analytics.js";
-import { fetchAuthSessionStatus } from "./client-status-requests.js";
+import {
+  fetchAuthSessionStatus,
+  invalidateClientStatusRequest,
+} from "./client-status-requests.js";
+import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
 
@@ -30,10 +34,15 @@ interface UseSessionResult {
 const SESSION_CACHE_TTL_MS = 30_000;
 const SESSION_RETRY_DELAY_MS = 1_000;
 const SESSION_MAX_ATTEMPTS = 4;
+const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
+const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 let cachedSession: AuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<AuthSession | null | undefined> | undefined;
 let trackedSessionIdentity: string | null | undefined;
+let sessionGeneration = 0;
+let sessionInvalidationListenersInstalled = false;
+const sessionInvalidationSubscribers = new Set<() => void>();
 
 function hasFreshSessionCache(): boolean {
   return (
@@ -62,14 +71,87 @@ function publishSessionIdentity(session: AuthSession | null): void {
   trackSessionStatus(Boolean(session));
 }
 
+function notifyParentAuthState(
+  status: "authenticated" | "unauthenticated",
+): void {
+  if (typeof window === "undefined" || window.parent === window) return;
+  // The frame-origin handshake validates the direct parent before this state
+  // crosses the frame boundary. Opaque sandbox frames still require "*".
+  if (!getFrameOrigin()) return;
+  const targetOrigin = getFramePostMessageTargetOrigin();
+  if (!targetOrigin) return;
+  try {
+    window.parent.postMessage(
+      {
+        type: "agentNative.authState",
+        data: { status },
+      },
+      targetOrigin,
+    );
+    // coercion-ok: Posting auth state is best-effort when an embedded host is being detached.
+  } catch {
+    // A host may revoke the frame while the session request is settling.
+  }
+}
+
+function invalidateSessionCache(): void {
+  sessionGeneration += 1;
+  cachedSession = undefined;
+  cachedSessionAt = 0;
+  sessionRequest = undefined;
+  invalidateClientStatusRequest(SESSION_STATUS_PATH);
+  for (const subscriber of sessionInvalidationSubscribers) subscriber();
+}
+
+function installSessionInvalidationListeners(): void {
+  if (
+    sessionInvalidationListenersInstalled ||
+    typeof window === "undefined" ||
+    typeof document === "undefined"
+  ) {
+    return;
+  }
+  sessionInvalidationListenersInstalled = true;
+
+  window.addEventListener("focus", invalidateSessionCache);
+  window.addEventListener("storage", (event) => {
+    if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
+      invalidateSessionCache();
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      invalidateSessionCache();
+    }
+  });
+}
+
+/** Tell mounted session consumers to re-check auth after a logout. */
+export function notifySessionInvalidated(): void {
+  if (typeof window === "undefined") return;
+  installSessionInvalidationListeners();
+  invalidateSessionCache();
+  try {
+    window.localStorage.setItem(
+      SESSION_INVALIDATION_STORAGE_KEY,
+      `${Date.now()}:${Math.random()}`,
+    );
+  } catch (error) {
+    console.warn("Unable to broadcast session invalidation", error);
+  }
+}
+
 function fetchSharedSession(): Promise<AuthSession | null | undefined> {
   if (hasFreshSessionCache()) return Promise.resolve(cachedSession ?? null);
   if (sessionRequest) return sessionRequest;
 
-  sessionRequest = (async () => {
+  const requestGeneration = sessionGeneration;
+  let request: Promise<AuthSession | null | undefined>;
+  const requestResult = (async () => {
     try {
       const result = await fetchAuthSessionStatus();
       if (result.state === "unavailable") return undefined;
+      if (requestGeneration !== sessionGeneration) return undefined;
       const data = result.value as AuthSession & { error?: unknown };
       const session = data.error ? null : (data as AuthSession);
       cachedSession = session;
@@ -79,9 +161,12 @@ function fetchSharedSession(): Promise<AuthSession | null | undefined> {
     } catch {
       return undefined;
     }
-  })().finally(() => {
-    sessionRequest = undefined;
+  })();
+  request = requestResult.finally(() => {
+    if (sessionRequest === request) sessionRequest = undefined;
   });
+
+  sessionRequest = request;
 
   return sessionRequest;
 }
@@ -96,6 +181,7 @@ function fetchSharedSession(): Promise<AuthSession | null | undefined> {
  * Templates should use this instead of building their own auth context.
  */
 export function useSession(): UseSessionResult {
+  installSessionInvalidationListeners();
   const cached = hasFreshSessionCache() ? (cachedSession ?? null) : null;
   const [session, setSession] = useState<AuthSession | null>(cached);
   const [status, setStatus] = useState<SessionStatus>(() => {
@@ -104,11 +190,22 @@ export function useSession(): UseSessionResult {
   });
   const [error, setError] = useState<Error | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [invalidationToken, setInvalidationToken] = useState(0);
 
   const retry = useCallback(() => {
     setError(null);
     setStatus("loading");
     setRetryToken((token) => token + 1);
+  }, []);
+
+  useEffect(() => {
+    const subscriber = () => {
+      setInvalidationToken((token) => token + 1);
+    };
+    sessionInvalidationSubscribers.add(subscriber);
+    return () => {
+      sessionInvalidationSubscribers.delete(subscriber);
+    };
   }, []);
 
   useEffect(() => {
@@ -138,6 +235,7 @@ export function useSession(): UseSessionResult {
       setSession(resolved);
       setError(null);
       setStatus(resolved ? "authenticated" : "unauthenticated");
+      notifyParentAuthState(resolved ? "authenticated" : "unauthenticated");
     };
 
     void resolveSession();
@@ -145,7 +243,7 @@ export function useSession(): UseSessionResult {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [retryToken]);
+  }, [invalidationToken, retryToken]);
 
   // Callers that only read `isLoading`/`session` (most of the codebase, not
   // yet migrated to `status`) must not see "unavailable" as "signed out" —

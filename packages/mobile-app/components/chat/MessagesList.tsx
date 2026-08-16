@@ -1,7 +1,7 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { IconArrowDown } from "@tabler/icons-react-native";
 import { useCallback, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { KeyboardGestureArea } from "react-native-keyboard-controller";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
@@ -129,8 +129,6 @@ export function MessagesList({
           maintainScrollAtEndThreshold={0.15}
           alignItemsAtEnd
           initialScrollIndex={rows.length > 0 ? rows.length - 1 : undefined}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingTop: 12, paddingBottom: bottomInset }}
           onScroll={(event) => {
             const { contentOffset, contentSize, layoutMeasurement } =
@@ -141,6 +139,12 @@ export function MessagesList({
           }}
           scrollEventThrottle={32}
           showsVerticalScrollIndicator={false}
+          {...(Platform.OS === "web"
+            ? {}
+            : {
+                keyboardDismissMode: "interactive" as const,
+                keyboardShouldPersistTaps: "handled" as const,
+              })}
         />
       </KeyboardGestureArea>
 
@@ -164,12 +168,17 @@ export function MessagesList({
 
       {rows.length === 0 && !chat.historyLoading && (
         <View
-          className="absolute inset-0 items-center justify-center px-8"
-          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center px-5"
+          pointerEvents="box-none"
         >
-          <Text className="text-white text-lg font-semibold text-center">
-            What can I help with?
-          </Text>
+          <View className="items-center">
+            <Text className="text-white text-[22px] font-bold text-center">
+              Start a chat
+            </Text>
+            <Text className="mt-2 text-center text-[14px] text-text-muted">
+              Ask across your workspace.
+            </Text>
+          </View>
         </View>
       )}
     </View>

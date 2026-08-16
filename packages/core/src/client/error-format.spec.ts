@@ -5,8 +5,30 @@ import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
   formatChatErrorText,
+  localizeKnownChatErrorText,
   normalizeChatError,
 } from "./error-format.js";
+
+function interpolate(
+  key: string,
+  options: Record<string, unknown> = {},
+): string {
+  const messages: Record<string, string> = {
+    "agentChat.errorMessages.builderAuthentication":
+      "Builder hat die verbundenen Anmeldedaten abgelehnt.",
+    "agentChat.errorMessages.providerAuthentication":
+      "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
+    "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
+    "agentChat.errorMessages.openBuilderSpaceSettings":
+      "Builder-Space-Einstellungen öffnen",
+    "agentChat.errorMessages.startNewChat": "Neuen Chat starten",
+    "agentChat.errorMessages.upgradeAtBuilder": "Upgrade bei Builder.io",
+  };
+  return (messages[key] ?? String(options.defaultValue ?? key)).replace(
+    /{{\s*(\w+)\s*}}/g,
+    (_, name: string) => String(options[name] ?? ""),
+  );
+}
 
 describe("formatChatErrorText", () => {
   const agentNativeUpgradeUrl =
@@ -104,6 +126,22 @@ describe("formatChatErrorText", () => {
     );
     expect(normalized.details).toBe("429 status code (no body)");
     expect(normalized.message).not.toContain("no body");
+  });
+
+  it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
+    const raw =
+      '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
+    const normalized = normalizeChatError(raw);
+
+    expect(normalized.message).toBe(
+      "The model provider is overloaded right now. Wait a moment, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+    expect(normalized.message).not.toContain("request_id");
+    expect(normalized.message).not.toContain("overloaded_error");
+    expect(formatChatErrorText(raw)).toBe(
+      "Error: The model provider is overloaded right now. Wait a moment, then retry.",
+    );
   });
 
   it("formats provider rate limits as a plain retryable user message", () => {
@@ -250,5 +288,67 @@ describe("formatChatErrorText", () => {
       "The agent connection was interrupted. Check your connection and retry.",
     );
     expect(normalized.details).toBe("connection_error");
+  });
+});
+
+describe("localizeKnownChatErrorText", () => {
+  it("localizes the normalized Builder authentication recovery message", () => {
+    const normalized = normalizeChatError(
+      "Builder rejected this request.",
+      "builder_auth_error",
+    );
+
+    expect(localizeKnownChatErrorText(normalized.message, interpolate)).toBe(
+      "Builder hat die verbundenen Anmeldedaten abgelehnt.",
+    );
+  });
+
+  it("localizes Core-owned errors and their markdown actions", () => {
+    expect(
+      localizeKnownChatErrorText(
+        "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.\n\n[Start new chat](agent-native:new-chat)",
+        interpolate,
+      ),
+    ).toBe(
+      "Fehler: Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.\n\n[Neuen Chat starten](agent-native:new-chat)",
+    );
+  });
+
+  it.each([
+    [
+      "Open Builder space settings",
+      BUILDER_SPACE_SETTINGS_URL,
+      "Builder-Space-Einstellungen öffnen",
+    ],
+    [
+      "Upgrade at builder.io",
+      "https://builder.io/upgrade",
+      "Upgrade bei Builder.io",
+    ],
+  ])("localizes the %s action label", (label, href, localizedLabel) => {
+    expect(
+      localizeKnownChatErrorText(
+        `Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.\n\n[${label}](${href})`,
+        interpolate,
+      ),
+    ).toBe(
+      `Fehler: Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.\n\n[${localizedLabel}](${href})`,
+    );
+  });
+
+  it("localizes a known action when the error body is unknown", () => {
+    expect(
+      localizeKnownChatErrorText(
+        "Error: Monthly credits limit reached.\n\n[Start new chat](agent-native:new-chat)",
+        interpolate,
+      ),
+    ).toBe(
+      "Error: Monthly credits limit reached.\n\n[Neuen Chat starten](agent-native:new-chat)",
+    );
+  });
+
+  it("leaves raw provider details unchanged", () => {
+    const raw = "401 status code (no body)";
+    expect(localizeKnownChatErrorText(raw, interpolate)).toBe(raw);
   });
 });

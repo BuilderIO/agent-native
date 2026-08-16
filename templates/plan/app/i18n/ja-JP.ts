@@ -386,6 +386,8 @@ const messages = {
         "デフォルトでは非公開です。人を招待したり、組織と共有したり、リンクを知っている人全員がレビューできるように「公開」を設定したりできます。",
       peopleAccess: "{{noun}} アクセス権を持つ人",
       generalAccess: "一般的な {{noun}} アクセス",
+      commenterRoleLabel: "コメント投稿者",
+      commenterRoleDescription: "閲覧してコメントを追加できます",
       shareAria: "{{noun}}をシェアする",
       share: "{{noun}}をシェアする",
       shareThis: "この {{noun}} を共有する",

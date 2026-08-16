@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
+  listWorkspaceApps: vi.fn(),
   getUserSetting: vi.fn(),
   getOrgSetting: vi.fn(),
   createEmbedSessionTicket: vi.fn(),
@@ -16,13 +17,28 @@ const mocks = vi.hoisted(() => ({
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
   signA2AToken: vi.fn(),
+  canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
   getOrgDomain: vi.fn(),
+  isFeatureFlagEnabled: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: mocks.discoverAgents,
 }));
+
+vi.mock("./app-creation-store.js", () => ({
+  listWorkspaceApps: mocks.listWorkspaceApps,
+}));
+
+vi.mock("@agent-native/core/feature-flags", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/feature-flags")>();
+  return {
+    ...actual,
+    isFeatureFlagEnabled: mocks.isFeatureFlagEnabled,
+  };
+});
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
@@ -56,6 +72,7 @@ vi.mock("@agent-native/core/a2a", () => ({
     }
   },
   signA2AToken: mocks.signA2AToken,
+  canonicalA2AAudience: mocks.canonicalA2AAudience,
 }));
 
 vi.mock("@agent-native/core/org", () => ({
@@ -89,6 +106,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
   createGrantedDispatchMcpEmbedSession,
+  createWorkspaceSsoEmbedSession,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
   listGrantedDispatchMcpApps,
@@ -111,6 +129,7 @@ beforeEach(() => {
   mocks.a2aGetTask.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
+  mocks.listWorkspaceApps.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
   mocks.getOrgSetting.mockResolvedValue({ mode: "all-apps" });
   mocks.createEmbedSessionTicket.mockResolvedValue({
@@ -138,6 +157,7 @@ beforeEach(() => {
   mocks.signA2AToken.mockResolvedValue("signed-token");
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
+  mocks.isFeatureFlagEnabled.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -864,6 +884,178 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
+  it("keeps workspace sign-in behind the rollout flag", async () => {
+    mocks.isFeatureFlagEnabled.mockResolvedValueOnce(false);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).rejects.toThrow(/not enabled/);
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("allows an exact canonical app without requiring an MCP app grant", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: [],
+    });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "analytics",
+          path: "/overview",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      startUrl:
+        "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
+  it("allows custom mounted workspace apps from the live workspace registry", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://agent-workspace.builder.io/atlas/_agent-native/embed/start?ticket=remote",
+      },
+    });
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "atlas",
+        name: "Atlas",
+        description: "Workspace app",
+        path: "/atlas",
+        url: "https://agent-workspace.builder.io/atlas",
+        isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "atlas",
+          path: "/",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "atlas",
+      startUrl:
+        "https://agent-workspace.builder.io/atlas/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://agent-workspace.builder.io/atlas/mcp",
+        }),
+      },
+    });
+  });
+
+  it("allows an exact custom registry entry and rejects an unregistered external app", async () => {
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "workspace",
+          clientId: "workspace-client",
+          origin: "https://workspace.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "workspace",
+        name: "Workspace",
+        description: "Custom workspace app",
+        url: "https://workspace.example.com",
+        color: "#111827",
+      },
+      {
+        id: "unregistered",
+        name: "Unregistered",
+        description: "External app without registration",
+        url: "https://unregistered.example.com",
+        color: "#111827",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://workspace.example.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "workspace",
+            path: "/home",
+          }),
+      ),
+    ).resolves.toMatchObject({ app: "workspace" });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "unregistered",
+            path: "/home",
+          }),
+      ),
+    ).rejects.toThrow(/not registered/);
+  });
+
   it("rejects traversal into Dispatch-owned embed routes on sibling apps", async () => {
     await expect(
       runWithRequestContext(
@@ -878,6 +1070,54 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           }),
       ),
     ).rejects.toThrow(/safe app-relative route/);
+  });
+
+  it("resolves target-relative embed start URLs against the granted app", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl: "/_agent-native/embed/start?ticket=relative",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/overview",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=relative",
+    );
+  });
+
+  it("rejects cross-origin embed start URLs from a granted app", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl: "https://attacker.example/steal?ticket=remote",
+      },
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/overview",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow(/invalid embed start URL/);
   });
 
   it("rejects a URL that does not belong to the explicitly named app", async () => {
@@ -905,6 +1145,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         url: "http://localhost:8092/analytics",
       },
     ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "http://localhost:8092/analytics/_agent-native/embed/start?ticket=remote",
+      },
+    });
 
     const result = await runWithRequestContext(
       {
@@ -934,7 +1180,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
     expect(result).toEqual({
       app: "analytics",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      startUrl:
+        "http://localhost:8092/analytics/_agent-native/embed/start?ticket=remote",
     });
   });
 
@@ -955,6 +1202,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         color: "#2563EB",
       },
     ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
 
     const result = await runWithRequestContext(
       {
@@ -976,7 +1229,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
     expect(result).toEqual({
       app: "mail",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=remote",
     });
   });
 
@@ -1003,6 +1257,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-specific-secret",
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: false,
       },
     );
@@ -1031,6 +1286,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );
@@ -1059,6 +1315,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );

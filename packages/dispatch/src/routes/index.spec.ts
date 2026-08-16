@@ -18,6 +18,7 @@ describe("Dispatch route registration", () => {
     expect(paths).toContain("browser-connect");
     expect(paths).toContain("operations");
     expect(paths).toContain("admin");
+    expect(paths).toContain("agents");
     expect(paths.indexOf("chat")).toBeLessThan(paths.indexOf(":appId"));
     expect(paths.indexOf("chat/:threadId")).toBeLessThan(
       paths.indexOf(":appId"),

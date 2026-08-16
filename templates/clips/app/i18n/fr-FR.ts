@@ -265,6 +265,41 @@ const messages = {
     linkExpired: "Lien expiré",
     linkExpiredMessage:
       "Le créateur a fixé une expiration sur ce lien de partage.",
+    privateClip: "Clip privé",
+    privateClipMessage:
+      "Ce clip est privé. Demandez l’accès et le propriétaire sera prévenu.",
+    privateClipSignedOutMessage:
+      "Ce clip est privé. Connectez-vous ou saisissez votre adresse e-mail pour demander l’accès.",
+    requestAccess: "Demander l’accès",
+    requestAccessDialogTitle: "Demander l’accès",
+    requestAccessDialogDescription:
+      "Choisissez comment le propriétaire doit vous identifier pour partager ce clip.",
+    requestAccessSignIn: "Se connecter ou s’inscrire",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Adresse e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Après l’octroi de l’accès, connectez-vous avec cette adresse pour voir le clip.",
+    requestAccessWithEmail: "Demander par e-mail",
+    requestAccessEmailRequired: "Saisissez une adresse e-mail valide.",
+    requestingAccess: "Demande d’accès...",
+    accessRequested: "Accès demandé",
+    accessRequestSent: "Le propriétaire du clip a été prévenu.",
+    accessRequestSentWithEmail:
+      "Le propriétaire a été invité à partager ce clip avec {{email}}.",
+    accessRequestFailed: "Impossible de demander l’accès. Veuillez réessayer.",
+    accessApprovalTitle: "Accès accordé",
+    accessApprovalAlreadyTitle: "Accès déjà accordé",
+    accessApprovalMessage: "{{email}} peut maintenant voir ce clip.",
+    accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce clip.",
+    accessApprovalErrorTitle: "Impossible d’accorder l’accès",
+    accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",
+    accessApprovalSignInTitle: "Connectez-vous pour autoriser l’accès",
+    accessApprovalSignInMessage:
+      "Connectez-vous en tant que propriétaire ou administrateur du clip pour approuver cette demande.",
+    accessApprovalOpenClip: "Ouvrir le clip",
+    accessApprovalSignIn: "Se connecter",
+    accessApprovalLoading: "Accès en cours...",
     clipUnavailable: "Extrait indisponible",
     clipUnavailableMessage:
       "Cet enregistrement n'est pas public ou le lien n'est pas valide. S'il s'agit de votre clip, connectez-vous pour vérifier l'accès.",
@@ -520,8 +555,13 @@ const messages = {
     },
     roles: {
       viewer: "Téléspectateur",
+      commenter: "Commentateur",
       editor: "Éditeur",
       admin: "Administrateur",
+    },
+    recordingCommenter: {
+      label: "Commentateur",
+      description: "Peut voir, commenter et réagir",
     },
   },
   quickAsk: {
@@ -660,13 +700,13 @@ const messages = {
     collapse: "Replier",
     changelogMarkdown: `# Journal des modifications
 
-Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd+K -> "Nouveautés") ou depuis les paramètres.
+Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd K -> "Nouveautés") ou depuis les paramètres.
 
 ## 2026-06-23
 
 ### Ajouté
 
-- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd+K) et dans les paramètres.`,
+- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd K) et dans les paramètres.`,
     playback: "Lecture",
     defaultPlaybackSpeed: "Vitesse de lecture par défaut",
     playbackDescription:
@@ -993,6 +1033,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     includeTranscriptDescription:
       "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
     transcriptUnavailable: "La transcription n’est pas encore prête.",
+    agentLinkDescription:
+      "Ce lien temporaire permet aux agents de lire ces notes de réunion sans les rendre publiques. Il expire après deux heures.",
     transcript: "Transcription",
     copyTranscript: "Copier la transcription",
     transcriptCopied: "Transcription copiée",
@@ -1111,6 +1153,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     searchNextMatch: "Résultat suivant",
     searchClose: "Fermer la recherche",
   },
+  bulletLink: {
+    jumpToTranscript: "Aller à {{time}} dans la transcription",
+    noMatchingMoment: "Aucun moment correspondant trouvé",
+  },
   editorLayout: {
     trimmed: "Découpé",
     trimFailed: "Échec du découpage",
@@ -1219,7 +1265,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     seekTo: "Seek to {{time}} (Localisé)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (Localisé)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (Localisé)",
     playPauseTooltip: "Play / Pause (Space) (Localisé)",
     sourceDuration: "({{duration}} src) (Localisé)",
     previewSpeed: "Preview speed (Localisé)",
@@ -1569,13 +1615,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     transcriptPending: "Transcript pending (Localisé)",
     notesPending: "Notes pending (Localisé)",
     pastRecordings: "Past recordings (Localisé)",
+    loadOlder: "Charger les plus anciens",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
     connectGoogleCalendar: "Connect Google Calendar (Localisé)",
-    googleMayShowWarning: "Vérifier l’accès Google",
-    googleNotVerifiedTitle: "Vérifiez l’application avant de vous connecter",
-    googleWarningBeforeAdvanced:
-      "Vérifiez que le nom de l’application et l’accès à Calendar demandé correspondent au déploiement Clips auquel vous faites confiance. Si Google affiche un avertissement d’application non vérifiée ou si l’identité vous semble inconnue, arrêtez-vous et contactez l’administrateur de votre espace de travail.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localisé)",
     getDesktopApp: "Get desktop app (Localisé)",
@@ -1584,6 +1627,16 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     calendarConnected: "Calendar connected (Localisé)",
     calendarDisconnected: "Calendar disconnected (Localisé)",
     calendarSettings: "Calendar settings (Localisé)",
+    calendarAccountsButton: "Calendriers",
+    connectedAccounts: "Comptes connectés",
+    calendarConnectedLabel: "Connecté",
+    calendarNeedsReconnectLabel: "Reconnexion requise",
+    calendarDisconnectedLabel: "Déconnecté",
+    calendarStatusUnavailable: "État indisponible",
+    reconnectCalendar: "Reconnecter le calendrier",
+    addAnotherCalendarAccount: "Ajouter un autre compte",
+    connectCalendar: "Connecter le calendrier",
+    disconnectCalendarAccount: "Déconnecter un compte",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (Localisé)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Localisé)",

@@ -61,9 +61,9 @@ const slidesCanvasInteractionConfig = {
   minSize: MIN_SLIDE_OBJECT_SIZE,
   capabilities: {
     multiSelection: true,
-    snapping: false,
-    alignment: false,
-    distribution: false,
+    snapping: true,
+    alignment: true,
+    distribution: true,
     grouping: false,
     rotation: false,
     marquee: true,
@@ -74,6 +74,17 @@ export function createSlidesCanvasInteractionCore(
   adapter?: SlidesCanvasHtmlMutationAdapter,
 ) {
   return createCanvasInteractionCore(slidesCanvasInteractionConfig, adapter);
+}
+
+/**
+ * Slides only nudges selected layers for plain arrows and Shift+arrows. Other
+ * modifier chords stay native so browser and editing shortcuts keep working.
+ */
+export function resolveSlidesCanvasNudge(
+  input: Parameters<typeof slidesCanvasInteractionCore.nudge>[0],
+) {
+  if (input.altKey || input.ctrlKey || input.metaKey) return null;
+  return slidesCanvasInteractionCore.nudge(input);
 }
 
 /** Creates one shared controller per live Slides pointer gesture. */
@@ -140,8 +151,11 @@ export function resolveSlidesCanvasPointerIntent({
   ) {
     return "move-object-perimeter";
   }
+  // The interior of an editable text object belongs to native text selection.
+  // Only the measured outer edge is reserved for moving the selected object.
+  if (targetIsEditableText) return "edit-text";
   if (hasSelectedObject && targetWithinSelectedObject) {
     return "move-object-body";
   }
-  return targetIsEditableText ? "edit-text" : "none";
+  return "none";
 }

@@ -7,6 +7,8 @@ export interface SettingsGroupProps {
   id?: string;
   title?: string;
   description?: string;
+  /** Use a soft card surface when separators would add unnecessary chrome. */
+  variant?: "default" | "soft";
   className?: string;
   children: ReactNode;
 }
@@ -20,6 +22,7 @@ export function SettingsGroup({
   id,
   title,
   description,
+  variant = "default",
   className,
   children,
 }: SettingsGroupProps) {
@@ -37,8 +40,21 @@ export function SettingsGroup({
           )}
         </header>
       )}
-      <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
-        <div className="divide-y divide-border/60">{children}</div>
+      <div
+        className={cn(
+          "text-card-foreground",
+          variant === "soft"
+            ? "rounded-xl bg-card p-1 shadow-sm"
+            : "overflow-hidden rounded-xl border border-border/70 bg-card",
+        )}
+      >
+        <div
+          className={
+            variant === "soft" ? "grid gap-1" : "divide-y divide-border/60"
+          }
+        >
+          {children}
+        </div>
       </div>
     </section>
   );
@@ -75,9 +91,15 @@ export function SettingsRow({
   className,
 }: SettingsRowProps) {
   return (
-    <div id={id} className={cn("scroll-mt-16 px-5 py-4 sm:px-6", className)}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 gap-3">
+    <div
+      id={id}
+      className={cn(
+        "agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6",
+        className,
+      )}
+    >
+      <div className="agent-native-settings-row__layout flex flex-col gap-3">
+        <div className="agent-native-settings-row__main flex min-w-0 flex-1 gap-3">
           {icon && (
             <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground [&>svg]:size-[18px]">
               {icon}
@@ -98,7 +120,9 @@ export function SettingsRow({
           </div>
         </div>
         {control && (
-          <div className="shrink-0 sm:ms-4 sm:text-end">{control}</div>
+          <div className="agent-native-settings-row__control max-w-full shrink-0">
+            {control}
+          </div>
         )}
       </div>
       {children && <div className="mt-4">{children}</div>}

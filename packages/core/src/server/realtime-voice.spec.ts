@@ -406,6 +406,11 @@ describe("realtime voice session route", () => {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "chat-history",
+        description: "Search previous conversations",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
         name: "tool-search",
         description: "Discover tools",
         inputSchema: { type: "object", properties: {} },
@@ -423,13 +428,14 @@ describe("realtime voice session route", () => {
     const request = JSON.parse(String(init.body));
     expect(
       request.session.tools
-        .slice(0, 5)
+        .slice(0, 6)
         .map((tool: { name: string }) => tool.name),
     ).toEqual([
       "navigate",
       "set-url-path",
       "set-search-params",
       "view-screen",
+      "chat-history",
       "tool-search",
     ]);
     expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
@@ -674,6 +680,8 @@ describe("realtime voice session route", () => {
     expect(realtimeSession.instructions).toContain(
       "The current view is the calendar.",
     );
+    expect(realtimeSession.instructions).toContain("chat-history");
+    expect(realtimeSession.instructions).toContain("finish or correct");
   });
 
   it("never returns the API key on missing/upstream failures", async () => {

@@ -14,7 +14,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
@@ -28,6 +31,10 @@ import {
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
+import {
+  isOpaqueDeckTitle,
+  resolveImportedDeckTitle,
+} from "../shared/deck-title.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -144,6 +151,7 @@ export default defineAction({
         await assertAccess("deck", deckId, "editor");
         const pptxOwnerEmail = getRequestUserEmail();
         if (!pptxOwnerEmail) throw new Error("no authenticated user");
+        assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
         const uploadLimit = pLimit(4);
         const pptxResults = await Promise.all(
@@ -158,6 +166,10 @@ export default defineAction({
           (total, r) => total + r.imageSkippedCount,
           0,
         );
+        const tablesDegraded = presentation.slides.reduce(
+          (total, s) => total + (s.tablesDegraded ?? 0),
+          0,
+        );
         const sourceImport = buildSourceImportMetadata({
           format: "pptx",
           slides: pptxResults.map((result) => ({
@@ -168,6 +180,7 @@ export default defineAction({
             editableText: true,
           })),
           imagesSkipped,
+          tablesDegraded,
         });
         if (imagesSkipped > 0) {
           throw new Error(
@@ -181,22 +194,25 @@ export default defineAction({
                 presentation.slides[0].heightEmu,
               )
             : undefined;
-        await appendDeckSlides(
+        const importedTitle = await appendDeckSlides(
           deckId,
           title,
           slides,
           "import-file:pptx",
           aspectRatio,
           sourceImport,
+          pptxResults[0]?.sourceText,
+          presentation.theme,
         );
         return {
           format: "pptx",
-          title,
+          title: importedTitle,
           slideCount: slides.length,
           theme: presentation.theme,
           deckId,
           imported: true,
           ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+          ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
         };
       }
 
@@ -240,10 +256,18 @@ export default defineAction({
           layout: "content",
           notes: "",
         }));
-        await appendDeckSlides(deckId, title, slides, "import-file:docx");
+        const importedTitle = await appendDeckSlides(
+          deckId,
+          title,
+          slides,
+          "import-file:docx",
+          undefined,
+          undefined,
+          doc.text,
+        );
         return {
           format: "docx",
-          title,
+          title: importedTitle,
           sectionCount: doc.sections.length,
           slideCount: slides.length,
           textLength: doc.text.length,
@@ -514,28 +538,35 @@ async function importPdfPagesWithFidelity(args: {
     ),
   );
   const slides = imported.map((entry) => entry.slide);
+  const imagesSkipped = fidelityPages.reduce(
+    (total, page) => total + page.imagesSkipped,
+    0,
+  );
   const sourceImport = buildSourceImportMetadata({
     format: "pdf",
     slides: imported.map((entry) => entry.snapshot),
+    imagesSkipped,
   });
 
-  await appendDeckSlides(
+  const importedTitle = await appendDeckSlides(
     deckId,
     title,
     slides,
     "import-file:pdf",
     aspectRatio,
     sourceImport,
+    imported[0]?.snapshot.text,
   );
 
   return {
     format: "pdf",
-    title,
+    title: importedTitle,
     pageCount: slides.length,
     slideCount: slides.length,
     aspectRatio,
     deckId,
     imported: true,
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
   };
 }
 
@@ -586,7 +617,7 @@ async function buildPptxSlide(
 
 function titleFromPath(filePath: string): string {
   const base = path.basename(filePath, path.extname(filePath)).trim();
-  return base || "Imported File";
+  return base && !isOpaqueDeckTitle(base) ? base : "Imported File";
 }
 
 function normalizePdfPages(result: unknown): { num: number; text: string }[] {
@@ -673,7 +704,9 @@ async function appendDeckSlides(
   source: string,
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
-) {
+  titleSource?: unknown,
+  theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
+): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
   // Read-modify-write under the shared per-deck lock used by patch-deck /
@@ -681,6 +714,7 @@ async function appendDeckSlides(
   // with another import or an editor/agent slide mutation on the same deck
   // could read stale data and clobber the other write when both save the
   // whole decks.data blob back.
+  let resolvedTitle = title;
   const now = await withDeckLock(deckId, async () => {
     const db = getDb();
     const existing = await db
@@ -705,7 +739,10 @@ async function appendDeckSlides(
     // had no slides yet, otherwise resizing the canvas mid-deck would distort
     // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
-    const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
+    const nextTitle = hadExistingSlides
+      ? (existing[0].title ?? title)
+      : resolveImportedDeckTitle(title, titleSource ?? slides[0]?.content);
+    resolvedTitle = nextTitle;
     const nextSourceImport = sourceImport
       ? mergeSourceImportMetadata(
           sourceImportForDeck(previousData.sourceImport),
@@ -717,6 +754,15 @@ async function appendDeckSlides(
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      // Same rule as aspectRatio above: an appended file's palette only
+      // becomes the deck's theme when the deck had no slides yet, so
+      // appending onto an existing deck can't silently restyle every slide
+      // already on it. Deliberately keyed on slides rather than on whether a
+      // theme already exists: export writes one deck-level theme (OOXML allows
+      // one per master), so with zero slides there is nothing to protect, and
+      // refusing a new theme there would strand a deck whose slides were
+      // deleted with the old file's palette, unfixable by re-importing.
+      ...(!hadExistingSlides && theme ? { theme } : {}),
       ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };
@@ -735,6 +781,7 @@ async function appendDeckSlides(
 
   notifyClients(deckId);
   await writeAppState("refresh-signal", { ts: now, source });
+  return resolvedTitle;
 }
 
 function safeParseDeckData(raw: string): Record<string, unknown> {

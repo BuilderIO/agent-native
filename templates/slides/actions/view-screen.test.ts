@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hashSlideContent } from "../shared/slide-fit";
+
 let mockRows: unknown[] = [];
 let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
+let slideFitState: Record<string, unknown> | null = null;
+let deckFitState: Record<string, unknown> | null = null;
 
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
@@ -28,6 +32,8 @@ vi.mock("./_tab-state.js", () => ({
   readAppStateForCurrentTab: vi.fn(async (key: string) => {
     if (key === "navigation") return navigationState;
     if (key === "slides-selection") return slidesSelectionState;
+    if (key === "slide-fit-check") return slideFitState;
+    if (key === "deck-fit-checks") return deckFitState;
     return null;
   }),
 }));
@@ -55,6 +61,8 @@ beforeEach(() => {
   mockRows = [];
   navigationState = null;
   slidesSelectionState = null;
+  slideFitState = null;
+  deckFitState = null;
 });
 
 describe("view-screen", () => {
@@ -144,10 +152,34 @@ describe("view-screen", () => {
 
     const result = await action.run({});
 
+    expect(result).toContain("selectionSlideId: slide-a");
     expect(result).toContain("mode: box-selected");
     expect(result).toContain('selector=[data-slide-object-id="object-1"]');
     expect(result).toContain("objectId: object-1");
     expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
+  });
+
+  it("does not surface a selection from a different slide", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [{ id: "slide-a", layout: "blank", content: "<p>A</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      slideId: "slide-b",
+      mode: "single",
+      items: [{ selector: '[data-builder-id="b-8"]' }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("### Current visual selection");
   });
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {
@@ -162,5 +194,58 @@ describe("view-screen", () => {
     expect(result).toContain("id=deck_1");
     expect(result).not.toContain("id=deck_2");
     expect(result).toContain("Decks created by current user (1 of 2)");
+  });
+
+  it("lets the current slide measurement override a stale deck-wide fit claim", async () => {
+    const slideAContent = "<p>A</p>";
+    const slideBContent = "<p>B</p>";
+    const measurement = (content: string, verticalOverflow = 0) => ({
+      contentHash: hashSlideContent(content),
+      contentHeight: verticalOverflow > 0 ? 645 : 380,
+      contentWidth: 740,
+      viewportHeight: 420,
+      viewportWidth: 740,
+      verticalOverflow,
+      horizontalOverflow: 0,
+      measuredAt: 2000,
+    });
+
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          aspectRatio: "16:9",
+          slides: [
+            { id: "slide-a", content: slideAContent },
+            { id: "slide-b", content: slideBContent },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    deckFitState = {
+      deckId: "deck-1",
+      aspectRatio: "16:9",
+      slides: {
+        "slide-a": measurement(slideAContent),
+        "slide-b": measurement(slideBContent),
+      },
+    };
+    slideFitState = {
+      ...measurement(slideAContent, 225),
+      slideId: "slide-a",
+      deckId: "deck-1",
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### ⚠ Layout overflows the canvas");
+    expect(result).toContain(
+      "Overflow detected on 1 slide(s): slide 1 (225px vertical, 0px horizontal).",
+    );
+    expect(result).not.toContain(
+      "All 2 slides fit their measured content area.",
+    );
   });
 });

@@ -82,7 +82,7 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
   readAppSecrets: vi.fn(async () => new Map()),
 }));
 
-const { runBackgroundAutomation } =
+const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
   await import("./background-automation-runner.js");
 
 function dispatchModeOf(runId: string): string | null {
@@ -99,6 +99,10 @@ const testEngine = {
 } as any;
 
 describe("runBackgroundAutomation — background-run self-claim", () => {
+  it("keeps the outer hard timeout at the ten-minute background budget", () => {
+    expect(BACKGROUND_RUN_HARD_TIMEOUT_MS).toBe(10 * 60_000);
+  });
+
   it("self-claims its own run into background-processing instead of leaving it as an unclaimed background dispatch", async () => {
     const automation = {
       name: "daily-digest",
@@ -144,7 +148,13 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       {
         automation: {
           name: "weekly-report",
-          meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+          meta: {
+            schedule: "* * * * *",
+            enabled: true,
+            model: "test-model",
+            maxIterations: 9,
+            maxRunInputTokens: 123_456,
+          },
           body: "Render the weekly report.",
           resource: {
             owner: "alice@agent-native.test",
@@ -166,7 +176,11 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     );
 
     const call = vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1);
-    expect(call?.[0]).toMatchObject({ appId: "calendar" });
+    expect(call?.[0]).toMatchObject({
+      appId: "calendar",
+      maxIterations: 9,
+      maxRunInputTokens: 123_456,
+    });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
   });
   // History is a record ABOUT the run. If the history table is unwritable the

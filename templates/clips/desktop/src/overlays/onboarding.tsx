@@ -127,6 +127,7 @@ export function Onboarding() {
           clipsEnabled: clips,
           meetingsEnabled: meetings,
           voiceEnabled: voice,
+          voiceCleanupEnabled: true,
           launchAtLoginEnabled: true,
           autoHidePopoverEnabled: false,
           meetingTranscriptionMode: "ask",

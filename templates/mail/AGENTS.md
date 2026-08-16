@@ -3,8 +3,6 @@
 Mail is an agent-native inbox: read and triage messages, draft and queue
 replies, and update mail state through actions and application state.
 
-Prompt cap ~6,000 chars; put detail in `.agents/skills/*`.
-
 ## Skills
 
 Read the relevant skill before deeper work:
@@ -18,10 +16,6 @@ Read the relevant skill before deeper work:
 - `mail-backends` for real Gmail vs synthetic local fallback.
 - `inbox-automations` for automation rules and Gmail-native filters.
 - `provider-api-scans` for raw provider API calls and staged large scans.
-- Before building common workspace or agent UI, read `agent-native-toolkit`;
-  use `customizing-agent-native` for the configure → compose → eject ladder.
-- `actions`, `storing-data`, `real-time-sync`, `security`, `frontend-design`,
-  and `shadcn-ui` for framework work.
 
 ## Core Rules
 
@@ -32,9 +26,10 @@ Read the relevant skill before deeper work:
   is connected, synthetic `local-emails` data otherwise. Call actions the same
   way either way, and never claim fallback data or a fallback send touched the
   user's real inbox.
-- Never send mail unless the user explicitly asks. Draft or queue for review by
-  default; `send-email` is `needsApproval: true`. Use `queue-email-draft` for
-  teammate or Slack-originated send requests.
+- Interactive sends require explicit user approval. Draft or queue for review by
+  default; automation-triggered sends remain approval-gated unless the owner
+  opts into Mail's "Allow automations to send emails automatically" setting.
+  Use `queue-email-draft` for teammate or Slack-originated send requests.
 - Resolve people with `find-contact` before drafting or sending. Never guess an
   address pattern; if it returns zero matches, tell the user.
 - Read `get-mail-settings` before drafting. Use the configured `signature`
@@ -72,7 +67,7 @@ Read the relevant skill before deeper work:
 | `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
 | `create-attachment-upload` | Short-lived upload URL for an attachment. |
 | `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` | Real send; `needsApproval: true`. |
+| `send-email` | Real send; interactive calls require approval, while automation calls require the Mail opt-in setting. |
 | `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
@@ -92,3 +87,8 @@ Read the relevant skill before deeper work:
 - `navigate` moves the UI via `view`, `threadId`, `settingsSection`,
   `queuedDraftId`, or `composeDraftId`; the accepted values are listed in
   `inbox-reads-and-triage`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

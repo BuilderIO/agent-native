@@ -3,8 +3,12 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
+  assertPatchedSlideAnimationsResolve,
   assertSourceImportOperationsPreserved,
+  assertSourceImportSlidesCovered,
+  clearOmittedAnimationsForAgentContentPatches,
   isAgentPatchCaller,
+  OperationSchema,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -213,6 +217,27 @@ describe("applyOperation — add-slide", () => {
     ]);
   });
 
+  it("keeps transition, animations, and image data on a duplicated slide", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      afterSlideId: "s1",
+      fields: {
+        content: "<p>Copy</p>",
+        transition: "fade",
+        animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+        imageUrl: "https://example.com/slide.png",
+        imageLoading: true,
+      },
+    });
+    const copy = deck.slides[1];
+    expect(copy.transition).toBe("fade");
+    expect(copy.animations).toHaveLength(1);
+    expect(copy.imageUrl).toBe("https://example.com/slide.png");
+    expect(copy.imageLoading).toBeUndefined();
+  });
+
   it("is idempotent — duplicate delivery is silently ignored", () => {
     const deck = {
       slides: [
@@ -254,6 +279,37 @@ describe("applyOperation — patch-deck-fields", () => {
     });
     expect(deck.designSystemId).toBeNull();
   });
+
+  it("recovers an opaque title from the first slide", () => {
+    const deck = {
+      title: "Untitled Deck",
+      slides: [
+        {
+          content:
+            '<div class="fmd-slide"><div style="font-size: 54px;">Agent-Native Strategy</div></div>',
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { title: "H3sVsnns-TEVUOpz9w" },
+    });
+
+    expect(deck.title).toBe("Agent-Native Strategy");
+  });
+
+  it("rejects an opaque title when no slide title is available", () => {
+    expect(() =>
+      applyOperation(
+        { title: "Untitled Deck", slides: [] },
+        {
+          op: "patch-deck-fields",
+          fields: { title: "H3sVsnns-TEVUOpz9w" },
+        },
+      ),
+    ).toThrow(/human-readable title/);
+  });
 });
 
 describe("source-imported deck structure", () => {
@@ -276,6 +332,300 @@ describe("source-imported deck structure", () => {
         { op: "delete-slide", slideId: "s1" },
       ]),
     ).not.toThrow();
+  });
+
+  it("rejects a partial deck-wide source restyle before writing", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+        {
+          id: "s3",
+          text: "three",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [{ op: "patch-slide", slideId: "s1", fields: { content: "styled" } }],
+        true,
+      ),
+    ).toThrow("Missing 2 slide(s): s2, s3");
+  });
+
+  it("accepts complete content coverage for a deck-wide source restyle", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [
+          { op: "patch-slide", slideId: "s1", fields: { content: "one" } },
+          { op: "patch-slide", slideId: "s2", fields: { content: "two" } },
+        ],
+        true,
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("animation target validation", () => {
+  const content = `<div class="fmd-slide">
+    <div><h2>Title</h2></div>
+    <div><p>Body</p></div>
+  </div>`;
+
+  const animation = (overrides: Record<string, unknown> = {}) => ({
+    id: "reveal-title",
+    elementIndex: 0,
+    elementPath: [0, 0],
+    type: "fade" as const,
+    ...overrides,
+  });
+
+  const applyAndValidate = (deck: any, operations: Operation[]) => {
+    for (const operation of operations) {
+      applyOperation(deck, operation);
+    }
+    assertPatchedSlideAnimationsResolve(deck, operations);
+  };
+
+  it("accepts paths that resolve in the final slide HTML", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [{ id: "s1", content, animations: [animation()] }],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: { content, animations: [animation()] },
+          },
+        ],
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects a stale path before persistence can accept it", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [animation({ elementPath: [9, 9] })],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              content,
+              animations: [animation({ elementPath: [9, 9] })],
+            },
+          },
+        ],
+      ),
+    ).toThrow(/reveal-title.*does not resolve/);
+  });
+
+  it("rejects duplicate reveal targets instead of creating a phantom step", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [
+                animation(),
+                animation({ id: "reveal-title-again" }),
+              ],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              animations: [
+                animation(),
+                animation({ id: "reveal-title-again" }),
+              ],
+            },
+          },
+        ],
+      ),
+    ).toThrow(/reveal-title-again.*duplicates target path 0.0/);
+  });
+
+  it("rejects elementIndex-only targets when an agent revises animations", () => {
+    expect(() =>
+      assertPatchedSlideAnimationsResolve(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [
+                {
+                  id: "legacy-target",
+                  elementIndex: 0,
+                  type: "fade" as const,
+                },
+              ],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              animations: [
+                {
+                  id: "legacy-target",
+                  elementIndex: 0,
+                  type: "fade",
+                },
+              ],
+            },
+          },
+        ],
+        { requireElementPaths: true },
+      ),
+    ).toThrow(/legacy-target.*missing elementPath/);
+  });
+
+  it("does not validate stale animation metadata for unrelated writes", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [animation({ elementPath: [99] })],
+            },
+          ],
+        },
+        [{ op: "patch-slide", slideId: "s1", fields: { notes: "Updated" } }],
+      ),
+    ).not.toThrow();
+  });
+
+  it("clears omitted animations when an agent revises slide content", () => {
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toBeUndefined();
+  });
+
+  it("preserves imported animations for source-preserving content patches", () => {
+    const sourceImport = buildSourceImportMetadata({
+      format: "pptx",
+      slides: [
+        {
+          id: "s1",
+          text: "Imported slide text",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+    const animations = [animation()];
+    const deck = {
+      sourceImport,
+      slides: [{ id: "s1", content, animations }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations, {
+      sourceImport,
+    });
+
+    expect(deck.slides[0].animations).toEqual(animations);
+  });
+
+  it("does not clear a separate explicit animation patch", () => {
+    const animations = [animation()];
+    const deck = {
+      slides: [{ id: "s1", content, animations }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+      },
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { animations },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toEqual(animations);
+  });
+
+  it("keeps an explicit complete animation list with revised content", () => {
+    const nextContent =
+      '<div class="fmd-slide"><div><h2>New title</h2></div></div>';
+    const nextAnimations = [animation({ elementPath: [0, 0] })];
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent, animations: nextAnimations },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toEqual(nextAnimations);
   });
 });
 
@@ -319,6 +669,55 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
     });
+    expect(parameters.properties.requireAllSourceSlides).toMatchObject({
+      type: "boolean",
+    });
+  });
+
+  // An untyped `animations` array sends callers probing a live deck to learn
+  // the shape, and hides that the field is a whole-list replacement.
+  it("spells out the animation entry shape and its replace semantics", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const slidePatch = parameters.properties.operations.items.anyOf.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
+    const animations = slidePatch.properties.fields.properties.animations;
+
+    expect(animations.description).toMatch(/complete ordered/i);
+    expect(animations.items.properties.type.enum).toEqual([
+      "appear",
+      "fade",
+      "slide-up",
+      "zoom",
+    ]);
+    expect(animations.items.properties).toHaveProperty("id");
+    expect(animations.items.properties).toHaveProperty("elementIndex");
+    expect(animations.items.properties).toHaveProperty("elementPath");
+  });
+
+  // Pins the compatibility boundary rather than endorsing it. The editor
+  // re-sends a slide's whole stored array on every animation edit, and
+  // `normalizeSlideAnimation` in shared/api.ts still reads entries that this
+  // schema rejects, so a deck holding one can no longer be saved from the
+  // panel. If that gap is ever closed, this expectation is what changes.
+  it("rejects stored entries that predate the required id/elementIndex/type", () => {
+    const pathOnlyEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { animations: [{ elementPath: [0, 2], type: "fade" }] },
+    });
+    const fullyFormedEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: {
+        animations: [
+          { id: "a1", elementIndex: 2, elementPath: [0, 2], type: "fade" },
+        ],
+      },
+    });
+
+    expect(pathOnlyEntry.success).toBe(false);
+    expect(fullyFormedEntry.success).toBe(true);
   });
 });
 
@@ -397,6 +796,18 @@ describe("resolveDeckColumnUpdates", () => {
     // deck list shows a truncated name once the JSON and column disagree.
     const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
     expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
+  });
+
+  it("uses the title recovered while applying the operations", () => {
+    const operations: Operation[] = [
+      {
+        op: "patch-deck-fields",
+        fields: { title: "H3sVsnns-TEVUOpz9w" },
+      },
+    ];
+    expect(
+      resolveDeckColumnUpdates(current, operations, "Recovered").title,
+    ).toBe("Recovered");
   });
 
   it("takes the last designSystemId in a batch", () => {

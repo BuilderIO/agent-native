@@ -96,8 +96,6 @@ description: "عميل بريد إلكتروني مدعوم من الوكيل. �
 
 عرض توضيحي مباشر: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **قد تعرض Google تحذيرًا:** يستخدم العرض التوضيحي المستضاف تطبيق Google المشترك الخاص بـ Agent-Native للوصول إلى Gmail، لذلك قد تطلب منك Google التأكيد قبل المتابعة. قم بالتشغيل محليًا لاستخدام عميل Google OAuth الخاص بك.
-
 عند فتح التطبيق لأول مرة:
 
 1. انقر على **الإعدادات** في الشريط الجانبي.
@@ -349,7 +347,7 @@ npx @agent-native/core@latest add-app
 
 البريد متاح لك للتغيير. كل شيء مهم يعيش في عدد قليل من الأماكن - ابدأ هناك.
 
-**إضافة قدرة الوكيل.** أضف ملفًا جديدًا ضمن `templates/mail/actions/` باستخدام `defineAction`. يصبح الإجراء الخاص بك أداة وكيل، وأمر CLI (`pnpm action <name>`)، وسطح ربط أمامي مكتوب من خلال `useActionQuery` / `useActionMutation`. انظر إلى `templates/mail/actions/star-email.ts` للحصول على مثال قصير أو `templates/mail/actions/manage-automations.ts` لواحد يحتوي على عدة actions. راجع مستندات [actions](/docs/actions) للتعرف على النمط الكامل.
+**إضافة قدرة الوكيل.** أضف ملفًا جديدًا ضمن `templates/mail/actions/` باستخدام `defineAction`. يصبح الإجراء الخاص بك أداة وكيل، وأمر CLI (`pnpm action <name>`)، وسطح ربط أمامي مكتوب من خلال `useActionQuery` / `useActionMutation`. انظر إلى `templates/mail/actions/star-email.ts` للحصول على مثال قصير أو `templates/mail/actions/manage-automations.ts` لواحد يحتوي على عدة actions. راجع مستندات [actions](/docs/actions-overview) للتعرف على النمط الكامل.
 
 **تغيير UI.** المسارات موجودة في `templates/mail/app/routes/` والمكونات في `templates/mail/app/components/email/` و`templates/mail/app/components/layout/`. يستخدم التطبيق عناصر shadcn/ui الأولية من `app/components/ui/` وأيقونات Tabler - التزم بها.
 
@@ -369,4 +367,4 @@ npx @agent-native/core@latest add-app
 - [**بدء الاستخدام**](/docs/getting-started) — أساسيات إطار العمل: الإجراءات وحالة التطبيق والمزامنة المباشرة
 - [**التقويم**](/docs/template-calendar) — قالب نطاق شقيق للجدولة والحجز
 - [**الأتمتة**](/docs/automations) — المحرك المستند إلى الأحداث الذي تعتمد عليه قواعد الفرز التلقائي في Mail
-- [**الإجراءات**](/docs/actions) — نظام الإجراءات الذي تستدعيه المحادثة والاختصارات والأتمتة
+- [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي تستدعيه المحادثة والاختصارات والأتمتة

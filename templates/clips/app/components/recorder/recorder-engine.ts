@@ -1801,11 +1801,18 @@ export class RecorderEngine {
   private buildMixedAudioTrack(
     streams: (MediaStream | null | undefined)[],
   ): MediaStreamTrack | null {
-    const audioTracks = streams
+    const audioInputs = streams
       .filter((s): s is MediaStream => s != null)
-      .flatMap((s) => s.getAudioTracks());
-    if (audioTracks.length === 0) return null;
-    if (audioTracks.length === 1) return audioTracks[0];
+      .flatMap((stream) =>
+        stream.getAudioTracks().map((track) => ({
+          track,
+          isMicrophone: stream === this.micStream,
+        })),
+      );
+    if (audioInputs.length === 0) return null;
+    if (audioInputs.length === 1 && !audioInputs[0].isMicrophone) {
+      return audioInputs[0].track;
+    }
 
     const ctx = this.audioMixCtx ?? new AudioContext();
     this.audioMixCtx = ctx;
@@ -1814,8 +1821,10 @@ export class RecorderEngine {
     }
     this.audioMixSources = [];
     const dest = ctx.createMediaStreamDestination();
-    for (const track of audioTracks) {
-      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+    for (const input of audioInputs) {
+      const source = ctx.createMediaStreamSource(
+        new MediaStream([input.track]),
+      );
       source.connect(dest);
       this.audioMixSources.push(source);
     }

@@ -228,7 +228,7 @@ Behalten Sie Folge- und Überarbeitungseingaben im bestehenden Seitenleisten-Thr
 
 Wenn dieselbe Route als MCP-App eingebettet ist, wird sie übermittelt
 `sendToAgentChat()`-Anrufe werden an den Host-Chat weitergeleitet, sofern dies unterstützt wird; siehe
-[Client](/docs/client#sendtoagentchat) für das MCP-App-Bridge-Verhalten.
+[Agent-Chat](/docs/client-agent-chat#sendtoagentchat) für das MCP-App-Bridge-Verhalten.
 
 Wenn Sie einen Ladezustand wünschen, verwenden Sie den Hook `useSendToAgentChat()` – er gibt sowohl `send` als auch `isGenerating` zurück:
 
@@ -279,7 +279,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-Typsichere Argumente stammen aus dem Zod-Schema in Ihrem `defineAction()`. Das vollständige Aktionssystem finden Sie unter [Actions](/docs/actions).
+Typsichere Argumente stammen aus dem Zod-Schema in Ihrem `defineAction()`. Das vollständige Aktionssystem finden Sie unter [Actions](/docs/actions-overview).
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -337,7 +337,7 @@ Der Benutzer sieht in der Kopfzeile eine Chat-Schaltfläche, kann diese öffnen 
 
 ## Was kommt als nächstes?
 
-- [**Actions**](/docs/actions) – `defineAction()` und `useActionMutation()`
+- [**Actions**](/docs/actions-overview) – `defineAction()` und `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) – Auswahl, Navigation, Ansichtsbildschirm
 - [**Agent-Ressourcen**](/docs/agent-resources) – was die Registerkarte „Agent-Ressourcen“ enthält (skills, Speicher, MCP-Server, geplante Jobs)
 - [**Voice Input**](/docs/voice-input) – das Mikrofon im Chat Verfassenr

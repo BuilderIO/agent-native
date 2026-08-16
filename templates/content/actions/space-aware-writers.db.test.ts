@@ -24,6 +24,7 @@ let schema: Schema;
 let createDocument: typeof import("./create-document.js").default;
 let createContentDatabase: typeof import("./create-content-database.js").default;
 let addDatabaseItem: typeof import("./add-database-item.js").default;
+let getContentDatabase: typeof import("./get-content-database.js").default;
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 
 const OWNER = "owner@example.com";
@@ -40,6 +41,7 @@ beforeAll(async () => {
   createContentDatabase = (await import("./create-content-database.js"))
     .default;
   addDatabaseItem = (await import("./add-database-item.js")).default;
+  getContentDatabase = (await import("./get-content-database.js")).default;
   ({ organizationContentSpaceId } = await import("./_content-spaces.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -246,19 +248,26 @@ describe("space-aware document writers", () => {
     expect(databaseRow?.spaceId).toBe(pageRow?.spaceId);
     await expect(filesMemberships(page.id)).resolves.toHaveLength(1);
 
+    const discovered = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabase.run({ databaseId: converted.database.id }),
+    );
+    if (!("database" in discovered) || !discovered.mutationContract)
+      throw new Error("Fixture database has no mutation contract.");
     const row = await runWithRequestContext({ userEmail: OWNER }, () =>
       addDatabaseItem.run({
-        databaseId: converted.database.id,
+        target: discovered.mutationContract!.target,
+        expectedSchemaRevision: discovered.mutationContract!.schemaRevision,
+        idempotencyKey: "space-aware-row",
         title: "Database row",
       }),
     );
     const [rowDocument] = await getDb()
       .select({ spaceId: schema.documents.spaceId })
       .from(schema.documents)
-      .where(eq(schema.documents.id, row.createdDocumentId!));
+      .where(eq(schema.documents.id, row.receipt.row.documentId));
     expect(rowDocument?.spaceId).toBe(pageRow?.spaceId);
     await expect(
-      filesMemberships(row.createdDocumentId!),
+      filesMemberships(row.receipt.row.documentId),
     ).resolves.toHaveLength(1);
   });
 
@@ -291,7 +300,14 @@ describe("space-aware document writers", () => {
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         addDatabaseItem.run({
-          databaseId: "legacy-unscoped-database",
+          target: {
+            authorityScope: { kind: "personal", id: OWNER },
+            spaceId: "fixture-space",
+            databaseId: "legacy-unscoped-database",
+            databaseDocumentId: "legacy-unscoped-database-document",
+          },
+          expectedSchemaRevision: "sha256:fixture",
+          idempotencyKey: "legacy-unscoped-database",
           title: "Must not be created",
         }),
       ),

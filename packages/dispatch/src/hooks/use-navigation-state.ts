@@ -32,6 +32,9 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  agentPath?: string;
+  usageScope?: "me" | "workspace";
+  usageUserEmail?: string;
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -136,6 +139,11 @@ export function buildDispatchNavigationState(
   const threadId = threadIdFromPath(pathname);
   if (threadId) state.threadId = threadId;
 
+  if (state.view === "chat") {
+    const agentPath = new URLSearchParams(search).get("agent")?.trim();
+    if (agentPath) state.agentPath = agentPath;
+  }
+
   const extensionId = extensionIdFromPathname(pathname);
   if (extensionId) {
     state.view = "extensions";
@@ -175,6 +183,16 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+  }
+
+  if (state.view === "metrics") {
+    const params = new URLSearchParams(search);
+    const usageScope = params.get("scope");
+    const usageUserEmail = params.get("user");
+    if (usageScope === "me" || usageScope === "workspace") {
+      state.usageScope = usageScope;
+    }
+    if (usageUserEmail) state.usageUserEmail = usageUserEmail;
   }
 
   return state;
@@ -238,6 +256,9 @@ function resolveView(
     return "extensions";
   }
   if (pathname === "/admin") return "admin";
+  if (pathname === "/admin/agents" || pathname.startsWith("/admin/agents/")) {
+    return "connected-agents";
+  }
   if (pathname.startsWith("/admin/")) {
     const adminView = resolveView(pathname.slice("/admin".length), extensions);
     return adminView === "overview" ? "admin" : adminView;
@@ -306,6 +327,8 @@ function resolvePath(
     case "resources":
       return "/admin/workspace";
     case "agents":
+      return "/agents";
+    case "connected-agents":
       return "/admin/agents";
     case "messaging":
       return "/admin/messaging";

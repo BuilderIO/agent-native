@@ -248,6 +248,36 @@ const messages = {
     passwordProtected: "该剪辑受密码保护",
     linkExpired: "链接已过期",
     linkExpiredMessage: "创建者为此共享链接设置了过期时间。",
+    privateClip: "私密剪辑",
+    privateClipMessage: "此剪辑为私密内容。请求访问权限后，所有者会收到通知。",
+    privateClipSignedOutMessage:
+      "此剪辑为私密内容。登录或输入邮箱即可请求访问权限。",
+    requestAccess: "请求访问权限",
+    requestAccessDialogTitle: "请求访问权限",
+    requestAccessDialogDescription: "选择所有者分享此剪辑时识别你的方式。",
+    requestAccessSignIn: "登录或注册",
+    requestAccessOr: "或",
+    requestAccessEmailLabel: "邮箱地址",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint: "获得访问权限后，请使用此邮箱登录以查看剪辑。",
+    requestAccessWithEmail: "通过邮箱请求",
+    requestAccessEmailRequired: "请输入有效的邮箱地址。",
+    requestingAccess: "正在请求访问权限...",
+    accessRequested: "已请求访问权限",
+    accessRequestSent: "剪辑所有者已收到通知。",
+    accessRequestSentWithEmail: "已请所有者将此剪辑分享给 {{email}}。",
+    accessRequestFailed: "无法请求访问权限。请重试。",
+    accessApprovalTitle: "已授予访问权限",
+    accessApprovalAlreadyTitle: "已授予访问权限",
+    accessApprovalMessage: "{{email}} 现在可以查看此剪辑。",
+    accessApprovalAlreadyMessage: "{{email}} 已经可以访问此剪辑。",
+    accessApprovalErrorTitle: "无法授予访问权限",
+    accessApprovalInvalid: "此访问请求无效或已过期。",
+    accessApprovalSignInTitle: "登录以允许访问",
+    accessApprovalSignInMessage: "请以剪辑所有者或管理员身份登录以批准此请求。",
+    accessApprovalOpenClip: "打开剪辑",
+    accessApprovalSignIn: "登录",
+    accessApprovalLoading: "正在授予访问权限...",
     clipUnavailable: "剪辑不可用",
     clipUnavailableMessage:
       "该录音不公开，或者链接无效。如果这是您的剪辑，请登录以检查访问权限。",
@@ -489,8 +519,13 @@ const messages = {
     },
     roles: {
       viewer: "观众",
+      commenter: "评论者",
       editor: "编辑",
       admin: "行政",
+    },
+    recordingCommenter: {
+      label: "评论者",
+      description: "可以查看、评论和回应",
     },
   },
   quickAsk: {
@@ -619,13 +654,13 @@ const messages = {
     collapse: "收起",
     changelogMarkdown: `# 更新日志
 
-Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd+K -> “最新变化”）或设置中打开。
+Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd K -> “最新变化”）或设置中打开。
 
 ## 2026-06-23
 
 ### 新增
 
-- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
+- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd K）和设置。`,
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
@@ -929,6 +964,8 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     includeTranscript: "包含完整转写",
     includeTranscriptDescription: "任何有权访问此会议的人都可以阅读完整转写。",
     transcriptUnavailable: "转写尚未准备好。",
+    agentLinkDescription:
+      "此临时链接可让代理读取这些会议记录，而无需将其公开。两小时后过期。",
     transcript: "转写",
     copyTranscript: "复制转写",
     transcriptCopied: "已复制转写",
@@ -1042,6 +1079,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     searchNextMatch: "下一个匹配项",
     searchClose: "关闭搜索",
   },
+  bulletLink: {
+    jumpToTranscript: "跳转到转录中的 {{time}}",
+    noMatchingMoment: "未找到匹配的时刻",
+  },
   editorLayout: {
     trimmed: "已修剪",
     trimFailed: "修剪失败",
@@ -1148,7 +1189,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     seekTo: "Seek to {{time}} (已本地化)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (已本地化)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (已本地化)",
     playPauseTooltip: "Play / Pause (Space) (已本地化)",
     sourceDuration: "({{duration}} src) (已本地化)",
     previewSpeed: "Preview speed (已本地化)",
@@ -1492,13 +1533,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptPending: "Transcript pending (已本地化)",
     notesPending: "Notes pending (已本地化)",
     pastRecordings: "Past recordings (已本地化)",
+    loadOlder: "加载更早的",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",
-    googleMayShowWarning: "检查 Google 访问权限",
-    googleNotVerifiedTitle: "连接前请验证应用",
-    googleWarningBeforeAdvanced:
-      "请确认应用名称和请求的 Calendar 访问权限与你信任的 Clips 部署相符。如果 Google 显示未验证应用警告，或应用身份看起来陌生，请停止操作并联系工作区管理员。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (已本地化)",
     getDesktopApp: "Get desktop app (已本地化)",
@@ -1507,6 +1545,16 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     calendarConnected: "Calendar connected (已本地化)",
     calendarDisconnected: "Calendar disconnected (已本地化)",
     calendarSettings: "Calendar settings (已本地化)",
+    calendarAccountsButton: "日历",
+    connectedAccounts: "已连接的帐户",
+    calendarConnectedLabel: "已连接",
+    calendarNeedsReconnectLabel: "需要重新连接",
+    calendarDisconnectedLabel: "已断开连接",
+    calendarStatusUnavailable: "状态不可用",
+    reconnectCalendar: "重新连接日历",
+    addAnotherCalendarAccount: "添加其他帐户",
+    connectCalendar: "连接日历",
+    disconnectCalendarAccount: "断开一个帐户",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (已本地化)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (已本地化)",

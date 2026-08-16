@@ -67,3 +67,16 @@ as a long label list beside the global navigation. The chat-first route may show
 a compact pinned-app shelf because app switching is part of that workflow, with
 the rest behind its existing disclosure. Prefer a short, stable rail over a
 context dump that competes with the page the user opened.
+
+## Usage investigation
+
+`/admin/metrics` is an operate-mode investigation surface for explaining LLM
+usage, not a finance dashboard. The first viewport is personal by default: a
+quiet scope, user, and date control row, one legible daily trend, and a quiet
+right-aligned agent review handoff. Key totals and the latest prompt evidence
+follow immediately; app, user, model, and work-type breakdowns stay below for
+diagnosis. Keep prompt rows human-readable, show attribution gaps explicitly,
+and preserve the distinction between estimated provider spend and Builder
+credits. Workspace scope is an explicit opt-in so a user can inspect all apps
+without making the
+broadest view the default.

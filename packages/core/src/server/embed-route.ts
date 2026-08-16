@@ -15,11 +15,12 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
-  isMcpEmbedCorsOrigin,
+  isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
+import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
   consumeEmbedSessionTicket,
   isEmbedCapabilityScope,
@@ -90,7 +91,10 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
 
 function embedStartCorsOrigin(event: H3Event): string | null {
   const origin = getHeader(event, "origin");
-  return isMcpEmbedCorsOrigin(origin) ? (origin ?? null) : null;
+  if (!origin) return null;
+  if (origin === "null") return origin;
+  if (isMcpEmbedTransplantOrigin(origin)) return origin;
+  return readCorsAllowedOrigins().includes(origin) ? origin : null;
 }
 
 function embedStartResponseHeaders(
@@ -144,19 +148,31 @@ function expiredEmbedSessionResponse(event: H3Event): Response {
     main { max-width: 520px; text-align: center; }
     h1 { margin: 0 0 8px; font-size: 16px; line-height: 1.25; }
     p { margin: 0; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.5; }
+    button { margin-top: 16px; border: 1px solid color-mix(in srgb, CanvasText 24%, Canvas); border-radius: 6px; padding: 7px 12px; background: Canvas; color: CanvasText; font: inherit; font-size: 12px; cursor: pointer; }
+    button:hover { background: color-mix(in srgb, CanvasText 8%, Canvas); }
   </style>
 </head>
 <body>
   <main>
     <h1>Embedded app session expired</h1>
-    <p>This chat preview is refreshing. If it does not reload, ask the chat to open the app again.</p>
+    <p>This embedded app session expired. The app will try to reconnect automatically.</p>
+    <button type="button" id="retry">Retry</button>
   </main>
   <script>
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: "agentNative.embedSessionExpired" }, "*");
+    function notifyParent() {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            type: "agentNative.embedSessionExpired",
+            embedStartUrl: window.location.href
+          }, "*");
+        }
+      } catch (error) {
+        void error;
       }
-    } catch {}
+    }
+    document.getElementById("retry")?.addEventListener("click", notifyParent);
+    notifyParent();
   </script>
 </body>
 </html>`,
@@ -184,6 +200,16 @@ function firstQueryValue(value: unknown): string {
 }
 
 function wantsTransplantLocationResponse(event: H3Event): boolean {
+  const origin = getHeader(event, "origin");
+  const fetchDestination = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDestination !== "document" && fetchDestination !== "iframe") {
+    return false;
+  }
+  const canReadLocation =
+    !origin ||
+    (origin !== "null" && embedStartCorsOrigin(event) !== null) ||
+    isMcpEmbedTransplantOrigin(origin);
+  if (!canReadLocation) return false;
   if (getHeader(event, "x-agent-native-embed-transplant") === "1") {
     return true;
   }

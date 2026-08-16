@@ -228,7 +228,7 @@ sendToAgentChat({
 
 동일한 경로가 MCP 앱으로 삽입된 경우 제출
 `sendToAgentChat()` 통화는 지원되는 호스트 채팅으로 전달됩니다. 참조
-MCP 앱 브리지 동작을 위한 [Client](/docs/client#sendtoagentchat).
+MCP 앱 브리지 동작을 위한 [Agent 채팅](/docs/client-agent-chat#sendtoagentchat).
 
 로드 상태를 원하면 `useSendToAgentChat()` 후크를 사용하세요. `send`와 `isGenerating`를 모두 반환합니다.
 
@@ -279,7 +279,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-유형이 안전한 인수는 `defineAction()`의 zod 스키마에서 나옵니다. 전체 동작 시스템은 [Actions](/docs/actions)를 참조하세요.
+유형이 안전한 인수는 `defineAction()`의 zod 스키마에서 나옵니다. 전체 동작 시스템은 [Actions](/docs/actions-overview)를 참조하세요.
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## 다음 단계
 
-- [**Actions**](/docs/actions) — `defineAction()` 및 `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` 및 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 선택, 탐색, 보기 화면
 - [**에이전트 리소스**](/docs/agent-resources) — 에이전트 리소스 탭에 포함된 내용(skills, 메모리, MCP 서버, 예약된 작업)
 - [**Voice Input**](/docs/voice-input) — 채팅 작성기의 마이크

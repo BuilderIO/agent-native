@@ -16,6 +16,7 @@ export default defineAction({
       .describe("Max keywords to return (default 500)"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const limit = Math.min(args.limit ?? 500, 1000);
     const keywords = await getAllTopBlogKeywords(limit);

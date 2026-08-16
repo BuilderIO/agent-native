@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   classifyDesktopAsset,
+  DESKTOP_RELEASE_CACHE_HEADERS,
   getDesktopDownloadManifest,
   isDesktopUpdateMetadataAsset,
   isDesktopUpdaterAsset,
@@ -122,6 +123,33 @@ describe("getDesktopDownloadManifest", () => {
 
     await expect(getDesktopDownloadManifest()).resolves.toMatchObject({
       version: "1.1.0",
+    });
+  });
+
+  it("does not walk older release pages after finding a desktop release", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse([release("v1.0.0", "2026-01-01T00:00:00Z")]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getDesktopDownloadManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("page=1");
+  });
+
+  it("exposes durable stale-while-revalidate headers for the public endpoint", () => {
+    expect(DESKTOP_RELEASE_CACHE_HEADERS).toEqual({
+      "cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "cdn-cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "netlify-cdn-cache-control":
+        "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
     });
   });
 });

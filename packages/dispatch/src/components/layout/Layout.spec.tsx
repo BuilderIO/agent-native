@@ -9,7 +9,9 @@ import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   formatThreadAge,
+  isElectronEmbeddedSearch,
   NavContent,
+  shouldAutoCollapseDispatchSidebar,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
@@ -59,6 +61,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.nav.chat": "Chat",
       "dispatch.nav.overview": "Overview",
       "dispatch.nav.apps": "Apps",
+      "dispatch.nav.agents": "Agents",
       "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
@@ -116,6 +119,23 @@ describe("chat-first embed sessions", () => {
       path: "/mail/inbox",
       chrome: "minimal",
     });
+  });
+});
+
+describe("Electron control-plane mode", () => {
+  it("recognizes only the explicit Electron query flag", () => {
+    expect(isElectronEmbeddedSearch("?electron=1")).toBe(true);
+    expect(isElectronEmbeddedSearch("?electron=0")).toBe(false);
+    expect(isElectronEmbeddedSearch("?chatFirst=1")).toBe(false);
+  });
+});
+
+describe("Dispatch workspace app sidebar", () => {
+  it("auto-collapses for app host routes but not the app catalog", () => {
+    expect(shouldAutoCollapseDispatchSidebar("/apps/mail")).toBe(true);
+    expect(shouldAutoCollapseDispatchSidebar("/apps/mail/settings")).toBe(true);
+    expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
+    expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
   });
 });
 
@@ -177,6 +197,7 @@ describe("Dispatch NavContent", () => {
     expect(primaryLabels.indexOf("Overview")).toBeLessThan(
       primaryLabels.indexOf("Chat"),
     );
+    expect(primaryLabels).toContain("Agents");
   });
 
   it("keeps collapsed navigation compact and preserves section spacing", async () => {
@@ -197,6 +218,33 @@ describe("Dispatch NavContent", () => {
     expect(lists[1].querySelector('a[href="/admin"]')).not.toBeNull();
     expect(lists[1].querySelector('a[href="/settings"]')).not.toBeNull();
     expect(lists[0].querySelector("a")?.className).toContain("size-9");
+  });
+
+  it("keeps chat-first primary actions in the collapsed sidebar", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              collapsed
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    for (const label of ["New chat", "Integrations", "Search"]) {
+      expect(
+        [...container.querySelectorAll("button")].find(
+          (button) => button.textContent?.trim() === label,
+        ),
+      ).toBeDefined();
+    }
+    expect(
+      container.querySelector("[data-chat-first-apps-rail]"),
+    ).not.toBeNull();
   });
 
   it("keeps management routes out of the primary navigation", async () => {
@@ -293,6 +341,9 @@ describe("Dispatch NavContent", () => {
     );
     expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
+    expect(
+      sidebarLabel?.closest('a[data-dispatch-logo][href="/overview"]'),
+    ).not.toBeNull();
 
     const settingsLink = container.querySelector('a[href="/settings"]');
     const adminLink = container.querySelector('a[href="/admin"]');
@@ -392,6 +443,7 @@ describe("Dispatch NavContent", () => {
           <TooltipProvider>
             <NavContent
               chatFirstMode
+              collapsible
               chatFirstApps={[{ id: "mail", name: "Mail" }]}
             />
           </TooltipProvider>
@@ -403,7 +455,13 @@ describe("Dispatch NavContent", () => {
     expect(container.querySelector("[data-chat-first-app]")).not.toBeNull();
     expect(
       container.querySelector("[data-chat-first-app] span[style]"),
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-feedback]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-collapse]"),
+    ).not.toBeNull();
   });
 
   it("opens a workspace app in the main app route from the left rail", async () => {

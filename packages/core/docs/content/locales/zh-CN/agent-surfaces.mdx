@@ -156,6 +156,34 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 动作可以返回明确的原生控件结果，使聊天输出不仅仅是文字。表格、图表和带类型的产品卡片以第一方 React 组件的形式在聊天中渲染，无需 iframe。详见 [Native Chat UI](/docs/native-chat-ui)。当 Agent 需要的是任意生成的控件而非预定义的 React 组件时，请使用 [Generative UI](/docs/generative-ui)：它在沙箱中内联渲染 Alpine/Tailwind UI，可以读取应用状态和插槽上下文，并将选中的值发回聊天。
 
+### 请求级操作界面
+
+当所选 Agent 或线程只能公开服务器已授权的原生操作子集时，请使用
+`resolveActionSurface`。该回调会在每个交互式聊天请求的
+`prepareRequest` 之后运行。返回的名称构成严格允许列表：未包含的操作
+不会出现在提供商 schema、执行注册表、Plan 模式预加载或
+`tool-search` 搜索结果中。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+空列表不会公开任何原生操作。未知名称会使请求失败，而不会扩大访问范围。
+所有允许的操作都会在第一次模型请求中直接加载；只有需要在已授权目录内
+搜索时才显式加入 `tool-search`。该回调仅限制交互式 Agent 聊天，不会
+更改 HTTP、MCP、A2A、任务或触发器的暴露范围。默认框架说明和启动的子
+Agent 会继承同一操作范围。由于不受限制的 shell 无法强制执行严格的操作
+边界，trusted shell 工具会自动降为按请求过滤的 sandbox。
+
 ## 原生内联 UI {#native-inline-ui}
 
 当你的动作返回结构化数据——记录列表、图表数据集、状态摘要——且这些数据应在聊天会话中以真实 UI 组件而非纯文字描述的形式渲染时，请使用此功能。你在动作上定义一个 `chatUI` 渲染器，Agent-Native 会将其渲染为第一方 React 组件：无 iframe，无独立渲染路径。
@@ -497,7 +525,7 @@ export function SupportAgentChat() {
 
 <Cards>
 
-### [动作（Actions）](/docs/actions)
+### [动作（Actions）](/docs/actions-overview)
 
 一次定义操作，以上所有界面都调用同一个。
 

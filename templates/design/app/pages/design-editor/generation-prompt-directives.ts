@@ -121,10 +121,12 @@ export async function loadDesignSystemGenerationContext(
 export function designIntakeQuestionDirectives(
   designId: string,
   designSystemId?: string | null,
+  referenceImageCount = 0,
 ): string[] {
   return [
     `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
+    ...referenceImageDirectives(referenceImageCount),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
     "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
     "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
@@ -159,13 +161,33 @@ export function designVariantGenerationDirectives(
   ];
 }
 
+/**
+ * An attached UI screenshot is the specification. Reproducing it is the whole
+ * job, so these directives ship in the same prompt as the image — the skill
+ * body is not in the system prompt and loses every conflict against directives
+ * that are.
+ */
+export function referenceImageDirectives(
+  referenceImageCount: number,
+): string[] {
+  if (referenceImageCount < 1) return [];
+  return [
+    `The user attached ${referenceImageCount} reference image(s) to this message. Treat any image showing a UI as a layout specification to reproduce, not as loose inspiration.`,
+    "Match its regions and their positions, navigation pattern, information hierarchy, density, component grammar (tabs vs pills, cards vs rows, sidebar vs topbar), and approximate proportions. Briefly name what you see before building so a misread can be corrected early.",
+    "Do NOT substitute your own composition, palette, or font for something the image or the linked design system already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
+    "Do NOT call `show-design-questions` or `present-design-variants` about anything the image already answers; the direction is chosen. Generate the one design it specifies.",
+  ];
+}
+
 export function designGenerationDirectives(
   designId: string,
   designSystemId?: string | null,
+  referenceImageCount = 0,
 ): string[] {
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
+    ...referenceImageDirectives(referenceImageCount),
     'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
     'Responsive behavior is mandatory for every web design: use a mobile-first layout, include a viewport meta tag, stack or collapse desktop columns at narrow widths, and never rely on a fixed-width desktop shell. Default to a desktop primary artboard. For a Desktop or Both/responsive intake answer, pass `primaryViewport: "desktop"` and `canvasFrames` with width 1440 and height 1024; pass `primaryViewport: "mobile"` only when the user explicitly chooses a mobile-primary artboard.',
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",

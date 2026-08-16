@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
+import {
+  getWorkspaceAppIdValidationError,
+  normalizeWorkspaceAppId,
+} from "@agent-native/core/shared";
 import { z } from "zod";
 
 import { startWorkspaceAppCreation } from "../server/lib/app-creation-store.js";
@@ -12,13 +15,16 @@ export default defineAction({
     appId: z
       .string()
       .max(64)
+      .transform(normalizeWorkspaceAppId)
       .refine((appId) => !getWorkspaceAppIdValidationError(appId), {
         message:
           "Use a non-reserved app id with lowercase letters, numbers, and hyphens.",
       })
       .optional()
       .nullable()
-      .describe("Desired workspace app id/path"),
+      .describe(
+        "Desired workspace app id/path or human-friendly name. Names are converted to lowercase, hyphenated ids.",
+      ),
     template: z
       .string()
       .optional()

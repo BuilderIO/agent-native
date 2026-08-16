@@ -896,6 +896,7 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
     expect(html).not.toContain("browser console");
@@ -2168,6 +2169,10 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
     expect(entry).toContain("return new URL(request.url).origin");
+    // The entry imports node:crypto, so the deploy packager rejects it unless
+    // includedFiles is declared.
+    expect(entry).toContain('import { createHmac } from "node:crypto"');
+    expect(entry).toContain('includedFiles: ["**"]');
   });
 
   describe("keep-warm opt-in and cadence", () => {
@@ -2600,25 +2605,120 @@ describe("durable-background Netlify function emit (single-template, default-on)
   it("fails a function that ships more than the per-function size budget", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
-    const chromiumDir = path.join(
+    const serverDir = path.join(
       cwd,
       ".netlify",
       "functions-internal",
       "server",
+    );
+    // Sparse: getDirSize reports apparent size, which is what the deploy zip
+    // pays for, so the test costs no disk. Keep this outside known runtime
+    // package paths so it exercises ordinary bundle growth.
+    const fd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(fd, 130 * 1024 * 1024);
+    fs.closeSync(fd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /function server is 130\.0MB, over the 120\.0MB budget — largest: /,
+    );
+  });
+
+  it("allows the explicitly bundled ffmpeg runtime without hiding ordinary growth", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const baseFd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(baseFd, 121 * 1024 * 1024);
+    fs.closeSync(baseFd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("applies the ffmpeg allowance only to the function that contains it", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const serverBaseFd = fs.openSync(
+      path.join(serverDir, "runtime-growth.bin"),
+      "w",
+    );
+    fs.ftruncateSync(serverBaseFd, 121 * 1024 * 1024);
+    fs.closeSync(serverBaseFd);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+
+    const backgroundDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-agent-background",
+    );
+    const backgroundFd = fs.openSync(
+      path.join(backgroundDir, "runtime-growth.bin"),
+      "w",
+    );
+    fs.ftruncateSync(backgroundFd, 121 * 1024 * 1024);
+    fs.closeSync(backgroundFd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /function server-agent-background is .* over the 120\.0MB budget/,
+    );
+  });
+
+  it("caps combined browser and ffmpeg allowances below Netlify's hard limit", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd, { emitBackground: false });
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const chromiumDir = path.join(
+      serverDir,
       "node_modules",
       "@sparticuz",
       "chromium",
       "bin",
     );
     fs.mkdirSync(chromiumDir, { recursive: true });
-    // Sparse: getDirSize reports apparent size, which is what the deploy zip
-    // pays for, so the test costs no disk.
-    const fd = fs.openSync(path.join(chromiumDir, "chromium.br"), "w");
-    fs.ftruncateSync(fd, 130 * 1024 * 1024);
-    fs.closeSync(fd);
+    const chromiumFd = fs.openSync(path.join(chromiumDir, "chromium.br"), "w");
+    fs.ftruncateSync(chromiumFd, 85 * 1024 * 1024);
+    fs.closeSync(chromiumFd);
+
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const baseFd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(baseFd, 90 * 1024 * 1024);
+    fs.closeSync(baseFd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
-      /function server is 130\.0MB, over the 120\.0MB budget — largest: @sparticuz/,
+      /over the 240\.0MB budget/,
     );
   });
 

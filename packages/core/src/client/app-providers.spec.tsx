@@ -25,6 +25,7 @@ import { AppProviders } from "./app-providers.js";
 let container: HTMLDivElement;
 let root: Root;
 let originalLocation: Location;
+let originalParent: Window;
 let originalFetch: typeof window.fetch;
 let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
@@ -44,6 +45,7 @@ beforeEach(() => {
       .mockRejectedValue(new Error("configuration probe unavailable")),
   });
   originalLocation = window.location;
+  originalParent = window.parent;
   Object.defineProperty(window, "location", {
     configurable: true,
     value: {
@@ -63,6 +65,10 @@ afterEach(() => {
   Object.defineProperty(window, "location", {
     configurable: true,
     value: originalLocation,
+  });
+  Object.defineProperty(window, "parent", {
+    configurable: true,
+    value: originalParent,
   });
   Object.defineProperty(window, "fetch", {
     configurable: true,
@@ -150,6 +156,66 @@ describe("AppProviders session gate", () => {
     ).not.toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("applies theme updates only when they come from the embedding parent", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const parent = {} as Window;
+    const unrelated = {} as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parent,
+    });
+
+    renderProviders({ isPublicPath: true });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: unrelated,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: parent,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBe("dark");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:theme-change", {
+          detail: {
+            type: "agent-native-theme-update",
+            theme: "light",
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
   });
 
   it("repairs structured route titles before they reach the browser tab", async () => {

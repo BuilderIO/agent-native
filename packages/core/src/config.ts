@@ -64,12 +64,45 @@ export interface AgentNativeInstructionsConfig {
   development?: string;
 }
 
+export interface AgentNativeTranslationsConfig {
+  /**
+   * Locales the app intentionally ships translations for. `en-US` is the
+   * default source locale; additional locales are opt-in.
+   */
+  locales?: string[];
+}
+
+export interface AgentNativeChangelogConfig {
+  /** Whether agents should create and surface user-facing changelog entries. */
+  enabled?: boolean;
+}
+
+export type AgentNativeHarnessRuntime =
+  | "claude-code"
+  | "codex"
+  | "pi"
+  | "opencode";
+
+export interface AgentNativeHarnessConfig {
+  /** Optionally narrow the hosted harness picker to these runtimes. */
+  runtimes?: AgentNativeHarnessRuntime[];
+}
+
+/**
+ * The intentionally small app-level switch for hosted tools-only harnesses.
+ * `true` enables every supported runtime; an object narrows the picker.
+ */
+export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
+  translations?: AgentNativeTranslationsConfig;
+  changelog?: AgentNativeChangelogConfig;
+  harness?: AgentNativeHarnessSetting;
 }
 
 export interface AgentNativeConfigContext {
@@ -121,6 +154,9 @@ export function normalizeAgentNativeConfig(
   const runtimeValue = input.runtime;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
+  const translationsValue = input.translations;
+  const changelogValue = input.changelog;
+  const harnessValue = input.harness;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -157,6 +193,27 @@ export function normalizeAgentNativeConfig(
     normalized.instructions = normalizeInstructionsConfig(
       instructionsValue,
       `${source}.instructions`,
+    );
+  }
+
+  if (translationsValue !== undefined) {
+    normalized.translations = normalizeTranslationsConfig(
+      translationsValue,
+      `${source}.translations`,
+    );
+  }
+
+  if (changelogValue !== undefined) {
+    normalized.changelog = normalizeChangelogConfig(
+      changelogValue,
+      `${source}.changelog`,
+    );
+  }
+
+  if (harnessValue !== undefined) {
+    normalized.harness = normalizeHarnessConfig(
+      harnessValue,
+      `${source}.harness`,
     );
   }
 
@@ -227,6 +284,29 @@ export function mergeAgentNativeConfigs(
             ...override.instructions,
           }
         : undefined,
+    translations:
+      base.translations || override.translations
+        ? {
+            ...base.translations,
+            ...override.translations,
+            ...(override.translations?.locales === undefined &&
+            base.translations?.locales === undefined
+              ? {}
+              : {
+                  locales:
+                    override.translations?.locales ??
+                    base.translations?.locales,
+                }),
+          }
+        : undefined,
+    changelog:
+      base.changelog || override.changelog
+        ? {
+            ...base.changelog,
+            ...override.changelog,
+          }
+        : undefined,
+    harness: mergeHarnessSettings(base.harness, override.harness),
   };
 }
 
@@ -368,6 +448,92 @@ function normalizeInstructionsConfig(
   return result;
 }
 
+function normalizeTranslationsConfig(
+  value: unknown,
+  source: string,
+): AgentNativeTranslationsConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  const locales = value.locales;
+  if (locales === undefined) return {};
+  if (
+    !Array.isArray(locales) ||
+    locales.some((locale) => typeof locale !== "string")
+  ) {
+    throw new Error(`${source}.locales must be an array of locale codes`);
+  }
+  const normalized = locales.map((locale) => locale.trim());
+  if (normalized.some((locale) => !locale)) {
+    throw new Error(`${source}.locales must contain non-empty locale codes`);
+  }
+  return { locales: [...new Set(normalized)] };
+}
+
+function normalizeChangelogConfig(
+  value: unknown,
+  source: string,
+): AgentNativeChangelogConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    throw new Error(`${source}.enabled must be a boolean`);
+  }
+  return value.enabled === undefined ? {} : { enabled: value.enabled };
+}
+
+function normalizeHarnessConfig(
+  value: unknown,
+  source: string,
+): AgentNativeHarnessSetting {
+  if (typeof value === "boolean") return value;
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be a boolean or object`);
+  }
+  if ("enabled" in value || "ui" in value) {
+    throw new Error(`${source} must be true or an object with runtimes`);
+  }
+
+  const runtimes = value.runtimes;
+  if (runtimes !== undefined) {
+    if (
+      !Array.isArray(runtimes) ||
+      runtimes.some((runtime) => !isAgentNativeHarnessRuntime(runtime))
+    ) {
+      throw new Error(
+        `${source}.runtimes must contain only "claude-code", "codex", "pi", or "opencode"`,
+      );
+    }
+  }
+
+  return {
+    ...(runtimes === undefined
+      ? {}
+      : { runtimes: [...new Set(runtimes as AgentNativeHarnessRuntime[])] }),
+  };
+}
+
+function mergeHarnessSettings(
+  base: AgentNativeHarnessSetting | undefined,
+  override: AgentNativeHarnessSetting | undefined,
+): AgentNativeHarnessSetting | undefined {
+  if (override === undefined) return base;
+  if (typeof override === "boolean") return override;
+  if (typeof base !== "object" || base === null) return override;
+  if (base.runtimes === undefined && override.runtimes === undefined) {
+    return {};
+  }
+  return {
+    runtimes: [
+      ...new Set<AgentNativeHarnessRuntime>([
+        ...(base.runtimes ?? []),
+        ...(override.runtimes ?? []),
+      ]),
+    ],
+  };
+}
+
 function normalizeRelativeFilePath(value: string, source: string): string {
   const normalized = value.trim().replaceAll("\\", "/");
   if (
@@ -413,6 +579,17 @@ function isFirstRunMode(
     value === "off" ||
     value === "connect" ||
     value === "connect-and-integrations"
+  );
+}
+
+function isAgentNativeHarnessRuntime(
+  value: unknown,
+): value is AgentNativeHarnessRuntime {
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "pi" ||
+    value === "opencode"
   );
 }
 

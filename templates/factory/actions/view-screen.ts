@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
 import {
@@ -21,6 +22,12 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+
+async function runDispatchAction(name: string, args: Record<string, unknown>) {
+  const action = dispatchActions[name];
+  if (!action) throw new Error(`Dispatch action not found: ${name}`);
+  return action.run(args);
+}
 
 export default defineAction({
   description:
@@ -63,6 +70,31 @@ export default defineAction({
         selectedNode: graph.nodes.find((node) => node.id === selectedNodeId),
         selectedEdge: graph.edges.find((edge) => edge.id === selectedEdgeId),
       };
+
+      if (state.factoryTab === "agents") {
+        const [apps, agents] = await Promise.all([
+          runDispatchAction("list-workspace-apps", {
+            includeAgentCards: false,
+          }),
+          runDispatchAction("list-workspace-resources", { kind: "agent" }),
+        ]);
+        screen.factoryAgents = { apps, agents };
+      }
+    }
+
+    if (
+      navigation &&
+      typeof navigation === "object" &&
+      "view" in navigation &&
+      navigation.view === "agents"
+    ) {
+      const [apps, agents] = await Promise.all([
+        runDispatchAction("list-workspace-apps", {
+          includeAgentCards: false,
+        }),
+        runDispatchAction("list-workspace-resources", { kind: "agent" }),
+      ]);
+      screen.agents = { apps, agents };
     }
 
     if (Object.keys(screen).length === 0) {

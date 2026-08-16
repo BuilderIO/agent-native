@@ -177,17 +177,17 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Establecer** → la aplicación muestra una opción **"Iniciar sesión con Agent-Native"** que ejecuta el flujo anterior. El inicio de sesión local directo (correo electrónico/contraseña, Google) todavía funciona junto con él.
-- **Desarmado (predeterminado)** → **cero cambio de comportamiento.** La aplicación se autentica exactamente como lo hacía antes; la ruta del código de federación está inactiva. No hay ningún cambio de esquema ni nada que migrar, por lo que activar o desactivar la variable es totalmente reversible en cualquier momento.
+- **Cliente alojado canónico** → la aplicación muestra la opción **"Iniciar sesión con Agent-Native"** para el origen registrado; las apps autoalojadas deben seguir configurando la variable. No hay cambios de esquema ni nada que migrar.
 
 ## Seguridad {#security}
 
 Todo el modelo se basa en unas pocas garantías deliberadamente pequeñas:
 
 - **Token firmado de corta duración.** La afirmación de identidad es un JWT firmado por `A2A_SECRET` con una caducidad de **≤ 2 minutos** y `scope: "identity"`. Autoriza un inicio de sesión único y no se puede reproducir por mucho tiempo ni reutilizar para acceder a API/A2A.
-- **Lista de permitidos estricta de `redirect_uri`.** Dispatch solo redirige a `*.agent-native.com` o localhost de forma predeterminada. Se rechazan los objetivos de redireccionamiento arbitrarios, relativos al esquema (`//host`) y de origen cruzado, por lo que la autoridad no se puede convertir en un oráculo de redireccionamiento abierto o de exfiltración de tokens.
+- **Lista estricta de `redirect_uri` vinculada a la aplicación.** Cada ID de aplicación canónica se asigna a un origen de producción y una ruta de callback exactos; localhost sigue disponible para desarrollo. Se rechazan los subdominios desconocidos, los ID que no coinciden, las rutas arbitrarias y los destinos de origen cruzado.
 - **Únase solo por correo electrónico desde un token verificado.** Lo _único_ que cruza el límite de confianza es el correo electrónico verificado en un token firmado. La aplicación no acepta una identificación de usuario, función, membresía de organización ni ningún estado privilegiado de la conexión; deriva todo localmente de la cuenta coincidente.
 - **Escrituras de identidad solo aditivas.** La vinculación reutiliza una misma cuenta de correo electrónico existente intacta o inserta una nueva. Nunca se realizan actualizaciones, cambios de nombre, redireccionamiento ni eliminación de filas de identidad en esta ruta.
-- **Desactivado de forma predeterminada.** Con `AGENT_NATIVE_IDENTITY_HUB_URL` sin configurar, toda la función es inerte.
+- **Clientes alojados canónicos habilitados por origen.** Las apps alojadas canónicas con un origen registrado se habilitan automáticamente; las apps autoalojadas siguen inactivas sin `AGENT_NATIVE_IDENTITY_HUB_URL`.
 
 <Callout id="doc-block-bvaxwu" tone="success">
 
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Lista permitida de redireccionamiento.** El concentrador (despacho) valida `redirect_uri` en el punto final autorizado antes de emitir un token. La lista de permitidos está configurada en `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Predeterminado:** `*.agent-native.com` y localhost únicamente (la constante `DEFAULT_ALLOWED_HOST_SUFFIXES`).
+- **Predeterminado:** solo pares exactos de ID/origen de aplicaciones Agent Native registradas y localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Extendiéndolo:** establezca la variable de entorno `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` en la implementación de Dispatch con una lista separada por comas de sufijos de host adicionales:
 
   ```bash
@@ -323,3 +323,8 @@ Rollout cierra la sesión de los usuarios cuando se habilita cada aplicación (s
 - [Dispatch](/docs/dispatch): autoridad de identidad del espacio de trabajo y centro de enrutamiento.
 - [Security & Data Scoping](/docs/security): escrituras de datos solo aditivas y alcance por cuenta.
 - [Multi-App Workspaces](/docs/multi-app-workspace): la implementación unificada de origen único que evita por completo el SSO entre dominios.
+
+La marca de Dispatch `desktop.workspace-sso`, desactivada de forma predeterminada, solo controla la disponibilidad; las comprobaciones de autenticación, firma, nonce, origen, callback, sesión y revocación siguen siendo obligatorias. Si la marca está desactivada o no se puede leer, Desktop no cambia el inicio de sesión, el cierre de sesión ni los ajustes de cada app.
+La marca Canary del agente de usuario es solo una señal de disponibilidad, no una atestación remota; la autenticación y la autorización no confían en ella.
+Las apps alojadas canónicas reconocen las solicitudes de Desktop SSO Canary empaquetado y los navegadores normales sin configuración del centro de identidad por app. Las apps autoalojadas aún requieren `AGENT_NATIVE_IDENTITY_HUB_URL`. Las compilaciones estables de Desktop no inicializan el intermediario hasta que una versión posterior se apruebe por separado.
+La versión Canary no intercepta la navegación de inicio de sesión anónima de las aplicaciones. El usuario debe elegir explícitamente el inicio de sesión del espacio de trabajo en Ajustes de Desktop para la aplicación registrada activa; el inicio de sesión normal de la aplicación sigue siendo la ruta predeterminada.

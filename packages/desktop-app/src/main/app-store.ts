@@ -7,7 +7,6 @@ import {
   TEMPLATE_APPS,
   sortDesktopApps,
   type AppConfig,
-  type FrameSettings,
 } from "@shared/app-registry";
 import {
   normalizeDesktopShortcutAccelerator,
@@ -28,13 +27,13 @@ import {
 import { app } from "electron";
 
 const STORE_FILE = "app-config.json";
-const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
 const QUICK_PROMPT_STORE_FILE = "quick-prompt-config.json";
 const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
-const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
+const REMOVED_DESKTOP_APP_IDS = new Set(["starter", "chat"]);
+const DESKTOP_APP_MODE_DEFAULTS_VERSION = 1;
 
 type StoredSecret =
   | { encoding: "local-file-v1"; value: string; updatedAt?: string }
@@ -89,8 +88,6 @@ type CodeAgentProviderCredentials = Partial<
   Record<CodeAgentProviderCredentialKey, string>
 >;
 
-export type { FrameSettings };
-
 export interface RemoteConnectorSettings {
   enabled: boolean;
 }
@@ -99,6 +96,8 @@ export interface DesktopAppPreferences {
   appsRoot: string;
   managedAppIds: string[];
   appOrder: string[];
+  appModeDefaultsVersion?: number;
+  desktopSsoEnabled: boolean;
 }
 
 interface ShortcutStore {
@@ -110,15 +109,6 @@ interface QuickPromptStore extends QuickPromptPreferences {
   version: 1;
 }
 
-function defaultFrameSettings(): FrameSettings {
-  return {
-    enabled: true,
-    showCodeTab: true,
-    chatFirstMode: true,
-    mode: app.isPackaged ? "prod" : "dev",
-  };
-}
-
 function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
   return {
     enabled: false,
@@ -128,8 +118,7 @@ function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
 function defaultApps(): AppConfig[] {
   return DESKTOP_DEFAULT_APPS.map((def) => ({
     ...def,
-    mode:
-      app.isPackaged || def.id === "dispatch" ? (def.mode ?? "prod") : "dev",
+    mode: def.mode ?? "prod",
   }));
 }
 
@@ -178,10 +167,6 @@ function canonicalizeTemplateApp(appConfig: AppConfig, def: AppConfig) {
     localPath: appConfig.localPath,
     devPort: appConfig.devPort || def.devPort,
   };
-}
-
-function getFrameStorePath(): string {
-  return path.join(app.getPath("userData"), FRAME_STORE_FILE);
 }
 
 function getRemoteConnectorStorePath(): string {
@@ -480,24 +465,6 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   };
 }
 
-export function loadFrameSettings(): FrameSettings {
-  try {
-    const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
-    return { ...defaultFrameSettings(), ...JSON.parse(raw) };
-  } catch {
-    return defaultFrameSettings();
-  }
-}
-
-export function saveFrameSettings(
-  settings: Partial<FrameSettings>,
-): FrameSettings {
-  const current = loadFrameSettings();
-  const updated = { ...current, ...settings };
-  writeJsonFileAtomic(getFrameStorePath(), updated);
-  return updated;
-}
-
 export function loadRemoteConnectorSettings(): RemoteConnectorSettings {
   try {
     const raw = fs.readFileSync(getRemoteConnectorStorePath(), "utf-8");
@@ -525,6 +492,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
     appsRoot: getDefaultDesktopAppsRoot(),
     managedAppIds: [],
     appOrder: [],
+    desktopSsoEnabled: false,
   };
   try {
     const raw = JSON.parse(
@@ -548,6 +516,10 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
       appsRoot,
       managedAppIds: [...new Set(managedAppIds)],
       appOrder: [...new Set(appOrder)],
+      desktopSsoEnabled: raw.desktopSsoEnabled === true,
+      ...(typeof raw.appModeDefaultsVersion === "number"
+        ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
+        : {}),
     };
   } catch {
     return defaults;
@@ -567,6 +539,15 @@ export function saveDesktopAppPreferences(
       ...new Set(settings.managedAppIds ?? current.managedAppIds),
     ],
     appOrder: [...new Set(settings.appOrder ?? current.appOrder)],
+    desktopSsoEnabled:
+      typeof settings.desktopSsoEnabled === "boolean"
+        ? settings.desktopSsoEnabled
+        : current.desktopSsoEnabled,
+    ...(settings.appModeDefaultsVersion !== undefined
+      ? { appModeDefaultsVersion: settings.appModeDefaultsVersion }
+      : current.appModeDefaultsVersion !== undefined
+        ? { appModeDefaultsVersion: current.appModeDefaultsVersion }
+        : {}),
   };
   writeJsonFileAtomic(getDesktopAppPreferencesStorePath(), updated);
   return updated;
@@ -683,6 +664,7 @@ export function loadApps(): AppConfig[] {
     const defaults = defaultApps();
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
     const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
+    const preferences = loadDesktopAppPreferences();
     const persistedIds = new Set(apps.map((a) => a.id));
 
     // Remove stale desktop apps that should no longer appear, then preserve
@@ -733,8 +715,8 @@ export function loadApps(): AppConfig[] {
       // User-added or legacy entries that match a first-party template should
       // still get canonical URL backfills. This covers old desktop configs
       // where hidden-but-known templates existed with an empty production URL,
-      // which otherwise falls through to the local dev frame in packaged builds
-      // and renders a blank tab.
+      // which otherwise falls through to an invalid local target and renders a
+      // blank tab.
       const templateDef = templateAppsById.get(app.id);
       if (templateDef) {
         const canonical = canonicalizeTemplateApp(app, templateDef);
@@ -743,6 +725,18 @@ export function loadApps(): AppConfig[] {
           migrated = true;
         }
       }
+    }
+
+    if (
+      preferences.appModeDefaultsVersion !== DESKTOP_APP_MODE_DEFAULTS_VERSION
+    ) {
+      // Record the migration only after legacy useCliHarness values have been
+      // normalized. An explicit persisted mode cannot be distinguished from
+      // the old implicit default, so changing every legacy dev app to prod
+      // would silently overwrite a user's local-development choice.
+      saveDesktopAppPreferences({
+        appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+      });
     }
 
     const orderedApps = orderAppsForDesktop(apps);
@@ -757,6 +751,9 @@ export function loadApps(): AppConfig[] {
     // First launch or corrupted — seed with defaults
     const apps = defaultApps();
     saveApps(apps);
+    saveDesktopAppPreferences({
+      appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+    });
     return apps;
   }
 }
@@ -821,6 +818,10 @@ export function updateApp(
 export function resetToDefaults(): AppConfig[] {
   const apps = defaultApps();
   saveApps(apps);
-  saveDesktopAppPreferences({ managedAppIds: [], appOrder: [] });
+  saveDesktopAppPreferences({
+    managedAppIds: [],
+    appOrder: [],
+    appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+  });
   return apps;
 }

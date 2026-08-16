@@ -30,6 +30,7 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
+  getCloudflareD1Binding,
   getDatabaseUrl,
   getDatabaseAuthToken,
   closePgliteClients,
@@ -77,6 +78,7 @@ import {
 } from "./email-templates.js";
 import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 
 export {
   getAuthLoginMode,
@@ -103,6 +105,21 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
     .findUserByEmail(email, { includeAccounts: false })
     .catch(() => null);
   return !!existing?.user?.email;
+}
+
+/** Return whether the canonical user has a verified Google account link. */
+export async function hasGoogleAuthIdentity(
+  email: string,
+): Promise<boolean | undefined> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) return undefined;
+  const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+    includeAccounts: true,
+  });
+  return (
+    existing?.accounts.some((account) => account.providerId === "google") ??
+    false
+  );
 }
 
 export async function trackSignupEvent({
@@ -444,6 +461,8 @@ export interface BetterAuthInstance {
 export interface BetterAuthConfig {
   /** Base path for Better Auth routes. Default: "/_agent-native/auth/ba" */
   basePath?: string;
+  /** Session max age in seconds. Defaults to the framework's 30-day lifetime. */
+  sessionMaxAge?: number;
   /** Additional social providers beyond what env vars auto-detect */
   socialProviders?: BetterAuthOptions["socialProviders"];
   /** Additional Better Auth plugins */
@@ -1212,6 +1231,10 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
+    // Auth schema relations are intentionally not registered here. Keep the
+    // experimental relational-query path off so a bundled Drizzle adapter
+    // cannot recurse while resolving a session or account join.
+    experimental: { joins: false },
     secret,
     emailAndPassword: {
       enabled: true,
@@ -1346,7 +1369,7 @@ async function createBetterAuthInstance(
             // browser's `an_ft` first-touch cookie rides in.
             context?: {
               headers?: Headers | null;
-              request?: { headers?: Headers | null } | null;
+              request?: { headers?: Headers | null; url?: string } | null;
             } | null,
           ) => {
             // When a newly-created user's email has pending org invitations
@@ -1365,8 +1388,19 @@ async function createBetterAuthInstance(
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
+              const magicLinkAttribution = context?.request?.url?.includes(
+                "newUserCallbackURL",
+              )
+                ? readMagicLinkSignupAttribution(
+                    context.request.url,
+                    getAuthSecret(),
+                  )
+                : undefined;
               attribution = signupAttributionFromCookieHeader(cookieHeader);
-              anonymousId = readAnalyticsAnonymousId(cookieHeader);
+              attribution = magicLinkAttribution?.attribution ?? attribution;
+              anonymousId =
+                magicLinkAttribution?.anonymousId ??
+                readAnalyticsAnonymousId(cookieHeader);
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;
@@ -1438,8 +1472,11 @@ async function createBetterAuthInstance(
       },
     },
     session: {
-      expiresIn: 60 * 60 * 24 * 30, // 30 days
-      updateAge: 60 * 60 * 24, // refresh daily
+      expiresIn: config?.sessionMaxAge ?? 60 * 60 * 24 * 30,
+      updateAge: Math.min(
+        60 * 60 * 24,
+        config?.sessionMaxAge ?? 60 * 60 * 24 * 30,
+      ), // refresh daily, or sooner for short custom sessions
       cookieCache: {
         enabled: true,
         maxAge: 5 * 60, // 5 min cache
@@ -1523,7 +1560,7 @@ export function configureLocalSqlite(sqlite: {
   sqlite.pragma("journal_mode = WAL");
 }
 
-async function buildDatabaseConfig(
+export async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
@@ -1590,6 +1627,24 @@ async function buildDatabaseConfig(
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+    });
+  }
+
+  if (dialect === "d1") {
+    const d1 = getCloudflareD1Binding();
+    if (!d1) {
+      throw new Error(
+        "Cloudflare D1 database binding is unavailable; configure the DB binding before initializing Better Auth.",
+      );
+    }
+    const { drizzle } = await import("drizzle-orm/d1");
+    const db = drizzle(d1 as Parameters<typeof drizzle>[0], {
+      schema: sqliteAuthSchema,
+    });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "sqlite",
+      schema: sqliteAuthSchema,
     });
   }
 

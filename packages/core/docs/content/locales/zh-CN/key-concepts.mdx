@@ -1,31 +1,35 @@
 ---
 title: "关键概念"
-description: "代理本机应用程序的工作原理：首先是 actions、SQL 数据库、应用程序代理循环、可选的 UI、轮询同步、外部代理入口点、上下文感知和可移植性。"
+description: "代理本机应用如何在三层架构中运作：Core 框架、可选的 Toolkit 构建块，以及可选的 Templates，加上共享的 actions、SQL 数据库、应用-代理循环，以及可移植性规则。"
 ---
 
 # 关键概念
 
-代理本机应用程序如何在幕后工作 - 原则和架构。此页为合同；有关以这种方式构建的愿景和案例，请参阅 [What Is Agent-Native?](/docs/what-is-agent-native)。
+代理本机应用在幕后如何运作：原则与架构。此页是契约：一个应用要被视为代理本机应用，必须遵循的固定规则。关于这种构建方式背后的愿景与理由，请参阅 [什么是 Agent-Native？](/docs/what-is-agent-native)。
 
 ## 三个层次 {#three-layers}
 
-Agent Native 是一个 framework，而不是单个模板：
+Agent Native 是一个具有三层架构的框架：
 
-- **Core - framework：** 所有应用都可以使用的基础运行时和数据契约。
-- **Toolkit - 可选的可复用组件：** 应用可以采用、组合或 fork 的共享 UI 和产品系统。
-- **Templates - 可选的应用：** 构建在 Core 之上的完整领域应用，通常使用 Toolkit，也可以 fork 并作为起点使用。
+| 层级                                    | 内容                                                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core：框架**                          | 基础运行时契约：actions、SQL 和 Drizzle 辅助函数、身份验证、应用状态、代理执行、访问检查、路由和实时同步。每个应用都可以直接使用 Core。 |
+| **Toolkit：可选的可复用组件**           | 共享的应用构建 UI 和产品系统，例如基础组件、编辑器、共享、协作、设置和代理 UX。应用可以使用、组合或 fork 所需的组件。                   |
+| **Templates：基于 Core 构建的可选应用** | 完整的、特定领域的应用，具有路由、schema、actions、指令和视觉标识。第一方和自定义模板通常使用 Toolkit，也可以被 fork 并用作起点。       |
 
-Core 是基础。Toolkit 和 Templates 都是可选的。
+Core 是基础。Toolkit 和 Templates 都是可选的：模板可以使用 Toolkit，但基于 Core 构建应用并不需要 Toolkit。
 
 ## 架构 {#the-architecture}
 
-每个代理本机应用程序都由三部分协同工作：
+在运行时，每个代理本机应用都是三样东西协同工作：
 
-- **代理** — 读取数据、写入数据、运行 actions 并使用已配置工具的自主 AI。可使用 skills 和说明进行定制。
-- **应用** — 试剂周围的产品表面。一开始这可能只是操作、丰富的聊天、小型控制平面或带有仪表板、流程和可视化的完整 React 界面。
-- **计算机** — 数据库、浏览器、代码执行。代理通过应用的操作和数据表面工作；应用可以通过 MCP 暴露同一个操作表面，而外部 MCP 服务器仍是可选附加组件，不是基础。
+- **代理：** 自主 AI。它读取数据、写入数据、运行 actions，并使用任何已配置的工具。当它的框架被有意授予工作区访问权限和写入工具时，它也可以修改应用自身的源代码。可通过 skills 和指令进行定制。
+- **应用：** 围绕代理的产品表面。它可能从聊天开始，加入原生内联结果，成长为一个小型控制平面，或者成为带有仪表板、流程和可视化的完整 React UI。
+- **计算机：** 数据库、浏览器，以及代理借以行动的已配置工具运行时。代理通过应用自身的 action 和数据表面工作；同一个表面也可以选择性地通过 MCP 暴露，但外部 MCP 服务器仍是一个附加项，不是基础。
 
-<Diagram id="doc-block-sight" title={"代理、应用程序和计算机"} summary={"三层在一个共享的 SQL 存储上协同工作。代理和应用程序读取和写入相同的数据。"}>
+下面的图表展示了代理和应用并排放置，二者都通过双向箭头连接到下方同一个共享的计算机层。二者都不拥有数据的所有权。相反，它们读写同一个 SQL 存储，因此任何一方所做的更改都会立即对另一方可见，中间无需构建同步层。
+
+<Diagram id="doc-block-t1f7pj" title="代理、应用和计算机" summary="三层在一个共享的 SQL 存储上协同工作。代理和应用都读写相同的数据。">
 
 ```html
 <div class="diagram-arch">
@@ -33,13 +37,13 @@ Core 是基础。Toolkit 和 Templates 都是可选的。
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >读取和写入数据、运行 actions、使用已配置工具</small
+        >读取 + 写入数据，运行 actions，使用已配置的工具</small
       >
     </div>
     <div class="diagram-card">
       <span class="diagram-pill">Application</span
       ><small class="diagram-muted"
-        >action-only, chat, control plane, or full React 界面</small
+        >聊天、内联结果、控制平面或完整 React UI</small
       >
     </div>
   </div>
@@ -48,7 +52,7 @@ Core 是基础。Toolkit 和 Templates 都是可选的。
   </div>
   <div class="diagram-box" data-rough>
     Computer<br /><small class="diagram-muted"
-      >SQL 数据库 · browser · code execution</small
+      >SQL 数据库 · 浏览器 · 代码执行</small
     >
   </div>
 </div>
@@ -86,103 +90,124 @@ Core 是基础。Toolkit 和 Templates 都是可选的。
 
 </Diagram>
 
-无头应用程序可以使用 `pnpm agent` 从文件夹运行相同的生产应用程序代理循环，而 UI 应用程序则安装嵌入式代理面板并使用 `pnpm dev` 在本地运行。在云中，Builder.io 提供了一个托管框架（在您的应用旁边托管代理的环境），为团队提供协作、可视化编辑和托管基础架构。
+这个相同的代理-应用-计算机循环，在本地和生产环境中运行的是同一套。自动化优先的应用直接从文件夹用 `pnpm agent` 运行它；UI 应用挂载嵌入式代理面板并加上 `pnpm dev`。在云端，Builder.io 将同一个循环托管为一个受管理的框架：在你的应用旁边运行代理的环境。它为你处理协作、可视化编辑和基础设施。
 
 ## 代理构建块 {#agent-building-blocks}
 
-每个代理本机应用程序都具有相同的代理构建块，无论是否
-产品表面是无头的、聊天优先的或完整的 UI：
+每个代理本机应用都拥有相同的代理构建块，无论其产品
+表面是聊天优先、自动化优先，还是完整的 UI。每一个构建块
+都存放在自己的文件中：
 
 <FileTree
-  id="doc-block-jn7mlp"
-  title={"指导和行为"}
+  id="doc-block-1ae57y4"
+  title="指导与行为"
   entries={[
     {
       path: "AGENTS.md",
-      note: "始终生效的指令：目的、核心规则、状态键、actions 索引、skills 索引",
+      note: "始终生效的指令：目的、核心规则、状态键、action 索引、skills 索引",
     },
     {
       path: ".agents/skills/<name>/SKILL.md",
-      note: "可复用行为：workflow 步骤、策略、示例、参考以及做/不做清单",
+      note: "可复用行为：工作流步骤、策略、示例、参考资料，以及应做/不应做清单",
     },
     {
       path: "actions/<name>.ts",
-      note: "可执行能力：暴露给代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 的类型化操作",
+      note: "可执行能力：向代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 暴露的类型化操作",
     },
   ]}
 />
 
-| 构建块      | 使用它                                                                 | 加载时间                         |
-| ----------- | ---------------------------------------------------------------------- | -------------------------------- |
-| **说明**    | 代理应在每项任务中进行稳定的指导：应用程序是什么、不变量、语气、索引   | 每个回合                         |
-| **Skills**  | 可重用行为：如何遵循工作流程、应用策略、检查证据或验证输出             | 当技能描述与任务匹配时按需       |
-| **Actions** | 实际操作：读取或写入数据、调用 API、发送消息、运行审批、生成类型化结果 | 每次都被列为工具；仅在调用时执行 |
+一个 turn（回合）是与代理的一次交流：它读取自己的上下文、决定要做什么，然后作出响应。"每个回合都加载"意味着该文件每次都会重新进入上下文，而不仅仅是在会话开始时加载一次。
 
-Skills 和 actions 一起工作。一项技能教代理如何做一类
-工作；操作是它在执行该工作时可以调用的代码路径。例如，
-`customer-research` 技能可能会告诉代理要检查哪些来源
-如何在 `search-crm` 和 `create-brief` actions 获取的同时总结证据
-并写入实际数据。
+| 构建块      | 文件                             | 用途                                                                   | 加载时机                                 |
+| ----------- | -------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------- |
+| **指令**    | `AGENTS.md`                      | 代理应带入每项任务的稳定指导：应用是什么、不变量、语气、索引           | 每个回合                                 |
+| **Skills**  | `.agents/skills/<name>/SKILL.md` | 可复用行为：如何遵循一个工作流、应用一项策略、检查证据，或验证一个输出 | 当 skill 描述与任务匹配时按需加载        |
+| **Actions** | `actions/<name>.ts`              | 真实操作：读取或写入数据、调用 API、发送消息、运行审批、生成类型化结果 | 每个回合都作为工具列出；仅在被调用时执行 |
 
-管理架构的五项规则：
+Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
+工作；一个 action 则是代理在完成这类工作时可以调用的代码路径。例如，
+一个 `customer-research` skill 可能会告诉代理该检查哪些来源、
+如何总结证据，而 `search-crm` 和 `create-brief` 这两个 actions
+负责获取和写入实际数据。
 
-1. **数据存在于 SQL** - 所有应用程序状态都通过 Drizzle ORM 存在于数据库中
-2. **所有 AI 都通过代理** - 无内联 LLM 调用
-3. **Actions 用于代理操作** — 复杂的工作作为 actions 运行
-4. **实时同步使 UI 保持同步** — 通过 SSE 进行数据库更改流，并以轮询作为通用回退
-5. **应用程序状态存储在 SQL 中** - 临时 UI 状态位于数据库中，代理和 UI 都可以读取
+五条规则支配着这一架构：
+
+1. **数据存在于 SQL 中：** 所有应用状态都通过 Drizzle ORM 存在于数据库中。
+2. **所有 AI 都通过代理进行：** 没有内联 LLM 调用；每一次 AI 交互都通过代理聊天桥进行。
+3. **Actions 用于代理操作：** 复杂的工作以类型化的 action 运行，而不是内联代码。
+4. **实时同步让 UI 保持同步：** 数据库更改通过 SSE 流式传输，轮询作为通用回退方案。
+5. **应用状态存储在 SQL 中：** 临时 UI 状态存在于数据库中，代理和 UI 都可读取。
 
 ## 四个区域清单 {#four-area-checklist}
 
-每个面向用户的功能都应该更新所有适用的区域。跳过适用区域会破坏代理与本地合约；将 UI 强制到仅动作原语上也是一种气味。
+每个面向用户的功能都应该更新所有适用的区域。跳过一个适用的区域会破坏代理本机契约；给一个没有人类需要浏览的自动化强加一个屏幕，同样是一种代码异味。
 
-| 区域                | 描述                                     |
-| ------------------- | ---------------------------------------- |
-| **1. UI**           | 用户与之交互的页面、组件或对话框         |
-| **2。行动**         | actions/中的代理可调用操作用于相同操作   |
-| **3. Skills**       | 更新 AGENTS.md 和/或创建记录该模式的技能 |
-| **4。应用程序状态** | 导航状态、视图屏幕数据和导航命令         |
+- **1. UI：** 用户与之交互的页面、组件或对话框。
+- **2. Action：** `actions/` 中用于同一操作的、可供代理调用的 action。
+- **3. Skills：** 更新 `AGENTS.md`，和/或创建一个记录该模式的 skill。
+- **4. App-State：** 导航状态、view-screen 数据和 navigate 命令。
 
-只有 UI 的功能对于代理来说是不可见的。仅包含 actions 的完整 UI 功能对用户来说是不可见的。没有应用程序状态的功能意味着代理对用户正在做的事情一无所知。无头操作可以合法地从操作 + 指令开始，并在稍后当人们需要浏览、批准、配置或共享时添加 UI/应用程序状态。
+只有 UI 的功能对代理来说是不可见的。一个完整 UI 功能如果只有 actions，对用户来说是不可见的。没有 app-state 的功能意味着代理对用户正在做的事情视而不见。一个自动化优先的操作完全可以合理地从 action + 指令开始，等到人类需要浏览、批准、配置或分享它时，再添加聊天、UI 或 app-state。
 
-## SQL中的数据 {#data-in-sql}
+## Agent Native 包含哪些内容 {#what-you-get-for-free}
 
-所有应用程序状态都通过 Drizzle ORM 存储在 SQL 数据库中。模式与提供者无关；支持的数据库、`DATABASE_URL` 配置和可移植性规则位于 [Database](/docs/database) 中。
+采用这个框架之所以有价值，主要在于你不再需要自己构建的那些东西。只要你的应用遵循上述五条规则，你就会继承：
 
-核心 SQL 商店是自动创建的，并且在每个模板中都可用：
+| 功能                      | 你获得了什么                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 一个 action = 每个表面    | 使用 `defineAction()` 定义的每个 action 同时是一个代理工具、一个类型安全的前端 hook（`useActionQuery` / `useActionMutation`）、一个框架自有的 HTTP 传输、一个 CLI 命令、一个供外部客户端使用的 MCP 工具，以及一个供其他代理本机应用使用的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据无需第二次实现，即可添加深层链接和 MCP Apps UI。 |
+| 每个用户的完整代理资源    | Skills、共享的 `LEARNINGS.md`、个人的 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划任务，以及已连接的 MCP 服务器。全部由 SQL 支撑，无需开发机。参见 [Agent Resources](/docs/agent-resources)。                                                                                                                                 |
+| 开箱即用的 React 组件     | `<AgentPanel />` 和 `<AgentSidebar />` 可以在你应用的任意位置渲染聊天 + 资源。参见 [Drop-in Agent](/docs/drop-in-agent)。                                                                                                                                                                                                            |
+| BYO 代理聊天运行时        | 同一个聊天 UI 可以架在 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI，或者你自己的规范化 HTTP 流之上。参见 [原生聊天 UI](/docs/native-chat-ui#byo-agent-runtimes)。                                                                                                                                        |
+| 代理和 UI 之间的实时同步  | 同进程写入会立即通过 `/_agent-native/events` 流式传输；轻量级轮询让无服务器、cron 和跨进程写入保持收敛。变更类 actions 会自动使 action 支持的查询失效，因此代理创建的记录无需手动刷新即可出现。参见下方的 [Live Sync](#polling-sync)。                                                                                               |
+| Auth、orgs、RBAC          | 每个模板都内置了带有 orgs/members/roles 的 Better Auth。参见 [Authentication](/docs/authentication)。如果不止一个用户，请从 [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) 开始。                                                                                                                       |
+| 上下文感知                | 代理始终通过 `navigation` app-state 键知道用户正在查看什么。参见 [情境意识](/docs/context-awareness)。                                                                                                                                                                                                                               |
+| MCP 客户端 + 服务器，双向 | 该应用摄取 MCP 服务器（本地、远程、hub 共享的），*同时*也将自己的 actions 暴露为一个 MCP 服务器。参见 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。                                                                                                                                                       |
+| 跨应用委托                | 不同应用中的代理通过 [A2A](/docs/a2a-protocol) 通信。同源部署跳过 JWT；跨域部署使用共享的 `A2A_SECRET`。                                                                                                                                                                                                                             |
+| 子代理团队                | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                                                |
+| 可移植性                  | 任何 Drizzle 支持的 SQL 数据库，任何 Nitro 兼容的主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。                                                                                                                                                                                                                         |
 
-- `application_state` - 短暂的 UI 状态（导航、草稿、选择）
-- `settings` — 持久键值配置
-- `oauth_tokens` — OAuth 凭证
-- `sessions` — 身份验证会话
+## SQL 中的数据 {#data-in-sql}
+
+所有应用状态都通过 Drizzle ORM 存在于一个 SQL 数据库中。Schema 与提供商无关；支持的数据库、`DATABASE_URL` 配置和可移植性规则见 [Database](/docs/database)。
+
+Core 的 SQL 存储会自动创建，并在每个模板中可用：
+
+- `application_state`：临时 UI 状态（导航、草稿、选择）
+- `settings`：持久化的键值配置
+- `oauth_tokens`：OAuth 凭据
+- `sessions`：身份验证会话
+
+下面每一行都可以展开查看其字段：
 
 <DataModel
-  id="doc-block-g2do85"
-  title={"核心 SQL 商店"}
-  summary={"在每个模板中自动创建 - 代理和 UI 都可以读取和写入这些模板。"}
+  id="doc-block-4w0fu8"
+  title="Core 的 SQL 存储"
+  summary={"在每个模板中自动创建。代理和 UI 都会读写这些数据。"}
   entities={[
     {
       id: "application_state",
       name: "application_state",
-      note: "代理读取上下文的临时 UI 状态",
+      note: "代理读取以获取上下文的临时 UI 状态",
       fields: [
         {
           name: "key",
           type: "text",
           pk: true,
-          note: "e.g。 '导航'",
+          note: "例如 'navigation'",
         },
         {
           name: "value",
           type: "json",
-          note: "查看、选择、草稿",
+          note: "视图、选择、草稿",
         },
       ],
     },
     {
       id: "settings",
       name: "settings",
-      note: "持久键值配置",
+      note: "持久化的键值配置",
       fields: [
         {
           name: "key",
@@ -230,6 +255,8 @@ Skills 和 actions 一起工作。一项技能教代理如何做一类
   ]}
 />
 
+要添加你自己的领域数据，请使用与上面核心存储相同的 schema 辅助函数定义一张表：
+
 ```ts
 // Drizzle schema for domain data
 import { table, text, integer } from "@agent-native/core/db/schema";
@@ -243,26 +270,30 @@ export const forms = table("forms", {
 });
 ```
 
+你和代理都可以直接从终端检查这些数据，无需单独的 SQL 客户端：
+
 ```bash
-# 数据库快速检查的核心动作
+# 用于快速检查数据库的 Core actions
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
-生产代理聊天插件默认将原始 SQL 工具设为只读
-(`frameworkTools: { database: "read" }`)，因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，
-并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的
-`db-exec` / `db-patch` 时，才设置 `database: "write"`（或 `true`）；
-设置 `database: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
+`db-schema` 会打印每张表的列和类型。`db-query` 直接运行只读 SQL，便于在不打开数据库客户端的情况下检查某个 action 的写入结果。
+
+<Callout tone="decision">
+
+生产代理聊天插件默认将原始 SQL 工具设为只读（`frameworkTools: { database: "read" }`），因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的 `db-exec` / `db-patch` 时，才设置 `database: "write"`（或 `true`）；设置 `database: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
 
 `frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/deployment#production-agent-tools)。
 
+</Callout>
+
 ## 代理聊天桥 {#agent-chat-bridge}
 
-UI 从不直接调用 LLM。当用户点击“生成图表”或“写入摘要”时，UI 通过 `postMessage` 向代理发送消息。代理完成工作 - 具有完整的对话历史记录、skills、指令和迭代能力。
+UI 从不直接调用 LLM。当用户点击"生成图表"或"撰写摘要"时，UI 会通过 `postMessage` 向代理发送一条消息。真正的工作由代理完成。它拥有完整的对话历史、skills、指令，以及迭代的能力。
 
 ```ts
-// In a React component — delegate AI work to the agent
+// Delegate AI work to the agent from a React component
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
@@ -271,16 +302,19 @@ sendToAgentChat({
 });
 ```
 
-为什么不调用 LLM 内联？
+简而言之：
 
-- **人工智能是不确定的。**您需要对话流来提供反馈和迭代——而不是一次性按钮。
-- **上下文很重要。**代理拥有您的完整代码库、说明、skills 和历史记录。内联调用则没有这些。
-- **代理可以做更多事情。**它可以运行 actions、浏览网页以及将多个步骤链接在一起。
-- **无头执行。**因为一切都通过代理进行，所以任何应用程序都可以完全由 Slack、Telegram 或其他代理通过 [A2A](/docs/a2a-protocol) 驱动。
+- **AI 是非确定性的**：你需要对话流程来提供反馈和迭代，而不是一次性的按钮。
+- **上下文很重要**：代理拥有应用的指令、skills 和历史记录。内联调用则完全没有这些。
+- **代理能做更多事**：它可以运行 actions、浏览网页，并把多个步骤串联在一起。
 
-## Actions系统 {#actions-system}
+**[外部执行](/docs/a2a-protocol)**
 
-当代理需要做一些复杂的事情时——调用 API、处理数据、查询数据库——它会运行一个**操作**。 Actions 是 `actions/` 中的 TypeScript 文件，导出默认的 `defineAction()`：
+因为一切都通过代理和 actions 进行，任何应用都可以由 Slack、Telegram、计划任务、脚本，或者通过 A2A 由另一个代理来驱动。
+
+## Actions 系统 {#actions-system}
+
+当代理需要做一些复杂的事情时，比如调用 API、处理数据或查询数据库，它会运行一个 **action**。Actions 是 `actions/` 目录下的 TypeScript 文件，默认导出一个 `defineAction()`：
 
 ```ts filename="actions/fetch-data.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -298,19 +332,30 @@ export default defineAction({
 });
 ```
 
-一次 `defineAction()` 调用将为您提供：
+这个 action 从一个来源 API 获取 JSON 并返回它。`defineAction()` 用一个 zod schema 包裹这个函数的输入（`source`），因此框架可以校验该输入、生成一个供代理调用的 JSON Schema，并从这一个定义中为前端 hook 推断类型。
 
-- **代理工具** — 代理通过 zod 派生的 JSON 架构看到它并可以调用它。
-- **前端钩子** - `useActionMutation("fetch-data")` 具有完整的 TypeScript 推理。
-- **框架传输** - 自动安装在客户端挂钩后面。
-- **CLI** — `pnpm action fetch-data --source=signups` 用于脚本和代理开发循环。
-- **MCP 工具/A2A 工具** — 当启用 MCP 服务器或 A2A 时，也会显示相同的操作。
+一次 `defineAction()` 调用会自动触达五个不同的消费者。图表展示了从单个 action 扇出的过程；下面的列表解释了每个消费者各自获得了什么：
 
-相同的逻辑，一个定义，自动连接到每个消费者。请参阅 [Actions](/docs/actions) 获取完整参考。
+```mermaid
+graph LR
+  A[defineAction] --> B[Agent tool]
+  A --> C[Frontend hook]
+  A --> D[Framework transport]
+  A --> E[CLI command]
+  A --> F[MCP or A2A tool]
+```
+
+- **代理工具：** 代理通过 zod 派生的 JSON Schema 看到它，并可以调用它。
+- **前端 hook：** `useActionMutation("fetch-data")`，具有完整的 TypeScript 推断。
+- **框架传输：** 自动挂载在客户端 hooks 之后。
+- **CLI：** `pnpm action fetch-data --source=signups`，用于脚本编写和代理开发循环。
+- **MCP 工具 / A2A 工具：** 当 MCP 服务器或 A2A 启用时，同一个 action 也会出现在那里。
+
+每一个消费者调用的都是同一个底层函数，因此只需要编写和维护一份实现。完整参考请见 [Actions](/docs/actions-overview)。
 
 ## 实时同步 {#polling-sync}
 
-数据库更改通过`useDbSync()`同步到UI。同进程通过`/_agent-native/events`写流； `/_agent-native/poll` 仍然是跨进程和无服务器的后备方案。当代理写入数据库（应用程序状态、设置或域数据）时，版本计数器会递增，并且客户端会使相关的 React 查询缓存无效。
+当代理更改数据时，UI 需要在无需手动刷新的情况下反映这一变化。`useDbSync()` 让这一切自动发生。同进程写入通过 `/_agent-native/events` 流式传输；`/_agent-native/poll` 仍然是跨进程和无服务器场景的回退方案。当代理写入数据库（应用状态、设置或领域数据）时，一个版本计数器会递增，客户端会使相关的 React Query 缓存失效。
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
@@ -318,15 +363,19 @@ import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
-流程是：
+在应用的根部附近调用一次即可。它会让整个应用订阅变更事件，因此任何使用 `useActionQuery` 或带来源版本的 `useQuery` 的组件，在其读取的数据发生变化时都会自动重新获取。
 
-1. 代理运行写入数据库的操作
-2. 服务器使用 `"action"` 或 `"settings"` 等源发出更改事件
-3. `useDbSync` 通过 SSE 或轮询回退接收它
-4. `useActionQuery` 挂钩和源版本 `useQuery` 挂钩重新获取
-5. 组件无需重新加载页面即可呈现新数据
+流程如下：
 
-<Diagram id="doc-block-i1vnmi" title={"实时同步流程"} summary={"代理写入变成 UI 渲染，无需手动刷新 - 首先是 SSE，轮询作为通用后备。"}>
+1. 代理运行一个写入数据库的 action
+2. 服务器发出一个带有来源（例如 `"action"` 或 `"settings"`）的变更事件
+3. `useDbSync` 通过 SSE 或轮询回退接收该事件
+4. `useActionQuery` hooks 和带来源版本的 `useQuery` hooks 重新获取数据
+5. 组件渲染新数据，无需重新加载页面
+
+下面的图表端到端地追踪了这一相同的顺序：
+
+<Diagram id="doc-block-87e1c3" title="实时同步流程" summary={"一次代理写入变成一次 UI 渲染，无需手动刷新。SSE 优先，轮询作为通用回退方案。"}>
 
 ```html
 <div class="diagram-sync">
@@ -340,11 +389,11 @@ useDbSync({ queryClient });
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">
     <span class="diagram-pill accent">useDbSync</span
-    ><small class="diagram-muted">SSE &middot; poll fallback</small>
+    ><small class="diagram-muted">SSE &middot; 轮询回退</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    重新获取查询<br /><small class="diagram-muted">渲染，无需重载</small>
+    查询重新获取<br /><small class="diagram-muted">渲染，无需重新加载</small>
   </div>
 </div>
 ```
@@ -371,88 +420,94 @@ useDbSync({ queryClient });
 
 </Diagram>
 
-这适用于所有部署环境（包括无服务器和边缘），因为它使用数据库，而不是内存状态或文件系统观察器。
+这在所有部署环境中都有效，包括无服务器和边缘环境，因为它依赖的是数据库，而不是内存状态或文件系统监视器。
 
 ## 框架 {#frames}
 
-_frame_ 是在您的应用程序旁边托管代理的环境 - 在本地是嵌入式面板；在云端，它是 Builder.io 的托管表面。参见[Frames](/docs/frames)。
+_frame_ 是在你的应用旁边托管代理的环境。在本地，它是嵌入式面板；在云端，它是 Builder.io 的托管表面。参见 [Frames](/docs/frames)。
 
-代理本机应用程序包括一个嵌入式代理面板，该面板与应用程序 UI 一起提供 AI 代理。这就是架构发挥作用的原因：代理需要计算机（数据库、浏览器、代码执行），而应用程序需要代理来进行 AI 工作。
+Agent-native 应用都包含一个嵌入式代理面板，在应用 UI 旁边提供 AI 代理。这正是这一架构得以运作的原因：代理需要一台计算机（数据库、浏览器、代码执行），而应用需要代理来完成 AI 工作。
 
-- **嵌入式代理面板** - 每个应用程序中内置聊天和可选的 CLI 终端。支持 Claude 代码、Codex、Gemini、OpenCode 和 Builder.io。在本地运行。免费且开源。
-- **云** — 通过实时协作、可视化编辑、角色和权限部署到任何云。最适合团队。
+- **嵌入式代理面板：** 内置于每个应用中的聊天和可选 CLI 终端。支持 Claude Code、Codex、Gemini、OpenCode 和 Builder.io。在本地运行，免费且开源。
+- **云：** 部署到任意云端，具备实时协作、可视化编辑、角色和权限管理。最适合团队使用。
 
-## 情境感知 {#context-awareness}
+## 上下文感知 {#context-awareness}
 
-代理始终知道用户在看什么。 UI 在每次路由更改时将 `navigation` 密钥写入应用程序状态。代理在执行操作之前通过 `view-screen` 操作读取它。
+代理始终知道用户正在查看什么。UI 会在每次路由变化时向 application-state 写入一个 `navigation` 键。代理在采取行动之前，会通过 `view-screen` 这个 action 读取它。
 
-例如，当您打开电子邮件线程时，UI 会插入一行，例如：
+例如，当你打开一个邮件线程时，UI 会 upsert（更新插入）一行像这样的数据：
 
 ```json
 { "key": "navigation", "value": { "view": "thread", "threadId": "th_abc123" } }
 ```
 
-UI 在路线变更时写入此信息；代理在采取任何操作之前都会读取它（通过 `view-screen`），因此它始终知道您关注的是哪个线程 - 或图表或幻灯片。
+<Callout tone="info">
 
-请参阅 [Context Awareness](/docs/context-awareness) 了解完整模式：导航状态、视图屏幕、导航命令和抖动预防。
+UI 会在路由变化时写入这条数据；代理在采取任何行动之前会（通过 `view-screen`）读取它，因此它始终知道你正专注于哪个线程、图表或幻灯片。
 
-## 一个动作，多个表面 {#protocols}
+</Callout>
 
-将一个域操作作为一个动作执行一次；该框架将其暴露给每个消费者。相同的 `defineAction()` 成为代理工具、类型安全 UI 挂钩、HTTP 端点、CLI 命令、MCP 工具和 A2A 工具，并且仅在表面需要时添加可选的 `link`、`mcpApp` 或显式本机小部件元数据。 Skills 和说明涵盖行为。
+完整模式请见 [情境意识](/docs/context-awareness)：导航状态、view-screen、navigate 命令，以及防抖动机制。
 
-有关完整的协议/表面矩阵（MCP 服务器和 OAuth、MCP 应用程序、A2A、深层链接、本机聊天小部件、AgentChatRuntime 连接器、Agent Web 以及 ACP 和 A2UI 的适配器范围），以及选择产品形状（无头、丰富聊天、嵌入式边车或完整应用程序），请参阅[Agent Surfaces](/docs/agent-surfaces)。
+## 一个 action，多个表面 {#protocols}
+
+把一个领域操作实现为一个 action，只需一次；框架会将它暴露给每一个消费者。同一个 `defineAction()` 会变成一个代理工具、一个类型安全的 UI hook、一个 HTTP 端点、一个 CLI 命令、一个 MCP 工具和一个 A2A 工具，只有当某个表面需要更丰富的交互时，才会额外添加可选的 `link`、`mcpApp`、原生小部件元数据，或 Generative UI 包装器。Skills 和指令负责覆盖行为部分。
+
+完整的协议/表面矩阵（MCP 服务器与 OAuth、MCP Apps、A2A、深层链接、原生聊天小部件、Generative UI、AgentChatRuntime 连接器、Agent Web，以及面向 ACP 和 A2UI 的适配器展望），以及如何选择产品形态（聊天、内联 UI、完整应用页面、嵌入式 sidecar、自动化，或外部代理访问），请见 [Agent 界面](/docs/agent-surfaces)。
 
 ## 应用代码与定制 {#agent-modifies-code}
 
-嵌入式代理默认不编辑应用程序源代码。只有当主机有意授予
-repository/workspace 写入工具时，它才能编辑源代码。在普通的已部署
-应用中，代理通过 actions、SQL 支持的状态和已配置的集成来工作。
-Templates 是完整的应用程序，您可以在自己的代码库和开发流程中 fork
-并定制它们。
+框架不会赋予嵌入式代理对应用源代码的环境访问权限。在一个已部署的应用中，代理通常通过 actions、SQL 支撑的状态和已配置的集成来工作。当它的框架被有意授予工作区和写入工具时，它可以编辑组件、路由、样式和 actions。无论哪种情况，Templates 都是完整的应用，你可以在自己的代码仓库和开发流程中 fork 并定制它们。如果需要在不修改源代码的情况下进行运行时定制，请使用 [Extensions](/docs/extensions)。
 
-## 默认为便携式 {#hosting-agnostic}
+## 默认可移植 {#hosting-agnostic}
 
-两条架构规则使应用程序可以跨数据库和主机移植：
+两条架构规则让应用可以跨数据库和主机移植：
 
-- **与数据库无关。** 使用 `@agent-native/core/db/schema` 写入模式并使用 Drizzle 的可移植查询 DSL 进行读/写，因此相同的代码可以在任何支持的提供程序上运行。仅将原始 SQL 用于附加迁移或一次性维护，保持参数化且与方言无关。参见[Database](/docs/database)。
-- **与主机无关。** 服务器在 Nitro 上运行并编译为任何部署目标。切勿在服务器路由或插件中使用特定于节点的 API（`fs`、`child_process`、`path`），并且切勿假设持久服务器进程 - 无服务器和边缘是无状态的，因此将所有状态保留在 SQL 中。参见[Deployment](/docs/deployment)。
+- **数据库无关。** 使用 `@agent-native/core/db/schema` 编写 schema，并使用 Drizzle 的可移植查询 DSL 进行读写，这样相同的代码可以在任何受支持的提供商上运行。仅将原始 SQL 用于增量迁移或一次性维护，且要保持参数化并与具体方言无关。参见 [Database](/docs/database)。
+- **主机无关。** 服务器运行在 Nitro 之上，可以编译到任意部署目标。切勿在服务器路由或插件中使用 Node 特有的 API（`fs`、`child_process`、`path`），也不要假设存在一个持久化的服务器进程。无服务器和边缘环境都是无状态的，因此要把所有状态保存在 SQL 中。参见 [Deployment](/docs/deployment)。
 
-## 工作区 {#workspace}
+## 代理资源 {#workspace}
 
-每个用户都会获得一个个人**工作空间** - 指令、skills、内存、自定义子代理、计划作业和连接的 MCP 服务器 - 全部存储在 SQL 而不是文件中。这使得 Claude 代码级定制可以在多租户 SaaS 中实现，而无需为每个用户启动一个容器。参见[代理资源](/docs/agent-resources)。
+每个用户都会获得一套个人的**代理资源**：指令、skills、记忆、自定义子代理、计划任务，以及已连接的 MCP 服务器，全部存储在 SQL 中，而不是文件中。这使得 Claude-Code 级别的定制，在多租户 SaaS 中也变得可行，而无需为每个用户启动一个容器。参见 [Agent Resources](/docs/agent-resources)。
 
 ## 相关构建块 {#building-blocks}
 
-这些位于同一个合约之上，并且有自己的深入研究：
+以下内容建立在同一份契约之上，各自都有更深入的介绍：
 
-- **[Dispatch](/docs/dispatch)** — 工作区控制平面：共享收件箱、机密库、计划作业以及通过 A2A 委托给专业应用程序的编排器。
-- **[Extensions](/docs/extensions)** — 代理在运行时创建的沙盒 Alpine.js 迷你应用，无需更改源或迁移。
-- **[数据程序](/docs/data-programs)** — 由 agent 编写并存储的 `run-code` 脚本，为 dashboard 面板提供缓存的、可刷新的结果，而不是硬编码的 provider action。
-- **[A2A Protocol](/docs/a2a-protocol)** — 同一工作区中的应用如何通过 JSON-RPC 发现并相互调用。
-
-## 您免费获得的东西 {#what-you-get-for-free}
-
-采用该框架很有价值，主要是因为您不再需要构建什么。一旦您的应用遵循这五个规则，您就继承了：
-
-- **一个操作 = 每个表面。** 使用 `defineAction()` 定义的每个操作同时是一个代理工具、类型安全前端挂钩 (`useActionQuery` / `useActionMutation`)、框架拥有的 HTTP 传输、CLI 命令、用于外部客户端的 MCP 工具以及用于其他代理本机应用程序的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据添加深层链接和 MCP 应用 UI，无需第二次实现。
-- **每个用户一个完整的工作区。** Skills、共享 `LEARNINGS.md`、个人 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划作业、连接的 MCP 服务器 — 所有 SQL 支持，无需开发盒。参见[代理资源](/docs/agent-resources)。
-- **插入 React 组件。** `<AgentPanel />` 和 `<AgentSidebar />` 在应用程序中的任何位置呈现聊天 + 工作区。参见[Drop-in Agent](/docs/drop-in-agent)。
-- **BYO 代理聊天运行时。** 相同的聊天 UI 可以位于 OpenAI 代理、OpenAI 响应、Claude 代理 SDK、Vercel AI SDK、AG-UI 或您自己的规范化 HTTP 流之上。参见[Native 聊天界面](/docs/native-chat-ui#byo-agent-runtimes)。
-- **代理和 UI 之间的实时同步。**同一进程立即通过 `/_agent-native/events` 写入流；轻量级轮询使无服务器、cron 和跨进程写入保持收敛。改变 actions 会自动使操作支持的查询失效，因此无需手动刷新即可显示代理创建的记录。请参阅下面的 [Live Sync](#polling-sync)。
-- **Auth、orgs、RBAC。** 每个模板都内置了带有 orgs/members/roles 的更好的身份验证。参见[Authentication](/docs/authentication)。
-- **上下文感知。**代理始终通过 `navigation` 应用状态键了解用户正在查看的内容。参见[Context Awareness](/docs/context-awareness)。
-- **MCP 客户端 + 服务器，双向。** 应用程序摄取 MCP 服务器（本地、远程、集线器共享）*并且*将其自己的 actions 公开为 MCP 服务器。请参阅 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。
-- **应用程序间委托。**不同应用程序中的代理通过 [A2A](/docs/a2a-protocol) 进行通信。同源部署跳过JWT；跨域使用共享的`A2A_SECRET`。
-- **子代理团队。** 生成一个具有自己的线程和工具的子代理，以聊天中内联的芯片形式出现。参见[Agent Teams](/docs/agent-teams)。
-- **可移植性。**任何 Drizzle 支持的 SQL 数据库、任何 Nitro 兼容的主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。
-
-这就是“以及其他所有东西”，否则你需要自己将它们粘合在一起。
+- **[Dispatch](/docs/dispatch)：** 工作区控制平面，具有共享收件箱、secrets vault、计划任务，以及一个通过 A2A 将工作委托给专项应用的编排器。
+- **[Extensions](/docs/extensions)：** 代理在运行时创建的沙盒化 Alpine.js 迷你应用，无需修改源代码或迁移。
+- **[A2A协议](/docs/a2a-protocol)：** 同一工作区内的应用如何通过 JSON-RPC 相互发现并调用。
 
 ## 下一步 {#deep-dives}
 
-- [**What Is Agent-Native?**](/docs/what-is-agent-native) — 这些规则背后的愿景和理念
-- [**Context Awareness**](/docs/context-awareness) — 深入了解导航状态、view-screen 和 navigate 命令
-- [**Skills Guide**](/docs/skills-guide) — 框架 skills、领域 skills 以及创建自定义 skills
-- [**Native Chat UI**](/docs/native-chat-ui) — action 声明的表格、图表和自带运行时支持
-- [**Agent Surfaces**](/docs/agent-surfaces) — 聊天、原生内联 UI、完整应用页面、嵌入式 sidecar、自动化和外部代理路径
-- [**A2A Protocol**](/docs/a2a-protocol) — 代理间通信
+<Cards>
+
+### [什么是 Agent-Native？](/docs/what-is-agent-native)
+
+这些规则背后的愿景和理念。
+
+### [情境意识](/docs/context-awareness)
+
+深入介绍导航状态、view-screen 和 navigate 命令。
+
+### [同步内部机制](/docs/client-sync-internals)
+
+实时同步背后的变更版本机制，用于同步自定义的 `useQuery`。
+
+### [Skills指南](/docs/skills-guide)
+
+框架 skills、领域 skills，以及创建自定义 skills。
+
+### [原生聊天 UI](/docs/native-chat-ui)
+
+由 action 声明的表格、图表，以及 BYO 运行时定位。
+
+### [Agent 界面](/docs/agent-surfaces)
+
+聊天、原生内联 UI、完整应用页面、嵌入式 sidecar、自动化，以及外部代理路径。
+
+### [A2A协议](/docs/a2a-protocol)
+
+代理间通信。
+
+</Cards>

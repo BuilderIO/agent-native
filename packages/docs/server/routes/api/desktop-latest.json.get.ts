@@ -1,7 +1,7 @@
 import { defineEventHandler, setResponseHeaders, setResponseStatus } from "h3";
 
 import {
-  DESKTOP_RELEASE_CACHE_CONTROL,
+  DESKTOP_RELEASE_CACHE_HEADERS,
   type DesktopDownloadManifest,
   getDesktopDownloadManifest,
   getDesktopReleaseError,
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeaders(event, {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": DESKTOP_RELEASE_CACHE_CONTROL,
+    ...DESKTOP_RELEASE_CACHE_HEADERS,
   });
   return manifest;
 });

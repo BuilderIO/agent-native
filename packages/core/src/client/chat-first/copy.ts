@@ -21,6 +21,7 @@ const DEFAULT_COPY: Record<string, string> = {
   pinTop: "Pin app to the top",
   moveUp: "Move up",
   moveDown: "Move down",
+  removeApp: "Remove app from workspace",
   showMore: "Show more",
   showLess: "Show less",
   appOrderUnavailable: "App order could not be saved on this device.",

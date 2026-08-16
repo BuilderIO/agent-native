@@ -57,6 +57,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anIsLoopbackHostname()");
     expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
     expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
+    expect(html).toContain("method: 'GET'");
+    expect(html).toContain("cache: 'no-store'");
+    expect(html).toContain("data.available === true");
     expect(html).toContain("hostname.indexOf('127.') === 0");
     expect(html).toContain(
       "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
@@ -110,6 +113,13 @@ describe("getOnboardingHtml", () => {
       expect(html).toContain(
         "identity.addEventListener('click', __anStartIdentitySso)",
       );
+      expect(html).toContain("data-agent-native-embedded-init");
+      expect(html).toContain(
+        'params.get("embedded") === "1" || window.self !== window.top',
+      );
+      expect(html).toContain(
+        'html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }',
+      );
       // Exactly one rendered element — not duplicated across layout branches.
       expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
     });
@@ -137,6 +147,8 @@ describe("getOnboardingHtml", () => {
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
+      expect(html).toContain('onclick="signInWithGoogle()"');
+      expect(html).not.toContain("google-preflight");
       expect(html).not.toContain("Google sign-in is not configured");
     });
 
@@ -231,6 +243,27 @@ describe("getOnboardingHtml", () => {
     expect(() => new Function(resetScript!)).not.toThrow();
   });
 
+  it("does not render a run-local CTA in the auth marketing panel", () => {
+    const html = getOnboardingHtml({
+      googleOnly: true,
+      marketing: {
+        appName: "Calendar",
+        tagline: "Your AI agent manages your calendar.",
+        runLocalCommand:
+          "npx @agent-native/core@latest create my-calendar-app --template calendar",
+      },
+    });
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(html).not.toContain('id="run-local-button"');
+    expect(html).not.toContain('id="run-local-panel"');
+    expect(html).not.toContain("Run Locally");
+    expect(html).not.toContain("function __anCopyRunLocalCommand()");
+    expect(html).toContain('onclick="signInWithGoogle()"');
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+  });
+
   it("renders the policy password minimum in signup and reset forms", () => {
     const html = getOnboardingHtml();
     const resetHtml = getResetPasswordHtml();
@@ -283,8 +316,10 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain("/_agent-native/auth/magic-link");
+    expect(html).toContain("callbackURL: isDesktopMagicLink");
+    expect(html).toContain("/_agent-native/auth/magic-link/desktop-callback");
     expect(html).toContain(
-      "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
+      "__anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier)",
     );
     expect(html).toContain(
       "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
@@ -576,43 +611,6 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     );
   });
 
-  it("puts hosted Google warnings in a popover with a run-local choice", () => {
-    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-
-    const command =
-      "npx @agent-native/core@latest create my-mail-app --template mail";
-    const html = getOnboardingHtml({
-      googleOnly: true,
-      marketing: {
-        appName: "Agent-Native Mail",
-        tagline: "Manage email with an agent.",
-        runLocalCommand: command,
-      },
-      googleSignInNotice: {
-        host: "mail.agent-native.com",
-        title: "Google may show a warning",
-        body: "Google may ask you to confirm before continuing.",
-        continueLabel: "Continue to Google",
-        cancelLabel: "Run locally",
-      },
-    });
-
-    expect(html).toContain('class="google-signin"');
-    expect(html).toContain(
-      'aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"',
-    );
-    expect(html).toContain('role="dialog"');
-    expect(html).toContain("Google may show a warning");
-    expect(html).toContain('id="google-preflight-run-local"');
-    expect(html).toContain("Run locally");
-    expect(html).not.toContain("Not now");
-    expect(html).toContain('id="google-preflight-run-local-panel"');
-    expect(html).toContain(command);
-    expect(html).toContain("function __anChooseRunLocalFromGoogleNotice()");
-    expect(html).toContain("__anCopyGoogleNoticeRunLocalCommand()");
-  });
-
   it("has branded auth marketing for every core built-in template host", () => {
     const coreSlugs = [
       "calendar",
@@ -637,6 +635,19 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
 
       expect(html).toContain('class="marketing-panel"');
       expect(html).toContain(BUILT_IN_AUTH_MARKETING[slug]!.appName);
+    }
+  });
+
+  it("omits the run-local CTA from Mail and Calendar auth pages", () => {
+    for (const slug of ["mail", "calendar"]) {
+      const html = getOnboardingHtml({
+        requestHost: `${slug}.agent-native.com`,
+        googleOnly: true,
+      });
+
+      expect(html).not.toContain('id="run-local-button"');
+      expect(html).not.toContain('id="run-local-panel"');
+      expect(html).not.toContain("Run Locally");
     }
   });
 

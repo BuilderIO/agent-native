@@ -31,6 +31,13 @@
   --color-accent-green-border: #35453a;
   --color-accent-green-medium: #233027;
   --color-accent-green-medium-dark: #242d28;
+  --color-accent-neutral: #d4d4d8;
+  --color-accent-neutral-bright: #e4e4e7;
+  --color-accent-neutral-dim: #27272a;
+  --color-accent-neutral-dark: #18181b;
+  --color-accent-neutral-border: #3f3f46;
+  --color-accent-neutral-medium: #303033;
+  --color-accent-neutral-medium-dark: #242426;
   --color-gray-medium-dark: #202020;
   --color-gray-border-light: #333333;
   --color-gray-border-dim: rgba(51, 51, 51, 0.4);

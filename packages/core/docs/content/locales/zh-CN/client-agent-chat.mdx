@@ -1,0 +1,310 @@
+---
+title: "Agent 聊天"
+description: "进入代理聊天的客户端入口：sendToAgentChat、openAgentSettings、askUserQuestion、动态建议、useAgentChatGenerating，以及暂存的代理聊天上下文状态。"
+---
+
+# Agent 聊天
+
+您应用的客户端可以通过一小组客户端辅助函数与代理对话。它们涵盖发送提示、暂存隐藏上下文、向用户提出阻塞式问题，以及打开代理面板。
+
+在下面的示例中，一个**起草回复**按钮会提示代理向用户提出一个问题。一旦用户回答，代理就会在起草回复时同时考虑当前页面上下文和用户的回答。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="显示运行历史侧边栏的 Dispatch 应用截图"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Dispatch 的运行历史侧边栏。"
+/>
+
+## 工作原理
+
+通过使用 Agent-Native 提供的客户端辅助方法，您的 UI 可以提示代理以多种方式与用户互动。下面的图示展示了用户点击"起草回复"按钮后，代理如何在生成回复之前先与用户互动。
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="标题为“谁负责每一步”的序列图，展示了三条生命线：App Code、UI 和 Agent。用户点击“起草回复”，触发 askUserQuestion()。一条说明指出这会内联渲染在代理面板中。用户回复后，Agent 上的 sendDraftRequest() 被调用，它会调用 draft-ticket-reply 并将起草好的回复返回给 UI 的回复输入框。"
+  align="full"
+  width={600}
+  caption="将“起草回复”按钮流程可视化的序列图。"
+/>
+
+用户体验流程如下：
+
+1. 用户点击**起草回复**按钮，这会导致 `askUserQuestion()` 函数被调用。该问题会在代理面板中以内联方式得到回答。
+
+1. 用户选择**提供退款**，这会导致 `sendDraftRequest()` 将提示和工单上下文发送给代理。
+
+1. 代理调用 `draft-ticket-reply` [action](/docs/actions-overview)，起草好的回复随即出现在回复输入框中。
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "问题本身、它的选项，以及它应有的行为方式。",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description: "完整的问题。清晰、具体，以问号结尾。",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            '非常简短的芯片/标题，大约 12 个字符，例如 `"Response"`。',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "2-4 个不同的选项。每个选项都是 `{ label, value?, description?, preview?, recommended? }`。`value` 默认等于 `label`。",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description: "添加一个客服可以自由输入的“其他”文本选项。",
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "多选而非单选。",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description: "代理面板轮询的应用程序状态 key。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      "被选中的 `value`（若 `allowMultiple` 则为 `value[]`）、客服输入的“其他”文本，或者如果他们跳过则为 `null`。在他们回答之前会一直保持 pending。需要代理面板已挂载，而每个模板中它都已挂载。",
+  }}
+/>
+
+该函数从应用代码中向用户提出一个多选题，将其内联渲染在代理面板中，并等待用户的回答。当 UI 在启动代理工作之前需要用户做出一个只有两到四个选项的小决定时，用它代替构建一个自定义弹窗。
+
+在下面的示例中，工单页面上的一个“起草回复”按钮会先询问客服希望如何回复，然后才向代理发送任何内容：
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "一个 `[isGenerating, send]` 元组。`isGenerating` 从调用 `send()` 的那一刻起为 `true`，直到代理聊天运行报告已停止。`send(opts)` 与 `sendToAgentChat()` 的签名相同，并返回它派发到的 tab id。",
+  }}
+/>
+
+这个 React 钩子在 `sendToAgentChat()` 之上包装了加载状态跟踪。
+
+1. 第一个返回值 `isGenerating`，在您调用它时变为 true，代理完成生成后重置为 false。
+
+2. 第二个返回值 `send()`，与 `sendToAgentChat()` 函数一致。
+
+`isGenerating` 只有在一次运行真正开始并报告已停止之后才会重置。`submit: false` 的调用只会预填充一份草稿而不会启动运行，因此在这样的调用之后 `isGenerating` 会永远保持 `true`。该钩子只应用于 `submit: true` 的发送；仅需预填充时请直接调用 `sendToAgentChat()`。
+
+将其与上面的 `askUserQuestion()` 示例结合，就完成了这个按钮的处理函数：
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title="补全起草回复处理函数"
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "加载状态与发送，合而为一",
+      note: "`useAgentChatGenerating()` 返回与裸调用 `sendToAgentChat()` 相同形状的元组，但额外提供了 `isDrafting`，让按钮可以在请求进行中时自我禁用。",
+    },
+    {
+      lines: "10-17",
+      label: "复用提问步骤",
+      note: "这正是上一节中的 `askUserQuestion()` 调用，现在被放进了按钮自己的处理函数里。",
+    },
+    {
+      lines: "18",
+      label: "使用答案前先做类型收窄",
+      note: "返回类型始终允许 `allowMultiple` 带来的 `string[]`，因此即便这次调用从未设置它，这个检查也是必需的。",
+    },
+    {
+      lines: "20-25",
+      label: "把选择转换成一句话",
+      note: "将选中的值，或客服自己输入的文本，映射成下面提示中读起来自然的短语。",
+    },
+    {
+      lines: "27-32",
+      label: "指明 action 和意图",
+      note: "该消息明确告诉代理要调用哪个 action（`draft-ticket-reply`），并提醒它不要直接发出回复。`openSidebar: true` 确保即使侧边栏此前是关闭的，起草好的回复也是可见的。",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting 驱动按钮",
+      note: "只有在 `sendDraftRequest()` 进行中时按钮才会被禁用并更换文案。当 `askUserQuestion()` 在等待客服作答时，按钮仍可点击，因为那发生在 `sendDraftRequest()` 被调用之前。",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+通过 `postMessage` 向代理聊天发送一条消息。这是上面 `useAgentChatGenerating()` 所包装的更底层原语，适用于 UI 交互本身不需要加载状态跟踪的场景。传入 `context` 可以携带模型应该看到但用户不应看到的额外细节。它会被追加到发送给代理的消息中，并用 `<context>` 标签包裹，在消息渲染到聊天界面之前会被移除。传入 `submit: true` 立即发送，或传入 `submit: false` 预填充一份草稿供用户先审阅。
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// 使用隐藏上下文自动提交提示
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| 选项          | 类型       | 描述                                                           |
+| ------------- | ---------- | -------------------------------------------------------------- |
+| `message`     | `string`   | 发送到聊天中的提示，也是聊天界面中唯一显示的部分               |
+| `context`     | `string?`  | 发送前追加到消息中的、模型可见的上下文。会从聊天界面显示中移除 |
+| `submit`      | `boolean?` | true = 自动提交，false = 仅预填充                              |
+| `newTab`      | `boolean?` | 为此提示创建一个单独的聊天线程                                 |
+| `openSidebar` | `boolean?` | 设为 false 可在不打开侧边栏的情况下提交/预填充                 |
+
+在 MCP App embed 内部运行它，或者在不打开侧边栏的情况下将运行放到后台，这两种情况都在 [高级](/docs/client-advanced#background-send) 中有介绍。
+
+## 动态建议 {#dynamic-suggestions}
+
+在对话开始之前，`<AgentSidebar>`、`<AgentPanel>` 和 `<AssistantChat>` 会在空聊天上显示提示芯片。默认情况下，这些芯片不只是您固定的 `suggestions` 列表：框架会从应用程序状态中读取 `navigation`、`selection`、`pending-selection-context` 和当前 URL，并合并进与屏幕上实际内容相匹配的芯片。
+
+它通过两项检查来完成这件事。如果有内容被选中，它会添加通用芯片，例如“总结这个选择”。另外，它会在 `navigation` 中查找常见应用已经在用的字段名，例如邮件线程的 `threadId`/`emailId`，或图表的 `dashboardId`/`chartId`，并添加针对该类屏幕定制的芯片，例如线程的“起草回复”，或图表的“在这份数据中查找异常”。无论得到什么结果，都会与您的静态 `suggestions` 合并、去重，并被 `max` 限制上限。
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+如果当前屏幕与启发式规则识别的任何内容都不匹配，且没有内容被选中，它就不会贡献任何芯片，空聊天会仅回退到您的静态 `suggestions`。设置 `dynamicSuggestions={false}` 可只保留静态芯片。如果您应用的导航结构与内置启发式规则不匹配，或者您想要完全确定性的、应用专属的芯片，见 [高级](/docs/client-advanced#custom-suggestions)。
+
+## openAgentSettings(section?) {#openagentsettings}
+
+当某个应用设置页面或设置卡需要打开代理侧边栏的设置选项卡时，使用 `openAgentSettings()`。传入一个区块 id，例如 `"llm"`、`"secrets"`、`"automations"`、`"voice"` 或 `"limits"`，可以打开特定的区块。
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+优先使用这个辅助函数，而不要直接派发 `agent-panel:open-settings`。
+
+## 代理聊天上下文状态 {#agent-chat-context-state}
+
+上下文状态 API 是为需要与暂存上下文芯片进行双向同步的 UI 提供的可选管道：在输入框之外渲染当前暂存的项目、反映某个项目是否已经被附加，或提供明确的移除/清除控件。
+
+对于简单的“把这个发给代理”或“预填充这份草稿供审阅”的流程，不要使用这些辅助函数，而应改用带有 `context` 和 `submit` 的 [`sendToAgentChat()`](#sendtoagentchat)。
+
+| API                               | 何时使用                                            |
+| --------------------------------- | --------------------------------------------------- |
+| `useAgentChatContext()`           | React 组件需要实时的暂存上下文列表                  |
+| `setAgentChatContextItem(item)`   | 命令式代码需要暂存或替换一个带 key 的上下文项       |
+| `listAgentChatContext()`          | 非 React 代码需要一次性获取暂存上下文的快照         |
+| `removeAgentChatContextItem(key)` | UI 需要通过稳定的 `key` 移除一个暂存的上下文项      |
+| `clearAgentChatContext()`         | UI 需要清除所有暂存上下文，例如在视图或模式重置之后 |
+| `refreshAgentChatContext()`       | 命令式代码需要重新读取最新的持久化上下文快照        |
+
+`useAgentChatContext()` 返回 `{ items, set, remove, clear, refresh }`。
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` 用于只需要检查一次当前暂存项目的命令式代码。`clearAgentChatContext()` 有意设计得比较宽泛；当只有一个选择发生变化时，使用 `removeAgentChatContextItem(key)`。
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| 选项          | 类型       | 描述                                       |
+| ------------- | ---------- | ------------------------------------------ |
+| `key`         | `string`   | 用于替换现有块的稳定标识符                 |
+| `title`       | `string`   | 显示在输入框芯片中的简短标签               |
+| `context`     | `string`   | 随下一次提交的提示一起包含的隐藏上下文     |
+| `openSidebar` | `boolean?` | 默认为 true。传入 false 可静默地暂存上下文 |
+
+## 下一步
+
+- [**概览**](/docs/client-overview) — 这些辅助函数在 `app/` 中的位置
+- [**数据与同步**](/docs/client-data) — 让 UI 本身保持最新的 action 钩子和 `useDbSync`
+- [**Drop-in Agent**](/docs/drop-in-agent) — 挂载 `<AgentSidebar>`/`<AgentPanel>`，让这些辅助函数有地方可以渲染
+- [**高级**](/docs/client-advanced) — 后台发送、自定义建议芯片，以及 MCP App 主桥
+- [**Generative UI**](/docs/generative-ui) — 构建超越 `askUserQuestion` 的更丰富的内联聊天控件
