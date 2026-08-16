@@ -255,6 +255,7 @@ import {
 } from "./sentry";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
+import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
@@ -1265,6 +1266,36 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
     resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
+});
+
+ipcMain.handle(IPC.IDENTITY_AUTHENTICATE, async (event, request) => {
+  if (!isShellIdentityIpc(event)) {
+    return { ok: false, error: "The desktop identity surface is unavailable." };
+  }
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) {
+    return { ok: false, error: "Desktop workspace sign-in is unavailable." };
+  }
+  if (!request || typeof request !== "object") {
+    return { ok: false, error: "Enter your email and password to continue." };
+  }
+  const input = request as {
+    mode?: unknown;
+    email?: unknown;
+    password?: unknown;
+  };
+  if (
+    (input.mode !== "sign-in" && input.mode !== "sign-up") ||
+    typeof input.email !== "string" ||
+    typeof input.password !== "string"
+  ) {
+    return { ok: false, error: "Enter your email and password to continue." };
+  }
+  return broker.authenticateWithPassword({
+    mode: input.mode,
+    email: input.email,
+    password: input.password,
+  });
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
@@ -9902,6 +9933,17 @@ registerAppsIpc({
   createDesktopAppFromPrompt,
   prepareDesktopAppForLocalCodeChange,
   showDesktopAppContextMenu,
+  loadWorkspaceApps: () => {
+    const dispatch = DESKTOP_DEFAULT_APPS.find(
+      (appConfig) => appConfig.id === "dispatch",
+    );
+    const dispatchOrigin = dispatch ? getAppOrigin(dispatch) : null;
+    if (!dispatchOrigin) return Promise.resolve({ enabled: false, apps: [] });
+    return loadDesktopWorkspaceApps({
+      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+      dispatchOrigin,
+    });
+  },
 });
 
 registerDesktopChatIpc();
@@ -11062,7 +11104,7 @@ async function handleBlockedScreenCapture() {
 
 function configurePermissionHandlers(
   sess: Electron.Session,
-  targetAppId: string | null,
+  getTargetAppId: () => string | null,
 ) {
   if (permissionConfiguredSessions.has(sess)) return;
   permissionConfiguredSessions.add(sess);
@@ -11073,7 +11115,7 @@ function configurePermissionHandlers(
         isAllowedWebviewPermission(permission) &&
         isTrustedPermissionRequest(
           contents,
-          targetAppId,
+          getTargetAppId(),
           requestingOrigin,
           details,
         )
@@ -11085,12 +11127,17 @@ function configurePermissionHandlers(
     (contents, permission, callback, details) => {
       callback(
         isAllowedWebviewPermission(permission) &&
-          isTrustedPermissionRequest(contents, targetAppId, undefined, details),
+          isTrustedPermissionRequest(
+            contents,
+            getTargetAppId(),
+            undefined,
+            details,
+          ),
       );
     },
   );
 
-  if (targetAppId === "clips") {
+  if (getTargetAppId() === "clips") {
     console.info("[display-capture] registering clips display media handler", {
       platform: process.platform,
       osRelease: os.release(),
@@ -11137,13 +11184,20 @@ app.whenReady().then(async () => {
   // webRequest handlers must be attached to each partitioned session, not
   // just session.defaultSession.
   const configuredSessions = new WeakSet<Electron.Session>();
+  const sessionTargetAppIds = new WeakMap<Electron.Session, string | null>();
   function configureWebviewSession(
     sess: Electron.Session,
     targetAppId: string | null,
   ) {
+    if (targetAppId) {
+      sessionTargetAppIds.set(sess, targetAppId);
+    } else if (!sessionTargetAppIds.has(sess)) {
+      sessionTargetAppIds.set(sess, null);
+    }
+    const getTargetAppId = () => sessionTargetAppIds.get(sess) ?? null;
     if (configuredSessions.has(sess)) return;
     configuredSessions.add(sess);
-    configurePermissionHandlers(sess, targetAppId);
+    configurePermissionHandlers(sess, getTargetAppId);
 
     if (IS_DEV) {
       sess.webRequest.onHeadersReceived((details, callback) => {
@@ -11158,10 +11212,12 @@ app.whenReady().then(async () => {
       });
     }
 
-    if (IS_DESKTOP_SSO_CANARY && targetAppId) {
+    if (IS_DESKTOP_SSO_CANARY) {
       sess.cookies.on("changed", (_event, cookie, _cause, removed) => {
         if (removed) return;
-        const identityApp = resolveDesktopIdentityApp(targetAppId);
+        const appId = getTargetAppId();
+        if (!appId) return;
+        const identityApp = resolveDesktopIdentityApp(appId);
         if (!identityApp || !identityApp.cookieNames.includes(cookie.name)) {
           return;
         }
@@ -11183,9 +11239,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details, callback) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11228,8 +11283,9 @@ app.whenReady().then(async () => {
           callback({});
           return;
         }
+        const resolvedAppId = getTargetAppId();
         const app =
-          (targetAppId && apps.find((a) => a.id === targetAppId)) ||
+          (resolvedAppId && apps.find((a) => a.id === resolvedAppId)) ||
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
@@ -11253,9 +11309,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11285,9 +11340,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11375,6 +11429,7 @@ app.whenReady().then(async () => {
       id = resolveDesktopWebviewAppId(wc);
       if (!id) return;
       const appId = id;
+      configureWebviewSession(wc.session, appId);
       desktopWebviewAppIds.set(wc, appId);
       if (resolveDesktopIdentityApp(appId)) {
         void wc

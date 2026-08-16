@@ -5,13 +5,21 @@ import { View, Text, TouchableOpacity } from "react-native";
 
 import AppWebView, { type AppWebViewHandle } from "@/components/AppWebView";
 import { useApps } from "@/lib/use-apps";
+import { useWorkspaceApps } from "@/lib/workspace-apps";
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { apps } = useApps();
+  const workspace = useWorkspaceApps();
   const webviewRef = useRef<AppWebViewHandle>(null);
 
-  const app = apps.find((a) => a.id === id);
+  const app =
+    (workspace.enabled &&
+      workspace.apps.find((candidate) => candidate.id === id)) ||
+    apps.find((candidate) => candidate.id === id);
+  const isWorkspaceApp =
+    workspace.enabled &&
+    workspace.apps.some((candidate) => candidate.id === id);
 
   if (!app) {
     return (
@@ -45,6 +53,7 @@ export default function AppScreen() {
         url={app.url}
         appName={app.name}
         captureSessionToken
+        workspaceAppId={isWorkspaceApp ? app.id : undefined}
       />
     </>
   );

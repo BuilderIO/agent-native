@@ -36,10 +36,12 @@ export const IPC = {
   IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
   IDENTITY_SIGN_IN: "identity:sign-in",
+  IDENTITY_AUTHENTICATE: "identity:authenticate",
   IDENTITY_SIGN_OUT: "identity:sign-out",
 
   /** App config management (renderer ↔ main) */
   APPS_LOAD: "apps:load",
+  APPS_LOAD_WORKSPACE: "apps:load-workspace",
   APPS_ADD: "apps:add",
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
@@ -205,6 +207,26 @@ export interface DesktopAppCreationSettings {
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
+}
+
+export type DesktopIdentityAuthMode = "sign-in" | "sign-up";
+
+export interface DesktopIdentityAuthRequest {
+  mode: DesktopIdentityAuthMode;
+  email: string;
+  password: string;
+}
+
+export interface DesktopIdentityAuthResult {
+  ok: boolean;
+  email?: string;
+  error?: string;
+}
+
+/** Token-free result for the optional signed-in workspace app inventory. */
+export interface DesktopWorkspaceAppListResult {
+  enabled: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
 }
 
 export interface DesktopPrepareLocalCodeChangeRequest {

@@ -4,6 +4,7 @@ import { Text, View } from "react-native";
 import AppWebView from "@/components/AppWebView";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { getAppUrl } from "@/lib/get-app-url";
+import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
 
 export default function WorkspaceAppTab({
   appId,
@@ -33,6 +34,8 @@ export default function WorkspaceAppTab({
       <AppWebView
         url={getAppUrl(app)}
         captureSessionToken={captureSessionToken}
+        workspaceAppId={appId}
+        parentSessionTokenKey={SESSION_TOKEN_KEY}
       />
     </SafeAreaView>
   );

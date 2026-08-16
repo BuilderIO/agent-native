@@ -268,6 +268,101 @@ describe("Desktop identity navigation boundaries", () => {
 });
 
 describe("DesktopIdentityBroker", () => {
+  it("authenticates from the parent surface and fans the session out", async () => {
+    const authority = authorityFixture();
+    const authorityCookies = cookieStore();
+    authority.session = {
+      cookies: authorityCookies,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/login")) {
+        await identityCookies.set({
+          url: authority.origin,
+          name: "an_session_dispatch",
+          value: "new-session",
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ email: "steve@example.com" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const createWindow = vi.fn(() => {
+      let didNavigate:
+        | ((event: unknown, url: string, statusCode: number) => void)
+        | undefined;
+      const webContents = {
+        on: vi.fn((event: string, handler: typeof didNavigate) => {
+          if (event === "did-navigate") didNavigate = handler;
+        }),
+        setWindowOpenHandler: vi.fn(),
+      };
+      return {
+        webContents,
+        loadURL: vi.fn(async (url: string) => {
+          const returnPath = new URL(url).searchParams.get("return");
+          queueMicrotask(() =>
+            didNavigate?.(
+              {},
+              new URL(returnPath!, new URL(url).origin).toString(),
+              200,
+            ),
+          );
+        }),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as never;
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-in",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual({ ok: true, email: "steve@example.com" });
+
+    expect(identityFetch).toHaveBeenCalledWith(
+      `${authority.origin}/_agent-native/auth/login`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "steve@example.com",
+          password: "not-logged-or-stored",
+        }),
+      }),
+    );
+    expect(authorityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "new-session",
+      }),
+    );
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(createWindow).toHaveBeenCalledOnce();
+  });
+
   it("adopts a normal Dispatch login into the isolated identity session", async () => {
     const authority = authorityFixture();
     const authorityCookies = cookieStore([
@@ -406,6 +501,16 @@ describe("DesktopIdentityBroker", () => {
       cookieNames: ["an_session_calendar", "an_session"],
       cookieNamesToClear: ["an_session_calendar", "an_session"],
     };
+    calendar.session = {
+      cookies: cookieStore([
+        sessionCookie(
+          "an_session_calendar",
+          calendar.origin,
+          "previous-session",
+        ),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
     const custom = {
       ...appFixture(),
       id: "custom-workspace-app",

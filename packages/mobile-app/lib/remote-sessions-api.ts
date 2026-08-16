@@ -7,8 +7,7 @@ import {
 } from "./session-token-store";
 
 export { SESSION_TOKEN_KEY };
-export const REMOTE_AUTH_MESSAGE =
-  "Connect this phone to Dispatch to use remote sessions.";
+export const REMOTE_AUTH_MESSAGE = "Sign in to connect a computer.";
 
 export const REMOTE_SESSIONS_ENDPOINTS = {
   hosts: "/_agent-native/integrations/remote/hosts",

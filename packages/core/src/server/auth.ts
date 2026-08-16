@@ -876,7 +876,10 @@ function shouldExposeSessionTokenInBody(event: H3Event): boolean {
   // X-Request-Source; browsers can only use that cross-origin after our CORS
   // allowlist has approved the origin, and same-origin pages already receive
   // an equivalent httpOnly session cookie on successful login.
-  return !origin && getHeader(event, "x-request-source") === "clips-desktop";
+  const requestSource = getHeader(event, "x-request-source");
+  return (
+    !origin && (requestSource === "clips-desktop" || requestSource === "mobile")
+  );
 }
 
 function authLoginResponse(

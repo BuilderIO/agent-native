@@ -159,6 +159,17 @@ export function WorkspaceAppFrame({
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        if (workspaceSsoEnabled) {
+          // An SSO-enabled pane must never fall back to the child app's
+          // unauthenticated shell. Keep the parent-owned retry surface in
+          // place so a transient exchange failure cannot expose another
+          // login form.
+          setIsDirectFallback(false);
+          setEmbedUrl(null);
+          setEmbedError(error);
+          return;
+        }
         setIsDirectFallback(true);
         setEmbedUrl(
           workspaceAppDirectHref(
@@ -166,9 +177,7 @@ export function WorkspaceAppFrame({
             embedPath ?? "/",
           ),
         );
-        setEmbedError(
-          cause instanceof Error ? cause : new Error(String(cause)),
-        );
+        setEmbedError(error);
       });
     return () => {
       cancelled = true;

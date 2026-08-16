@@ -8,6 +8,11 @@ import type {
   WindowOpenHandlerResponse,
 } from "electron";
 
+import type {
+  DesktopIdentityAuthRequest,
+  DesktopIdentityAuthResult,
+} from "../../shared/ipc-channels.js";
+
 export const DESKTOP_IDENTITY_PARTITION = "persist:agent-native-identity";
 export const DESKTOP_IDENTITY_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
@@ -267,6 +272,31 @@ export async function fetchDesktopIdentityAvailability(
   }
 }
 
+async function readDesktopIdentityAuthResponse(
+  response: Response,
+): Promise<{ email?: string; error?: string }> {
+  type AuthResponseBody = {
+    email?: unknown;
+    error?: unknown;
+  };
+  let body: AuthResponseBody | null = null;
+  try {
+    body = (await response.json()) as AuthResponseBody;
+  } catch (error) {
+    console.warn("[desktop identity] auth response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+  return {
+    ...(typeof body?.email === "string" && body.email.trim()
+      ? { email: body.email.trim() }
+      : {}),
+    ...(typeof body?.error === "string" && body.error.trim()
+      ? { error: body.error.trim() }
+      : {}),
+  };
+}
+
 export class DesktopIdentityBroker {
   private readonly pendingByApp = new Map<string, Promise<boolean>>();
   private readonly unsupportedAppIds = new Set<string>();
@@ -274,6 +304,8 @@ export class DesktopIdentityBroker {
   private queue: Promise<void> = Promise.resolve();
   private activeWindow: DesktopIdentityWindow | null = null;
   private signInOperation: Promise<boolean> | null = null;
+  private passwordAuthOperation: Promise<DesktopIdentityAuthResult> | null =
+    null;
   private sessionAdoptionOperation: Promise<boolean> | null = null;
   private signOutOperation: Promise<void> | null = null;
   private signOutIntent: DesktopSignOutIntent | null = null;
@@ -363,6 +395,7 @@ export class DesktopIdentityBroker {
       interactive?: boolean;
       preserveIdentitySession?: boolean;
       skipIfPresent?: boolean;
+      expectedSessionValue?: string;
       waitForSignOut?: boolean;
     } = {},
   ): Promise<boolean> {
@@ -378,8 +411,11 @@ export class DesktopIdentityBroker {
       if (!this.isCeremonyCurrent(generation)) return false;
       const app = this.options.resolveApp(appId);
       if (!app) return false;
-      if (options.skipIfPresent && (await this.hasAppSession(app))) {
-        return true;
+      if (options.skipIfPresent) {
+        const alreadySynchronized = options.expectedSessionValue
+          ? await this.hasMatchingAppSession(app, options.expectedSessionValue)
+          : await this.hasAppSession(app);
+        if (alreadySynchronized) return true;
       }
       return this.runCeremony(appId, generation, options);
     });
@@ -497,14 +533,209 @@ export class DesktopIdentityBroker {
     return operation;
   }
 
+  /**
+   * Authenticate from the trusted Desktop parent surface without opening a
+   * second login page. Credentials are sent only from preload to this main
+   * process and over the identity session's HTTPS request to Dispatch.
+   */
+  authenticateWithPassword(
+    request: DesktopIdentityAuthRequest,
+  ): Promise<DesktopIdentityAuthResult> {
+    const email = request.email.trim();
+    const password = request.password;
+    if (!email || !password) {
+      return Promise.resolve({
+        ok: false,
+        error: "Enter your email and password to continue.",
+      });
+    }
+    if (this.signOutOperation) {
+      return Promise.resolve({
+        ok: false,
+        error: "Sign-out is still finishing. Please try again.",
+      });
+    }
+    if (this.signInOperation) {
+      return Promise.resolve({
+        ok: false,
+        error: "Sign-in is already in progress. Please wait a moment.",
+      });
+    }
+
+    const authority = this.resolveIdentityAuthority();
+    if (!authority) {
+      return Promise.resolve({
+        ok: false,
+        error: "The Agent Native identity service is unavailable.",
+      });
+    }
+
+    const generation = this.ceremonyGeneration;
+    const operation = this.runPasswordAuthentication(
+      { ...request, email, password },
+      authority,
+      generation,
+    );
+    this.passwordAuthOperation = operation;
+    const statusOperation = operation.then((result) => result.ok);
+    this.signInOperation = statusOperation;
+    const clearSignInOperation = () => {
+      if (this.signInOperation === statusOperation) {
+        this.signInOperation = null;
+      }
+      if (this.passwordAuthOperation === operation) {
+        this.passwordAuthOperation = null;
+      }
+    };
+    void statusOperation.then(clearSignInOperation, clearSignInOperation);
+    return operation;
+  }
+
+  private async runPasswordAuthentication(
+    request: DesktopIdentityAuthRequest,
+    authority: DesktopIdentityApp,
+    generation: number,
+  ): Promise<DesktopIdentityAuthResult> {
+    const fail = (error: string): DesktopIdentityAuthResult => {
+      if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+        this.setStatus("failed");
+      }
+      return { ok: false, error };
+    };
+
+    if (this.options.isAvailable) {
+      let available = false;
+      try {
+        available = await this.options.isAvailable(
+          authority,
+          this.options.identitySession,
+        );
+      } catch (error) {
+        console.warn("[desktop identity] availability probe failed", {
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+      if (!available || !this.isCeremonyCurrent(generation)) {
+        this.availability = "unavailable";
+        return fail("The Agent Native identity service is unavailable.");
+      }
+      this.availability = "available";
+    }
+
+    await this.waitForActiveSessionCopies();
+    if (!this.isCeremonyCurrent(generation)) {
+      return { ok: false, error: "Sign-in was cancelled. Please try again." };
+    }
+
+    this.setStatus("signing-in");
+    const endpoint = new URL(
+      request.mode === "sign-up"
+        ? "/_agent-native/auth/register"
+        : "/_agent-native/auth/login",
+      authority.origin,
+    );
+    let response: Response;
+    try {
+      response = await this.options.identitySession.fetch(endpoint.toString(), {
+        method: "POST",
+        redirect: "manual",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: request.email,
+          password: request.password,
+        }),
+      });
+    } catch (error) {
+      return fail(
+        error instanceof Error
+          ? error.message
+          : "Could not reach the Agent Native identity service.",
+      );
+    }
+
+    const payload = await readDesktopIdentityAuthResponse(response);
+    if (!response.ok) {
+      return fail(
+        payload.error ??
+          (request.mode === "sign-up"
+            ? "Could not create your account. Please try again."
+            : "The email or password is incorrect."),
+      );
+    }
+
+    if (request.mode === "sign-up") {
+      let loginResponse: Response;
+      try {
+        loginResponse = await this.options.identitySession.fetch(
+          new URL("/_agent-native/auth/login", authority.origin).toString(),
+          {
+            method: "POST",
+            redirect: "manual",
+            credentials: "include",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email: request.email,
+              password: request.password,
+            }),
+          },
+        );
+      } catch (error) {
+        return fail(
+          error instanceof Error
+            ? error.message
+            : "Account created, but sign-in could not finish.",
+        );
+      }
+      const loginPayload = await readDesktopIdentityAuthResponse(loginResponse);
+      if (!loginResponse.ok) {
+        return fail(
+          loginPayload.error ??
+            "Account created. Check your email to verify it, then sign in.",
+        );
+      }
+    }
+
+    if (!this.isCeremonyCurrent(generation)) {
+      return { ok: false, error: "Sign-in was cancelled. Please try again." };
+    }
+    const verified = await this.verifyIdentitySession(authority).catch(
+      () => false,
+    );
+    if (!verified) {
+      return fail(
+        request.mode === "sign-up"
+          ? "Account created. Check your email to verify it, then sign in."
+          : "Sign-in did not create a usable session. Please try again.",
+      );
+    }
+
+    const succeeded = await this.runSignInFanout(authority.id, generation, {
+      interactive: false,
+    });
+    if (!succeeded) {
+      return fail(
+        "You are signed in, but one or more workspace apps could not be opened yet. Try again.",
+      );
+    }
+    return { ok: true, email: request.email };
+  }
+
   private async runSignInFanout(
     appId: string,
     generation: number,
+    options: { interactive?: boolean } = {},
   ): Promise<boolean> {
     if (!this.isCeremonyCurrent(generation)) return false;
     if (!this.options.listApps) {
       return this.ensureAppSessionInternal(appId, {
-        interactive: true,
+        interactive: options.interactive !== false,
       });
     }
 
@@ -553,7 +784,7 @@ export class DesktopIdentityBroker {
     if (!firstApp) return false;
     const authoritySucceeded = await this.ensureAppSessionInternal(
       firstApp.id,
-      { interactive: true },
+      { interactive: options.interactive !== false },
     );
     if (!authoritySucceeded || !this.isCeremonyCurrent(generation)) {
       return false;
@@ -707,6 +938,7 @@ export class DesktopIdentityBroker {
             interactive: false,
             preserveIdentitySession: true,
             skipIfPresent: true,
+            expectedSessionValue: sourceCookie.value,
             waitForSignOut: false,
           }),
         ),
@@ -1000,6 +1232,7 @@ export class DesktopIdentityBroker {
     intent: DesktopSignOutIntent,
   ): Promise<void> {
     await this.waitForSessionAdoption();
+    await this.waitForPasswordAuthentication();
     await this.waitForActiveSessionCopies();
     await this.ensureRevocationTargets(apps);
     const errors = [...this.revocationTargetErrors];
@@ -1605,6 +1838,11 @@ export class DesktopIdentityBroker {
 
   private async waitForSessionAdoption(): Promise<void> {
     const operation = this.sessionAdoptionOperation;
+    if (operation) await Promise.allSettled([operation]);
+  }
+
+  private async waitForPasswordAuthentication(): Promise<void> {
+    const operation = this.passwordAuthOperation;
     if (operation) await Promise.allSettled([operation]);
   }
 
