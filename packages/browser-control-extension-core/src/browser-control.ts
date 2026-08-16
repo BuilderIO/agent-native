@@ -36,6 +36,8 @@ type PendingAttach = {
   debuggerAttachStarted: boolean;
   debuggerAttached: boolean;
   externalDetachObserved: boolean;
+  rawAttachSettled: boolean;
+  teardownRequested: boolean;
 };
 
 type AxValue = { value?: unknown };
@@ -211,6 +213,14 @@ export class BrowserControlService {
     string,
     Set<Promise<unknown>>
   >();
+  private readonly pendingDebuggerAttachOperations = new Map<
+    string,
+    Set<Promise<void>>
+  >();
+  private readonly pendingAttachTeardownOperations = new Map<
+    string,
+    Set<Promise<Error | undefined>>
+  >();
   private readonly pendingTabCreations = new Map<
     string,
     Set<Promise<chrome.tabs.Tab>>
@@ -379,16 +389,6 @@ export class BrowserControlService {
     const pendingTeardownTaskIds = new Set(this.teardownOwners.values());
     const existingTeardowns = new Map(this.teardownOperations);
     const pendingAttaches = [...this.pendingAttaches.values()];
-    const tabsToTeardown = new Set([
-      ...this.teardownOwners.keys(),
-      ...sessions.map((session) => session.tabId),
-      ...pendingAttaches
-        .filter(
-          (pending) =>
-            pending.debuggerAttachStarted && !pending.externalDetachObserved,
-        )
-        .map((pending) => pending.tabId),
-    ]);
     const taskIds = new Set([
       ...this.taskGenerations.keys(),
       ...this.tabReservations.values(),
@@ -403,12 +403,19 @@ export class BrowserControlService {
     }
     for (const pending of pendingAttaches) {
       if (pending.debuggerAttachStarted && !pending.externalDetachObserved) {
-        this.beginTeardown(pending.tabId, pending.taskId);
+        void this.scheduleLateAttachTeardown(pending);
       }
     }
     this.sessions.clear();
     this.tabOwners.clear();
     this.taskQueues.clear();
+
+    await this.drainPendingAttachOperationsForTasks(taskIds);
+
+    const tabsToTeardown = new Set([
+      ...this.teardownOwners.keys(),
+      ...sessions.map((session) => session.tabId),
+    ]);
 
     const teardownOperations = [...tabsToTeardown].flatMap((tabId) => {
       const taskId = this.teardownOwners.get(tabId);
@@ -432,6 +439,7 @@ export class BrowserControlService {
       .map(([, operation]) => operation);
     await Promise.allSettled(pendingTabCreations);
     await Promise.allSettled(operationsToAwait);
+    await this.drainPendingAttachOperationsForTasks(taskIds);
     await this.persist();
     for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
   }
@@ -562,6 +570,8 @@ export class BrowserControlService {
       debuggerAttachStarted: false,
       debuggerAttached: false,
       externalDetachObserved: false,
+      rawAttachSettled: false,
+      teardownRequested: false,
     };
     this.pendingAttaches.set(tabId, pendingAttach);
     const operation = this.enqueueState(async () => {
@@ -594,19 +604,32 @@ export class BrowserControlService {
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
         pendingAttach.debuggerAttachStarted = true;
         const attachOperation = attachDebugger(source(tabId));
+        this.trackPendingOperation(
+          this.pendingDebuggerAttachOperations,
+          taskId,
+          attachOperation,
+        );
         void attachOperation.then(
           () => {
+            pendingAttach.rawAttachSettled = true;
             if (!pendingAttach.externalDetachObserved) {
               pendingAttach.debuggerAttached = true;
             }
             if (
               !pendingAttach.externalDetachObserved &&
-              this.taskGeneration(taskId) !== expectedGeneration
+              (this.taskGeneration(taskId) !== expectedGeneration ||
+                pendingAttach.teardownRequested)
             ) {
-              this.scheduleLateAttachTeardown(pendingAttach);
+              void this.scheduleLateAttachTeardown(pendingAttach);
             }
           },
-          () => undefined,
+          () => {
+            pendingAttach.rawAttachSettled = true;
+            if (pendingAttach.teardownRequested) {
+              this.finishTeardown(tabId);
+              void this.persist().catch(() => undefined);
+            }
+          },
         );
         await this.withTaskCancellation(
           taskId,
@@ -638,6 +661,10 @@ export class BrowserControlService {
         this.assertTabAvailable(taskId, tabId);
         const stagedSessions = new Map(previousSessions);
         stagedSessions.set(taskId, session);
+        if (previous && previous.tabId !== tabId) {
+          previousTeardownStarted = true;
+          this.beginTeardown(previous.tabId, taskId);
+        }
         await this.persist(stagedSessions.values());
         stagedPersisted = true;
         const committedTab = await this.assertSessionAllowed(
@@ -653,8 +680,6 @@ export class BrowserControlService {
         this.sessions.set(taskId, session);
         this.tabOwners.set(tabId, taskId);
         if (previous && previous.tabId !== tabId) {
-          previousTeardownStarted = true;
-          this.beginTeardown(previous.tabId, taskId);
           const teardownError = await this.teardownDebugger(
             previous.tabId,
             taskId,
@@ -691,7 +716,9 @@ export class BrowserControlService {
           (debuggerAttached ||
             (pendingAttach.debuggerAttachStarted &&
               this.isTaskCancellation(error)));
-        if (shouldTeardown) this.beginTeardown(tabId, taskId);
+        const teardownOperation = shouldTeardown
+          ? this.scheduleLateAttachTeardown(pendingAttach)
+          : undefined;
         const rollbackErrors: unknown[] = [];
         if (stagedPersisted || shouldTeardown) {
           try {
@@ -700,8 +727,8 @@ export class BrowserControlService {
             rollbackErrors.push(rollbackError);
           }
         }
-        if (shouldTeardown) {
-          const teardownError = await this.teardownDebugger(tabId, taskId);
+        if (teardownOperation) {
+          const teardownError = await teardownOperation;
           if (teardownError) rollbackErrors.push(teardownError);
           try {
             await this.persist(this.sessions.values());
@@ -740,12 +767,18 @@ export class BrowserControlService {
 
   private async detach(taskId: string): Promise<void> {
     this.invalidateTask(taskId);
+    for (const pendingAttach of this.pendingAttaches.values()) {
+      if (pendingAttach.taskId === taskId) {
+        void this.scheduleLateAttachTeardown(pendingAttach);
+      }
+    }
     const pendingAttachOperations = [
       ...(this.pendingAttachOperations.get(taskId) ?? []),
     ];
     const session = this.sessions.get(taskId);
     if (!session) {
       await Promise.allSettled(pendingAttachOperations);
+      await this.drainPendingAttachOperations(taskId);
       if ([...this.teardownOwners.values()].some((owner) => owner === taskId)) {
         await this.retryPendingTeardownInState(taskId).then(async (errors) => {
           await this.persist();
@@ -763,6 +796,7 @@ export class BrowserControlService {
     this.beginTeardown(session.tabId, taskId);
     this.taskQueues.delete(taskId);
     await Promise.allSettled(pendingAttachOperations);
+    await this.drainPendingAttachOperations(taskId);
     const errors: Error[] = [];
     if (this.teardownOwners.get(session.tabId) === taskId) {
       const teardownError = await this.teardownDebugger(session.tabId, taskId);
@@ -803,6 +837,27 @@ export class BrowserControlService {
         pendingTabs.map((tabId) => this.teardownDebugger(tabId, taskId)),
       )
     ).flatMap((error) => (error ? [error] : []));
+  }
+
+  private async drainPendingAttachOperations(taskId: string): Promise<void> {
+    for (;;) {
+      const operations: Promise<unknown>[] = [
+        ...(this.pendingDebuggerAttachOperations.get(taskId) ?? []),
+        ...(this.pendingAttachTeardownOperations.get(taskId) ?? []),
+      ];
+      if (operations.length === 0) return;
+      await Promise.allSettled(operations);
+    }
+  }
+
+  private async drainPendingAttachOperationsForTasks(
+    taskIds: Iterable<string>,
+  ): Promise<void> {
+    await Promise.all(
+      [...new Set(taskIds)].map((taskId) =>
+        this.drainPendingAttachOperations(taskId),
+      ),
+    );
   }
 
   private getSession(taskId: string): TaskSession {
@@ -1014,13 +1069,31 @@ export class BrowserControlService {
     );
   }
 
-  private scheduleLateAttachTeardown(pending: PendingAttach): void {
-    this.beginTeardown(pending.tabId, pending.taskId);
+  private scheduleLateAttachTeardown(
+    pending: PendingAttach,
+  ): Promise<Error | undefined> | undefined {
+    if (!pending.debuggerAttachStarted || pending.externalDetachObserved) {
+      return undefined;
+    }
+    if (!pending.teardownRequested) {
+      pending.teardownRequested = true;
+      this.beginTeardown(pending.tabId, pending.taskId);
+    } else if (this.teardownOwners.get(pending.tabId) !== pending.taskId) {
+      return undefined;
+    }
+    if (!pending.rawAttachSettled || !pending.debuggerAttached)
+      return undefined;
     const operation = this.teardownDebugger(pending.tabId, pending.taskId);
+    this.trackPendingOperation(
+      this.pendingAttachTeardownOperations,
+      pending.taskId,
+      operation,
+    );
     void operation.then(
       () => this.persist().catch(() => undefined),
       () => this.persist().catch(() => undefined),
     );
+    return operation;
   }
 
   private async teardownDebugger(

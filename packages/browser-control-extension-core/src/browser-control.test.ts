@@ -4,6 +4,7 @@ import { BrowserControlService } from "./browser-control";
 
 describe("BrowserControlService", () => {
   const debuggerMethods: string[] = [];
+  const attach = vi.fn();
   const detach = vi.fn();
   const createTab = vi.fn();
   const getTab = vi.fn();
@@ -15,6 +16,14 @@ describe("BrowserControlService", () => {
 
   beforeEach(() => {
     debuggerMethods.length = 0;
+    attach.mockReset();
+    attach.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        _version: string,
+        callback?: () => void,
+      ) => callback?.(),
+    );
     detach.mockReset();
     detach.mockImplementation(
       (_source: chrome.debugger.Debuggee, callback?: () => void) =>
@@ -74,13 +83,7 @@ describe("BrowserControlService", () => {
         remove: removeTab,
       },
       debugger: {
-        attach: vi.fn(
-          (
-            _source: chrome.debugger.Debuggee,
-            _version: string,
-            callback?: () => void,
-          ) => callback?.(),
-        ),
+        attach,
         detach,
         sendCommand,
       },
@@ -654,6 +657,17 @@ describe("BrowserControlService", () => {
       active: false,
     });
 
+    expect(persist.mock.calls[1]?.[0]).toEqual({
+      agentNativeBrowserTaskSessions: [
+        {
+          taskId: "task-1",
+          tabId: 77,
+          allowedOrigins: ["https://example.com"],
+        },
+      ],
+      agentNativeBrowserPendingTeardowns: [{ taskId: "task-1", tabId: 42 }],
+    });
+
     const competingError = await service
       .execute({
         id: "competing-attach-request",
@@ -1169,6 +1183,63 @@ describe("BrowserControlService", () => {
     expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
   });
 
+  it("drains a raw debugger attach before normal stop completes", async () => {
+    let releaseAttach: (() => void) | undefined;
+    attach.mockImplementationOnce(
+      (
+        _source: chrome.debugger.Debuggee,
+        _version: string,
+        callback?: () => void,
+      ) => {
+        releaseAttach = () => callback?.();
+      },
+    );
+    const service = new BrowserControlService();
+
+    const attachPromise = service
+      .execute({
+        id: "attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseAttach).toBeDefined());
+
+    let stopSettled = false;
+    const stopPromise = service
+      .execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      })
+      .then(
+        () => {
+          stopSettled = true;
+        },
+        () => {
+          stopSettled = true;
+        },
+      );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(stopSettled).toBe(false);
+    expect(detach).not.toHaveBeenCalled();
+    releaseAttach?.();
+
+    await expect(attachPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await stopPromise;
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+  });
+
   it("cancels a normal attach that is in flight during emergency stop", async () => {
     let releasePageEnable: (() => void) | undefined;
     sendCommand.mockImplementation(
@@ -1217,6 +1288,52 @@ describe("BrowserControlService", () => {
       agentNativeBrowserTaskSessions: [],
       agentNativeBrowserPendingTeardowns: [],
     });
+  });
+
+  it("drains a raw debugger attach before emergency stop completes", async () => {
+    let releaseAttach: (() => void) | undefined;
+    attach.mockImplementationOnce(
+      (
+        _source: chrome.debugger.Debuggee,
+        _version: string,
+        callback?: () => void,
+      ) => {
+        releaseAttach = () => callback?.();
+      },
+    );
+    const service = new BrowserControlService();
+
+    const attachPromise = service
+      .execute({
+        id: "attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseAttach).toBeDefined());
+
+    let emergencySettled = false;
+    const emergencyStop = service.emergencyStopAll().then(() => {
+      emergencySettled = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(emergencySettled).toBe(false);
+    expect(detach).not.toHaveBeenCalled();
+    releaseAttach?.();
+
+    await expect(attachPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(emergencyStop).resolves.toBeUndefined();
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
   });
 
   it("cancels an in-flight key before stop releases injected input", async () => {
@@ -1547,6 +1664,10 @@ describe("BrowserControlService", () => {
     });
     await expect(emergencyStop).resolves.toBeUndefined();
     expect(service.activeTaskCount).toBe(0);
+    expect(detach).not.toHaveBeenCalledWith(
+      { tabId: 43 },
+      expect.any(Function),
+    );
     expect(persist).toHaveBeenLastCalledWith({
       agentNativeBrowserTaskSessions: [],
       agentNativeBrowserPendingTeardowns: [],
