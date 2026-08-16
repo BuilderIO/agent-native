@@ -180,6 +180,8 @@ export class BrowserControlService {
   private readonly tabReservations = new Map<number, string>();
   private readonly teardownTabs = new Set<number>();
   private readonly taskGenerations = new Map<string, number>();
+  private readonly taskOperationCounts = new Map<string, number>();
+  private readonly taskTeardowns = new Set<string>();
   private readonly taskQueues = new Map<string, Promise<unknown>>();
   private stateQueue: Promise<void> = Promise.resolve();
   private persistQueue: Promise<void> = Promise.resolve();
@@ -220,16 +222,31 @@ export class BrowserControlService {
 
   execute(request: NativeRequest): Promise<unknown> {
     if (request.command.type === "stop" || request.command.type === "detach") {
-      return this.executeCommand(request.taskId, request.command);
+      this.retainTask(request.taskId);
+      const result = this.executeCommand(request.taskId, request.command);
+      void result.then(
+        () => this.releaseTask(request.taskId),
+        () => this.releaseTask(request.taskId),
+      );
+      return result;
     }
+    const expectedGeneration = this.taskGeneration(request.taskId);
+    this.retainTask(request.taskId);
     const previous = this.taskQueues.get(request.taskId) ?? Promise.resolve();
     const next = previous
       .catch(() => undefined)
-      .then(() => this.executeCommand(request.taskId, request.command));
+      .then(() =>
+        this.executeCommand(
+          request.taskId,
+          request.command,
+          expectedGeneration,
+        ),
+      );
     this.taskQueues.set(request.taskId, next);
     const clearTaskQueue = () => {
       if (this.taskQueues.get(request.taskId) === next)
         this.taskQueues.delete(request.taskId);
+      this.releaseTask(request.taskId);
     };
     void next.then(clearTaskQueue, clearTaskQueue);
     return next;
@@ -237,11 +254,15 @@ export class BrowserControlService {
 
   async emergencyStopAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
-    for (const taskId of this.tabReservations.values())
-      this.invalidateTask(taskId);
+    const taskIds = new Set([
+      ...this.taskGenerations.keys(),
+      ...this.tabReservations.values(),
+      ...sessions.map((session) => session.taskId),
+    ]);
+    for (const taskId of taskIds) this.invalidateTask(taskId);
     for (const session of sessions) {
-      this.invalidateTask(session.taskId);
       this.teardownTabs.add(session.tabId);
+      this.taskTeardowns.add(session.taskId);
     }
     this.sessions.clear();
     this.tabOwners.clear();
@@ -253,8 +274,12 @@ export class BrowserControlService {
           await detachDebugger(source(session.tabId));
         }),
       );
-      for (const session of sessions) this.teardownTabs.delete(session.tabId);
+      for (const session of sessions) {
+        this.teardownTabs.delete(session.tabId);
+        this.taskTeardowns.delete(session.taskId);
+      }
       await this.persist();
+      for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
     });
   }
 
@@ -267,6 +292,7 @@ export class BrowserControlService {
     this.teardownTabs.delete(tabId);
     if (!taskId) return;
     await this.enqueueState(() => this.persist());
+    this.maybeReclaimTaskGeneration(taskId);
   }
 
   async enforceTabOrigin(
@@ -286,10 +312,17 @@ export class BrowserControlService {
   private async executeCommand(
     taskId: string,
     command: BrowserCommand,
+    expectedGeneration?: number,
   ): Promise<unknown> {
     switch (command.type) {
       case "attach":
-        return this.attach(taskId, command.tabId, command.allowedOrigins);
+        return this.attach(
+          taskId,
+          command.tabId,
+          command.allowedOrigins,
+          undefined,
+          expectedGeneration,
+        );
       case "detach":
       case "stop":
         await this.detach(taskId);
@@ -314,7 +347,7 @@ export class BrowserControlService {
       case "navigate":
         return this.navigate(taskId, command.url);
       case "open-tab":
-        return this.openTab(taskId, command.url);
+        return this.openTab(taskId, command.url, expectedGeneration);
       case "scroll":
         return this.scroll(
           taskId,
@@ -331,8 +364,10 @@ export class BrowserControlService {
     tabId: number,
     origins: string[],
     expectedSession?: TaskSession,
+    expectedGenerationOverride?: number,
   ): Promise<{ tabId: number; origin: string }> {
-    const expectedGeneration = this.taskGeneration(taskId);
+    const expectedGeneration =
+      expectedGenerationOverride ?? this.taskGeneration(taskId);
     this.assertAttachActive(taskId, expectedSession, expectedGeneration);
     this.assertTabAvailable(taskId, tabId);
     return this.enqueueState(async () => {
@@ -419,16 +454,28 @@ export class BrowserControlService {
   private async detach(taskId: string): Promise<void> {
     this.invalidateTask(taskId);
     const session = this.sessions.get(taskId);
-    if (!session) return;
+    if (!session) {
+      this.maybeReclaimTaskGeneration(taskId);
+      return;
+    }
     this.sessions.delete(taskId);
     this.tabOwners.delete(session.tabId);
     this.teardownTabs.add(session.tabId);
+    this.taskTeardowns.add(taskId);
     this.taskQueues.delete(taskId);
     await this.enqueueState(async () => {
-      await releaseInjectedInput(session.tabId);
-      await detachDebugger(source(session.tabId));
-      this.teardownTabs.delete(session.tabId);
-      await this.persist();
+      try {
+        await releaseInjectedInput(session.tabId);
+        await detachDebugger(source(session.tabId));
+      } finally {
+        this.teardownTabs.delete(session.tabId);
+        this.taskTeardowns.delete(taskId);
+        try {
+          await this.persist();
+        } finally {
+          this.maybeReclaimTaskGeneration(taskId);
+        }
+      }
     });
   }
 
@@ -506,6 +553,31 @@ export class BrowserControlService {
 
   private taskGeneration(taskId: string): number {
     return this.taskGenerations.get(taskId) ?? 0;
+  }
+
+  private retainTask(taskId: string): void {
+    this.taskOperationCounts.set(
+      taskId,
+      (this.taskOperationCounts.get(taskId) ?? 0) + 1,
+    );
+    if (!this.taskGenerations.has(taskId))
+      this.taskGenerations.set(taskId, this.taskGeneration(taskId));
+  }
+
+  private releaseTask(taskId: string): void {
+    const count = this.taskOperationCounts.get(taskId) ?? 0;
+    if (count <= 1) this.taskOperationCounts.delete(taskId);
+    else this.taskOperationCounts.set(taskId, count - 1);
+    this.maybeReclaimTaskGeneration(taskId);
+  }
+
+  private maybeReclaimTaskGeneration(taskId: string): void {
+    if ((this.taskOperationCounts.get(taskId) ?? 0) > 0) return;
+    if (this.sessions.has(taskId) || this.taskTeardowns.has(taskId)) return;
+    for (const owner of this.tabReservations.values()) {
+      if (owner === taskId) return;
+    }
+    this.taskGenerations.delete(taskId);
   }
 
   private invalidateTask(taskId: string): void {
@@ -796,8 +868,15 @@ export class BrowserControlService {
     }
   }
 
-  private async openTab(taskId: string, rawUrl: string): Promise<unknown> {
+  private async openTab(
+    taskId: string,
+    rawUrl: string,
+    expectedGeneration?: number,
+  ): Promise<unknown> {
+    const handoffGeneration = expectedGeneration ?? this.taskGeneration(taskId);
+    this.assertTaskGeneration(taskId, handoffGeneration);
     const session = await this.revalidate(taskId);
+    this.assertTaskGeneration(taskId, handoffGeneration);
     const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
     let createdTabId: number | undefined;
     try {
@@ -816,7 +895,13 @@ export class BrowserControlService {
           "Chrome could not create the requested tab in the background.",
         );
       }
-      await this.attach(taskId, tab.id, [...session.allowedOrigins], session);
+      await this.attach(
+        taskId,
+        tab.id,
+        [...session.allowedOrigins],
+        session,
+        handoffGeneration,
+      );
       return { url: url.href, origin: url.origin, active: false };
     } catch (error) {
       if (createdTabId !== undefined) {

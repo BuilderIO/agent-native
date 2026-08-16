@@ -609,6 +609,163 @@ describe("BrowserControlService", () => {
     });
   });
 
+  it("cancels an attach queued before stop", async () => {
+    let releasePageEnable: (() => void) | undefined;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.enable" && !releasePageEnable) {
+          releasePageEnable = () => callback?.({});
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    const firstAttach = service
+      .execute({
+        id: "first-attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releasePageEnable).toBeDefined());
+
+    const queuedAttach = service
+      .execute({
+        id: "queued-attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 43,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const stopPromise = service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    releasePageEnable?.();
+
+    await expect(firstAttach).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(queuedAttach).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(stopPromise).resolves.toEqual({ detached: true });
+    expect(service.activeTaskCount).toBe(0);
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+  });
+
+  it("cancels an attach queued before emergency stop", async () => {
+    let releasePageEnable: (() => void) | undefined;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.enable" && !releasePageEnable) {
+          releasePageEnable = () => callback?.({});
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    const firstAttach = service
+      .execute({
+        id: "first-attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releasePageEnable).toBeDefined());
+
+    const queuedAttach = service
+      .execute({
+        id: "queued-attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 43,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const emergencyStop = service.emergencyStopAll();
+    releasePageEnable?.();
+
+    await expect(firstAttach).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(queuedAttach).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(emergencyStop).resolves.toBeUndefined();
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+    });
+  });
+
+  it("reclaims a task generation after its teardown completes", async () => {
+    const service = new BrowserControlService();
+    const internals = service as unknown as {
+      taskGenerations: Map<string, number>;
+    };
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    expect(internals.taskGenerations.size).toBe(1);
+
+    await service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    await vi.waitFor(() => expect(internals.taskGenerations.size).toBe(0));
+  });
+
   it("reserves a tab until the physical debugger teardown finishes", async () => {
     let releaseDebuggerDetach: (() => void) | undefined;
     detach.mockImplementationOnce(
