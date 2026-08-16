@@ -146,7 +146,7 @@ function centerOfBox(result: BoxModelResult): { x: number; y: number } {
 
 async function releaseInjectedInput(tabId: number): Promise<void> {
   const debuggee = source(tabId);
-  await Promise.allSettled([
+  const results = await Promise.allSettled([
     ...(["left", "middle", "right"] as const).map((button) =>
       sendDebuggerCommand(debuggee, "Input.dispatchMouseEvent", {
         type: "mouseReleased",
@@ -172,6 +172,19 @@ async function releaseInjectedInput(tabId: number): Promise<void> {
       }),
     ),
   ]);
+  const errors = results.flatMap((result) =>
+    result.status === "rejected"
+      ? [
+          result.reason instanceof Error
+            ? result.reason
+            : new Error(String(result.reason)),
+        ]
+      : [],
+  );
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(errors, "Could not release injected input.");
+  }
 }
 
 export class BrowserControlService {
@@ -215,7 +228,32 @@ export class BrowserControlService {
         this.sessions.set(session.taskId, session);
         this.tabOwners.set(session.tabId, session.taskId);
       } catch {
-        await detachDebugger(source(session.tabId));
+        this.beginTeardown(session.tabId, session.taskId);
+        try {
+          const teardownError = await this.teardownDebugger(
+            session.tabId,
+            session.taskId,
+          );
+          if (teardownError) {
+            console.warn(
+              "[browser-control] stale restored session cleanup is still pending",
+              {
+                tabId: session.tabId,
+                taskId: session.taskId,
+                error: teardownError,
+              },
+            );
+          }
+        } catch (cleanupError) {
+          console.warn(
+            "[browser-control] stale restored session cleanup failed",
+            {
+              tabId: session.tabId,
+              taskId: session.taskId,
+              error: cleanupError,
+            },
+          );
+        }
       }
     }
     await this.persist();
@@ -491,6 +529,9 @@ export class BrowserControlService {
     this.invalidateTask(taskId);
     const session = this.sessions.get(taskId);
     if (!session) {
+      if ([...this.teardownOwners.values()].some((owner) => owner === taskId)) {
+        await this.retryPendingTeardown(taskId);
+      }
       this.maybeReclaimTaskGeneration(taskId);
       return;
     }
@@ -504,6 +545,25 @@ export class BrowserControlService {
       this.maybeReclaimTaskGeneration(taskId);
       if (teardownError) {
         throw teardownError;
+      }
+    });
+  }
+
+  private async retryPendingTeardown(taskId: string): Promise<void> {
+    await this.enqueueState(async () => {
+      const pendingTabs = [...this.teardownOwners.entries()]
+        .filter(([, owner]) => owner === taskId)
+        .map(([tabId]) => tabId);
+      const errors = (
+        await Promise.all(
+          pendingTabs.map((tabId) => this.teardownDebugger(tabId, taskId)),
+        )
+      ).flatMap((error) => (error ? [error] : []));
+      await this.persist();
+      this.maybeReclaimTaskGeneration(taskId);
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "Chrome teardown failed.");
       }
     });
   }
@@ -631,20 +691,37 @@ export class BrowserControlService {
     tabId: number,
     taskId: string,
   ): Promise<Error | undefined> {
-    await releaseInjectedInput(tabId);
+    let releaseError: Error | undefined;
+    try {
+      await releaseInjectedInput(tabId);
+    } catch (error) {
+      releaseError = error instanceof Error ? error : new Error(String(error));
+    }
     try {
       await detachDebugger(source(tabId));
       this.finishTeardown(tabId);
-      return undefined;
+      if (releaseError) {
+        console.warn(
+          "[browser-control] injected input release failed after debugger detach",
+          { tabId, taskId, error: releaseError },
+        );
+      }
+      return releaseError;
     } catch (error) {
       const teardownError =
         error instanceof Error ? error : new Error(String(error));
+      const combinedError = releaseError
+        ? new AggregateError(
+            [releaseError, teardownError],
+            "Chrome teardown failed.",
+          )
+        : teardownError;
       console.warn("[browser-control] debugger teardown is still pending", {
         tabId,
         taskId,
-        error: teardownError,
+        error: combinedError,
       });
-      return teardownError;
+      return combinedError;
     }
   }
 

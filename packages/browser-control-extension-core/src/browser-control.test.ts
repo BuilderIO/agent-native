@@ -9,6 +9,7 @@ describe("BrowserControlService", () => {
   const getTab = vi.fn();
   const removeTab = vi.fn();
   const sendCommand = vi.fn();
+  const storageGet = vi.fn();
   const persist = vi.fn();
   let runtimeLastError: { message?: string } | undefined;
 
@@ -56,6 +57,8 @@ describe("BrowserControlService", () => {
       },
     );
     runtimeLastError = undefined;
+    storageGet.mockReset();
+    storageGet.mockResolvedValue({});
     persist.mockReset();
     persist.mockResolvedValue(undefined);
 
@@ -83,7 +86,7 @@ describe("BrowserControlService", () => {
       },
       storage: {
         session: {
-          get: vi.fn(async () => ({})),
+          get: storageGet,
           set: persist,
         },
       },
@@ -526,6 +529,151 @@ describe("BrowserControlService", () => {
     await expect(service.emergencyStopAll()).resolves.toBeUndefined();
     expect(service.activeTaskCount).toBe(0);
     expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+  });
+
+  it("detaches the debugger when injected input release fails", async () => {
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Input.dispatchMouseEvent") {
+          runtimeLastError = { message: "input release failed" };
+          callback?.({});
+          runtimeLastError = undefined;
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    const stopError = await service
+      .execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(stopError).toBeInstanceOf(AggregateError);
+    expect(stopError).toMatchObject({
+      message: "Could not release injected input.",
+    });
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+    expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("retries a pending debugger teardown on a later stop", async () => {
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        runtimeLastError = { message: "first debugger detach failed" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+
+    await expect(
+      service.execute({
+        id: "first-stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).rejects.toMatchObject({ message: "first debugger detach failed" });
+
+    await expect(
+      service.execute({
+        id: "second-stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).resolves.toEqual({ detached: true });
+    expect(detach).toHaveBeenCalledTimes(2);
+    expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("continues restoring sessions when stale-session cleanup fails", async () => {
+    storageGet.mockResolvedValue({
+      agentNativeBrowserTaskSessions: [
+        {
+          taskId: "stale-task",
+          tabId: 41,
+          allowedOrigins: ["https://example.com"],
+        },
+        {
+          taskId: "live-task",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      ],
+    });
+    let staleFrameTreeFailed = false;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.getFrameTree" && !staleFrameTreeFailed) {
+          staleFrameTreeFailed = true;
+          runtimeLastError = { message: "stale tab is gone" };
+          callback?.({});
+          runtimeLastError = undefined;
+          return;
+        }
+        callback?.({});
+      },
+    );
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        runtimeLastError = { message: "stale debugger detach failed" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+    const service = new BrowserControlService();
+
+    await expect(service.restore()).resolves.toBeUndefined();
+
+    expect(service.activeTaskCount).toBe(1);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [
+        {
+          taskId: "live-task",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      ],
+    });
   });
 
   it("detaches a new debugger when rollback persistence fails", async () => {
