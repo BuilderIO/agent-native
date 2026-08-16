@@ -112,6 +112,8 @@ vi.mock("./identity-sso-store.js", () => ({
     ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
   isCanonicalIdentitySsoClientRequest: (host: string, protocol: string) =>
     protocol === "https" && host === "mail.agent-native.com",
+  isDesktopSsoUserAgent: (userAgent: string | undefined) =>
+    /AgentNativeDesktop(?:SsoCanary)?\//i.test(userAgent ?? ""),
   isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
     /AgentNativeDesktopSsoCanary\//i.test(userAgent ?? ""),
   isIdentitySsoExplicitlyEnabled: () =>
@@ -259,15 +261,30 @@ describe("identity SSO browser contract", () => {
     expect(createOAuthSessionMock).not.toHaveBeenCalled();
   });
 
-  it("allows the packaged Canary to reach canonical apps without per-app env", async () => {
+  it("allows the packaged Desktop client to reach canonical apps without per-app env", async () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     const request = event("/_agent-native/identity/login?return=/inbox", {
-      headers: { "user-agent": "AgentNativeDesktopSsoCanary/1.0" },
+      headers: { "user-agent": "AgentNativeDesktop/1.0" },
     });
     getSessionMock.mockResolvedValue(null);
     const response = await handleIdentitySso(request, "/login");
     expect(resolveIdentityHubUrl(request)).toBe(HUB);
     expect(response.status).toBe(302);
+  });
+
+  it("does not make Dispatch federate to itself for the packaged Desktop client", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/", {
+      headers: {
+        host: "dispatch.agent-native.com",
+        "user-agent": "AgentNativeDesktopSsoCanary/1.0",
+      },
+    });
+
+    expect(resolveIdentityHubUrl(request)).toBeUndefined();
+    await expect(handleIdentitySso(request, "/login")).resolves.toMatchObject({
+      status: 404,
+    });
   });
 
   it("allows ordinary browsers to reach canonical apps without per-app env", async () => {

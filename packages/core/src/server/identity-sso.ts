@@ -37,9 +37,8 @@ import {
   CANONICAL_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
   identitySsoLoginButtonHtml,
-  isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
-  isDesktopSsoCanaryUserAgent,
+  isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
   isIdentitySsoEnabled,
   isJtiReplayed,
@@ -225,12 +224,12 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
   ) {
     return CANONICAL_IDENTITY_SSO_HUB_URL;
   }
-  if (!isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent"))) {
+  if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
     return undefined;
   }
   try {
     if (
-      !isCanonicalAgentNativeAppRequest(
+      !isCanonicalIdentitySsoClientRequest(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       )
