@@ -1333,8 +1333,7 @@ ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   if (!isShellIdentityIpc(event)) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker || broker.getStatus() === "idle") return false;
-  await broker.signOut(listDesktopIdentityCleanupApps());
-  return true;
+  return broker.signOut(listDesktopIdentityCleanupApps());
 });
 
 function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
