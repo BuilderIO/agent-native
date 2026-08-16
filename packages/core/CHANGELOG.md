@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.20
+
+### Patch Changes
+
+- d525c66: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
+
 ## 0.157.19
 
 ### Patch Changes
