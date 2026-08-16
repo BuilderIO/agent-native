@@ -110,8 +110,9 @@ describe("CodeAgentsApp full-page chat width", () => {
       /\.code-agents-project-picker--bar\s*\{[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);/,
     );
     expect(css).toMatch(
-      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 8px;/,
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 0;/,
     );
+    expect(css).toMatch(/\.code-agents-start\s*\{[\s\S]*?gap: 12px;/);
     expect(css).toMatch(
       /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
     );
@@ -127,6 +128,17 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
     expect(source).toContain('className="code-agents-rail-footer"');
     expect(css).toMatch(
       /\.code-agents-rail-scroll\s*\{[\s\S]*?overflow-y: auto;/,
+    );
+  });
+
+  it("aligns sticky secondary navigation with New chat", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(css).toMatch(
+      /\.code-agents-primary-new-chat-shell\s*\{[\s\S]*?padding: 6px var\(--code-agents-rail-gutter\) 0;/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-nav-list\s*\{[\s\S]*?padding-inline: var\(--code-agents-rail-gutter\);/,
     );
   });
 });
@@ -163,17 +175,26 @@ describe("CodeAgentsApp project folder picker", () => {
   it("keeps folder creation in the dropdown instead of duplicating its action", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
     const css = readFileSync("src/styles.css", "utf8");
+    const waitlist = readFileSync("src/RemoteWaitlistPopover.tsx", "utf8");
 
     expect(source).toContain("<span>Add folder...</span>");
     expect(source).not.toContain('aria-label="Add folder"');
     expect(source).toContain('value="portal"');
     expect(source).toContain('description="Continue on a paired computer"');
+    expect(source).toContain('value="cloud"');
+    expect(source).toContain(
+      'description="Run in the cloud - join the waitlist"',
+    );
+    expect(source).toContain("onCloudSelect");
+    expect(waitlist).toContain("Join the Cloud waitlist");
     expect(source).not.toContain("onRemoteSelect?.();");
     expect(source).toContain('description="Use the selected folder directly"');
     expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
       source.indexOf('aria-label="Select workspace"'),
     );
-    expect(css).toContain("margin-top: 8px;");
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 0;/,
+    );
     expect(css).toContain(
       ".dark .code-agents-popover-content {\n  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);",
     );

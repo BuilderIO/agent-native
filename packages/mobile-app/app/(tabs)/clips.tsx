@@ -12,12 +12,14 @@ import {
   CLIPS_SESSION_TOKEN_KEY,
 } from "@/lib/clips-session";
 import { getAppUrl } from "@/lib/get-app-url";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
 import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
 
 const clips = TEMPLATE_APPS.find((a) => a.id === "clips")!;
 
 export default function ClipsTab() {
+  const colors = useMobileThemeColors();
   const [authState, setAuthState] = useState<
     "checking" | "connected" | "signed-out"
   >("checking");
@@ -67,7 +69,7 @@ export default function ClipsTab() {
     return (
       <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
         <View className="items-center flex-1 justify-center">
-          <ActivityIndicator color="#d4d4d8" />
+          <ActivityIndicator color={colors.mutedForeground} />
           <Text className="text-status-gray text-[13px] mt-2.5">
             Opening Clips…
           </Text>

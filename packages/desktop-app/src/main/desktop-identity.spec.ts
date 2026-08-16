@@ -1224,6 +1224,57 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("failed");
   });
 
+  it("lets the OAuth handler claim Google navigation before the allowlist", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const handleOAuthNavigation = vi.fn(() => true);
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveLoginRedirect: vi.fn(async () => authorizeUrl(authority, app)),
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await broker.refreshStatus(authority);
+    const ceremony = broker.signIn(app.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1];
+    const preventDefault = vi.fn();
+    const googleUrl =
+      "https://accounts.google.com/o/oauth2/v2/auth?flow_id=desktop-flow";
+
+    navigationHandler({ preventDefault }, googleUrl);
+
+    expect(handleOAuthNavigation).toHaveBeenCalledWith(googleUrl, webContents);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    const closedHandler = identityWindow.on.mock.calls.find(
+      ([event]) => event === "closed",
+    )?.[1];
+    closedHandler();
+    await expect(ceremony).resolves.toBe(false);
+  });
+
   it("coalesces duplicate requests and copies only the target cookie", async () => {
     const app = appFixture();
     const identityCookies = cookieStore([

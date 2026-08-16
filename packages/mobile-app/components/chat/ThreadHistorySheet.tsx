@@ -26,6 +26,7 @@ import {
 } from "@/lib/agent-chat/api";
 import { threadKey } from "@/lib/agent-chat/thread-grouping";
 import type { ChatThreadSummary } from "@/lib/agent-chat/types";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 function formatWhen(timestamp: number): string {
   if (!timestamp) return "";
@@ -54,11 +55,12 @@ function AppFilterChip({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { mutedForeground, primaryForeground } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
       className={`flex-row items-center gap-1.5 rounded-full px-3 py-1.5 active:opacity-75 ${
-        selected ? "bg-white" : "bg-card-dark border border-border-dark"
+        selected ? "bg-primary" : "bg-card-dark border border-border-dark"
       }`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
@@ -68,12 +70,12 @@ function AppFilterChip({
         <AppIcon
           iconName={icon}
           size={13}
-          color={selected ? "#18181b" : "#a1a1aa"}
+          color={selected ? primaryForeground : mutedForeground}
         />
       ) : null}
       <Text
         className={`text-[13px] font-semibold ${
-          selected ? "text-background-dark" : "text-text-light"
+          selected ? "text-primary-foreground" : "text-text-light"
         }`}
       >
         {label}
@@ -97,6 +99,8 @@ export function ThreadHistorySheet({
   onNewChat: (baseUrl?: string) => void;
   onClose: () => void;
 }) {
+  const { mutedForeground, primaryForeground, border, destructive } =
+    useMobileThemeColors();
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -218,7 +222,7 @@ export function ThreadHistorySheet({
             className="bg-background-dark"
             style={{
               width: drawerWidth,
-              borderRightColor: "#27272a",
+              borderRightColor: border,
               borderRightWidth: 1,
               elevation: 18,
               shadowColor: "#000000",
@@ -230,14 +234,14 @@ export function ThreadHistorySheet({
           >
             <SafeAreaView edges={["top", "bottom"]} className="flex-1">
               <View className="flex-row items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark">
-                <Text className="text-white text-lg font-bold">Chats</Text>
+                <Text className="text-foreground text-lg font-bold">Chats</Text>
                 <Pressable
                   className="p-1.5 active:opacity-75"
                   onPress={onClose}
                   accessibilityRole="button"
                   accessibilityLabel="Close chat history"
                 >
-                  <IconX color="#71717a" size={20} strokeWidth={2} />
+                  <IconX color={mutedForeground} size={20} strokeWidth={2} />
                 </Pressable>
               </View>
 
@@ -250,10 +254,14 @@ export function ThreadHistorySheet({
                 accessibilityRole="button"
                 accessibilityLabel="Start a new chat"
               >
-                <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
-                  <IconPlus color="#18181b" size={18} strokeWidth={2.2} />
+                <View className="h-8 w-8 items-center justify-center rounded-lg bg-primary">
+                  <IconPlus
+                    color={primaryForeground}
+                    size={18}
+                    strokeWidth={2.2}
+                  />
                 </View>
-                <Text className="text-white text-[15px] font-semibold">
+                <Text className="text-foreground text-[15px] font-semibold">
                   New chat
                 </Text>
               </Pressable>
@@ -283,7 +291,7 @@ export function ThreadHistorySheet({
 
               {loading && threads.length === 0 ? (
                 <View className="flex-1 items-center justify-center">
-                  <ActivityIndicator color="#d4d4d8" />
+                  <ActivityIndicator color={mutedForeground} />
                 </View>
               ) : loadError ? (
                 <View className="flex-1 items-center justify-center px-8 gap-3">
@@ -338,7 +346,7 @@ export function ThreadHistorySheet({
                                 <AppIcon
                                   iconName={thread.appIcon ?? "MessageSquare"}
                                   size={12}
-                                  color="#a1a1aa"
+                                  color={mutedForeground}
                                 />
                                 <Text className="text-status-gray text-[11px]">
                                   {thread.appName}
@@ -346,7 +354,7 @@ export function ThreadHistorySheet({
                               </View>
                             ) : null}
                             <Text
-                              className="text-white text-[15px] font-medium"
+                              className="text-foreground text-[15px] font-medium"
                               numberOfLines={1}
                             >
                               {thread.title}
@@ -375,7 +383,7 @@ export function ThreadHistorySheet({
                           }
                         >
                           <IconTrash
-                            color={confirming ? "#fb7185" : "#71717a"}
+                            color={confirming ? destructive : mutedForeground}
                             size={17}
                             strokeWidth={1.8}
                           />

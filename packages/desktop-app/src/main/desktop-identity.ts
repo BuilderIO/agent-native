@@ -1713,13 +1713,13 @@ export class DesktopIdentityBroker {
         if (isDesktopIdentityCompletion(url, app, nonce)) {
           return;
         }
-        if (isAllowedDesktopIdentityOAuthNavigation(url)) return;
         if (
           this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
         ) {
           event.preventDefault();
           return;
         }
+        if (isAllowedDesktopIdentityOAuthNavigation(url)) return;
         let origin: string;
         try {
           origin = new URL(url).origin;

@@ -1,19 +1,21 @@
 ---
 name: ship-now
 description: >-
-  Fast-path the current branch through local prep, feedback resolution,
-  owned-path push, immediate admin merge, and fresh-branch rotation. Use when
-  the user explicitly wants to merge immediately after local prep recovery,
-  then monitor the merged PR and release workflows.
+  Fast-path the current branch through local `pnpm prep:urgent`, targeted recovery,
+  feedback resolution, owned-path push, immediate admin merge, and
+  fresh-branch rotation. Use when the user explicitly wants to merge
+  immediately after local prep recovery, then monitor the merged PR and
+  release workflows.
 ---
 
 # Ship Now
 
 Use this only after the user explicitly requests the fast admin-merge path.
 It is an intentional exception to `/ship`'s remote-CI wait and ten-minute
-merge soak: local `pnpm prep`, or targeted recovery of its failed lanes, is the
-validation gate. The user has authorized `--admin` merging once feedback is
-handled. Remote CI, release, and deploy results are monitored after merge.
+merge soak: local `pnpm prep:urgent`, or targeted recovery of its failed lanes, is the
+pre-merge validation gate. The user has authorized `--admin` merging once
+feedback is handled. Remote CI, release, and deploy results are monitored
+after merge, not waited on before the admin merge.
 
 ## Fast-path contract
 
@@ -24,7 +26,7 @@ or changes under another agent during the flow, leave it untouched and out of
 the commit. Re-check ownership immediately before every stage, commit, and
 push.
 
-The fast gate is local `pnpm prep`, or the narrowest successful recovery check
+The fast gate is local `pnpm prep:urgent`, or the narrowest successful recovery check
 for each failed prep lane. Once that gate and review resolution pass, admin
 merge immediately. Do not wait for a full prep rerun, remote CI, release or
 deploy checks, or the normal `/ship` soak; monitor those after the merge.
@@ -57,12 +59,13 @@ deploy checks, or the normal `/ship` soak; monitor those after the merge.
 3. Run the local gate:
 
    ```bash
-   pnpm prep
+   pnpm prep:urgent
    ```
 
-   Treat a non-zero, skipped, or inconclusive prep result as a failure to
-   classify, not as a reason to repeat the entire suite automatically. Fix the
-   root cause and rerun the narrowest meaningful check for the failed lane:
+   `prep:urgent` uses `--kill-others-on-fail`; a lane killed because a sibling
+   failed is unknown, never green. Treat a non-zero, skipped, killed, or inconclusive prep result as a failure
+   to classify, not as a reason to repeat the entire suite automatically. Fix
+   the root cause and rerun the narrowest meaningful check for the failed lane:
 
    - a package typecheck failure: that package's typecheck, for example
      `pnpm --filter @agent-native/desktop-app typecheck`;
@@ -70,16 +73,18 @@ deploy checks, or the normal `/ship` soak; monitor those after the merge.
    - a guard failure: the named guard command;
    - formatting: `pnpm exec oxfmt --check <changed-files>`.
 
-   Keep the successful lanes from the original prep run, and run a full
-   `pnpm prep` again only when the fix crosses several validation boundaries or
-   the failure cannot be isolated. For a file-scoped type failure, a green
+   Keep only lanes that conclusively reported success, and rerun any lane whose
+   result is unknown alongside the failure. Run a full `pnpm prep:urgent` again only
+   when the fix crosses several validation boundaries or the failure cannot be
+   isolated. For a file-scoped type failure, a green
    package typecheck is the recovery gate; for a test failure, a green targeted
-   test is the recovery gate. Once the targeted recovery is green, continue to
-   the owned-path push - do not wait for a redundant full prep rerun. Record
-   that prep recovered through targeted checks - do not claim the entire
-   `pnpm prep` command itself exited 0 when it did not. Preserve exact
-   unrelated peer-check or environment failures rather than calling them
-   green.
+   test is the recovery gate. Once the targeted recovery is green and no lane
+   is left unknown, continue to the owned-path push - do not wait for a
+   redundant full prep rerun. Record that prep recovered through targeted
+   checks - do not claim the entire `pnpm prep:urgent` command itself exited 0 when it
+   did not, and do not report an unknown lane as one that passed.
+   Preserve exact unrelated peer-check or environment failures rather than
+   calling them green.
 
 4. Publish only the current agent's owned paths immediately after the local
    gate passes:
@@ -99,8 +104,8 @@ deploy checks, or the normal `/ship` soak; monitor those after the merge.
 
 5. Admin-merge immediately when the explicit fast-path gates are true:
 
-   - local `pnpm prep` passed, or every failed prep lane was fixed and its
-     narrow recovery check passed as described above;
+   - local `pnpm prep:urgent` passed, or every failed and unknown prep lane was fixed
+     or rerun and its narrow recovery check passed as described above;
    - the current agent's owned commits are pushed; uncommitted peer paths may
      remain in the shared checkout and must not be staged or pushed;
    - every review item has a fix or an explicit reply;

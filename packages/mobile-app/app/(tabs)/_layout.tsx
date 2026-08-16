@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 
 import ChatFirstBottomTabs from "@/components/ChatFirstBottomTabs";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const HIDDEN_APP_ROUTES = [
   "analytics",
@@ -18,18 +19,21 @@ const HIDDEN_APP_ROUTES = [
 ] as const;
 
 export default function TabLayout() {
+  const { background, border, foreground, mutedForeground } =
+    useMobileThemeColors();
+
   return (
     <Tabs
       initialRouteName="chat"
       tabBar={(props) => <ChatFirstBottomTabs {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: "#f4f4f5",
-        tabBarInactiveTintColor: "#71717a",
+        tabBarActiveTintColor: foreground,
+        tabBarInactiveTintColor: mutedForeground,
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
         tabBarStyle: {
-          backgroundColor: "#0b0b0c",
-          borderTopColor: "#27272a",
+          backgroundColor: background,
+          borderTopColor: border,
           height: 82,
           paddingBottom: 22,
           paddingTop: 8,
