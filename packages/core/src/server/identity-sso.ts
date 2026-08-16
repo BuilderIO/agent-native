@@ -416,15 +416,57 @@ export async function handleIdentitySso(
   event: H3Event,
   subpath: string,
 ): Promise<Response> {
-  const hub = resolveIdentityHubUrl(event);
-  if (!hub) return new Response("Not found", { status: 404 });
-
   const method = getMethod(event);
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
   );
   const loginPath = SIGN_IN_ENTRY_PATH;
+
+  // Dispatch is the identity authority, so it has no SSO hub for the
+  // browser to federate to. Its authenticated desktop completion page still
+  // lives on this route and must be reachable after ordinary sign-in.
+  if (sub === "/desktop-complete") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+    let nonce = "";
+    try {
+      nonce =
+        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
+          "nonce",
+        ) || "";
+    } catch {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    const current = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
+    if (!current?.email) {
+      return new Response("Authentication required", { status: 401 });
+    }
+    return new Response(
+      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
+          "Content-Type": "text/html; charset=utf-8",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
+  }
+
+  const hub = resolveIdentityHubUrl(event);
+  if (!hub) return new Response("Not found", { status: 404 });
 
   if (sub === "/login") {
     if (method !== "GET" && method !== "HEAD") {
@@ -558,45 +600,6 @@ export async function handleIdentitySso(
       );
     }
     return redirect(event, safeReturnPath(stateResult.returnPath));
-  }
-
-  if (sub === "/desktop-complete") {
-    if (method !== "GET" && method !== "HEAD") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-    let nonce = "";
-    try {
-      nonce =
-        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
-          "nonce",
-        ) || "";
-    } catch {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    const current = await getSession(event).catch((error) => {
-      void error;
-      return null;
-    });
-    if (!current?.email) {
-      return new Response("Authentication required", { status: 401 });
-    }
-    return new Response(
-      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
-        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
-          "Content-Type": "text/html; charset=utf-8",
-          "Referrer-Policy": "no-referrer",
-        },
-      },
-    );
   }
 
   return new Response("Not found", { status: 404 });
