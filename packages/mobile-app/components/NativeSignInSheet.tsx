@@ -16,6 +16,7 @@ import {
   ModalSafeAreaProvider,
   SafeAreaView,
 } from "@/components/uniwind-interop";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 import {
   authenticateWithPassword,
   signInWithMagicLink,
@@ -63,10 +64,11 @@ export function NativeSignInSheet({
   onClose: () => void;
   onSignedIn: () => void | Promise<void>;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [mode, setMode] = useState<NativeAuthMode>("sign-in");
+  const [mode, setMode] = useState<NativeAuthMode>("sign-up");
   const [passwordMode, setPasswordMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -79,6 +81,7 @@ export function NativeSignInSheet({
       setSubmitting(false);
       setGoogleSubmitting(false);
       setMagicSubmitting(false);
+      setMode("sign-up");
       setPassword("");
       setConfirmPassword("");
       setPasswordMode(false);
@@ -216,16 +219,6 @@ export function NativeSignInSheet({
 
               <View className="mb-4 flex-row rounded-xl border border-border-dark bg-background-dark p-1">
                 <Pressable
-                  className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-in" ? "bg-gray-charcoal" : ""}`}
-                  onPress={() => selectMode("sign-in")}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: mode === "sign-in" }}
-                >
-                  <Text className="text-text-light text-[13px] font-semibold">
-                    Sign in
-                  </Text>
-                </Pressable>
-                <Pressable
                   className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-up" ? "bg-gray-charcoal" : ""}`}
                   onPress={() => selectMode("sign-up")}
                   accessibilityRole="tab"
@@ -235,22 +228,38 @@ export function NativeSignInSheet({
                     Create account
                   </Text>
                 </Pressable>
+                <Pressable
+                  className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-in" ? "bg-gray-charcoal" : ""}`}
+                  onPress={() => selectMode("sign-in")}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: mode === "sign-in" }}
+                >
+                  <Text className="text-text-light text-[13px] font-semibold">
+                    Sign in
+                  </Text>
+                </Pressable>
               </View>
 
               <Pressable
-                className="mb-3 h-12 flex-row items-center justify-center gap-3 rounded-xl bg-white active:opacity-75"
+                className="mb-3 h-12 flex-row items-center justify-center gap-3 rounded-xl bg-primary active:opacity-75"
                 onPress={() => void submitGoogle()}
                 disabled={submitting || googleSubmitting || magicSubmitting}
                 accessibilityRole="button"
-                accessibilityLabel="Sign in with Google"
+                accessibilityLabel={
+                  mode === "sign-up"
+                    ? "Sign up with Google"
+                    : "Sign in with Google"
+                }
               >
                 {googleSubmitting ? (
-                  <ActivityIndicator color="#71717a" />
+                  <ActivityIndicator color={mutedForeground} />
                 ) : (
                   <>
                     <GoogleLogo />
-                    <Text className="text-background-dark text-[15px] font-semibold">
-                      Sign in with Google
+                    <Text className="text-primary-foreground text-[15px] font-semibold">
+                      {mode === "sign-up"
+                        ? "Sign up with Google"
+                        : "Sign in with Google"}
                     </Text>
                   </>
                 )}
@@ -270,7 +279,7 @@ export function NativeSignInSheet({
                   setError(null);
                 }}
                 placeholder="Email"
-                placeholderTextColor="#71717a"
+                placeholderTextColor={mutedForeground}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="email-address"
@@ -293,7 +302,7 @@ export function NativeSignInSheet({
                       setError(null);
                     }}
                     placeholder="Password"
-                    placeholderTextColor="#71717a"
+                    placeholderTextColor={mutedForeground}
                     secureTextEntry
                     textContentType={
                       mode === "sign-up" ? "newPassword" : "password"
@@ -314,7 +323,7 @@ export function NativeSignInSheet({
                         setError(null);
                       }}
                       placeholder="Confirm password"
-                      placeholderTextColor="#71717a"
+                      placeholderTextColor={mutedForeground}
                       secureTextEntry
                       textContentType="newPassword"
                       autoComplete="password-new"
@@ -338,10 +347,10 @@ export function NativeSignInSheet({
                       password &&
                       (mode === "sign-in" || password === confirmPassword) &&
                       !submitting
-                      ? "bg-white active:opacity-75"
+                      ? "bg-primary active:opacity-75"
                       : "bg-zinc-800"
                     : email.trim() && !magicSubmitting
-                      ? "bg-white active:opacity-75"
+                      ? "bg-primary active:opacity-75"
                       : "bg-zinc-800"
                 }`}
                 onPress={() =>
@@ -364,7 +373,7 @@ export function NativeSignInSheet({
                 }
               >
                 {submitting || magicSubmitting ? (
-                  <ActivityIndicator color="#71717a" />
+                  <ActivityIndicator color={mutedForeground} />
                 ) : (
                   <Text
                     className={`text-[15px] font-semibold ${
@@ -372,10 +381,10 @@ export function NativeSignInSheet({
                         ? email.trim() &&
                           password &&
                           (mode === "sign-in" || password === confirmPassword)
-                          ? "text-background-dark"
+                          ? "text-primary-foreground"
                           : "text-zinc-500"
                         : email.trim()
-                          ? "text-background-dark"
+                          ? "text-primary-foreground"
                           : "text-zinc-500"
                     }`}
                   >

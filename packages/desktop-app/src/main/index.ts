@@ -231,7 +231,6 @@ import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
-import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
@@ -333,10 +332,7 @@ if (IS_DEV) {
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
 // Open Agent Native" screen whose deep link can't fire.
-const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
-  ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
-  : "";
-app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
+app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
@@ -1288,6 +1284,19 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
     );
   }
   return true;
+});
+
+ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
+  if (
+    !isShellIdentityIpc(event) ||
+    !isDesktopSsoEnabled() ||
+    typeof appId !== "string" ||
+    !appId.trim()
+  ) {
+    return false;
+  }
+  const broker = ensureDesktopIdentityBroker();
+  return broker?.ensureAppSession(appId.trim()) ?? false;
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
@@ -11469,7 +11478,7 @@ app.whenReady().then(async () => {
       const appId = id;
       configureWebviewSession(wc.session, appId);
       desktopWebviewAppIds.set(wc, appId);
-      if (resolveDesktopIdentityApp(appId)) {
+      if (isDesktopSsoEnabled() && resolveDesktopIdentityApp(appId)) {
         void wc
           .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
           .catch(() => {});

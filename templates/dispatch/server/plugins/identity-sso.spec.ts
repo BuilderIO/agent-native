@@ -169,6 +169,14 @@ afterEach(() => {
 });
 
 describe("rollout availability", () => {
+  it("recognizes stable Desktop requests as well as the legacy Canary marker", () => {
+    expect(isDesktopWorkspaceSsoRequest("AgentNativeDesktop/1.0")).toBe(true);
+    expect(
+      isDesktopWorkspaceSsoRequest("AgentNativeDesktopSsoCanary/1.0"),
+    ).toBe(true);
+    expect(isDesktopWorkspaceSsoRequest("Mozilla/5.0")).toBe(false);
+  });
+
   it("keeps ordinary anonymous browser availability false", async () => {
     getSessionMock.mockResolvedValue(null);
     featureFlagMocks.hasActiveRollout.mockResolvedValue(true);

@@ -17,7 +17,8 @@ export interface WorkspaceAppEmbedSession {
 
 /**
  * Read the per-user rollout gate before asking Dispatch to mint a target
- * session. A disabled rollout keeps the legacy mobile session bridge intact.
+ * session. A disabled rollout leaves the child app's own login surface intact;
+ * it never falls back to putting the parent bearer in a URL.
  */
 export async function isWorkspaceSsoEnabled(
   baseUrl = MOBILE_DISPATCH_BASE_URL,
@@ -59,6 +60,20 @@ export async function createWorkspaceAppEmbedSession({
   try {
     const parsed = new URL(result.startUrl);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("Dispatch returned an invalid workspace app session.");
+    }
+    if (!parsed.pathname.endsWith("/_agent-native/embed/start")) {
+      throw new Error("Dispatch returned an invalid workspace app session.");
+    }
+    const queryKeys = [...new Set([...parsed.searchParams.keys()])];
+    if (
+      queryKeys.length !== 1 ||
+      queryKeys[0] !== "ticket" ||
+      !parsed.searchParams.get("ticket")
+    ) {
+      throw new Error("Dispatch returned an invalid workspace app session.");
+    }
+    if (parsed.username || parsed.password || parsed.hash) {
       throw new Error("Dispatch returned an invalid workspace app session.");
     }
   } catch (error) {

@@ -57,10 +57,61 @@ describe("mobile workspace app authentication", () => {
     );
   });
 
+  it("fans one parent-authenticated flow out to every default mobile app", async () => {
+    const apps = ["mail", "calendar", "content", "analytics"];
+    actionApi.callAppAction.mockImplementation(
+      async (
+        _name: string,
+        args: { app: string; path?: string; chrome?: string },
+      ) => ({
+        app: args.app,
+        startUrl: `https://${args.app}.example/_agent-native/embed/start?ticket=${args.app}-ticket`,
+        targetPath: args.path,
+      }),
+    );
+
+    const sessions = [];
+    for (const app of apps) {
+      sessions.push(
+        await createWorkspaceAppEmbedSession({
+          app,
+          path: "/",
+          baseUrl: "https://dispatch.example",
+        }),
+      );
+    }
+
+    expect(sessions.map((session) => session.app)).toEqual(apps);
+    expect(new Set(sessions.map((session) => session.startUrl))).toHaveLength(
+      apps.length,
+    );
+    expect(actionApi.callAppAction).toHaveBeenCalledTimes(apps.length);
+    for (const [index, app] of apps.entries()) {
+      expect(actionApi.callAppAction).toHaveBeenNthCalledWith(
+        index + 1,
+        "create-workspace-app-embed-session",
+        { app, path: "/", chrome: "minimal" },
+        "https://dispatch.example",
+      );
+    }
+  });
+
   it("rejects a malformed start URL from Dispatch", async () => {
     actionApi.callAppAction.mockResolvedValue({
       app: "calendar",
       startUrl: "javascript:alert(1)",
+    });
+
+    await expect(
+      createWorkspaceAppEmbedSession({ app: "calendar" }),
+    ).rejects.toThrow("invalid workspace app session");
+  });
+
+  it("rejects a reusable credential in an otherwise valid-looking start URL", async () => {
+    actionApi.callAppAction.mockResolvedValue({
+      app: "calendar",
+      startUrl:
+        "https://calendar.example/_agent-native/embed/start?ticket=t1&token=parent-token",
     });
 
     await expect(

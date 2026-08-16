@@ -37,6 +37,7 @@ export const IPC = {
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
   IDENTITY_SETTINGS_GET: "identity:settings:get",
   IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
+  IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
   IDENTITY_SIGN_IN: "identity:sign-in",
   IDENTITY_AUTHENTICATE: "identity:authenticate",
   IDENTITY_SIGN_OUT: "identity:sign-out",
