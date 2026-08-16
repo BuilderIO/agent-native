@@ -31,14 +31,28 @@ function expectLoginHtmlCacheHeaders(response: Response) {
   );
 }
 
+const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core/auth.publicPaths",
+);
+
+function clearAuthPublicPathRegistry(): void {
+  const globalState = globalThis as unknown as {
+    [key: symbol]: unknown;
+  };
+  const registry = globalState[AUTH_PUBLIC_PATHS_REGISTRY_KEY];
+  if (registry instanceof Set) registry.clear();
+}
+
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
     originalEnv = { ...process.env };
+    clearAuthPublicPathRegistry();
   });
 
   afterEach(() => {
+    clearAuthPublicPathRegistry();
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
