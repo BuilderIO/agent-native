@@ -920,6 +920,8 @@ describe("workspace deploy", () => {
 
   it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://directory.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       version: 1,
       apps: [
@@ -941,10 +943,10 @@ describe("workspace deploy", () => {
     });
 
     const dispatchCall = buildCallForApp("dispatch");
-    expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
-      "https://workspace.example.test",
-    );
     expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://directory.example.test",
+    );
+    expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
     expect(
@@ -1019,6 +1021,9 @@ describe("workspace deploy", () => {
       "https://workspace.example.test",
     );
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
       "https://workspace.example.test",
     );
     expect(
