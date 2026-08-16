@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   verifyA2AToken: vi.fn(),
+  resolveOrgByDomain: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
 }));
 
@@ -10,6 +11,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 }));
 
 vi.mock("@agent-native/core/org", () => ({
+  resolveOrgByDomain: mocks.resolveOrgByDomain,
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
 }));
 
@@ -25,6 +27,7 @@ afterEach(() => {
 function eventFor(path: string, authorization?: string) {
   return {
     path,
+    context: {},
     node: {
       req: {
         headers: authorization ? { authorization } : {},
@@ -61,7 +64,10 @@ describe("workspace app action auth", () => {
       email: "steve@builder.io",
       orgDomain: "builder.io",
     });
-    mocks.resolveOrgIdForEmail.mockResolvedValue("org-builder");
+    mocks.resolveOrgByDomain.mockResolvedValue({
+      orgId: "org-builder",
+      orgName: "Builder.io",
+    });
 
     await expect(
       workspaceAppActionRouteAuth.resolveCaller?.(
@@ -76,6 +82,62 @@ describe("workspace app action auth", () => {
       "verified",
       expect.anything(),
     );
+    expect(mocks.resolveOrgByDomain).toHaveBeenCalledWith("builder.io");
+    expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("uses the original mounted pathname after the route prefix is stripped", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "steve@builder.io",
+      orgDomain: "builder.io",
+    });
+    mocks.resolveOrgByDomain.mockResolvedValue({
+      orgId: "org-builder",
+      orgName: "Builder.io",
+    });
+    const event = eventFor("/", "Bearer mounted");
+    event.context = {
+      _mountedPathname: WORKSPACE_APPS_ACTION_PATH,
+    };
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(event),
+    ).resolves.toMatchObject({
+      owner: "steve@builder.io",
+      orgId: "org-builder",
+    });
+    expect(mocks.verifyA2AToken).toHaveBeenCalledWith(
+      "mounted",
+      expect.anything(),
+    );
+  });
+
+  it("keeps legacy email-derived scope when the token has no org domain", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "steve@builder.io",
+      orgDomain: null,
+    });
+    mocks.resolveOrgIdForEmail.mockResolvedValue("org-by-email");
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(
+        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer legacy"),
+      ),
+    ).resolves.toMatchObject({ orgId: "org-by-email" });
     expect(mocks.resolveOrgIdForEmail).toHaveBeenCalledWith("steve@builder.io");
+  });
+
+  it("rejects a verified domain that is not registered locally", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "steve@builder.io",
+      orgDomain: "unknown.example",
+    });
+    mocks.resolveOrgByDomain.mockResolvedValue(null);
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(
+        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer unmapped"),
+      ),
+    ).rejects.toThrow("Invalid workspace registry authorization");
   });
 });

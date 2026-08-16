@@ -1,5 +1,8 @@
 import { verifyA2AToken } from "@agent-native/core/a2a";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
+import {
+  resolveOrgByDomain,
+  resolveOrgIdForEmail,
+} from "@agent-native/core/org";
 import type {
   ActionRouteAuthAdapter,
   ActionRouteResolvedCaller,
@@ -10,7 +13,10 @@ export const WORKSPACE_APPS_ACTION_PATH =
 
 function isWorkspaceAppsActionPath(event: any): boolean {
   const rawUrl =
+    (typeof event?.context?._mountedPathname === "string" &&
+      event.context._mountedPathname) ||
     (typeof event?.path === "string" && event.path) ||
+    (typeof event?.url?.pathname === "string" && event.url.pathname) ||
     (typeof event?.node?.req?.url === "string" && event.node.req.url) ||
     (typeof event?.req?.url === "string" && event.req.url) ||
     "/";
@@ -58,10 +64,26 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       throw new Error("Invalid workspace registry authorization");
     }
 
+    const orgDomain = identity.orgDomain?.trim().toLowerCase();
+    let orgId: string | null;
+    if (orgDomain) {
+      // A verified domain claim identifies the caller's intended org. Resolve
+      // it locally instead of falling back to the receiver's active-org or
+      // first-membership selection, which can be wrong for multi-org users.
+      const org = await resolveOrgByDomain(orgDomain);
+      if (!org) {
+        throw new Error("Invalid workspace registry authorization");
+      }
+      orgId = org.orgId;
+    } else {
+      // Preserve compatibility with legacy tokens that predate org_domain.
+      orgId = await resolveOrgIdForEmail(identity.email);
+    }
+
     return {
       owner: identity.email,
       anonymous: false,
-      orgId: await resolveOrgIdForEmail(identity.email),
+      orgId,
     };
   },
 };

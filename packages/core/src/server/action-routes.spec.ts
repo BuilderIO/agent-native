@@ -1746,6 +1746,48 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("passes the original mounted pathname to action auth adapters", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const resolveCaller = vi.fn(async (event: any) => {
+      expect(event.path).toBe("/");
+      expect(event.context._mountedPathname).toBe(
+        "/_agent-native/actions/do-thing",
+      );
+      return {
+        owner: "a2a-caller@example.com",
+        anonymous: false,
+        orgId: "org-builder",
+      };
+    });
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      { actionRouteAuth: { resolveCaller } },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: {},
+        path: "/",
+        context: {
+          _mountedPathname: "/_agent-native/actions/do-thing",
+        },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(resolveCaller).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("falls through to getOwnerFromEvent when resolveCaller returns null", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
