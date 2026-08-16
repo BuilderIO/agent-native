@@ -44,7 +44,7 @@ import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
-import { validateNativeSession } from "@/lib/native-auth";
+import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
 import {
   appendRemoteFollowUp,
   createRemoteRun,
@@ -56,7 +56,7 @@ import {
   type RemoteRun,
   type RemoteTranscriptEvent,
 } from "@/lib/remote-sessions-api";
-import { clearSessionToken, getSessionToken } from "@/lib/session-token-store";
+import { getSessionToken } from "@/lib/session-token-store";
 
 type AuthState = "checking" | "connected" | "signed-out";
 
@@ -246,13 +246,26 @@ export default function ChatTab() {
       return;
     }
     const token = await getSessionToken().catch(() => null);
-    if (!token || !(await validateNativeSession(token))) {
-      if (token) await clearSessionToken().catch(() => {});
+    if (!token) {
+      // Keep the shared parent credential intact. A validation failure can be
+      // transient while another app is exchanging the same parent session;
+      // only an explicit native sign-out may clear it.
       setAuthState("signed-out");
       return;
     }
-    setAuthState("connected");
+    const result = await inspectNativeSession(token, NATIVE_AUTH_BASE_URL);
+    if (result.status === "valid") {
+      setAuthState("connected");
+    } else if (result.status === "invalid") {
+      setAuthState("signed-out");
+    }
   }, [isWebPreview]);
+
+  useEffect(() => {
+    if (authState !== "checking") return;
+    const retry = setTimeout(() => void refreshAuth(), 1_000);
+    return () => clearTimeout(retry);
+  }, [authState, refreshAuth]);
 
   useFocusEffect(
     useCallback(() => {

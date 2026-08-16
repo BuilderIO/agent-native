@@ -18,6 +18,10 @@ export const DESKTOP_IDENTITY_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
 
 const DESKTOP_IDENTITY_LOGIN_PATH = "/_agent-native/identity/login";
+// Dispatch is the identity authority, not an SSO client. Its identity login
+// route intentionally returns 404 to prevent self-federation, so the parent
+// ceremony must use the ordinary sign-in entry while child apps use SSO.
+const DESKTOP_IDENTITY_AUTHORITY_LOGIN_PATH = "/sign-in";
 const DESKTOP_IDENTITY_AUTHORIZE_PATH = "/_agent-native/identity/authorize";
 const DESKTOP_IDENTITY_CALLBACK_PATH = "/_agent-native/identity/callback";
 const DESKTOP_LOGOUT_PATH = "/_agent-native/auth/logout";
@@ -1622,7 +1626,11 @@ export class DesktopIdentityBroker {
     this.setStatus("signing-in");
     const nonce = randomBytes(32).toString("base64url");
     const returnPath = new URL(completionUrl(app.origin, nonce));
-    const loginUrl = new URL(DESKTOP_IDENTITY_LOGIN_PATH, app.origin);
+    const loginPath =
+      app.identityAuthority === true
+        ? DESKTOP_IDENTITY_AUTHORITY_LOGIN_PATH
+        : DESKTOP_IDENTITY_LOGIN_PATH;
+    const loginUrl = new URL(loginPath, app.origin);
     loginUrl.searchParams.set(
       "return",
       returnPath.pathname + returnPath.search,
