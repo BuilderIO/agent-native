@@ -699,6 +699,46 @@ describe("BrowserControlService", () => {
     expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
   });
 
+  it("persists removal of a superseded tab after teardown succeeds", async () => {
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    await expect(
+      service.execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      }),
+    ).resolves.toEqual({
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [
+        {
+          taskId: "task-1",
+          tabId: 77,
+          allowedOrigins: ["https://example.com"],
+        },
+      ],
+      agentNativeBrowserPendingTeardowns: [],
+    });
+  });
+
   it("retries a superseded teardown when stopping a live handoff", async () => {
     const service = new BrowserControlService();
 

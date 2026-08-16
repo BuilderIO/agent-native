@@ -694,8 +694,8 @@ export class BrowserControlService {
               "[browser-control] retaining a superseded tab until debugger teardown succeeds",
               { tabId: previous.tabId, taskId, error: teardownError },
             );
-            await this.persist();
           }
+          await this.persist();
         }
         this.assertTaskGeneration(taskId, expectedGeneration);
         this.assertSessionCurrent(taskId, session);
