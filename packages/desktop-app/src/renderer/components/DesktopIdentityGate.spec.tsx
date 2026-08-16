@@ -61,6 +61,27 @@ describe("DesktopIdentityGate", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
+  it("blocks the app while the shared identity status is being checked", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <DesktopIdentityGate
+          appName="Mail"
+          status="checking"
+          onSignIn={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Checking your Agent Native account",
+    );
+    expect(container.querySelector("button")).toBeNull();
+  });
+
   it("renders nothing after the broker has fanned out app sessions", () => {
     container = document.createElement("div");
     document.body.appendChild(container);

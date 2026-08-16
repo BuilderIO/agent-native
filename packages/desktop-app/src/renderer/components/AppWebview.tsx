@@ -340,8 +340,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       appConfig,
       sourceUrl,
     );
-    const [desktopIdentityStatus, setDesktopIdentityStatus] =
-      useState<DesktopIdentityStatus>("idle");
+    const [desktopIdentityStatus, setDesktopIdentityStatus] = useState<
+      DesktopIdentityStatus | "checking"
+    >("checking");
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
@@ -394,9 +395,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return;
       }
       let active = true;
-      void identity.getStatus().then((status) => {
-        if (active) setDesktopIdentityStatus(status);
-      });
+      void identity.getStatus().then(
+        (status) => {
+          if (active) setDesktopIdentityStatus(status);
+        },
+        () => {
+          if (active) setDesktopIdentityStatus("failed");
+        },
+      );
       const unsubscribe = identity.onStatusChange((status) => {
         if (active) setDesktopIdentityStatus(status);
       });

@@ -2,7 +2,7 @@ import { IconLock, IconLoader2, IconRefresh } from "@tabler/icons-react";
 
 interface DesktopIdentityGateProps {
   appName: string;
-  status: DesktopIdentityStatus;
+  status: DesktopIdentityStatus | "checking";
   onSignIn: () => void;
 }
 
@@ -17,6 +17,7 @@ export default function DesktopIdentityGate({
 }: DesktopIdentityGateProps) {
   if (status === "idle" || status === "signed-in") return null;
 
+  const isChecking = status === "checking";
   const isSigningIn = status === "signing-in";
   const isRetry = status === "failed";
 
@@ -30,7 +31,7 @@ export default function DesktopIdentityGate({
     >
       <div className="desktop-identity-gate__panel">
         <div className="desktop-identity-gate__icon" aria-hidden="true">
-          {isSigningIn ? (
+          {isChecking || isSigningIn ? (
             <IconLoader2 size={20} className="desktop-identity-gate__spinner" />
           ) : isRetry ? (
             <IconRefresh size={20} />
@@ -39,20 +40,24 @@ export default function DesktopIdentityGate({
           )}
         </div>
         <h2>
-          {isSigningIn
-            ? "Finish signing in"
-            : isRetry
-              ? "Sign-in needs another try"
-              : "Create your Agent Native account"}
+          {isChecking
+            ? "Checking your Agent Native account"
+            : isSigningIn
+              ? "Finish signing in"
+              : isRetry
+                ? "Sign-in needs another try"
+                : "Create your Agent Native account"}
         </h2>
         <p>
-          {isSigningIn
-            ? "Complete magic link, Google, or email sign-in in the Agent Native window."
-            : isRetry
-              ? "The workspace sign-in did not finish. Try again to open this app."
-              : `Use magic link, Google, or email sign-in to open ${appName} and your other eligible apps without repeating login.`}
+          {isChecking
+            ? "Checking your session before opening this app."
+            : isSigningIn
+              ? "Complete magic link, Google, or email sign-in in the Agent Native window."
+              : isRetry
+                ? "The workspace sign-in did not finish. Try again to open this app."
+                : `Use magic link, Google, or email sign-in to open ${appName} and your other eligible apps without repeating login.`}
         </p>
-        {!isSigningIn && (
+        {!isChecking && !isSigningIn && (
           <button type="button" onClick={onSignIn}>
             {isRetry ? "Try again" : "Sign in or create account"}
           </button>
