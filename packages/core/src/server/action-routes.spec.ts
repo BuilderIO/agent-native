@@ -14,6 +14,7 @@ const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
 const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
+const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -66,6 +67,8 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  registerAuthPublicPaths: (...args: unknown[]) =>
+    mockRegisterAuthPublicPaths(...args),
   // Captured into the request context so code below the HTTP layer can tell a
   // local-dev caller from a remote one. Mocked false: these specs assert
   // ordinary remote-request behavior.

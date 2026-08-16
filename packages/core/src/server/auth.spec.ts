@@ -1332,6 +1332,40 @@ describe("server/auth", () => {
       expect(actionResult).toEqual({ error: "Unauthorized" });
     });
 
+    it("allows framework-managed bearer routes to reach their own verifier", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth, registerAuthPublicPaths } =
+        await import("./auth.js");
+
+      registerAuthPublicPaths([
+        "/_agent-native/actions/list-feature-flags",
+        "/_agent-native/actions/set-feature-flag",
+      ]);
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/actions/list-feature-flags",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/actions/set-feature-flag",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("allows selected public workspace page paths in an internal app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

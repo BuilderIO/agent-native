@@ -67,7 +67,7 @@ function currentBuildId(): string {
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
-import { isLoopbackRequest } from "./auth.js";
+import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -398,6 +398,14 @@ export function mountActionRoutes(
     const method = entry.http?.method ?? "POST";
     const path = entry.http?.path ?? name;
     const routePath = `${ROUTE_PREFIX}/${path}`;
+
+    // These two actions authenticate with a scoped A2A bearer rather than a
+    // browser session. Let that verifier see the request before the cookie
+    // auth guard rejects it; the action route still fails closed on invalid
+    // or missing credentials.
+    if (name === "list-feature-flags" || name === "set-feature-flag") {
+      registerAuthPublicPaths([routePath]);
+    }
 
     getH3App(nitroApp).use(
       routePath,
