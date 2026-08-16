@@ -1380,6 +1380,13 @@ describe("server/auth", () => {
           }),
         ),
       ).resolves.toBeUndefined();
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/actions/list-feature-flags/nested",
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
     it("shares late public-path registrations across Core module instances", async () => {
@@ -1410,6 +1417,13 @@ describe("server/auth", () => {
           }),
         ),
       ).resolves.toBeUndefined();
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/actions/cross-module-registry-test/nested",
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
     it("does not share public-path registrations across H3 app scopes", async () => {

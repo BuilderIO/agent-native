@@ -1393,28 +1393,28 @@ const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
 interface AuthPublicPathRegistry {
-  pathsByApp: WeakMap<object, Set<string>>;
+  exactPathsByApp: WeakMap<object, Set<string>>;
 }
 interface GlobalWithAuthPublicPaths {
   [AUTH_PUBLIC_PATHS_REGISTRY_KEY]?: AuthPublicPathRegistry;
 }
 
-const _registeredAuthPublicPaths = new Set<string>();
+const _registeredAuthExactPublicPaths = new Set<string>();
 
 function getAuthPublicPathRegistry(): AuthPublicPathRegistry {
   const globals = globalThis as unknown as GlobalWithAuthPublicPaths;
   return (globals[AUTH_PUBLIC_PATHS_REGISTRY_KEY] ??= {
-    pathsByApp: new WeakMap(),
+    exactPathsByApp: new WeakMap(),
   });
 }
 
-function getRegisteredAuthPublicPaths(app?: object): Set<string> {
-  if (!app) return _registeredAuthPublicPaths;
+function getRegisteredAuthExactPaths(app?: object): Set<string> {
+  if (!app) return _registeredAuthExactPublicPaths;
   const registry = getAuthPublicPathRegistry();
-  let paths = registry.pathsByApp.get(app);
+  let paths = registry.exactPathsByApp.get(app);
   if (!paths) {
     paths = new Set();
-    registry.pathsByApp.set(app, paths);
+    registry.exactPathsByApp.set(app, paths);
   }
   return paths;
 }
@@ -1425,15 +1425,16 @@ const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
  * Allow framework routes with their own non-cookie authentication to reach
  * the handler. The handler remains responsible for verifying the credential.
  *
- * This is registered separately from template auth options because framework
- * routes can be mounted after the auth plugin and must also work in custom
- * workspace deployments that do not own a template auth file.
+ * Registered paths are exact matches. This is registered separately from
+ * template auth options because framework routes can be mounted after the auth
+ * plugin and must also work in custom workspace deployments that do not own a
+ * template auth file.
  */
 export function registerAuthPublicPaths(
   paths: readonly string[],
   app?: object,
 ): void {
-  const registeredPaths = getRegisteredAuthPublicPaths(app);
+  const registeredPaths = getRegisteredAuthExactPaths(app);
   for (const path of paths) {
     const normalized = typeof path === "string" ? path.trim() : "";
     if (!normalized.startsWith("/")) continue;
@@ -1443,13 +1444,15 @@ export function registerAuthPublicPaths(
 
 function resolveAuthPublicPaths(
   paths: readonly string[] | undefined,
-  app?: object,
 ): string[] {
+  return [...new Set(paths ?? [])];
+}
+
+function resolveAuthExactPublicPaths(app?: object): string[] {
   return [
     ...new Set([
-      ...(paths ?? []),
-      ..._registeredAuthPublicPaths,
-      ...(app ? getRegisteredAuthPublicPaths(app) : []),
+      ..._registeredAuthExactPublicPaths,
+      ...(app ? getRegisteredAuthExactPaths(app) : []),
     ]),
   ];
 }
@@ -2259,7 +2262,8 @@ function createAuthGuardFn(
     if (!config) return;
     // Resolve on every request because a framework route can be mounted by a
     // different Core module instance after this auth guard is initialized.
-    const publicPaths = resolveAuthPublicPaths(config.publicPaths, app);
+    const publicPaths = resolveAuthPublicPaths(config.publicPaths);
+    const exactPublicPaths = resolveAuthExactPublicPaths(app);
 
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
@@ -2578,7 +2582,7 @@ function createAuthGuardFn(
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
-    if (isPublicPath(normalizedUrl, publicPaths)) return;
+    if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
@@ -3294,17 +3298,25 @@ function isHttpsRequest(event: H3Event): boolean {
 // Public path matching
 // ---------------------------------------------------------------------------
 
-function isPublicPath(url: string, publicPaths: string[]): boolean {
+function isPublicPath(
+  url: string,
+  publicPaths: string[],
+  exactPublicPaths: string[] = [],
+): boolean {
   const p = url.split("?")[0];
+  if (exactPublicPaths.some((candidate) => normalizePath(candidate) === p)) {
+    return true;
+  }
   return matchesPathList(p, publicPaths);
+}
+
+function normalizePath(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
-    const normalized =
-      candidate.length > 1 && candidate.endsWith("/")
-        ? candidate.slice(0, -1)
-        : candidate;
+    const normalized = normalizePath(candidate);
     return path === normalized || path.startsWith(normalized + "/");
   });
 }
@@ -3441,7 +3453,7 @@ async function mountBetterAuthRoutes(
   app: H3App,
   options: AuthOptions,
 ): Promise<void> {
-  const publicPaths = resolveAuthPublicPaths(options.publicPaths, app);
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
@@ -4885,7 +4897,7 @@ export async function autoMountAuth(
   // Reset globals
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
-  const publicPaths = resolveAuthPublicPaths(options.publicPaths, app);
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
