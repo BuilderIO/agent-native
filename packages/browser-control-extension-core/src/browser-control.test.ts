@@ -8,6 +8,7 @@ describe("BrowserControlService", () => {
   const createTab = vi.fn();
   const getTab = vi.fn();
   const removeTab = vi.fn();
+  const sendCommand = vi.fn();
   const persist = vi.fn();
 
   beforeEach(() => {
@@ -41,6 +42,18 @@ describe("BrowserControlService", () => {
           url: "https://example.com/page",
         } as chrome.tabs.Tab),
     );
+    sendCommand.mockReset();
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        callback?.({});
+      },
+    );
     persist.mockReset();
     persist.mockResolvedValue(undefined);
 
@@ -60,17 +73,7 @@ describe("BrowserControlService", () => {
           ) => callback?.(),
         ),
         detach,
-        sendCommand: vi.fn(
-          (
-            _source: chrome.debugger.Debuggee,
-            method: string,
-            _params: object | undefined,
-            callback?: (result: unknown) => void,
-          ) => {
-            debuggerMethods.push(method);
-            callback?.({});
-          },
-        ),
+        sendCommand,
       },
       storage: {
         session: {
@@ -503,6 +506,153 @@ describe("BrowserControlService", () => {
       code: "TASK_HANDOFF_CANCELLED",
     });
     expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+    expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("cancels a normal attach that is in flight when stopped", async () => {
+    let releasePageEnable: (() => void) | undefined;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.enable" && !releasePageEnable) {
+          releasePageEnable = () => callback?.({});
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    const attachPromise = service
+      .execute({
+        id: "attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releasePageEnable).toBeDefined());
+
+    await expect(
+      service.execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).resolves.toEqual({ detached: true });
+    releasePageEnable?.();
+
+    await expect(attachPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    expect(service.activeTaskCount).toBe(0);
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+  });
+
+  it("cancels a normal attach that is in flight during emergency stop", async () => {
+    let releasePageEnable: (() => void) | undefined;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.enable" && !releasePageEnable) {
+          releasePageEnable = () => callback?.({});
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    const attachPromise = service
+      .execute({
+        id: "attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releasePageEnable).toBeDefined());
+
+    const emergencyStop = service.emergencyStopAll();
+    releasePageEnable?.();
+
+    await expect(attachPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(emergencyStop).resolves.toBeUndefined();
+    expect(service.activeTaskCount).toBe(0);
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+    });
+  });
+
+  it("reserves a tab until the physical debugger teardown finishes", async () => {
+    let releaseDebuggerDetach: (() => void) | undefined;
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        releaseDebuggerDetach = () => callback?.();
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    const stopPromise = service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    await vi.waitFor(() => expect(releaseDebuggerDetach).toBeDefined());
+
+    const competingError = await service
+      .execute({
+        id: "competing-attach-request",
+        taskId: "task-2",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(competingError).toMatchObject({ code: "TAB_ALREADY_OWNED" });
+    releaseDebuggerDetach?.();
+    await expect(stopPromise).resolves.toEqual({ detached: true });
     expect(service.activeTaskCount).toBe(0);
   });
 });

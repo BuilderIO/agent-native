@@ -178,6 +178,8 @@ export class BrowserControlService {
   private readonly sessions = new Map<string, TaskSession>();
   private readonly tabOwners = new Map<number, string>();
   private readonly tabReservations = new Map<number, string>();
+  private readonly teardownTabs = new Set<number>();
+  private readonly taskGenerations = new Map<string, number>();
   private readonly taskQueues = new Map<string, Promise<unknown>>();
   private stateQueue: Promise<void> = Promise.resolve();
   private persistQueue: Promise<void> = Promise.resolve();
@@ -235,6 +237,12 @@ export class BrowserControlService {
 
   async emergencyStopAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
+    for (const taskId of this.tabReservations.values())
+      this.invalidateTask(taskId);
+    for (const session of sessions) {
+      this.invalidateTask(session.taskId);
+      this.teardownTabs.add(session.tabId);
+    }
     this.sessions.clear();
     this.tabOwners.clear();
     this.taskQueues.clear();
@@ -245,15 +253,19 @@ export class BrowserControlService {
           await detachDebugger(source(session.tabId));
         }),
       );
+      for (const session of sessions) this.teardownTabs.delete(session.tabId);
       await this.persist();
     });
   }
 
   async handleDebuggerDetach(tabId: number): Promise<void> {
-    const taskId = this.tabOwners.get(tabId);
-    if (!taskId) return;
+    const taskId = this.tabOwners.get(tabId) ?? this.tabReservations.get(tabId);
+    if (taskId) this.invalidateTask(taskId);
     this.tabOwners.delete(tabId);
-    this.sessions.delete(taskId);
+    if (taskId) this.sessions.delete(taskId);
+    this.tabReservations.delete(tabId);
+    this.teardownTabs.delete(tabId);
+    if (!taskId) return;
     await this.enqueueState(() => this.persist());
   }
 
@@ -320,48 +332,102 @@ export class BrowserControlService {
     origins: string[],
     expectedSession?: TaskSession,
   ): Promise<{ tabId: number; origin: string }> {
-    this.assertExpectedSession(taskId, expectedSession);
+    const expectedGeneration = this.taskGeneration(taskId);
+    this.assertAttachActive(taskId, expectedSession, expectedGeneration);
     this.assertTabAvailable(taskId, tabId);
-    let previous = this.sessions.get(taskId);
-    if (previous?.tabId === tabId) {
-      await this.detach(taskId);
-      previous = undefined;
-    }
-    const session: TaskSession = {
-      taskId,
-      tabId,
-      allowedOrigins: new Set(origins),
-    };
-    await this.assertSessionAllowed(session);
-    this.assertExpectedSession(taskId, expectedSession);
-    await attachDebugger(source(tabId));
-    try {
-      this.assertExpectedSession(taskId, expectedSession);
-      await sendDebuggerCommand(source(tabId), "Page.enable");
-      this.assertExpectedSession(taskId, expectedSession);
-      await sendDebuggerCommand(source(tabId), "Accessibility.enable");
-      this.assertExpectedSession(taskId, expectedSession);
-      return await this.commitAttach(
+    return this.enqueueState(async () => {
+      this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+      this.assertTabAvailable(taskId, tabId);
+      let previous = this.sessions.get(taskId);
+      if (previous?.tabId === tabId) {
+        this.sessions.delete(taskId);
+        this.tabOwners.delete(tabId);
+        this.teardownTabs.add(tabId);
+        await releaseInjectedInput(tabId);
+        await detachDebugger(source(tabId));
+        this.teardownTabs.delete(tabId);
+        await this.persist();
+        this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+        previous = undefined;
+      }
+      const session: TaskSession = {
         taskId,
-        session,
-        previous,
-        expectedSession,
-      );
-    } catch (error) {
-      await detachDebugger(source(tabId));
-      throw error;
-    }
+        tabId,
+        allowedOrigins: new Set(origins),
+      };
+      const hadReservation = this.tabReservations.get(tabId) === taskId;
+      if (!hadReservation) this.tabReservations.set(tabId, taskId);
+      const previousSessions = new Map(this.sessions);
+      let debuggerAttached = false;
+      let stagedPersisted = false;
+      try {
+        await this.assertSessionAllowed(session);
+        this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+        await attachDebugger(source(tabId));
+        debuggerAttached = true;
+        this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+        await sendDebuggerCommand(source(tabId), "Page.enable");
+        this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+        await sendDebuggerCommand(source(tabId), "Accessibility.enable");
+        const currentTab = await this.assertSessionAllowed(session);
+        this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+        this.assertTabAvailable(taskId, tabId);
+        const stagedSessions = new Map(previousSessions);
+        stagedSessions.set(taskId, session);
+        await this.persist(stagedSessions.values());
+        stagedPersisted = true;
+        const committedTab = await this.assertSessionAllowed(session);
+        this.assertAttachActive(taskId, expectedSession, expectedGeneration);
+        this.assertTabAvailable(taskId, tabId);
+        if (previous && previous.tabId !== tabId) {
+          this.tabOwners.delete(previous.tabId);
+        }
+        this.sessions.set(taskId, session);
+        this.tabOwners.set(tabId, taskId);
+        if (previous && previous.tabId !== tabId) {
+          await Promise.allSettled([
+            releaseInjectedInput(previous.tabId),
+            detachDebugger(source(previous.tabId)),
+          ]);
+        }
+        this.assertTaskGeneration(taskId, expectedGeneration);
+        this.assertSessionCurrent(taskId, session);
+        return {
+          tabId,
+          origin: new URL(committedTab.url ?? currentTab.url!).origin,
+        };
+      } catch (error) {
+        if (this.sessions.get(taskId) === session) {
+          this.sessions.delete(taskId);
+          this.tabOwners.delete(tabId);
+          if (previous && previousSessions.get(taskId) === previous) {
+            this.sessions.set(taskId, previous);
+            this.tabOwners.set(previous.tabId, taskId);
+          }
+        }
+        if (stagedPersisted) await this.persist(previousSessions.values());
+        if (debuggerAttached) await detachDebugger(source(tabId));
+        throw error;
+      } finally {
+        if (!hadReservation && this.tabReservations.get(tabId) === taskId) {
+          this.tabReservations.delete(tabId);
+        }
+      }
+    });
   }
 
   private async detach(taskId: string): Promise<void> {
+    this.invalidateTask(taskId);
     const session = this.sessions.get(taskId);
     if (!session) return;
     this.sessions.delete(taskId);
     this.tabOwners.delete(session.tabId);
+    this.teardownTabs.add(session.tabId);
     this.taskQueues.delete(taskId);
     await this.enqueueState(async () => {
       await releaseInjectedInput(session.tabId);
       await detachDebugger(source(session.tabId));
+      this.teardownTabs.delete(session.tabId);
       await this.persist();
     });
   }
@@ -417,58 +483,42 @@ export class BrowserControlService {
     return tab;
   }
 
-  private async commitAttach(
+  private assertAttachActive(
     taskId: string,
-    session: TaskSession,
-    previous: TaskSession | undefined,
     expectedSession: TaskSession | undefined,
-  ): Promise<{ tabId: number; origin: string }> {
-    return this.enqueueState(async () => {
-      const previousSessions = new Map(this.sessions);
-      let stagedPersisted = false;
-      try {
-        const currentTab = await this.assertSessionAllowed(session);
-        this.assertExpectedSession(taskId, expectedSession);
-        this.assertTabAvailable(taskId, session.tabId);
-        const stagedSessions = new Map(previousSessions);
-        stagedSessions.set(taskId, session);
-        await this.persist(stagedSessions.values());
-        stagedPersisted = true;
-        const committedTab = await this.assertSessionAllowed(session);
-        this.assertExpectedSession(taskId, expectedSession);
-        this.assertTabAvailable(taskId, session.tabId);
-        if (previous && previous.tabId !== session.tabId) {
-          this.tabOwners.delete(previous.tabId);
-        }
-        this.sessions.set(taskId, session);
-        this.tabOwners.set(session.tabId, taskId);
-        if (previous && previous.tabId !== session.tabId) {
-          await Promise.allSettled([
-            releaseInjectedInput(previous.tabId),
-            detachDebugger(source(previous.tabId)),
-          ]);
-        }
-        this.assertSessionCurrent(taskId, session);
-        return {
-          tabId: session.tabId,
-          origin: new URL(committedTab.url ?? currentTab.url!).origin,
-        };
-      } catch (error) {
-        if (this.sessions.get(taskId) === session) {
-          this.sessions.delete(taskId);
-          this.tabOwners.delete(session.tabId);
-          if (previous && previousSessions.get(taskId) === previous) {
-            this.sessions.set(taskId, previous);
-            this.tabOwners.set(previous.tabId, taskId);
-          }
-        }
-        if (stagedPersisted) await this.persist(previousSessions.values());
-        throw error;
-      }
-    });
+    expectedGeneration: number,
+  ): void {
+    this.assertExpectedSession(taskId, expectedSession);
+    this.assertTaskGeneration(taskId, expectedGeneration);
+  }
+
+  private assertTaskGeneration(
+    taskId: string,
+    expectedGeneration: number,
+  ): void {
+    if (this.taskGeneration(taskId) !== expectedGeneration) {
+      throw new BrowserControlError(
+        "TASK_HANDOFF_CANCELLED",
+        "The Chrome tab handoff was cancelled before it completed.",
+      );
+    }
+  }
+
+  private taskGeneration(taskId: string): number {
+    return this.taskGenerations.get(taskId) ?? 0;
+  }
+
+  private invalidateTask(taskId: string): void {
+    this.taskGenerations.set(taskId, this.taskGeneration(taskId) + 1);
   }
 
   private assertTabAvailable(taskId: string, tabId: number): void {
+    if (this.teardownTabs.has(tabId)) {
+      throw new BrowserControlError(
+        "TAB_ALREADY_OWNED",
+        "Another task is still releasing this tab.",
+      );
+    }
     const reservationOwner = this.tabReservations.get(tabId);
     const owner = this.tabOwners.get(tabId);
     if (
