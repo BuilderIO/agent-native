@@ -293,6 +293,7 @@ export class BrowserControlService {
 
   async emergencyStopAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
+    const pendingOperations = [...this.taskQueues.values()];
     const tabsToTeardown = new Set([
       ...this.teardownOwners.keys(),
       ...sessions.map((session) => session.tabId),
@@ -320,6 +321,8 @@ export class BrowserControlService {
       await this.persist();
       for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
     });
+    await Promise.allSettled(pendingOperations);
+    for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
   }
 
   async handleDebuggerDetach(tabId: number): Promise<void> {
@@ -445,6 +448,7 @@ export class BrowserControlService {
       const previousSessions = new Map(this.sessions);
       let debuggerAttached = false;
       let stagedPersisted = false;
+      let previousTeardownStarted = false;
       try {
         await this.assertSessionAllowed(session);
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
@@ -470,6 +474,7 @@ export class BrowserControlService {
         this.sessions.set(taskId, session);
         this.tabOwners.set(tabId, taskId);
         if (previous && previous.tabId !== tabId) {
+          previousTeardownStarted = true;
           this.beginTeardown(previous.tabId, taskId);
           const teardownError = await this.teardownDebugger(
             previous.tabId,
@@ -492,7 +497,11 @@ export class BrowserControlService {
         if (this.sessions.get(taskId) === session) {
           this.sessions.delete(taskId);
           this.tabOwners.delete(tabId);
-          if (previous && previousSessions.get(taskId) === previous) {
+          if (
+            previous &&
+            previousSessions.get(taskId) === previous &&
+            !previousTeardownStarted
+          ) {
             this.sessions.set(taskId, previous);
             this.tabOwners.set(previous.tabId, taskId);
           }
@@ -500,7 +509,7 @@ export class BrowserControlService {
         let rollbackError: unknown;
         if (stagedPersisted) {
           try {
-            await this.persist(previousSessions.values());
+            await this.persist(this.sessions.values());
           } catch (error) {
             rollbackError = error;
           }

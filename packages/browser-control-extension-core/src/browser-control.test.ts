@@ -352,6 +352,113 @@ describe("BrowserControlService", () => {
     expect(lastPersisted.agentNativeBrowserTaskSessions).toEqual([]);
   });
 
+  it("does not restore a superseded lease after committed handoff cancellation", async () => {
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    let releaseOldDetach: (() => void) | undefined;
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        releaseOldDetach = callback;
+      },
+    );
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseOldDetach).toBeDefined());
+
+    const internals = service as unknown as {
+      invalidateTask(taskId: string): void;
+    };
+    internals.invalidateTask("task-1");
+    releaseOldDetach?.();
+
+    await expect(openPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+    });
+    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+    expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("waits for an in-flight background tab creation during emergency stop", async () => {
+    let resolveCreatedTab: ((tab: chrome.tabs.Tab) => void) | undefined;
+    createTab.mockImplementationOnce(
+      (
+        _options: chrome.tabs.CreateProperties,
+        callback?: (tab: chrome.tabs.Tab) => void,
+      ) => {
+        resolveCreatedTab = callback;
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(createTab).toHaveBeenCalledTimes(1));
+
+    let emergencySettled = false;
+    const emergencyStop = service.emergencyStopAll().then(() => {
+      emergencySettled = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(emergencySettled).toBe(false);
+
+    resolveCreatedTab?.({
+      id: 77,
+      url: "https://example.com/next",
+      active: false,
+    } as chrome.tabs.Tab);
+
+    await expect(openPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(emergencyStop).resolves.toBeUndefined();
+    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+    expect(service.activeTaskCount).toBe(0);
+  });
+
   it("reserves a created tab until its handoff finishes", async () => {
     let releaseTabLookup: (() => void) | undefined;
     let blockNewTabLookup = true;
