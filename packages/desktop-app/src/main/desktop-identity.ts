@@ -294,6 +294,10 @@ export class DesktopIdentityBroker {
     return this.status;
   }
 
+  isAvailable(): boolean {
+    return this.availability === "available";
+  }
+
   isInternalRevocationRequest(requestUrl: string): boolean {
     try {
       return (

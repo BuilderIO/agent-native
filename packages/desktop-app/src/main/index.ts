@@ -209,7 +209,6 @@ import {
   fetchDesktopIdentityAvailability,
   isDesktopIdentityAppConfigEligible,
   isDesktopIdentityOriginEligible,
-  shouldStartDesktopIdentitySignIn,
   type DesktopIdentityApp,
 } from "./desktop-identity";
 import {
@@ -354,7 +353,6 @@ let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
 let desktopIdentityBroker: DesktopIdentityBroker | null = null;
-let desktopIdentityAutoSignInStarted = false;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
@@ -1244,54 +1242,39 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   if (!isShellIdentityIpc(event)) {
     return "idle" satisfies DesktopIdentityStatus;
   }
-  await desktopIdentityBroker?.refreshStatus(
-    resolveDesktopIdentityApp("dispatch"),
-  );
-  return desktopIdentityBroker?.getStatus() ?? "idle";
+  const broker = ensureDesktopIdentityBroker();
+  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  return broker?.getStatus() ?? "idle";
+});
+
+ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
+  if (!isShellIdentityIpc(event) || !IS_DESKTOP_SSO_CANARY) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) return false;
+  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  return broker.isAvailable();
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  const status = desktopIdentityBroker.getStatus();
+  if (!isShellIdentityIpc(event)) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) return false;
+  const status = broker.getStatus();
   if (status !== "sign-in-required" && status !== "failed") return false;
   const identityApp =
     resolveDesktopIdentityApp(activeAppId) ??
     resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
-  return desktopIdentityBroker.signIn(identityApp.id);
+  return broker.signIn(identityApp.id);
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  if (desktopIdentityBroker.getStatus() === "idle") return false;
-  await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
+  if (!isShellIdentityIpc(event)) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker || broker.getStatus() === "idle") return false;
+  await broker.signOut(listDesktopIdentityCleanupApps());
   return true;
 });
-
-async function maybeStartDesktopIdentitySignIn(
-  win: BrowserWindow,
-): Promise<void> {
-  const broker = ensureDesktopIdentityBroker();
-  if (desktopIdentityAutoSignInStarted || !broker) return;
-  const authorityApp = resolveDesktopIdentityApp("dispatch");
-  if (!authorityApp) return;
-  await broker.refreshStatus(authorityApp);
-  if (!shouldStartDesktopIdentitySignIn(broker.getStatus(), authorityApp)) {
-    return;
-  }
-  desktopIdentityAutoSignInStarted = true;
-
-  const start = () => {
-    const identityApp = resolveDesktopIdentityApp(activeAppId) ?? authorityApp;
-    if (!identityApp) return;
-    void broker.signIn(identityApp.id).catch(() => undefined);
-  };
-  if (win.webContents.isLoading()) {
-    win.webContents.once("did-finish-load", start);
-  } else {
-    start();
-  }
-}
 
 function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   if (!IS_DESKTOP_SSO_CANARY) return null;
@@ -1323,8 +1306,16 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
         .catch(() => {});
     },
     onStatus: (status: DesktopIdentityStatus) => {
+      if (appIsQuitting) return;
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
+        try {
+          mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
+        } catch (error) {
+          console.warn(
+            "[desktop-identity] status update skipped during window shutdown:",
+            error instanceof Error ? error.message : "unknown error",
+          );
+        }
       }
       refreshApplicationMenu();
     },
@@ -11124,13 +11115,10 @@ function configurePermissionHandlers(
 
 app.whenReady().then(async () => {
   if (IS_DESKTOP_SSO_CANARY) {
-    const broker = ensureDesktopIdentityBroker();
-    if (!broker) return;
-    const shouldContinueStartup = await runDesktopStartupStep({
-      start: () => broker.refreshStatus(resolveDesktopIdentityApp("dispatch")),
-      isShuttingDown: () => appIsQuitting,
-    });
-    if (!shouldContinueStartup) return;
+    // Create the optional broker without blocking startup. The first eligible
+    // app asks it to refresh status, which keeps a slow identity authority
+    // from delaying the shell before the user opens an app.
+    ensureDesktopIdentityBroker();
   }
 
   const shouldContinueStartup = await runDesktopStartupStep({
@@ -11402,7 +11390,6 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  if (IS_DESKTOP_SSO_CANARY) await maybeStartDesktopIdentitySignIn(win);
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.

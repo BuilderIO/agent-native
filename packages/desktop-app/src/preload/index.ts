@@ -249,6 +249,8 @@ const electronAPI = {
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
       ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    getAvailability: (): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (

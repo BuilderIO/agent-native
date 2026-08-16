@@ -9,8 +9,97 @@ import {
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
+  isDesktopIdentityGateEligible,
+  shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
 } from "./AppWebview.js";
+
+describe("Desktop identity gate eligibility", () => {
+  it("covers canonical production apps but not browser surfaces", () => {
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "mail" },
+        {
+          isBuiltIn: true,
+          mode: "prod",
+          url: "https://mail.agent-native.com",
+        },
+      ),
+    ).toBe(true);
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "mail" },
+        {
+          isBuiltIn: true,
+          mode: "prod",
+          url: "https://mail.agent-native.com",
+        },
+        "https://example.com",
+      ),
+    ).toBe(false);
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "mail" },
+        {
+          isBuiltIn: true,
+          mode: "prod",
+          url: "https://example.com/mail",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("requires an explicit opt-in for custom production apps", () => {
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "workspace-reports" },
+        {
+          isBuiltIn: false,
+          mode: "prod",
+          url: "https://workspace.example/reports",
+          workspaceSso: false,
+        },
+      ),
+    ).toBe(false);
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "workspace-reports" },
+        {
+          isBuiltIn: false,
+          mode: "prod",
+          url: "https://workspace.example/reports",
+          workspaceSso: true,
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not gate local development apps", () => {
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "workspace-reports" },
+        {
+          isBuiltIn: false,
+          mode: "dev",
+          url: "https://workspace.example/reports",
+          workspaceSso: true,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("only suppresses the ordinary prompt when the canary broker is available", () => {
+    const app = {
+      id: "workspace-reports",
+      isBuiltIn: false,
+      mode: "prod" as const,
+      url: "https://workspace.example/reports",
+      workspaceSso: true,
+    };
+    expect(shouldSuppressDesktopSignInPrompt(app, app, false)).toBe(false);
+    expect(shouldSuppressDesktopSignInPrompt(app, app, true)).toBe(true);
+  });
+});
 
 describe("AppWebview auth state", () => {
   it("recognizes framework and app-base sign-in routes", () => {

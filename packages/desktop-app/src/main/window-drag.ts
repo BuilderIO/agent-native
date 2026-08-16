@@ -179,17 +179,29 @@ export function installWindowDragController(
   };
   const onWindowBlur = () => controller.cancel();
 
-  attach(window.webContents);
-  window.webContents.on("did-attach-webview", onDidAttachWebview);
-  window.on("blur", onWindowBlur);
+  if (!window.isDestroyed()) {
+    attach(window.webContents);
+    window.webContents.on("did-attach-webview", onDidAttachWebview);
+    window.on("blur", onWindowBlur);
+  }
 
   return () => {
     controller.cancel();
-    window.webContents.removeListener("did-attach-webview", onDidAttachWebview);
-    window.removeListener("blur", onWindowBlur);
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.removeListener(
+        "did-attach-webview",
+        onDidAttachWebview,
+      );
+    }
+    if (!window.isDestroyed()) window.removeListener("blur", onWindowBlur);
     for (const [contents, attached] of listeners) {
-      contents.removeListener("before-mouse-event", attached.beforeMouseEvent);
-      contents.removeListener("destroyed", attached.destroyed);
+      if (!contents.isDestroyed()) {
+        contents.removeListener(
+          "before-mouse-event",
+          attached.beforeMouseEvent,
+        );
+        contents.removeListener("destroyed", attached.destroyed);
+      }
     }
     listeners.clear();
   };

@@ -733,6 +733,7 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
