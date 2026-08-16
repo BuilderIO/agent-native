@@ -108,6 +108,7 @@ import {
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, {
+  isDesktopIdentityGateEligible,
   resolveAppWebviewUrl,
   type AppWebviewAuthState,
   type AppWebviewHandle,
@@ -2147,6 +2148,10 @@ export default function CodeAgentsHub({
           tabId: tab.id,
           activeTabId: activeChatFirstSurfaceTab?.id,
         });
+        const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
+          { id: surfaceApp.id },
+          surfaceApp,
+        );
         return (
           <ChatFirstAppPane
             app={surfaceApp}
@@ -2157,6 +2162,7 @@ export default function CodeAgentsHub({
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
                 authState={chatFirstAppAuthStates[surfaceApp.id] ?? "unknown"}
+                suppressSignInPrompt={desktopIdentityGateEligible}
                 onSignInRequest={() => focusChatFirstApp(tab.id)}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >

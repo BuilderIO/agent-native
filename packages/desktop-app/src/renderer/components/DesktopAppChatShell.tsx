@@ -76,6 +76,7 @@ export interface DesktopAppChatShellProps {
   appName: string;
   children: ReactNode;
   authState?: AppWebviewAuthState;
+  suppressSignInPrompt?: boolean;
   onSignInRequest?: () => void;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
@@ -93,6 +94,7 @@ export default function DesktopAppChatShell({
   appName,
   children,
   authState = "unknown",
+  suppressSignInPrompt = false,
   onSignInRequest,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
@@ -420,7 +422,7 @@ export default function DesktopAppChatShell({
   );
 
   const signInPrompt =
-    authState === "unauthenticated" ? (
+    !suppressSignInPrompt && authState === "unauthenticated" ? (
       <div className="flex shrink-0 items-center px-3 pb-1">
         <button
           type="button"
