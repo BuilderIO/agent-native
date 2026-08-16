@@ -21,7 +21,11 @@ import {
   isFeatureFlagEnabled,
 } from "@agent-native/core/feature-flags";
 import { getOrgDomain } from "@agent-native/core/org";
-import { getH3App, getSession } from "@agent-native/core/server";
+import {
+  getH3App,
+  getSession,
+  hasGoogleAuthIdentity,
+} from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
 import type { H3Event } from "h3";
@@ -324,6 +328,9 @@ export const tokenHandler = defineEventHandler(
       name: identity.name,
       orgDomain: identity.orgDomain,
     });
+    const identityAuthProvider = (await hasGoogleAuthIdentity(identity.email))
+      ? "google"
+      : undefined;
     let assertion: string;
     try {
       assertion = await signA2AToken(
@@ -337,6 +344,9 @@ export const tokenHandler = defineEventHandler(
           extraClaims: {
             email: claims.email,
             ...(claims.name ? { name: claims.name } : {}),
+            ...(identityAuthProvider
+              ? { identity_auth_provider: identityAuthProvider }
+              : {}),
             scope: IDENTITY_SCOPE,
             jti: identity.jti,
             redirect_uri: redirectUri,
