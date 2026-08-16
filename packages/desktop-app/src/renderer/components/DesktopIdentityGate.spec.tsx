@@ -36,8 +36,12 @@ describe("DesktopIdentityGate", () => {
       );
     });
 
-    expect(container.textContent).toContain("Sign in once to open your workspace");
-    expect(container.textContent).toContain("Continue with Google or magic link");
+    expect(container.textContent).toContain(
+      "Sign in once to open your workspace",
+    );
+    expect(container.textContent).toContain(
+      "Continue with Google or magic link",
+    );
     container
       .querySelector(".desktop-identity-gate__provider")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
