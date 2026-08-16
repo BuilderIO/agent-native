@@ -910,6 +910,7 @@ export class DesktopIdentityBroker {
             reason: error instanceof Error ? error.message : "unknown error",
           },
         );
+        return false;
       }
       if (
         currentAuthorityEmail &&
@@ -1374,10 +1375,7 @@ export class DesktopIdentityBroker {
         ? { headers: { Cookie: target.cookieHeader } }
         : {}),
     });
-    if (
-      !response.ok &&
-      !(response.status === 401 && Boolean(target.cookieHeader))
-    ) {
+    if (!response.ok && !(response.status === 401 && !target.cookieHeader)) {
       throw new Error(
         `Workspace sign-out failed for ${target.origin} (${response.status})`,
       );

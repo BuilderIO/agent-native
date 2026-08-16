@@ -1267,8 +1267,11 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
   AppStore.saveDesktopAppPreferences({ desktopSsoEnabled: enabled });
 
   if (!enabled) {
-    desktopIdentityBroker?.setStatusForSetting("idle");
+    const broker = desktopIdentityBroker;
+    desktopIdentityBroker = null;
+    broker?.setStatusForSetting("idle");
     mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "idle");
+    refreshApplicationMenu();
     return true;
   }
 
@@ -11244,6 +11247,7 @@ app.whenReady().then(async () => {
 
     if (isDesktopSsoEnabled()) {
       sess.cookies.on("changed", (_event, cookie, _cause, removed) => {
+        if (!isDesktopSsoEnabled()) return;
         if (removed) return;
         const appId = getTargetAppId();
         if (!appId) return;

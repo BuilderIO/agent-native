@@ -152,6 +152,7 @@ export async function signInWithGoogle({
   ]);
 
   let token: string | null = null;
+  let preserveAndroidOAuthContext = false;
   try {
     if (Platform.OS === "android") {
       const { preferredBrowserPackage } =
@@ -160,6 +161,7 @@ export async function signInWithGoogle({
         browserPackage: preferredBrowserPackage,
         showInRecents: true,
       });
+      preserveAndroidOAuthContext = true;
       token = await waitForStoredParentSession(previousToken);
     } else {
       const result = await WebBrowser.openAuthSessionAsync(
@@ -177,7 +179,9 @@ export async function signInWithGoogle({
       if (storedToken && storedToken !== previousToken) token = storedToken;
     }
   } finally {
-    await clearNativeOAuthContext();
+    if (!preserveAndroidOAuthContext || token) {
+      await clearNativeOAuthContext();
+    }
   }
 
   if (!token) throw new Error("Google sign-in was cancelled.");
@@ -271,8 +275,9 @@ export async function signInWithMagicLink({
         ? exchangePayload.token.trim()
         : "";
     if (token) {
+      const session = await readSessionIdentity(token, origin);
       await saveSessionToken(token);
-      return readSessionIdentity(token, origin);
+      return session;
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
   }
