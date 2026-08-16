@@ -1973,7 +1973,7 @@ describe("DesktopIdentityBroker", () => {
     warn.mockRestore();
   });
 
-  it("accepts Dispatch's nonce-bound front-door shortcut without consuming its authority session", async () => {
+  it("opens Dispatch's ordinary sign-in entry without consuming its authority session", async () => {
     const dispatch = authorityFixture();
     const identityCookies = cookieStore([
       sessionCookie("an_session_dispatch", dispatch.origin, "dispatch-session"),
@@ -2024,7 +2024,7 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(ceremony).resolves.toBe(true);
 
-    expect(new URL(loginUrl).pathname).toBe("/_agent-native/identity/login");
+    expect(new URL(loginUrl).pathname).toBe("/sign-in");
     expect(new URL(completion).pathname).toBe(DESKTOP_IDENTITY_COMPLETE_PATH);
     expect(createWindow).toHaveBeenCalledOnce();
     expect(identityWindow.loadURL).toHaveBeenCalledWith(completion);
