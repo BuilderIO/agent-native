@@ -177,6 +177,15 @@ describe("identity SSO feature switch and request classifiers", () => {
 
   it("recognizes only the packaged Canary marker and canonical hosts", () => {
     expect(
+      store.isDesktopSsoUserAgent("Mozilla/5.0 AgentNativeDesktop/1.2.3"),
+    ).toBe(true);
+    expect(
+      store.isDesktopSsoUserAgent(
+        "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+      ),
+    ).toBe(true);
+    expect(store.isDesktopSsoUserAgent("Mozilla/5.0 Chrome/1.2.3")).toBe(false);
+    expect(
       store.isDesktopSsoCanaryUserAgent(
         "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
       ),

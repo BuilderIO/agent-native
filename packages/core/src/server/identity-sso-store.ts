@@ -30,6 +30,7 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 let _initPromise: Promise<void> | undefined;
 
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 export const CANONICAL_IDENTITY_SSO_HUB_URL =
   "https://dispatch.agent-native.com";
 const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
@@ -130,6 +131,10 @@ export function isIdentitySsoExplicitlyEnabled(): boolean {
 
 export function isIdentitySsoEnabled(): boolean {
   return !!getIdentityHubUrl();
+}
+
+export function isDesktopSsoUserAgent(userAgent: string | undefined): boolean {
+  return DESKTOP_SSO_USER_AGENT.test(userAgent ?? "");
 }
 
 export function isDesktopSsoCanaryUserAgent(
