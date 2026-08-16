@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.26
+
+### Patch Changes
+
+- abfb925: Serve the authenticated Desktop completion page on Dispatch, the identity authority, after its ordinary sign-in flow.
+
 ## 0.157.25
 
 ### Patch Changes
