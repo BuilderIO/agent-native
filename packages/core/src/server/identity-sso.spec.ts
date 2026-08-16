@@ -394,6 +394,40 @@ describe("identity SSO browser contract", () => {
     expect(signUpEmailMock).not.toHaveBeenCalled();
     expect(createOAuthSessionMock).not.toHaveBeenCalled();
   });
+
+  it("accepts a signed Google-backed assertion for a Google-required organization", async () => {
+    googleAuthRequiredMock.mockResolvedValue(true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"i".repeat(43)}&state=${state}`,
+        {
+          cookies: { ...loginEvent.cookies },
+        },
+      ),
+      "/callback",
+    );
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "alice@example.test",
+      expect.objectContaining({ hasProductionSession: false }),
+    );
+  });
 });
 
 describe("additive JIT linking", () => {

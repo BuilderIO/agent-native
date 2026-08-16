@@ -248,6 +248,7 @@ interface VerifiedIdentity {
   email: string;
   name: string;
   orgDomain?: string;
+  authProvider?: "google";
   sub: string;
   jti: string;
 }
@@ -297,6 +298,8 @@ async function verifyIdentityAssertion(
         typeof payload.org_domain === "string" && payload.org_domain
           ? payload.org_domain
           : undefined,
+      authProvider:
+        payload.identity_auth_provider === "google" ? "google" : undefined,
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
@@ -530,7 +533,10 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-    if (await isGoogleSignInRequiredForEmail(identity.email)) {
+    if (
+      (await isGoogleSignInRequiredForEmail(identity.email)) &&
+      identity.authProvider !== "google"
+    ) {
       return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
     }
 

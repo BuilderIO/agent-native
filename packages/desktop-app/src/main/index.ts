@@ -122,7 +122,6 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
-  net,
   Notification,
   screen,
   session,
@@ -745,49 +744,6 @@ async function isDesktopIdentityAvailable(
   return fetchDesktopIdentityAvailability(authorityApp, identitySession);
 }
 
-function resolveDesktopIdentityLoginRedirect(
-  requestUrl: string,
-  identitySession: Electron.Session,
-): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    const request = net.request({
-      url: requestUrl,
-      session: identitySession,
-      redirect: "manual",
-    });
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (redirectUrl: string | null) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      resolve(redirectUrl);
-    };
-    const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      reject(error);
-    };
-
-    request.on("redirect", (_statusCode, _method, redirectUrl) => {
-      finish(redirectUrl);
-      request.abort();
-    });
-    request.on("response", (response) => {
-      response.on("data", () => {});
-      response.on("end", () => finish(null));
-      response.on("error", fail);
-    });
-    request.on("error", fail);
-    timer = setTimeout(() => {
-      request.abort();
-      fail(new Error("Identity redirect preflight timed out"));
-    }, 15_000);
-    request.end();
-  });
-}
-
 function getOAuthInjectionTarget(
   sourceSession: Electron.Session | undefined,
   sourceUrl: string | undefined,
@@ -1283,7 +1239,8 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     isAvailable: isDesktopIdentityAvailable,
-    resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
+    // The identity window must own the login request so its browser cookie jar
+    // retains the PKCE verifier across the cross-origin redirect chain.
     resolveApp: resolveDesktopIdentityApp,
     listApps: () => listDesktopIdentityApps(),
     createWindow: (options) => new BrowserWindow(options),
