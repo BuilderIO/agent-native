@@ -2075,7 +2075,7 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(ceremony).resolves.toBe(true);
 
-    expect(new URL(loginUrl).pathname).toBe("/sign-in");
+    expect(new URL(loginUrl).pathname).toBe("/login");
     expect(new URL(completion).pathname).toBe(DESKTOP_IDENTITY_COMPLETE_PATH);
     expect(createWindow).toHaveBeenCalledOnce();
     expect(identityWindow.loadURL).toHaveBeenCalledWith(completion);
