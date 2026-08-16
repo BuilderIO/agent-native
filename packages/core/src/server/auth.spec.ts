@@ -1366,6 +1366,35 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("shares late public-path registrations across Core module instances", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const firstCore = await import("./auth.js");
+      const app = createMockApp();
+      await firstCore.autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      // A second SSR bundle can evaluate the same package independently. The
+      // route registration must still reach the already-mounted guard.
+      vi.resetModules();
+      const secondCore = await import("./auth.js");
+      secondCore.registerAuthPublicPaths([
+        "/_agent-native/actions/cross-module-registry-test",
+      ]);
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/actions/cross-module-registry-test",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("allows selected public workspace page paths in an internal app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

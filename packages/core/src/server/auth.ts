@@ -1385,7 +1385,22 @@ interface AuthGuardConfig {
   workspaceAppProtectedPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
-const _registeredAuthPublicPaths = new Set<string>();
+// Pin the registry to globalThis so template plugins and framework routes that
+// load Core through different SSR bundle or pnpm peer graphs still share it.
+// A module-local Set lets the auth guard miss paths registered by a second
+// Core instance, which turns its own non-cookie-authenticated routes into 401s.
+const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core/auth.publicPaths",
+);
+interface GlobalWithAuthPublicPaths {
+  [AUTH_PUBLIC_PATHS_REGISTRY_KEY]?: Set<string>;
+}
+
+function getRegisteredAuthPublicPaths(): Set<string> {
+  const globals = globalThis as unknown as GlobalWithAuthPublicPaths;
+  return (globals[AUTH_PUBLIC_PATHS_REGISTRY_KEY] ??= new Set());
+}
+
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
 
 /**
@@ -1397,10 +1412,11 @@ const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
  * workspace deployments that do not own a template auth file.
  */
 export function registerAuthPublicPaths(paths: readonly string[]): void {
+  const registeredPaths = getRegisteredAuthPublicPaths();
   for (const path of paths) {
     const normalized = typeof path === "string" ? path.trim() : "";
     if (!normalized.startsWith("/")) continue;
-    _registeredAuthPublicPaths.add(normalized);
+    registeredPaths.add(normalized);
     if (
       _authGuardConfig &&
       !_authGuardConfig.publicPaths.includes(normalized)
@@ -1413,7 +1429,7 @@ export function registerAuthPublicPaths(paths: readonly string[]): void {
 function resolveAuthPublicPaths(
   paths: readonly string[] | undefined,
 ): string[] {
-  return [...new Set([...(paths ?? []), ..._registeredAuthPublicPaths])];
+  return [...new Set([...(paths ?? []), ...getRegisteredAuthPublicPaths()])];
 }
 
 function getRequestHost(event: H3Event): string | undefined {
@@ -2219,7 +2235,9 @@ function createAuthGuardFn(): (
   return async (event: H3Event) => {
     const config = _authGuardConfig;
     if (!config) return;
-    const { publicPaths } = config;
+    // Resolve on every request because a framework route can be mounted by a
+    // different Core module instance after this auth guard is initialized.
+    const publicPaths = resolveAuthPublicPaths(config.publicPaths);
 
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
