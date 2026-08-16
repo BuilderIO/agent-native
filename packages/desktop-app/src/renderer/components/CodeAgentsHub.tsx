@@ -74,6 +74,7 @@ import {
 } from "@shared/app-registry";
 import {
   IconArrowLeft,
+  IconGripVertical,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconPlus,
@@ -90,7 +91,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 
 import type {
@@ -135,7 +135,6 @@ import {
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
-import { CollapsedMacWindowControls } from "./WindowControls.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -182,6 +181,17 @@ export function orderDesktopApps<T extends Pick<AppConfig, "id" | "enabled">>(
   return orderedVisibleIds
     .map((id) => byId.get(id))
     .filter((app): app is T => Boolean(app));
+}
+
+export function mergeDesktopAppLists<T extends Pick<AppConfig, "id">>(
+  localApps: readonly T[],
+  workspaceApps: readonly T[],
+): T[] {
+  const localIds = new Set(localApps.map((app) => app.id));
+  return [
+    ...localApps,
+    ...workspaceApps.filter((app) => !localIds.has(app.id)),
+  ];
 }
 
 export function filterDesktopApps<
@@ -308,28 +318,48 @@ export function dispatchControlPlaneUrlParams(
 function DesktopAppsGrid({
   apps,
   layout,
-  scopePicker,
+  workspaceAppIds,
+  reorderable = false,
   onCreateApp,
   onOpenApp,
   onOpenInBrowser,
+  onReorder,
   onTogglePinned,
   fullPage = false,
   onBack,
 }: {
   apps: AppConfig[];
   layout: ChatFirstAppLayoutPreference;
-  scopePicker?: ReactNode;
+  workspaceAppIds?: ReadonlySet<string>;
+  reorderable?: boolean;
   onCreateApp?: () => void;
   onOpenApp: (app: AppConfig) => void;
   onOpenInBrowser: (app: AppConfig) => void;
+  onReorder?: (orderedIds: string[]) => void;
   onTogglePinned: (appId: string) => void;
   fullPage?: boolean;
   onBack?: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [draggedAppId, setDraggedAppId] = useState<string | null>(null);
+  const [dragOverAppId, setDragOverAppId] = useState<string | null>(null);
   const orderedApps = orderDesktopApps(apps, layout);
   const visibleApps = filterDesktopApps(orderedApps, search);
   const hasSearch = search.trim().length > 0;
+
+  const reorderApps = useCallback(
+    (targetId: string) => {
+      if (!reorderable || !onReorder || !draggedAppId) return;
+      const fromIndex = orderedApps.findIndex((app) => app.id === draggedAppId);
+      const targetIndex = orderedApps.findIndex((app) => app.id === targetId);
+      if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return;
+      const nextOrder = orderedApps.map((app) => app.id);
+      nextOrder.splice(fromIndex, 1);
+      nextOrder.splice(targetIndex, 0, draggedAppId);
+      onReorder(nextOrder);
+    },
+    [draggedAppId, onReorder, orderedApps, reorderable],
+  );
 
   return (
     <section
@@ -356,7 +386,6 @@ function DesktopAppsGrid({
           </h3>
         </div>
         <div className="desktop-apps-grid__actions">
-          {scopePicker}
           <label className="desktop-apps-grid__search">
             <IconSearch size={14} aria-hidden="true" />
             <Input
@@ -403,8 +432,39 @@ function DesktopAppsGrid({
         <div className="desktop-apps-grid__list">
           {visibleApps.map((app) => {
             const pinned = layout.pinnedIds.includes(app.id);
+            const isWorkspaceApp = workspaceAppIds?.has(app.id) === true;
             return (
-              <div key={app.id} className="desktop-app-card">
+              <div
+                key={app.id}
+                className={cn(
+                  "desktop-app-card",
+                  reorderable && draggedAppId === app.id && "is-dragging",
+                  reorderable && dragOverAppId === app.id && "is-drag-over",
+                )}
+                draggable={reorderable}
+                onDragStart={(event) => {
+                  if (!reorderable) return;
+                  event.dataTransfer.effectAllowed = "move";
+                  setDraggedAppId(app.id);
+                }}
+                onDragOver={(event) => {
+                  if (!reorderable) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverAppId(app.id);
+                }}
+                onDrop={(event) => {
+                  if (!reorderable) return;
+                  event.preventDefault();
+                  reorderApps(app.id);
+                  setDraggedAppId(null);
+                  setDragOverAppId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggedAppId(null);
+                  setDragOverAppId(null);
+                }}
+              >
                 <button
                   type="button"
                   className="desktop-app-card__body"
@@ -426,8 +486,23 @@ function DesktopAppsGrid({
                     <span className="desktop-app-card__description">
                       {app.description}
                     </span>
+                    {isWorkspaceApp ? (
+                      <span className="desktop-app-card__source">
+                        <IconWorld size={11} aria-hidden="true" />
+                        Workspace
+                      </span>
+                    ) : null}
                   </span>
                 </button>
+                {reorderable ? (
+                  <span
+                    className="desktop-app-card__drag-handle"
+                    title="Drag to rearrange"
+                    aria-label="Drag to rearrange"
+                  >
+                    <IconGripVertical size={16} aria-hidden="true" />
+                  </span>
+                ) : null}
                 <AppOpenActions
                   name={app.name}
                   labels={{ openApp: "Open" }}
@@ -456,49 +531,6 @@ function DesktopAppsGrid({
         </div>
       )}
     </section>
-  );
-}
-
-function DesktopWorkspaceScopePicker({
-  scope,
-  onChange,
-}: {
-  scope: "workspace" | "local";
-  onChange: (scope: "workspace" | "local") => void;
-}) {
-  return (
-    <div
-      className="desktop-workspace-scope-picker"
-      role="tablist"
-      aria-label="App scope"
-    >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={scope === "workspace"}
-        className={cn(
-          "desktop-workspace-scope-picker__item",
-          scope === "workspace" &&
-            "desktop-workspace-scope-picker__item--active",
-        )}
-        onClick={() => onChange("workspace")}
-      >
-        <IconWorld size={13} aria-hidden="true" />
-        Workspace
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={scope === "local"}
-        className={cn(
-          "desktop-workspace-scope-picker__item",
-          scope === "local" && "desktop-workspace-scope-picker__item--active",
-        )}
-        onClick={() => onChange("local")}
-      >
-        Local
-      </button>
-    </div>
   );
 }
 
@@ -569,25 +601,26 @@ export default function CodeAgentsHub({
   const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
   const workspaceAppListEnabled = workspaceAppList?.enabled === true;
   const workspaceApps = workspaceAppListEnabled ? workspaceAppList.apps : [];
-  const [appScope, setAppScope] = useState<"workspace" | "local">("local");
-  const appScopeInitialized = useRef(false);
-  useEffect(() => {
-    if (!workspaceAppListEnabled) {
-      appScopeInitialized.current = false;
-      setAppScope("local");
-      return;
-    }
-    if (!appScopeInitialized.current) {
-      appScopeInitialized.current = true;
-      setAppScope("workspace");
-    }
-  }, [workspaceAppListEnabled]);
-  const listApps =
-    workspaceAppListEnabled && appScope === "workspace" ? workspaceApps : apps;
+  const listApps = useMemo(
+    () =>
+      workspaceAppListEnabled
+        ? mergeDesktopAppLists(apps, workspaceApps)
+        : apps,
+    [apps, workspaceAppListEnabled, workspaceApps],
+  );
   const surfaceApps = listApps;
-  const scopePicker = workspaceAppListEnabled ? (
-    <DesktopWorkspaceScopePicker scope={appScope} onChange={setAppScope} />
-  ) : undefined;
+  const localAppIds = useMemo(() => new Set(apps.map((app) => app.id)), [apps]);
+  const workspaceAppIds = useMemo(
+    () =>
+      workspaceAppListEnabled
+        ? new Set(
+            workspaceApps
+              .filter((app) => !localAppIds.has(app.id))
+              .map((app) => app.id),
+          )
+        : undefined,
+    [localAppIds, workspaceAppListEnabled, workspaceApps],
+  );
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
   const chatFirstSessionWatch = useChatFirstSessionWatch();
@@ -810,6 +843,13 @@ export default function CodeAgentsHub({
       return next;
     });
   }, []);
+  const reorderChatFirstApps = useCallback((orderedIds: string[]) => {
+    setChatFirstAppLayout((layout) => {
+      const next = { ...layout, orderedIds };
+      writeChatFirstAppLayout(next);
+      return next;
+    });
+  }, []);
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
     setTerminalSessionStarted(false);
@@ -957,14 +997,6 @@ export default function CodeAgentsHub({
   const chatFirstRailWorkspaceSlot = useMemo(() => {
     return (
       <>
-        {workspaceAppListEnabled ? (
-          <div className="desktop-workspace-scope-picker__rail">
-            <DesktopWorkspaceScopePicker
-              scope={appScope}
-              onChange={setAppScope}
-            />
-          </div>
-        ) : null}
         {chatFirstNotice ? (
           <div
             className="flex items-start gap-1.5 border-b border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
@@ -1012,7 +1044,6 @@ export default function CodeAgentsHub({
   }, [
     activeChatFirstSurfaceTab?.appId,
     activeChatFirstSurfaceTab?.kind,
-    appScope,
     chatFirstAppItems,
     chatFirstRailCollapsed,
     chatFirstNotice,
@@ -1022,7 +1053,6 @@ export default function CodeAgentsHub({
     openChatFirstAllApps,
     openChatFirstAppFromRail,
     renderChatFirstAppIcon,
-    workspaceAppListEnabled,
   ]);
 
   const resolveChatFirstOpenApp = useCallback(
@@ -2347,12 +2377,14 @@ export default function CodeAgentsHub({
               <DesktopAppsGrid
                 apps={listApps}
                 layout={chatFirstAppLayout}
-                scopePicker={scopePicker}
+                workspaceAppIds={workspaceAppIds}
+                reorderable={workspaceAppListEnabled}
                 fullPage
                 onBack={returnToChatFirstChats}
                 onCreateApp={onCreateApp}
                 onOpenApp={openChatFirstAppFromGrid}
                 onOpenInBrowser={openChatFirstAppInBrowser}
+                onReorder={reorderChatFirstApps}
                 onTogglePinned={toggleChatFirstAppPinned}
               />
             ) : chatFirstAppTakesMain && activeChatFirstSurfaceTab ? (
@@ -2403,21 +2435,17 @@ export default function CodeAgentsHub({
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={emitChatFirstOpenAppStable}
-          railWindowControlsSlot={
-            chatFirstRailCollapsed &&
-            window.electronAPI?.platform === "darwin" ? (
-              <CollapsedMacWindowControls />
-            ) : undefined
-          }
           railWorkspaceSlot={chatFirstRailWorkspaceSlot}
           overviewFooterSlot={
             <DesktopAppsGrid
               apps={listApps}
               layout={chatFirstAppLayout}
-              scopePicker={scopePicker}
+              workspaceAppIds={workspaceAppIds}
+              reorderable={workspaceAppListEnabled}
               onCreateApp={onCreateApp}
               onOpenApp={openChatFirstAppFromGrid}
               onOpenInBrowser={openChatFirstAppInBrowser}
+              onReorder={reorderChatFirstApps}
               onTogglePinned={toggleChatFirstAppPinned}
             />
           }

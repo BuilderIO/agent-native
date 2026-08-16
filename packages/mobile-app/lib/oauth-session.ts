@@ -16,7 +16,12 @@ export function redirectParam(url: string, name: string): string | null {
 /** Persist the server-minted state before handing the URL to the browser. */
 export async function rememberOAuthState(url: string): Promise<void> {
   const state = redirectParam(url, "state");
-  if (state) await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
+  if (!state) return;
+  const existingState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
+  if (existingState && existingState !== state) {
+    throw new Error("Another Google sign-in is already in progress.");
+  }
+  await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
 }
 
 // Validate a callback `state` against the one stored before the browser opened,

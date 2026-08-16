@@ -70,8 +70,11 @@ export async function loadDesktopWorkspaceApps(options: {
       enabled: true,
       apps: normalizeWorkspaceAppConfigs(inventory, { baseUrl: origin }),
     };
-  } catch {
+  } catch (error) {
     // Native shells fail closed while the rollout or session is unavailable.
+    console.warn("[desktop workspace apps] failed to load inventory", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
     return { enabled: false, apps: [] };
   }
 }

@@ -35,6 +35,8 @@ export const IPC = {
   IDENTITY_STATUS_GET: "identity:status:get",
   IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SETTINGS_GET: "identity:settings:get",
+  IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
   IDENTITY_SIGN_IN: "identity:sign-in",
   IDENTITY_AUTHENTICATE: "identity:authenticate",
   IDENTITY_SIGN_OUT: "identity:sign-out",
@@ -167,6 +169,10 @@ export type DesktopIdentityStatus =
   | "signed-in"
   | "sign-in-required"
   | "failed";
+
+export interface DesktopIdentitySettings {
+  ssoEnabled: boolean;
+}
 
 export interface ActiveWebviewTarget {
   appId: string;

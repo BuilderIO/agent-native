@@ -45,6 +45,8 @@ describe("multi-frontier preload API", () => {
       electron.exposed as {
         identity: {
           getStatus(): Promise<unknown>;
+          getSettings(): Promise<unknown>;
+          setSsoEnabled(enabled: boolean): Promise<unknown>;
           getAvailability(): Promise<unknown>;
           signIn(): Promise<unknown>;
           authenticate(request: {
@@ -58,6 +60,8 @@ describe("multi-frontier preload API", () => {
       }
     ).identity;
     await identity.getStatus();
+    await identity.getSettings();
+    await identity.setSsoEnabled(true);
     await identity.getAvailability();
     await identity.signIn();
     await identity.authenticate({
@@ -73,6 +77,11 @@ describe("multi-frontier preload API", () => {
     unsubscribe();
 
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SETTINGS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(
+      IPC.IDENTITY_SSO_ENABLED_SET,
+      true,
+    );
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AVAILABILITY_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AUTHENTICATE, {

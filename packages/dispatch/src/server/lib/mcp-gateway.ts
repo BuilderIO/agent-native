@@ -1,4 +1,9 @@
-import { A2AClient, signA2AToken, type Task } from "@agent-native/core/a2a";
+import {
+  A2AClient,
+  canonicalA2AAudience,
+  signA2AToken,
+  type Task,
+} from "@agent-native/core/a2a";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
@@ -1195,6 +1200,7 @@ async function createEmbedSessionForResolvedApp(input: {
     useOrgSigning ? orgSecret.trim() : undefined,
     {
       expiresIn: "5m",
+      audience: canonicalA2AAudience(appBaseUrl(target.app)),
       // Prefer the synced org A2A secret when present because first-party
       // production apps do not have to share the same deployment env secret.
       // Fall back to the global A2A_SECRET for orgs that have not synced yet.

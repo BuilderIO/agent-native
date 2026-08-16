@@ -11,6 +11,16 @@ const MCP_PRODUCT_HOST_ORIGINS = new Set([
   "https://chatgpt.com",
   "https://claude.ai",
 ]);
+const TRUSTED_NATIVE_APP_ORIGIN_RE =
+  /^(?:tauri:\/\/localhost|https?:\/\/tauri\.localhost(?::\d+)?)$/;
+
+function isExplicitCorsAllowedOrigin(origin: string): boolean {
+  return (process.env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .includes(origin);
+}
 
 export function isLocalMcpEmbedOrigin(
   origin: string | null | undefined,
@@ -122,15 +132,35 @@ export function isMcpEmbedCorsOrigin(
   );
 }
 
-export function shouldAllowMcpEmbedCredentials(
+/**
+ * Origins allowed to read the one-time embed location returned by a browser
+ * transplant request. Builder and localhost origins may use the broader MCP
+ * CORS surface, but must not receive a reusable session location unless they
+ * are explicitly configured through CORS_ALLOWED_ORIGINS.
+ */
+export function isMcpEmbedTransplantOrigin(
   origin: string | null | undefined,
 ): boolean {
   return (
-    origin !== "null" &&
-    !isClaudeMcpContentOrigin(origin) &&
-    !isChatGptMcpSandboxOrigin(origin) &&
-    !isMcpProductHostOrigin(origin) &&
-    !isAgentNativeFirstPartyAppOrigin(origin)
+    isClaudeMcpContentOrigin(origin) ||
+    isChatGptMcpSandboxOrigin(origin) ||
+    isMcpProductHostOrigin(origin) ||
+    isAgentNativeFirstPartyAppOrigin(origin)
+  );
+}
+
+export function shouldAllowMcpEmbedCredentials(
+  origin: string | null | undefined,
+): boolean {
+  if (!origin || origin === "null") return false;
+
+  // Credentialed CORS is an explicit deployment decision. MCP product,
+  // Builder, localhost, and arbitrary origins use bearer/embed credentials;
+  // only the configured browser allowlist and the framework's exact native
+  // app origins may receive cookies.
+  return (
+    TRUSTED_NATIVE_APP_ORIGIN_RE.test(origin) ||
+    isExplicitCorsAllowedOrigin(origin)
   );
 }
 

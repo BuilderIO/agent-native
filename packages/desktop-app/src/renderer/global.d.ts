@@ -24,6 +24,10 @@ type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+type DesktopIdentitySettings = {
+  ssoEnabled: boolean;
+};
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -735,6 +739,8 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    getSettings(): Promise<DesktopIdentitySettings>;
+    setSsoEnabled(enabled: boolean): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     authenticate(

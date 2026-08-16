@@ -28,6 +28,10 @@ const DEFAULT_AVAILABILITY_TIMEOUT_MS = 5_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
+function normalizeIdentityEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export type DesktopWorkspaceLogoutPath =
   | typeof DESKTOP_LOGOUT_PATH
   | typeof DESKTOP_LOGOUT_ALL_PATH;
@@ -307,7 +311,7 @@ export class DesktopIdentityBroker {
   private passwordAuthOperation: Promise<DesktopIdentityAuthResult> | null =
     null;
   private sessionAdoptionOperation: Promise<boolean> | null = null;
-  private signOutOperation: Promise<void> | null = null;
+  private signOutOperation: Promise<boolean> | null = null;
   private signOutIntent: DesktopSignOutIntent | null = null;
   private revocationTargets: DesktopRevocationTarget[] | null = null;
   private revocationTargetErrors: unknown[] = [];
@@ -326,6 +330,11 @@ export class DesktopIdentityBroker {
 
   getStatus(): DesktopIdentityStatus {
     return this.status;
+  }
+
+  setStatusForSetting(status: DesktopIdentityStatus): void {
+    this.ceremonyGeneration += 1;
+    this.setStatus(status);
   }
 
   isAvailable(): boolean {
@@ -371,9 +380,9 @@ export class DesktopIdentityBroker {
       }
       this.availability = "available";
     }
-    const cookies = await this.options.identitySession.cookies.get({
-      url: authorityApp.origin,
-    });
+    const verifiedEmail = await this.verifyIdentitySession(authorityApp).catch(
+      () => null,
+    );
     if (
       this.status !== observedStatus ||
       this.ceremonyGeneration !== observedGeneration ||
@@ -381,12 +390,7 @@ export class DesktopIdentityBroker {
     ) {
       return;
     }
-    const allowed = new Set(authorityApp.cookieNames);
-    this.setStatus(
-      cookies.some((cookie) => allowed.has(cookie.name))
-        ? "signed-in"
-        : "sign-in-required",
-    );
+    this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
   }
 
   private ensureAppSessionInternal(
@@ -399,7 +403,11 @@ export class DesktopIdentityBroker {
       waitForSignOut?: boolean;
     } = {},
   ): Promise<boolean> {
-    const existing = this.pendingByApp.get(appId);
+    const pendingKey = this.pendingOperationKey(
+      appId,
+      options.expectedSessionValue,
+    );
+    const existing = this.pendingByApp.get(pendingKey);
     if (existing) return existing;
 
     const generation = this.ceremonyGeneration;
@@ -423,10 +431,10 @@ export class DesktopIdentityBroker {
       () => undefined,
       () => undefined,
     );
-    this.pendingByApp.set(appId, operation);
+    this.pendingByApp.set(pendingKey, operation);
     void operation.finally(() => {
-      if (this.pendingByApp.get(appId) === operation) {
-        this.pendingByApp.delete(appId);
+      if (this.pendingByApp.get(pendingKey) === operation) {
+        this.pendingByApp.delete(pendingKey);
       }
     });
     return operation;
@@ -451,7 +459,6 @@ export class DesktopIdentityBroker {
     const generation = this.ceremonyGeneration;
     const operation = this.ensureAppSessionInternal(appId, {
       interactive: false,
-      preserveIdentitySession: true,
       skipIfPresent: true,
     });
     void operation.then((succeeded) => {
@@ -705,10 +712,14 @@ export class DesktopIdentityBroker {
     if (!this.isCeremonyCurrent(generation)) {
       return { ok: false, error: "Sign-in was cancelled. Please try again." };
     }
-    const verified = await this.verifyIdentitySession(authority).catch(
+    const verifiedEmail = await this.verifyIdentitySession(authority).catch(
       () => false,
     );
-    if (!verified) {
+    if (
+      typeof verifiedEmail !== "string" ||
+      normalizeIdentityEmail(verifiedEmail) !==
+        normalizeIdentityEmail(request.email)
+    ) {
       return fail(
         request.mode === "sign-up"
           ? "Account created. Check your email to verify it, then sign in."
@@ -795,7 +806,6 @@ export class DesktopIdentityBroker {
       remaining.map((app) =>
         this.ensureAppSessionInternal(app.id, {
           interactive: false,
-          preserveIdentitySession: true,
         }),
       ),
     );
@@ -854,6 +864,20 @@ export class DesktopIdentityBroker {
 
     const sourceCookie = await this.readAppSessionCookie(sourceApp);
     if (!sourceCookie) return false;
+    let sourceEmail: string | null;
+    try {
+      sourceEmail = await this.verifyIdentitySession(
+        sourceApp,
+        sourceApp.session,
+      );
+    } catch (error) {
+      console.warn("[desktop identity] source session verification failed", {
+        appId: sourceApp.id,
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    }
+    if (!sourceEmail) return false;
 
     let currentIdentityCookies: Electron.Cookie[];
     try {
@@ -875,6 +899,27 @@ export class DesktopIdentityBroker {
       currentAuthorityCookies.every(
         (cookie) => cookie.value === sourceCookie.value,
       );
+    if (!identityMatchesSource) {
+      let currentAuthorityEmail: string | null = null;
+      try {
+        currentAuthorityEmail = await this.verifyIdentitySession(authority);
+      } catch (error) {
+        console.warn(
+          "[desktop identity] authority session verification failed",
+          {
+            reason: error instanceof Error ? error.message : "unknown error",
+          },
+        );
+        return false;
+      }
+      if (
+        currentAuthorityEmail &&
+        normalizeIdentityEmail(currentAuthorityEmail) !==
+          normalizeIdentityEmail(sourceEmail)
+      ) {
+        return false;
+      }
+    }
 
     const previousStatus = this.status;
     this.setStatus("signing-in");
@@ -897,8 +942,13 @@ export class DesktopIdentityBroker {
         }
       }
 
-      const verified = await this.verifyIdentitySession(authority);
-      if (!verified || !this.isCeremonyCurrent(generation)) {
+      const verifiedEmail = await this.verifyIdentitySession(authority);
+      if (
+        !verifiedEmail ||
+        normalizeIdentityEmail(verifiedEmail) !==
+          normalizeIdentityEmail(sourceEmail) ||
+        !this.isCeremonyCurrent(generation)
+      ) {
         await this.restoreIdentitySessionCookies(
           authority,
           previousAuthorityCookies,
@@ -936,7 +986,6 @@ export class DesktopIdentityBroker {
         remaining.map((app) =>
           this.ensureAppSessionInternal(app.id, {
             interactive: false,
-            preserveIdentitySession: true,
             skipIfPresent: true,
             expectedSessionValue: sourceCookie.value,
             waitForSignOut: false,
@@ -1094,8 +1143,9 @@ export class DesktopIdentityBroker {
 
   private async verifyIdentitySession(
     authority: DesktopIdentityApp,
-  ): Promise<boolean> {
-    const response = await this.options.identitySession.fetch(
+    identitySession: Session = this.options.identitySession,
+  ): Promise<string | null> {
+    const response = await identitySession.fetch(
       new URL("/_agent-native/auth/session", authority.origin).toString(),
       {
         method: "GET",
@@ -1104,12 +1154,14 @@ export class DesktopIdentityBroker {
         headers: { Accept: "application/json" },
       },
     );
-    if (!response.ok) return false;
+    if (!response.ok) return null;
     const body = (await response.json().catch((error) => {
       void error;
       return null;
     })) as { email?: unknown } | null;
-    return typeof body?.email === "string" && body.email.trim().length > 0;
+    return typeof body?.email === "string" && body.email.trim().length > 0
+      ? body.email.trim()
+      : null;
   }
 
   async prepareExternalSignOut(
@@ -1146,7 +1198,7 @@ export class DesktopIdentityBroker {
       alreadyRevokedAppId: string;
     },
     succeeded: boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.externalSignOutRequests = Math.max(
       0,
       this.externalSignOutRequests - 1,
@@ -1159,7 +1211,7 @@ export class DesktopIdentityBroker {
     if (!this.signOutOperation && this.externalSignOutRequests === 0) {
       this.resetSignOutState();
     }
-    return Promise.resolve();
+    return Promise.resolve(false);
   }
 
   signOut(
@@ -1168,7 +1220,7 @@ export class DesktopIdentityBroker {
       logoutPath?: DesktopWorkspaceLogoutPath;
       alreadyRevokedAppId?: string;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.ceremonyGeneration += 1;
     this.signInOperation = null;
     this.pendingByApp.clear();
@@ -1230,7 +1282,7 @@ export class DesktopIdentityBroker {
   private async finishSignOut(
     apps: DesktopIdentityApp[],
     intent: DesktopSignOutIntent,
-  ): Promise<void> {
+  ): Promise<boolean> {
     await this.waitForSessionAdoption();
     await this.waitForPasswordAuthentication();
     await this.waitForActiveSessionCopies();
@@ -1300,9 +1352,10 @@ export class DesktopIdentityBroker {
         new AggregateError(errors),
       );
       this.setStatus("failed");
-      return;
+      return false;
     }
     this.setStatus("sign-in-required");
+    return true;
   }
 
   private async revokeSession(
@@ -1322,7 +1375,7 @@ export class DesktopIdentityBroker {
         ? { headers: { Cookie: target.cookieHeader } }
         : {}),
     });
-    if (!response.ok && response.status !== 401) {
+    if (!response.ok && !(response.status === 401 && !target.cookieHeader)) {
       throw new Error(
         `Workspace sign-out failed for ${target.origin} (${response.status})`,
       );
@@ -1848,6 +1901,13 @@ export class DesktopIdentityBroker {
 
   private isCeremonyCurrent(generation: number): boolean {
     return generation === this.ceremonyGeneration;
+  }
+
+  private pendingOperationKey(
+    appId: string,
+    expectedSessionValue?: string,
+  ): string {
+    return `${appId}\u0000${expectedSessionValue ?? ""}`;
   }
 
   private assertCeremonyCurrent(generation: number): void {

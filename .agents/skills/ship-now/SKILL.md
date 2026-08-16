@@ -2,17 +2,18 @@
 name: ship-now
 description: >-
   Fast-path the current branch through local prep, feedback resolution,
-  whole-branch push, admin merge, and fresh-branch rotation. Use when the user
-  explicitly wants to merge immediately after pnpm prep passes, then monitor
-  the merged PR and release workflows and ship any follow-up fixes normally.
+  owned-path push, immediate admin merge, and fresh-branch rotation. Use when
+  the user explicitly wants to merge immediately after local prep recovery,
+  then monitor the merged PR and release workflows.
 ---
 
 # Ship Now
 
 Use this only after the user explicitly requests the fast admin-merge path.
-It is an intentional exception to `/ship`'s ten-minute merge soak: local
-`pnpm prep` is the required validation gate, and the user has authorized
-`--admin` merging once feedback is handled.
+It is an intentional exception to `/ship`'s remote-CI wait and ten-minute
+merge soak: local `pnpm prep`, or targeted recovery of its failed lanes, is the
+validation gate. The user has authorized `--admin` merging once feedback is
+handled. Remote CI, release, and deploy results are monitored after merge.
 
 ## Workflow
 
@@ -28,8 +29,10 @@ It is an intentional exception to `/ship`'s ten-minute merge soak: local
    ```
 
    Stay on the current branch until its PR is merged. Do not reset, rebase,
-   force-push, clean, or overwrite peer work. Treat every non-ignored local
-   change as part of the branch shipment, as `/ship` requires.
+   force-push, clean, or overwrite peer work. Record the current status as the
+   ownership baseline. Only files you changed for this invocation are in scope
+   for its commit and push. If another agent changes or adds a path during the
+   flow, leave it untouched and uncommitted; do not absorb it into this PR.
 
 2. Resolve review state before merging. Read every current human and bot
    review summary and every top-level inline comment across all pages. Fix
@@ -62,21 +65,27 @@ It is an intentional exception to `/ship`'s ten-minute merge soak: local
    did not. Preserve exact unrelated peer-check or environment failures rather
    than calling them green.
 
-4. Publish the whole current branch immediately after prep passes:
+4. Publish only the current agent's owned paths immediately after the local
+   gate passes:
 
    ```bash
-   pnpm ship:push
+   git add -- <owned-paths>
+   git commit -m "<message>"
+   git push origin HEAD
    ```
 
-   Verify the push landed on the current branch and update the existing ready
-   PR. Do not create a second PR. Recheck the PR's mergeability, current review
-   comment reply coverage, and the latest prep result after the push.
+   Never use `pnpm ship:push`, `git add -A`, or another whole-worktree helper
+   here when peer changes are present: those commands publish other agents'
+   local work. Verify the push landed on the current branch and update the
+   existing ready PR. Do not create a second PR. Recheck the PR's
+   mergeability and current review comment reply coverage after the push.
 
 5. Admin-merge immediately when the explicit fast-path gates are true:
 
    - local `pnpm prep` passed, or every failed prep lane was fixed and its
      narrow recovery check passed as described above;
-   - the current branch has no unpushed commits;
+   - the current agent's owned commits are pushed; uncommitted peer paths may
+     remain in the shared checkout and must not be staged or pushed;
    - every review item has a fix or an explicit reply;
    - the PR is not conflicting; and
    - the user has explicitly authorized this `/ship-now` invocation.
@@ -87,9 +96,10 @@ It is an intentional exception to `/ship`'s ten-minute merge soak: local
    gh pr merge <number> --squash --admin
    ```
 
-   Do not wait for the normal `/ship` soak or pretend that a queued merge is
-   complete. Read the merge result, fetch `origin/main`, and verify the merge
-   commit is present before rotating branches.
+   Do not wait for remote CI, release checks, or the normal `/ship` soak, and
+   do not pretend that a queued merge is complete. Read the merge result,
+   fetch `origin/main`, and verify the merge commit is present before rotating
+   branches.
 
 6. Run `/new-branch` after the merge lands. Follow its activation guard,
    origin/main freshness check, stash gate, branch naming, conflict handling,
@@ -109,8 +119,8 @@ It is an intentional exception to `/ship`'s ten-minute merge soak: local
    - fix it on the fresh branch, never on the merged branch;
    - run the smallest meaningful local check, then `pnpm prep` when the change
      warrants it;
-   - invoke `/ship` for the follow-up so its normal babysit, review, merge, and
-     post-release gates apply.
+   - invoke `/ship` for the follow-up so its normal review, merge, and
+     post-release gates apply. Keep peer paths out of that follow-up too.
 
    If no post-merge issue appears, report the PR, merge commit, fresh branch,
    release checks, and the monitoring window honestly.
@@ -119,6 +129,8 @@ It is an intentional exception to `/ship`'s ten-minute merge soak: local
 
 - Never expose environment values, tokens, cookies, or private payloads in
   commits, PR text, logs, prompts, or status reports.
+- Never stage or push a local path merely because it appeared during the ship
+  flow. Peer work stays in the checkout for its owner to ship.
 - Never silently skip a review comment, CI failure, package release failure,
   or production deploy failure.
 - Never create a fresh branch before verifying that `origin/main` contains the
