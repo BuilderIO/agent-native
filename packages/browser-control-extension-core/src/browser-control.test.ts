@@ -1113,7 +1113,137 @@ describe("BrowserControlService", () => {
       );
     await vi.waitFor(() => expect(createTab).toHaveBeenCalledTimes(1));
 
+    const stopPromise = service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    resolveCreatedTab?.({
+      id: 77,
+      url: "https://example.com/next",
+      active: false,
+    } as chrome.tabs.Tab);
+    await stopPromise;
+
+    const openError = await openPromise;
+    expect(openError).toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+    expect(service.activeTaskCount).toBe(0);
+  });
+
+  it("waits for an in-flight background tab creation during normal stop", async () => {
+    let resolveCreatedTab: ((tab: chrome.tabs.Tab) => void) | undefined;
+    createTab.mockImplementationOnce(
+      (
+        _options: chrome.tabs.CreateProperties,
+        callback?: (tab: chrome.tabs.Tab) => void,
+      ) => {
+        resolveCreatedTab = callback;
+      },
+    );
+    const service = new BrowserControlService();
+
     await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(resolveCreatedTab).toBeDefined());
+
+    let stopSettled = false;
+    const stopPromise = service
+      .execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      })
+      .then(
+        () => {
+          stopSettled = true;
+        },
+        () => {
+          stopSettled = true;
+        },
+      );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(stopSettled).toBe(false);
+
+    resolveCreatedTab?.({
+      id: 77,
+      url: "https://example.com/next",
+      active: false,
+    } as chrome.tabs.Tab);
+
+    await expect(openPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await expect(stopPromise).resolves.toBeUndefined();
+    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+  });
+
+  it("surfaces background tab cleanup failures during normal stop", async () => {
+    let resolveCreatedTab: ((tab: chrome.tabs.Tab) => void) | undefined;
+    createTab.mockImplementationOnce(
+      (
+        _options: chrome.tabs.CreateProperties,
+        callback?: (tab: chrome.tabs.Tab) => void,
+      ) => {
+        resolveCreatedTab = callback;
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(resolveCreatedTab).toBeDefined());
+    removeTab.mockImplementationOnce(
+      (_tabId: number, callback?: () => void) => {
+        runtimeLastError = { message: "tab removal failed" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+
+    const stopPromise = service.execute({
       id: "stop-request",
       taskId: "task-1",
       command: { type: "stop" },
@@ -1124,12 +1254,12 @@ describe("BrowserControlService", () => {
       active: false,
     } as chrome.tabs.Tab);
 
-    const openError = await openPromise;
-    expect(openError).toMatchObject({
-      code: "TASK_HANDOFF_CANCELLED",
+    await expect(openPromise).resolves.toMatchObject({
+      code: "TAB_HANDOFF_CLEANUP_FAILED",
     });
-    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
-    expect(service.activeTaskCount).toBe(0);
+    await expect(stopPromise).rejects.toMatchObject({
+      message: "tab removal failed",
+    });
   });
 
   it("cancels a normal attach that is in flight when stopped", async () => {
@@ -1530,6 +1660,49 @@ describe("BrowserControlService", () => {
     releasePageEnable?.();
 
     expect(detach).not.toHaveBeenCalled();
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
+    });
+  });
+
+  it("cancels a pending attach when Chrome detaches during tab validation", async () => {
+    let releaseTabLookup: ((tab: chrome.tabs.Tab) => void) | undefined;
+    getTab.mockImplementationOnce(
+      (_tabId: number, callback: (tab: chrome.tabs.Tab) => void) => {
+        releaseTabLookup = callback;
+      },
+    );
+    const service = new BrowserControlService();
+
+    const attachPromise = service
+      .execute({
+        id: "attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseTabLookup).toBeDefined());
+
+    const detachEvent = service.handleDebuggerDetach(42);
+    await expect(attachPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await detachEvent;
+    releaseTabLookup?.({
+      id: 42,
+      url: "https://example.com/page",
+    } as chrome.tabs.Tab);
+
+    expect(attach).not.toHaveBeenCalled();
     expect(service.activeTaskCount).toBe(0);
     expect(persist).toHaveBeenLastCalledWith({
       agentNativeBrowserTaskSessions: [],

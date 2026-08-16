@@ -225,6 +225,7 @@ export class BrowserControlService {
     string,
     Set<Promise<chrome.tabs.Tab>>
   >();
+  private readonly pendingTabCleanups = new Map<string, Set<Promise<void>>>();
   private readonly taskCancellationWaiters = new Map<
     string,
     Map<number, Set<() => void>>
@@ -461,7 +462,11 @@ export class BrowserControlService {
       pendingAttach.externalDetachObserved = true;
       pendingAttach.debuggerAttached = false;
     }
-    for (const taskId of [ownerTaskId, reservationTaskId]) {
+    for (const taskId of new Set([
+      ownerTaskId,
+      reservationTaskId,
+      pendingAttach?.taskId,
+    ])) {
       if (taskId) this.invalidateTask(taskId);
     }
     if (ownerTaskId) {
@@ -766,38 +771,38 @@ export class BrowserControlService {
   }
 
   private async detach(taskId: string): Promise<void> {
+    const pendingAttachOperations = [
+      ...(this.pendingAttachOperations.get(taskId) ?? []),
+    ];
     this.invalidateTask(taskId);
     for (const pendingAttach of this.pendingAttaches.values()) {
       if (pendingAttach.taskId === taskId) {
         void this.scheduleLateAttachTeardown(pendingAttach);
       }
     }
-    const pendingAttachOperations = [
-      ...(this.pendingAttachOperations.get(taskId) ?? []),
-    ];
+    this.taskQueues.delete(taskId);
     const session = this.sessions.get(taskId);
     if (!session) {
       await Promise.allSettled(pendingAttachOperations);
       await this.drainPendingAttachOperations(taskId);
+      const errors = await this.drainPendingTabOperations(taskId);
       if ([...this.teardownOwners.values()].some((owner) => owner === taskId)) {
-        await this.retryPendingTeardownInState(taskId).then(async (errors) => {
-          await this.persist();
-          if (errors.length === 1) throw errors[0];
-          if (errors.length > 1) {
-            throw new AggregateError(errors, "Chrome teardown failed.");
-          }
-        });
+        errors.push(...(await this.retryPendingTeardownInState(taskId)));
       }
+      await this.persist();
       this.maybeReclaimTaskGeneration(taskId);
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "Chrome teardown failed.");
+      }
       return;
     }
     this.sessions.delete(taskId);
     this.tabOwners.delete(session.tabId);
     this.beginTeardown(session.tabId, taskId);
-    this.taskQueues.delete(taskId);
     await Promise.allSettled(pendingAttachOperations);
     await this.drainPendingAttachOperations(taskId);
-    const errors: Error[] = [];
+    const errors = await this.drainPendingTabOperations(taskId);
     if (this.teardownOwners.get(session.tabId) === taskId) {
       const teardownError = await this.teardownDebugger(session.tabId, taskId);
       if (teardownError) errors.push(teardownError);
@@ -858,6 +863,36 @@ export class BrowserControlService {
         this.drainPendingAttachOperations(taskId),
       ),
     );
+  }
+
+  private async settleStopOperations(
+    operations: Iterable<Promise<unknown>>,
+  ): Promise<Error[]> {
+    const results = await Promise.allSettled(operations);
+    return results.flatMap((result) => {
+      if (
+        result.status !== "rejected" ||
+        this.isTaskCancellation(result.reason)
+      )
+        return [];
+      return [
+        result.reason instanceof Error
+          ? result.reason
+          : new Error(String(result.reason)),
+      ];
+    });
+  }
+
+  private async drainPendingTabOperations(taskId: string): Promise<Error[]> {
+    const errors: Error[] = [];
+    for (;;) {
+      const operations: Promise<unknown>[] = [
+        ...(this.pendingTabCreations.get(taskId) ?? []),
+        ...(this.pendingTabCleanups.get(taskId) ?? []),
+      ];
+      if (operations.length === 0) return errors;
+      errors.push(...(await this.settleStopOperations(operations)));
+    }
   }
 
   private getSession(taskId: string): TaskSession {
@@ -1532,6 +1567,9 @@ export class BrowserControlService {
     this.assertTaskGeneration(taskId, handoffGeneration);
     const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
     let createdTabId: number | undefined;
+    let resolveTabCleanup: (() => void) | undefined;
+    let rejectTabCleanup: ((reason?: unknown) => void) | undefined;
+    let tabCleanup: Promise<void> | undefined;
     try {
       const tabCreation = createBackgroundTab(url.href);
       this.trackPendingOperation(this.pendingTabCreations, taskId, tabCreation);
@@ -1543,6 +1581,11 @@ export class BrowserControlService {
         );
       }
       createdTabId = tab.id;
+      tabCleanup = new Promise<void>((resolve, reject) => {
+        resolveTabCleanup = resolve;
+        rejectTabCleanup = reject;
+      });
+      this.trackPendingOperation(this.pendingTabCleanups, taskId, tabCleanup);
       this.tabReservations.set(createdTabId, taskId);
       if (tab.active !== false) {
         throw new BrowserControlError(
@@ -1570,6 +1613,7 @@ export class BrowserControlService {
             await removeTab(createdTabId);
           }
         } catch (cleanupError) {
+          rejectTabCleanup?.(cleanupError);
           const failure =
             error instanceof Error ? error.message : "Tab handoff failed.";
           const cleanupFailure =
@@ -1590,6 +1634,7 @@ export class BrowserControlService {
       ) {
         this.tabReservations.delete(createdTabId);
       }
+      resolveTabCleanup?.();
     }
   }
 
