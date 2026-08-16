@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 interface DesktopIdentityGateProps {
   appName: string;
   status: DesktopIdentityStatus | "checking";
-  /** Fallback for Google and magic-link accounts that need the full OAuth UI. */
+  /** Opens the hosted canonical Google and magic-link flow. */
   onSignIn: () => void;
 }
 
@@ -12,8 +12,8 @@ type AuthMode = "sign-in" | "sign-up";
 
 /**
  * Keep account creation in the Desktop parent surface. Child app WebViews are
- * never asked to render the identity-provider button or their own login page
- * while the workspace identity is being established.
+ * never asked to render their own login page while the workspace identity is
+ * being established.
  */
 export default function DesktopIdentityGate({
   appName,
@@ -104,8 +104,8 @@ export default function DesktopIdentityGate({
             : isSigningIn
               ? "Opening your workspace"
               : mode === "sign-up"
-                ? "Create your Agent Native account"
-                : "Sign in to Agent Native"}
+                ? "Create your workspace account"
+                : "Sign in once to open your workspace"}
         </h2>
         <p>
           {isChecking
@@ -119,6 +119,13 @@ export default function DesktopIdentityGate({
 
         {!isChecking && !isSigningIn ? (
           <>
+            <button
+              type="button"
+              className="desktop-identity-gate__provider"
+              onClick={onSignIn}
+            >
+              Continue with Google or magic link
+            </button>
             <div className="desktop-identity-gate__tabs" role="tablist">
               <button
                 type="button"
@@ -206,13 +213,6 @@ export default function DesktopIdentityGate({
                 {mode === "sign-up" ? "Create account" : "Sign in"}
               </button>
             </form>
-            <button
-              type="button"
-              className="desktop-identity-gate__alternate"
-              onClick={onSignIn}
-            >
-              Use Google or a magic link
-            </button>
           </>
         ) : null}
       </div>

@@ -17,8 +17,16 @@ import {
 
 function cookieStore(initial: Electron.Cookie[] = []) {
   const cookies = [...initial];
+  const matchesUrl = (cookie: Electron.Cookie, url?: string) => {
+    if (!url) return true;
+    const hostname = new URL(url).hostname;
+    const domain = (cookie.domain ?? "").replace(/^\./, "");
+    return hostname === domain || hostname.endsWith(`.${domain}`);
+  };
   return {
-    get: vi.fn(async () => [...cookies]),
+    get: vi.fn(async (filter?: Electron.CookiesGetFilter) =>
+      cookies.filter((cookie) => matchesUrl(cookie, filter?.url)),
+    ),
     set: vi.fn(async (cookie: Electron.CookiesSetDetails) => {
       cookies.push({
         name: cookie.name!,
@@ -35,8 +43,10 @@ function cookieStore(initial: Electron.Cookie[] = []) {
           : {}),
       });
     }),
-    remove: vi.fn(async (_url: string, name: string) => {
-      const index = cookies.findIndex((cookie) => cookie.name === name);
+    remove: vi.fn(async (url: string, name: string) => {
+      const index = cookies.findIndex(
+        (cookie) => cookie.name === name && matchesUrl(cookie, url),
+      );
       if (index >= 0) cookies.splice(index, 1);
     }),
   };
@@ -115,6 +125,13 @@ function sessionCookie(
     session: true,
     sameSite: "lax",
   };
+}
+
+function sessionResponse(email = "steve@example.com"): Response {
+  return new Response(JSON.stringify({ email }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 describe("Desktop identity navigation boundaries", () => {
@@ -273,7 +290,7 @@ describe("DesktopIdentityBroker", () => {
     const authorityCookies = cookieStore();
     authority.session = {
       cookies: authorityCookies,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const identityCookies = cookieStore();
     const identityFetch = vi.fn(async (url: string) => {
@@ -374,7 +391,7 @@ describe("DesktopIdentityBroker", () => {
     ]);
     authority.session = {
       cookies: authorityCookies,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const identityCookies = cookieStore();
     const identityFetch = vi.fn(
@@ -421,13 +438,52 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("signed-in");
   });
 
+  it("rejects adopting a different account over the active identity session", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "bob-session"),
+      ]),
+      fetch: vi.fn(async () => sessionResponse("bob@example.com")),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "alice-session"),
+    ]);
+    const identityFetch = vi.fn(async () =>
+      sessionResponse("alice@example.com"),
+    );
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === source.id ? source : id === authority.id ? authority : null,
+      listApps: () => [source, authority],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(false);
+    expect(await identityCookies.get({ url: authority.origin })).toEqual([
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "alice-session",
+      }),
+    ]);
+    expect(broker.getStatus()).toBe("idle");
+  });
+
   it("maps a normal app session into the Dispatch authority before verifying it", async () => {
     const source = appFixture();
     source.session = {
       cookies: cookieStore([
         sessionCookie("an_session_mail", source.origin, "shared-session"),
       ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const authority = authorityFixture();
     authority.session = {
@@ -438,7 +494,7 @@ describe("DesktopIdentityBroker", () => {
           "shared-session",
         ),
       ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const identityCookies = cookieStore();
     const identityFetch = vi.fn(
@@ -465,7 +521,7 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(broker.adoptAppSession(source.id)).resolves.toBe(true);
 
-    expect(identityFetch).toHaveBeenCalledOnce();
+    expect(identityFetch).toHaveBeenCalledTimes(2);
     expect(identityCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "an_session_dispatch",
@@ -481,7 +537,7 @@ describe("DesktopIdentityBroker", () => {
       cookies: cookieStore([
         sessionCookie("an_session_mail", source.origin, "shared-session"),
       ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const authority = authorityFixture();
     authority.session = {
@@ -492,7 +548,7 @@ describe("DesktopIdentityBroker", () => {
           "previous-session",
         ),
       ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const calendar = {
       ...appFixture(),
@@ -509,7 +565,7 @@ describe("DesktopIdentityBroker", () => {
           "previous-session",
         ),
       ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const custom = {
       ...appFixture(),
@@ -555,6 +611,20 @@ describe("DesktopIdentityBroker", () => {
       const identityWindow = {
         webContents,
         loadURL: vi.fn(async (url: string) => {
+          const target = apps.find(
+            (app) => new URL(url).hostname === new URL(app.origin).hostname,
+          );
+          if (target) {
+            await identityCookies.set({
+              url: target.origin,
+              name: target.cookieNames[0],
+              value: "shared-session",
+              path: "/",
+              httpOnly: true,
+              secure: true,
+              sameSite: "lax",
+            });
+          }
           queueMicrotask(() => didNavigate?.({}, url, 200));
         }),
         isDestroyed: vi.fn(() => false),
@@ -595,13 +665,13 @@ describe("DesktopIdentityBroker", () => {
     );
     expect(calendar.session.cookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: "an_session",
+        name: "an_session_calendar",
         value: "shared-session",
       }),
     );
     expect(custom.session.cookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: "an_session",
+        name: "an_session_custom_workspace_app",
         value: "shared-session",
       }),
     );
@@ -615,7 +685,7 @@ describe("DesktopIdentityBroker", () => {
       cookies: cookieStore([
         sessionCookie("an_session_mail", source.origin, "new-session"),
       ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async () => sessionResponse()),
     } as unknown as Electron.Session;
     const authority = authorityFixture();
     const identityCookies = cookieStore([
@@ -829,6 +899,7 @@ describe("DesktopIdentityBroker", () => {
         cookies: cookieStore([
           sessionCookie("an_session_dispatch", authority.origin),
         ]),
+        fetch: vi.fn(async () => sessionResponse()),
         clearStorageData,
       } as unknown as Electron.Session,
       isAvailable,

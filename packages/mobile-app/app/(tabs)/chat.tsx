@@ -44,6 +44,7 @@ import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
+import { validateNativeSession } from "@/lib/native-auth";
 import {
   appendRemoteFollowUp,
   createRemoteRun,
@@ -55,7 +56,7 @@ import {
   type RemoteRun,
   type RemoteTranscriptEvent,
 } from "@/lib/remote-sessions-api";
-import { getSessionToken } from "@/lib/session-token-store";
+import { clearSessionToken, getSessionToken } from "@/lib/session-token-store";
 
 type AuthState = "checking" | "connected" | "signed-out";
 
@@ -217,6 +218,7 @@ export default function ChatTab() {
   const [remoteSending, setRemoteSending] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const chat = useAgentChat(settings);
+  const signInPromptedRef = useRef(false);
 
   const startNewChat = useCallback(() => {
     setChatTarget("cloud");
@@ -244,7 +246,12 @@ export default function ChatTab() {
       return;
     }
     const token = await getSessionToken().catch(() => null);
-    setAuthState(token ? "connected" : "signed-out");
+    if (!token || !(await validateNativeSession(token))) {
+      if (token) await clearSessionToken().catch(() => {});
+      setAuthState("signed-out");
+      return;
+    }
+    setAuthState("connected");
   }, [isWebPreview]);
 
   useFocusEffect(
@@ -286,6 +293,17 @@ export default function ChatTab() {
 
   useEffect(() => {
     if (authState === "connected") setSignInOpen(false);
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState === "connected") {
+      signInPromptedRef.current = false;
+      return;
+    }
+    if (authState === "signed-out" && !signInPromptedRef.current) {
+      signInPromptedRef.current = true;
+      setSignInOpen(true);
+    }
   }, [authState]);
 
   useEffect(() => {

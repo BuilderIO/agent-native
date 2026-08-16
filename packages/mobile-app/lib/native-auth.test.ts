@@ -45,6 +45,7 @@ import {
   authenticateWithPassword,
   signInWithGoogle,
   signInWithMagicLink,
+  validateNativeSession,
 } from "./native-auth";
 import { getSessionToken } from "./session-token-store";
 
@@ -161,6 +162,45 @@ describe("mobile parent authentication", () => {
       }),
     ).rejects.toThrow("Google sign-in is required.");
     await expect(getSessionToken()).resolves.toBeNull();
+  });
+
+  it("accepts a valid parent session when checking the native app", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ email: "steve@builderio", orgId: "org-builder" }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      validateNativeSession("parent-session", "https://dispatch.example"),
+    ).resolves.toEqual({
+      email: "steve@builderio",
+      token: "parent-session",
+      orgId: "org-builder",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://dispatch.example/_agent-native/auth/session?_session=parent-session",
+      { headers: { Accept: "application/json" } },
+    );
+  });
+
+  it("rejects a child or expired token as the native parent session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+          }),
+      ),
+    );
+
+    await expect(
+      validateNativeSession("child-session", "https://dispatch.example"),
+    ).resolves.toBeNull();
   });
 
   it("completes Google sign-in in the parent session", async () => {

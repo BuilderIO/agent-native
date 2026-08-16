@@ -329,9 +329,9 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Collapsed macOS rails use a fixed-width custom cluster because the native
-   traffic lights cannot expose only two buttons. Keep this cluster mounted at
-   the shell level so it remains above the settings surface. */
+/* Collapsed macOS rails use a fixed-width custom cluster because native
+   traffic lights cannot expose only two buttons. Keep it at shell level so it
+   remains above the settings surface. */
 .desktop-chat-first-mac-window-controls {
   display: none;
 }
@@ -1156,7 +1156,7 @@ body {
 
 .desktop-identity-gate__tabs button,
 .desktop-identity-gate__form button,
-.desktop-identity-gate__alternate {
+.desktop-identity-gate__provider {
   border: 0;
   color: var(--label-inactive);
   background: transparent;
@@ -1175,6 +1175,27 @@ body {
 .desktop-identity-gate__tabs button.is-active {
   color: var(--shell-fg);
   background: var(--separator);
+}
+
+.desktop-identity-gate__provider {
+  width: 100%;
+  padding: 9px 14px;
+  border: 1px solid var(--label-active);
+  border-radius: 7px;
+  color: var(--shell-bg);
+  background: var(--label-active);
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.desktop-identity-gate__provider:hover {
+  border-color: var(--shell-fg);
+  color: var(--shell-bg);
+  background: var(--shell-fg);
 }
 
 .desktop-identity-gate__form {
@@ -1245,17 +1266,9 @@ body {
   cursor: default;
 }
 
-.desktop-identity-gate__alternate {
-  padding: 2px 4px;
-  color: var(--label-inactive);
-  font-size: 11px;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 .desktop-identity-gate__tabs button:focus-visible,
 .desktop-identity-gate__submit:focus-visible,
-.desktop-identity-gate__alternate:focus-visible {
+.desktop-identity-gate__provider:focus-visible {
   outline: 2px solid var(--label-active);
   outline-offset: 2px;
 }
