@@ -1,6 +1,7 @@
 // This service is shared by browser-extension hosts; transports stay outside it.
 import {
   attachDebugger,
+  createBackgroundTab,
   detachDebugger,
   getTab,
   sendDebuggerCommand,
@@ -293,6 +294,8 @@ export class BrowserControlService {
         return this.key(taskId, command.key, command.modifiers);
       case "navigate":
         return this.navigate(taskId, command.url);
+      case "open-tab":
+        return this.openTab(taskId, command.url);
       case "scroll":
         return this.scroll(
           taskId,
@@ -316,7 +319,8 @@ export class BrowserControlService {
         "Another task already controls this tab.",
       );
     }
-    if (this.sessions.has(taskId)) await this.detach(taskId);
+    const previous = this.sessions.get(taskId);
+    if (previous?.tabId === tabId) await this.detach(taskId);
     const session: TaskSession = {
       taskId,
       tabId,
@@ -327,6 +331,11 @@ export class BrowserControlService {
     try {
       await sendDebuggerCommand(source(tabId), "Page.enable");
       await sendDebuggerCommand(source(tabId), "Accessibility.enable");
+      if (previous && previous.tabId !== tabId) {
+        this.tabOwners.delete(previous.tabId);
+        await releaseInjectedInput(previous.tabId);
+        await detachDebugger(source(previous.tabId));
+      }
       this.sessions.set(taskId, session);
       this.tabOwners.set(tabId, taskId);
       await this.persist();
@@ -640,6 +649,26 @@ export class BrowserControlService {
     } finally {
       session.observation = undefined;
     }
+  }
+
+  private async openTab(taskId: string, rawUrl: string): Promise<unknown> {
+    const session = await this.revalidate(taskId);
+    const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
+    const tab = await createBackgroundTab(url.href);
+    if (typeof tab.id !== "number") {
+      throw new BrowserControlError(
+        "TAB_ID_UNAVAILABLE",
+        "Chrome did not return an id for the background tab.",
+      );
+    }
+    if (tab.active !== false) {
+      throw new BrowserControlError(
+        "TAB_NOT_BACKGROUND",
+        "Chrome could not create the requested tab in the background.",
+      );
+    }
+    await this.attach(taskId, tab.id, [...session.allowedOrigins]);
+    return { url: url.href, origin: url.origin, active: false };
   }
 
   private async scroll(

@@ -46,3 +46,17 @@ export function getTab(tabId: number): Promise<chrome.tabs.Tab> {
     });
   });
 }
+
+export function createBackgroundTab(url: string): Promise<chrome.tabs.Tab> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create({ url, active: false }, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        reject(
+          new Error(lastErrorMessage("Could not create a background tab.")),
+        );
+      } else {
+        resolve(tab);
+      }
+    });
+  });
+}
