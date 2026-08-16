@@ -1271,16 +1271,12 @@ ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
 async function maybeStartDesktopIdentitySignIn(
   win: BrowserWindow,
 ): Promise<void> {
-  if (desktopIdentityAutoSignInStarted || !desktopIdentityBroker) return;
+  const broker = ensureDesktopIdentityBroker();
+  if (desktopIdentityAutoSignInStarted || !broker) return;
   const authorityApp = resolveDesktopIdentityApp("dispatch");
   if (!authorityApp) return;
-  await desktopIdentityBroker.refreshStatus(authorityApp);
-  if (
-    !shouldStartDesktopIdentitySignIn(
-      desktopIdentityBroker.getStatus(),
-      authorityApp,
-    )
-  ) {
+  await broker.refreshStatus(authorityApp);
+  if (!shouldStartDesktopIdentitySignIn(broker.getStatus(), authorityApp)) {
     return;
   }
   desktopIdentityAutoSignInStarted = true;
@@ -1288,13 +1284,52 @@ async function maybeStartDesktopIdentitySignIn(
   const start = () => {
     const identityApp = resolveDesktopIdentityApp(activeAppId) ?? authorityApp;
     if (!identityApp) return;
-    void desktopIdentityBroker?.signIn(identityApp.id).catch(() => undefined);
+    void broker.signIn(identityApp.id).catch(() => undefined);
   };
   if (win.webContents.isLoading()) {
     win.webContents.once("did-finish-load", start);
   } else {
     start();
   }
+}
+
+function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
+  if (!IS_DESKTOP_SSO_CANARY) return null;
+  if (desktopIdentityBroker) return desktopIdentityBroker;
+
+  desktopIdentityBroker = new DesktopIdentityBroker({
+    identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+    isAvailable: isDesktopIdentityAvailable,
+    resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
+    resolveApp: resolveDesktopIdentityApp,
+    listApps: () => listDesktopIdentityApps(),
+    createWindow: (options) => new BrowserWindow(options),
+    parentWindow: () => mainWindow,
+    handleWindowOpen: (contents, url) =>
+      handleWindowOpenForContents(contents, url),
+    handleOAuthNavigation: (url, contents) =>
+      openOAuthFromWebviewNavigation(url, contents),
+    reloadApp: (identityApp) =>
+      reloadWebviewsForTarget({
+        appId: identityApp.id,
+        origin: identityApp.origin,
+        session: identityApp.session,
+      }),
+    clearLocalBroker: async () => {
+      await fs.promises
+        .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
+          force: true,
+        })
+        .catch(() => {});
+    },
+    onStatus: (status: DesktopIdentityStatus) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
+      }
+      refreshApplicationMenu();
+    },
+  });
+  return desktopIdentityBroker;
 }
 
 function createWindow(): BrowserWindow {
@@ -11089,43 +11124,10 @@ function configurePermissionHandlers(
 
 app.whenReady().then(async () => {
   if (IS_DESKTOP_SSO_CANARY) {
-    desktopIdentityBroker = new DesktopIdentityBroker({
-      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
-      isAvailable: isDesktopIdentityAvailable,
-      resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
-      resolveApp: resolveDesktopIdentityApp,
-      listApps: () => listDesktopIdentityApps(),
-      createWindow: (options) => new BrowserWindow(options),
-      parentWindow: () => mainWindow,
-      handleWindowOpen: (contents, url) =>
-        handleWindowOpenForContents(contents, url),
-      handleOAuthNavigation: (url, contents) =>
-        openOAuthFromWebviewNavigation(url, contents),
-      reloadApp: (identityApp) =>
-        reloadWebviewsForTarget({
-          appId: identityApp.id,
-          origin: identityApp.origin,
-          session: identityApp.session,
-        }),
-      clearLocalBroker: async () => {
-        await fs.promises
-          .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
-            force: true,
-          })
-          .catch(() => {});
-      },
-      onStatus: (status: DesktopIdentityStatus) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
-        }
-        refreshApplicationMenu();
-      },
-    });
+    const broker = ensureDesktopIdentityBroker();
+    if (!broker) return;
     const shouldContinueStartup = await runDesktopStartupStep({
-      start: () =>
-        desktopIdentityBroker!.refreshStatus(
-          resolveDesktopIdentityApp("dispatch"),
-        ),
+      start: () => broker.refreshStatus(resolveDesktopIdentityApp("dispatch")),
       isShuttingDown: () => appIsQuitting,
     });
     if (!shouldContinueStartup) return;

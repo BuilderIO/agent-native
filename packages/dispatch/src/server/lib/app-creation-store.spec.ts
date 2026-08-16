@@ -301,6 +301,21 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("falls back to local discovery when the gateway URL is malformed", async () => {
+    stubManifest();
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
   it("filters workspace apps by audience", async () => {
     stubNoPendingContext();
     vi.stubEnv(

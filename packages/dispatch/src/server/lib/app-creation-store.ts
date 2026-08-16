@@ -1078,6 +1078,18 @@ async function readWorkspaceAppsFromGateway(): Promise<
   const base = process.env.WORKSPACE_GATEWAY_URL;
   if (!base) return null;
 
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(base);
+  } catch {
+    // coercion-ok: malformed gateway configuration is an unavailable registry
+    // and falls back to local sources.
+    return null;
+  }
+  if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+    return null;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -1122,7 +1134,7 @@ async function readWorkspaceAppsFromGateway(): Promise<
   }
 
   const gatewayUrl = (pathname: string): URL => {
-    const url = new URL(base);
+    const url = new URL(baseUrl.toString());
     const basePath = url.pathname.replace(/\/+$/, "");
     url.pathname = `${basePath}${pathname}` || "/";
     url.search = "";

@@ -1,5 +1,6 @@
 import { verifyA2AToken } from "@agent-native/core/a2a";
 import {
+  isOrgMember,
   resolveOrgByDomain,
   resolveOrgIdForEmail,
 } from "@agent-native/core/org";
@@ -71,7 +72,7 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       // it locally instead of falling back to the receiver's active-org or
       // first-membership selection, which can be wrong for multi-org users.
       const org = await resolveOrgByDomain(orgDomain);
-      if (!org) {
+      if (!org || !(await isOrgMember(org.orgId, identity.email))) {
         throw new Error("Invalid workspace registry authorization");
       }
       orgId = org.orgId;

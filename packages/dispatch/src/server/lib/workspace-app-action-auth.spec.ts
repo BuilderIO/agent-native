@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   verifyA2AToken: vi.fn(),
+  isOrgMember: vi.fn(),
   resolveOrgByDomain: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
 }));
@@ -11,6 +12,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 }));
 
 vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: mocks.isOrgMember,
   resolveOrgByDomain: mocks.resolveOrgByDomain,
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
 }));
@@ -68,6 +70,7 @@ describe("workspace app action auth", () => {
       orgId: "org-builder",
       orgName: "Builder.io",
     });
+    mocks.isOrgMember.mockResolvedValue(true);
 
     await expect(
       workspaceAppActionRouteAuth.resolveCaller?.(
@@ -83,6 +86,10 @@ describe("workspace app action auth", () => {
       expect.anything(),
     );
     expect(mocks.resolveOrgByDomain).toHaveBeenCalledWith("builder.io");
+    expect(mocks.isOrgMember).toHaveBeenCalledWith(
+      "org-builder",
+      "steve@builder.io",
+    );
     expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
   });
 
@@ -95,6 +102,7 @@ describe("workspace app action auth", () => {
       orgId: "org-builder",
       orgName: "Builder.io",
     });
+    mocks.isOrgMember.mockResolvedValue(true);
     const event = eventFor("/", "Bearer mounted");
     event.context = {
       _mountedPathname: WORKSPACE_APPS_ACTION_PATH,
@@ -139,5 +147,27 @@ describe("workspace app action auth", () => {
         eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer unmapped"),
       ),
     ).rejects.toThrow("Invalid workspace registry authorization");
+  });
+
+  it("rejects a global-token caller who is not a member of the claimed org", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "outsider@example.com",
+      orgDomain: "builder.io",
+    });
+    mocks.resolveOrgByDomain.mockResolvedValue({
+      orgId: "org-builder",
+      orgName: "Builder.io",
+    });
+    mocks.isOrgMember.mockResolvedValue(false);
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(
+        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer global-token"),
+      ),
+    ).rejects.toThrow("Invalid workspace registry authorization");
+    expect(mocks.isOrgMember).toHaveBeenCalledWith(
+      "org-builder",
+      "outsider@example.com",
+    );
   });
 });
