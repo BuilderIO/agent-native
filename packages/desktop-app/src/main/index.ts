@@ -4194,7 +4194,6 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[browser-control] Chrome native host installation failed:",
       error instanceof Error ? error.message : "unknown error",
     );
-    return;
   }
   const bridge = new DesktopComputerMcpBridge({
     broker,
