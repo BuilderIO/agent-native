@@ -491,8 +491,9 @@ function AppWebView(
           if (new URL(event.nativeEvent.url).searchParams.has("_session")) {
             sessionUrlLoadedRef.current = true;
           }
-        } catch {
-          // The trusted-origin check above already gates the message path.
+        } catch (error) {
+          console.warn("[webview] failed to parse trusted load URL:", error);
+          return;
         }
         webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
       }
