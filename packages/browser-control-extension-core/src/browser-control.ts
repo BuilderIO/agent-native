@@ -30,6 +30,12 @@ type StoredTaskSession = Omit<TaskSession, "allowedOrigins"> & {
   allowedOrigins: string[];
 };
 type StoredTeardown = { taskId: string; tabId: number };
+type PendingAttach = {
+  taskId: string;
+  tabId: number;
+  debuggerAttachStarted: boolean;
+  debuggerAttached: boolean;
+};
 
 type AxValue = { value?: unknown };
 type AxNode = {
@@ -199,6 +205,19 @@ export class BrowserControlService {
     number,
     Promise<Error | undefined>
   >();
+  private readonly pendingAttaches = new Map<number, PendingAttach>();
+  private readonly pendingAttachOperations = new Map<
+    string,
+    Set<Promise<unknown>>
+  >();
+  private readonly pendingTabCreations = new Map<
+    string,
+    Set<Promise<chrome.tabs.Tab>>
+  >();
+  private readonly taskCancellationWaiters = new Map<
+    string,
+    Map<number, Set<() => void>>
+  >();
   private readonly taskGenerations = new Map<string, number>();
   private readonly taskOperationCounts = new Map<string, number>();
   private readonly taskTeardowns = new Set<string>();
@@ -352,35 +371,64 @@ export class BrowserControlService {
 
   private async performEmergencyStop(): Promise<void> {
     const sessions = [...this.sessions.values()];
-    const pendingOperations = [...this.taskQueues.values()];
+    const pendingOperations = [...this.taskQueues.entries()];
+    const pendingTabCreations = [...this.pendingTabCreations.values()].flatMap(
+      (operations) => [...operations],
+    );
+    const pendingTeardownTaskIds = new Set(this.teardownOwners.values());
+    const existingTeardowns = new Map(this.teardownOperations);
+    const pendingAttaches = [...this.pendingAttaches.values()];
     const tabsToTeardown = new Set([
       ...this.teardownOwners.keys(),
       ...sessions.map((session) => session.tabId),
+      ...pendingAttaches
+        .filter((pending) => pending.debuggerAttachStarted)
+        .map((pending) => pending.tabId),
     ]);
     const taskIds = new Set([
       ...this.taskGenerations.keys(),
       ...this.tabReservations.values(),
       ...sessions.map((session) => session.taskId),
       ...this.teardownOwners.values(),
+      ...pendingAttaches.map((pending) => pending.taskId),
+      ...[...this.pendingTabCreations.keys()],
     ]);
     for (const taskId of taskIds) this.invalidateTask(taskId);
     for (const session of sessions) {
       this.beginTeardown(session.tabId, session.taskId);
     }
+    for (const pending of pendingAttaches) {
+      if (pending.debuggerAttachStarted) {
+        this.beginTeardown(pending.tabId, pending.taskId);
+      }
+    }
     this.sessions.clear();
     this.tabOwners.clear();
     this.taskQueues.clear();
-    await this.enqueueState(async () => {
-      await Promise.allSettled(
-        [...tabsToTeardown].map(async (tabId) => {
-          const taskId = this.teardownOwners.get(tabId);
-          if (taskId) await this.teardownDebugger(tabId, taskId);
-        }),
-      );
-      await this.persist();
-      for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
+
+    const teardownOperations = [...tabsToTeardown].flatMap((tabId) => {
+      const taskId = this.teardownOwners.get(tabId);
+      if (!taskId || existingTeardowns.has(tabId)) return [];
+      return [this.teardownDebugger(tabId, taskId)];
     });
-    await Promise.allSettled(pendingOperations);
+    for (const [tabId, operation] of existingTeardowns) {
+      void operation.then(
+        () => this.persist().catch(() => undefined),
+        () => this.persist().catch(() => undefined),
+      );
+      if (!this.teardownOwners.has(tabId)) {
+        this.finishTeardown(tabId);
+      }
+    }
+    await Promise.allSettled(teardownOperations);
+    await this.persist();
+
+    const operationsToAwait = pendingOperations
+      .filter(([taskId]) => !pendingTeardownTaskIds.has(taskId))
+      .map(([, operation]) => operation);
+    await Promise.allSettled(pendingTabCreations);
+    await Promise.allSettled(operationsToAwait);
+    await this.persist();
     for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
   }
 
@@ -445,20 +493,32 @@ export class BrowserControlService {
           taskId,
           command.includeScreenshot ?? true,
           command.maxNodes ?? 400,
+          expectedGeneration,
         );
       case "click":
-        return this.click(taskId, command.target, command.button ?? "left");
+        return this.click(
+          taskId,
+          command.target,
+          command.button ?? "left",
+          expectedGeneration,
+        );
       case "type":
         return this.type(
           taskId,
           command.target,
           command.text,
           command.replace ?? false,
+          expectedGeneration,
         );
       case "key":
-        return this.key(taskId, command.key, command.modifiers);
+        return this.key(
+          taskId,
+          command.key,
+          command.modifiers,
+          expectedGeneration,
+        );
       case "navigate":
-        return this.navigate(taskId, command.url);
+        return this.navigate(taskId, command.url, expectedGeneration);
       case "open-tab":
         return this.openTab(taskId, command.url, expectedGeneration);
       case "scroll":
@@ -468,6 +528,7 @@ export class BrowserControlService {
           command.deltaY,
           command.x ?? 0,
           command.y ?? 0,
+          expectedGeneration,
         );
     }
   }
@@ -483,7 +544,14 @@ export class BrowserControlService {
       expectedGenerationOverride ?? this.taskGeneration(taskId);
     this.assertAttachActive(taskId, expectedSession, expectedGeneration);
     this.assertTabAvailable(taskId, tabId);
-    return this.enqueueState(async () => {
+    const pendingAttach: PendingAttach = {
+      taskId,
+      tabId,
+      debuggerAttachStarted: false,
+      debuggerAttached: false,
+    };
+    this.pendingAttaches.set(tabId, pendingAttach);
+    const operation = this.enqueueState(async () => {
       this.assertAttachActive(taskId, expectedSession, expectedGeneration);
       this.assertTabAvailable(taskId, tabId);
       let previous = this.sessions.get(taskId);
@@ -509,22 +577,56 @@ export class BrowserControlService {
       let stagedPersisted = false;
       let previousTeardownStarted = false;
       try {
-        await this.assertSessionAllowed(session);
+        await this.assertSessionAllowed(session, taskId, expectedGeneration);
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
-        await attachDebugger(source(tabId));
+        pendingAttach.debuggerAttachStarted = true;
+        const attachOperation = attachDebugger(source(tabId));
+        void attachOperation.then(
+          () => {
+            pendingAttach.debuggerAttached = true;
+            if (this.taskGeneration(taskId) !== expectedGeneration) {
+              this.scheduleLateAttachTeardown(pendingAttach);
+            }
+          },
+          () => undefined,
+        );
+        await this.withTaskCancellation(
+          taskId,
+          expectedGeneration,
+          () => attachOperation,
+        );
+        pendingAttach.debuggerAttached = true;
         debuggerAttached = true;
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
-        await sendDebuggerCommand(source(tabId), "Page.enable");
+        await this.sendCommand(
+          taskId,
+          expectedGeneration,
+          tabId,
+          "Page.enable",
+        );
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
-        await sendDebuggerCommand(source(tabId), "Accessibility.enable");
-        const currentTab = await this.assertSessionAllowed(session);
+        await this.sendCommand(
+          taskId,
+          expectedGeneration,
+          tabId,
+          "Accessibility.enable",
+        );
+        const currentTab = await this.assertSessionAllowed(
+          session,
+          taskId,
+          expectedGeneration,
+        );
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
         this.assertTabAvailable(taskId, tabId);
         const stagedSessions = new Map(previousSessions);
         stagedSessions.set(taskId, session);
         await this.persist(stagedSessions.values());
         stagedPersisted = true;
-        const committedTab = await this.assertSessionAllowed(session);
+        const committedTab = await this.assertSessionAllowed(
+          session,
+          taskId,
+          expectedGeneration,
+        );
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
         this.assertTabAvailable(taskId, tabId);
         if (previous && previous.tabId !== tabId) {
@@ -566,22 +668,31 @@ export class BrowserControlService {
             this.tabOwners.set(previous.tabId, taskId);
           }
         }
-        let rollbackError: unknown;
-        if (stagedPersisted) {
+        const shouldTeardown =
+          debuggerAttached ||
+          (pendingAttach.debuggerAttachStarted &&
+            this.isTaskCancellation(error));
+        if (shouldTeardown) this.beginTeardown(tabId, taskId);
+        const rollbackErrors: unknown[] = [];
+        if (stagedPersisted || shouldTeardown) {
           try {
             await this.persist(this.sessions.values());
-          } catch (error) {
-            rollbackError = error;
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
           }
         }
-        let teardownError: Error | undefined;
-        if (debuggerAttached) {
-          this.beginTeardown(tabId, taskId);
-          teardownError = await this.teardownDebugger(tabId, taskId);
+        if (shouldTeardown) {
+          const teardownError = await this.teardownDebugger(tabId, taskId);
+          if (teardownError) rollbackErrors.push(teardownError);
+          try {
+            await this.persist(this.sessions.values());
+          } catch (persistError) {
+            rollbackErrors.push(persistError);
+          }
         }
-        if (rollbackError || teardownError) {
+        if (rollbackErrors.length > 0) {
           throw new AggregateError(
-            [error, rollbackError, teardownError].filter(Boolean),
+            [error, ...rollbackErrors],
             "Chrome attach rollback failed.",
           );
         }
@@ -592,14 +703,38 @@ export class BrowserControlService {
         }
       }
     });
+    this.trackPendingOperation(this.pendingAttachOperations, taskId, operation);
+    void operation.then(
+      () => {
+        if (this.pendingAttaches.get(tabId) === pendingAttach) {
+          this.pendingAttaches.delete(tabId);
+        }
+      },
+      () => {
+        if (this.pendingAttaches.get(tabId) === pendingAttach) {
+          this.pendingAttaches.delete(tabId);
+        }
+      },
+    );
+    return operation;
   }
 
   private async detach(taskId: string): Promise<void> {
     this.invalidateTask(taskId);
+    const pendingAttachOperations = [
+      ...(this.pendingAttachOperations.get(taskId) ?? []),
+    ];
     const session = this.sessions.get(taskId);
     if (!session) {
+      await Promise.allSettled(pendingAttachOperations);
       if ([...this.teardownOwners.values()].some((owner) => owner === taskId)) {
-        await this.retryPendingTeardown(taskId);
+        await this.retryPendingTeardownInState(taskId).then(async (errors) => {
+          await this.persist();
+          if (errors.length === 1) throw errors[0];
+          if (errors.length > 1) {
+            throw new AggregateError(errors, "Chrome teardown failed.");
+          }
+        });
       }
       this.maybeReclaimTaskGeneration(taskId);
       return;
@@ -608,25 +743,21 @@ export class BrowserControlService {
     this.tabOwners.delete(session.tabId);
     this.beginTeardown(session.tabId, taskId);
     this.taskQueues.delete(taskId);
-    await this.enqueueState(async () => {
-      const errors: Error[] = [];
-      if (this.teardownOwners.get(session.tabId) === taskId) {
-        const teardownError = await this.teardownDebugger(
-          session.tabId,
-          taskId,
-        );
-        if (teardownError) errors.push(teardownError);
-      }
-      errors.push(
-        ...(await this.retryPendingTeardownInState(taskId, session.tabId)),
-      );
-      await this.persist();
-      this.maybeReclaimTaskGeneration(taskId);
-      if (errors.length === 1) throw errors[0];
-      if (errors.length > 1) {
-        throw new AggregateError(errors, "Chrome teardown failed.");
-      }
-    });
+    await Promise.allSettled(pendingAttachOperations);
+    const errors: Error[] = [];
+    if (this.teardownOwners.get(session.tabId) === taskId) {
+      const teardownError = await this.teardownDebugger(session.tabId, taskId);
+      if (teardownError) errors.push(teardownError);
+    }
+    errors.push(
+      ...(await this.retryPendingTeardownInState(taskId, session.tabId)),
+    );
+    await this.persist();
+    this.maybeReclaimTaskGeneration(taskId);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Chrome teardown failed.");
+    }
   }
 
   private async retryPendingTeardown(taskId: string): Promise<void> {
@@ -688,8 +819,14 @@ export class BrowserControlService {
 
   private async assertSessionAllowed(
     session: TaskSession,
+    taskId?: string,
+    expectedGeneration?: number,
   ): Promise<chrome.tabs.Tab> {
-    const tab = await getTab(session.tabId);
+    const tab = await this.withTaskCancellation(
+      taskId ?? session.taskId,
+      expectedGeneration,
+      () => getTab(session.tabId),
+    );
     if (!tab.url)
       throw new BrowserControlError(
         "TAB_URL_UNAVAILABLE",
@@ -774,6 +911,99 @@ export class BrowserControlService {
     }
   }
 
+  private trackPendingOperation<T>(
+    operationsByTask: Map<string, Set<Promise<T>>>,
+    taskId: string,
+    operation: Promise<T>,
+  ): void {
+    const operations = operationsByTask.get(taskId) ?? new Set<Promise<T>>();
+    operations.add(operation);
+    operationsByTask.set(taskId, operations);
+    const cleanup = () => {
+      operations.delete(operation);
+      if (
+        operations.size === 0 &&
+        operationsByTask.get(taskId) === operations
+      ) {
+        operationsByTask.delete(taskId);
+      }
+    };
+    void operation.then(cleanup, cleanup);
+  }
+
+  private isTaskCancellation(error: unknown): boolean {
+    return (
+      error instanceof BrowserControlError &&
+      error.code === "TASK_HANDOFF_CANCELLED"
+    );
+  }
+
+  private withTaskCancellation<T>(
+    taskId: string,
+    expectedGeneration: number | undefined,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (expectedGeneration === undefined) return operation();
+    this.assertTaskGeneration(taskId, expectedGeneration);
+    let cancel: (() => void) | undefined;
+    const cancellation = new Promise<never>((_, reject) => {
+      cancel = () =>
+        reject(
+          new BrowserControlError(
+            "TASK_HANDOFF_CANCELLED",
+            "The Chrome operation was cancelled before it completed.",
+          ),
+        );
+    });
+    const waitersByGeneration =
+      this.taskCancellationWaiters.get(taskId) ??
+      new Map<number, Set<() => void>>();
+    const waiters =
+      waitersByGeneration.get(expectedGeneration) ?? new Set<() => void>();
+    if (!cancel) throw new Error("Could not register Chrome cancellation.");
+    waiters.add(cancel);
+    waitersByGeneration.set(expectedGeneration, waiters);
+    this.taskCancellationWaiters.set(taskId, waitersByGeneration);
+    const cleanup = () => {
+      waiters.delete(cancel!);
+      if (waiters.size === 0) {
+        waitersByGeneration.delete(expectedGeneration);
+      }
+      if (waitersByGeneration.size === 0) {
+        this.taskCancellationWaiters.delete(taskId);
+      }
+    };
+    let pending: Promise<T>;
+    try {
+      pending = operation();
+    } catch (error) {
+      cleanup();
+      return Promise.reject(error);
+    }
+    return Promise.race([pending, cancellation]).finally(cleanup);
+  }
+
+  private sendCommand<T>(
+    taskId: string,
+    expectedGeneration: number | undefined,
+    tabId: number,
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<T> {
+    return this.withTaskCancellation(taskId, expectedGeneration, () =>
+      sendDebuggerCommand<T>(source(tabId), method, params),
+    );
+  }
+
+  private scheduleLateAttachTeardown(pending: PendingAttach): void {
+    this.beginTeardown(pending.tabId, pending.taskId);
+    const operation = this.teardownDebugger(pending.tabId, pending.taskId);
+    void operation.then(
+      () => this.persist().catch(() => undefined),
+      () => this.persist().catch(() => undefined),
+    );
+  }
+
   private async teardownDebugger(
     tabId: number,
     taskId: string,
@@ -820,6 +1050,15 @@ export class BrowserControlService {
     } catch (error) {
       const teardownError =
         error instanceof Error ? error : new Error(String(error));
+      if (!this.teardownOwners.has(tabId)) {
+        if (releaseError) {
+          console.warn(
+            "[browser-control] injected input release failed after external debugger detach",
+            { tabId, taskId, error: releaseError },
+          );
+        }
+        return releaseError;
+      }
       const combinedError = releaseError
         ? new AggregateError(
             [releaseError, teardownError],
@@ -836,7 +1075,18 @@ export class BrowserControlService {
   }
 
   private invalidateTask(taskId: string): void {
-    this.taskGenerations.set(taskId, this.taskGeneration(taskId) + 1);
+    const nextGeneration = this.taskGeneration(taskId) + 1;
+    this.taskGenerations.set(taskId, nextGeneration);
+    const waitersByGeneration = this.taskCancellationWaiters.get(taskId);
+    if (!waitersByGeneration) return;
+    for (const [generation, waiters] of waitersByGeneration) {
+      if (generation >= nextGeneration) continue;
+      for (const cancel of waiters) cancel();
+      waitersByGeneration.delete(generation);
+    }
+    if (waitersByGeneration.size === 0) {
+      this.taskCancellationWaiters.delete(taskId);
+    }
   }
 
   private assertTabAvailable(taskId: string, tabId: number): void {
@@ -846,9 +1096,11 @@ export class BrowserControlService {
         "Another task is still releasing this tab.",
       );
     }
+    const pendingAttachOwner = this.pendingAttaches.get(tabId)?.taskId;
     const reservationOwner = this.tabReservations.get(tabId);
     const owner = this.tabOwners.get(tabId);
     if (
+      (pendingAttachOwner && pendingAttachOwner !== taskId) ||
       (reservationOwner && reservationOwner !== taskId) ||
       (owner && owner !== taskId)
     ) {
@@ -859,12 +1111,22 @@ export class BrowserControlService {
     }
   }
 
-  private async revalidate(taskId: string): Promise<TaskSession> {
+  private async revalidate(
+    taskId: string,
+    expectedGeneration?: number,
+  ): Promise<TaskSession> {
+    if (expectedGeneration !== undefined) {
+      this.assertTaskGeneration(taskId, expectedGeneration);
+    }
     const session = this.getSession(taskId);
     try {
-      await this.assertSessionAllowed(session);
+      await this.assertSessionAllowed(session, taskId, expectedGeneration);
+      if (expectedGeneration !== undefined) {
+        this.assertTaskGeneration(taskId, expectedGeneration);
+      }
       return session;
     } catch (error) {
+      if (this.isTaskCancellation(error)) throw error;
       await this.detach(taskId);
       throw error;
     }
@@ -874,17 +1136,22 @@ export class BrowserControlService {
     taskId: string,
     screenshot: boolean,
     maxNodes: number,
+    expectedGeneration?: number,
   ): Promise<unknown> {
-    const session = await this.revalidate(taskId);
+    const session = await this.revalidate(taskId, expectedGeneration);
     const [tree, image, layout] = await Promise.all([
-      sendDebuggerCommand<AxTreeResult>(
-        source(session.tabId),
+      this.sendCommand<AxTreeResult>(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Accessibility.getFullAXTree",
         { depth: -1 },
       ),
       screenshot
-        ? sendDebuggerCommand<ScreenshotResult>(
-            source(session.tabId),
+        ? this.sendCommand<ScreenshotResult>(
+            taskId,
+            expectedGeneration,
+            session.tabId,
             "Page.captureScreenshot",
             {
               format: "jpeg",
@@ -896,8 +1163,10 @@ export class BrowserControlService {
           )
         : Promise.resolve(undefined),
       screenshot
-        ? sendDebuggerCommand<LayoutMetricsResult>(
-            source(session.tabId),
+        ? this.sendCommand<LayoutMetricsResult>(
+            taskId,
+            expectedGeneration,
+            session.tabId,
             "Page.getLayoutMetrics",
           )
         : Promise.resolve(undefined),
@@ -959,19 +1228,24 @@ export class BrowserControlService {
     taskId: string,
     target: { observationId: string; backendNodeId: number },
     button: "left" | "middle" | "right",
+    expectedGeneration?: number,
   ): Promise<unknown> {
-    const session = await this.revalidate(taskId);
-    await this.assertFreshTarget(session, target);
+    const session = await this.revalidate(taskId, expectedGeneration);
+    await this.assertFreshTarget(session, target, taskId, expectedGeneration);
     try {
-      const box = await sendDebuggerCommand<BoxModelResult>(
-        source(session.tabId),
+      const box = await this.sendCommand<BoxModelResult>(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "DOM.getBoxModel",
         { backendNodeId: target.backendNodeId },
       );
       const point = centerOfBox(box);
-      await this.revalidate(taskId);
-      await sendDebuggerCommand(
-        source(session.tabId),
+      await this.revalidate(taskId, expectedGeneration);
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Input.dispatchMouseEvent",
         {
           type: "mousePressed",
@@ -980,8 +1254,10 @@ export class BrowserControlService {
           clickCount: 1,
         },
       );
-      await sendDebuggerCommand(
-        source(session.tabId),
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Input.dispatchMouseEvent",
         {
           type: "mouseReleased",
@@ -1001,17 +1277,26 @@ export class BrowserControlService {
     target: { observationId: string; backendNodeId: number },
     text: string,
     replace: boolean,
+    expectedGeneration?: number,
   ): Promise<unknown> {
-    const session = await this.revalidate(taskId);
-    await this.assertFreshTarget(session, target);
+    const session = await this.revalidate(taskId, expectedGeneration);
+    await this.assertFreshTarget(session, target, taskId, expectedGeneration);
     try {
-      await sendDebuggerCommand(source(session.tabId), "DOM.focus", {
-        backendNodeId: target.backendNodeId,
-      });
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
+        "DOM.focus",
+        {
+          backendNodeId: target.backendNodeId,
+        },
+      );
       if (replace) {
         const modifier = navigator.userAgent.includes("Mac OS") ? 4 : 2;
-        await sendDebuggerCommand(
-          source(session.tabId),
+        await this.sendCommand(
+          taskId,
+          expectedGeneration,
+          session.tabId,
           "Input.dispatchKeyEvent",
           {
             type: "keyDown",
@@ -1022,8 +1307,10 @@ export class BrowserControlService {
             modifiers: modifier,
           },
         );
-        await sendDebuggerCommand(
-          source(session.tabId),
+        await this.sendCommand(
+          taskId,
+          expectedGeneration,
+          session.tabId,
           "Input.dispatchKeyEvent",
           {
             type: "keyUp",
@@ -1035,10 +1322,14 @@ export class BrowserControlService {
           },
         );
       }
-      await this.revalidate(taskId);
-      await sendDebuggerCommand(source(session.tabId), "Input.insertText", {
-        text,
-      });
+      await this.revalidate(taskId, expectedGeneration);
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
+        "Input.insertText",
+        { text },
+      );
       return { insertedCharacters: text.length };
     } finally {
       session.observation = undefined;
@@ -1048,6 +1339,8 @@ export class BrowserControlService {
   private async assertFreshTarget(
     session: TaskSession,
     target: { observationId: string; backendNodeId: number },
+    taskId: string,
+    expectedGeneration?: number,
   ): Promise<void> {
     const expected = session.observation?.targets.get(target.backendNodeId);
     if (!expected || session.observation?.id !== target.observationId) {
@@ -1056,8 +1349,10 @@ export class BrowserControlService {
         "Observe Chrome again before acting on this target.",
       );
     }
-    const current = await sendDebuggerCommand<AxTreeResult>(
-      source(session.tabId),
+    const current = await this.sendCommand<AxTreeResult>(
+      taskId,
+      expectedGeneration,
+      session.tabId,
       "Accessibility.getPartialAXTree",
       { backendNodeId: target.backendNodeId, fetchRelatives: false },
     );
@@ -1081,8 +1376,9 @@ export class BrowserControlService {
     taskId: string,
     key: BrowserKey,
     modifiers: BrowserModifier[] = [],
+    expectedGeneration?: number,
   ): Promise<unknown> {
-    const session = await this.revalidate(taskId);
+    const session = await this.revalidate(taskId, expectedGeneration);
     try {
       const data = KEY_DATA[key];
       const params = {
@@ -1092,13 +1388,17 @@ export class BrowserControlService {
         nativeVirtualKeyCode: data.keyCode,
         modifiers: modifierMask(modifiers),
       };
-      await sendDebuggerCommand(
-        source(session.tabId),
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Input.dispatchKeyEvent",
         { type: "keyDown", ...params },
       );
-      await sendDebuggerCommand(
-        source(session.tabId),
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Input.dispatchKeyEvent",
         { type: "keyUp", ...params },
       );
@@ -1108,12 +1408,18 @@ export class BrowserControlService {
     }
   }
 
-  private async navigate(taskId: string, rawUrl: string): Promise<unknown> {
-    const session = await this.revalidate(taskId);
+  private async navigate(
+    taskId: string,
+    rawUrl: string,
+    expectedGeneration?: number,
+  ): Promise<unknown> {
+    const session = await this.revalidate(taskId, expectedGeneration);
     try {
       const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
-      const result = await sendDebuggerCommand<Record<string, unknown>>(
-        source(session.tabId),
+      const result = await this.sendCommand<Record<string, unknown>>(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Page.navigate",
         { url: url.href },
       );
@@ -1130,12 +1436,14 @@ export class BrowserControlService {
   ): Promise<unknown> {
     const handoffGeneration = expectedGeneration ?? this.taskGeneration(taskId);
     this.assertTaskGeneration(taskId, handoffGeneration);
-    const session = await this.revalidate(taskId);
+    const session = await this.revalidate(taskId, handoffGeneration);
     this.assertTaskGeneration(taskId, handoffGeneration);
     const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
     let createdTabId: number | undefined;
     try {
-      const tab = await createBackgroundTab(url.href);
+      const tabCreation = createBackgroundTab(url.href);
+      this.trackPendingOperation(this.pendingTabCreations, taskId, tabCreation);
+      const tab = await tabCreation;
       if (typeof tab.id !== "number") {
         throw new BrowserControlError(
           "TAB_ID_UNAVAILABLE",
@@ -1208,11 +1516,14 @@ export class BrowserControlService {
     deltaY: number,
     x: number,
     y: number,
+    expectedGeneration?: number,
   ): Promise<unknown> {
-    const session = await this.revalidate(taskId);
+    const session = await this.revalidate(taskId, expectedGeneration);
     try {
-      await sendDebuggerCommand(
-        source(session.tabId),
+      await this.sendCommand(
+        taskId,
+        expectedGeneration,
+        session.tabId,
         "Input.dispatchMouseEvent",
         { type: "mouseWheel", x, y, deltaX, deltaY },
       );

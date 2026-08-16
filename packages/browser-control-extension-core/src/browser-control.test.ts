@@ -1219,6 +1219,157 @@ describe("BrowserControlService", () => {
     });
   });
 
+  it("cancels an in-flight key before stop releases injected input", async () => {
+    let releaseKeyDown: (() => void) | undefined;
+    const keyUps: string[] = [];
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        const input = params as { key?: string; type?: string } | undefined;
+        if (
+          method === "Input.dispatchKeyEvent" &&
+          input?.type === "keyUp" &&
+          input.key
+        ) {
+          keyUps.push(input.key);
+        }
+        if (
+          method === "Input.dispatchKeyEvent" &&
+          input?.type === "keyDown" &&
+          !releaseKeyDown
+        ) {
+          releaseKeyDown = () => callback?.({});
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    const keyPromise = service
+      .execute({
+        id: "key-request",
+        taskId: "task-1",
+        command: { type: "key", key: "Enter" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseKeyDown).toBeDefined());
+
+    await expect(
+      service.execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).resolves.toEqual({ detached: true });
+
+    await expect(keyPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    expect(keyUps).not.toContain("Enter");
+    releaseKeyDown?.();
+  });
+
+  it("does not wait behind an existing handoff teardown during emergency stop", async () => {
+    let releaseOldDetach: (() => void) | undefined;
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        releaseOldDetach = callback;
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseOldDetach).toBeDefined());
+
+    let emergencySettled = false;
+    const emergencyStop = service.emergencyStopAll().then(() => {
+      emergencySettled = true;
+    });
+    await vi.waitFor(() => expect(emergencySettled).toBe(true));
+    expect(service.activeTaskCount).toBe(0);
+
+    releaseOldDetach?.();
+    await expect(openPromise).resolves.toBeDefined();
+    await expect(emergencyStop).resolves.toBeUndefined();
+  });
+
+  it("treats an external debugger detach as completed teardown", async () => {
+    let detachEvent: Promise<void> | undefined;
+    const service = new BrowserControlService();
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        detachEvent = service.handleDebuggerDetach(42);
+        runtimeLastError = { message: "debugger already detached" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    await expect(
+      service.execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).resolves.toEqual({ detached: true });
+    await detachEvent;
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
+    });
+  });
+
   it("cancels an attach queued before stop", async () => {
     let releasePageEnable: (() => void) | undefined;
     sendCommand.mockImplementation(
