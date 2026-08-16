@@ -36,6 +36,7 @@ import {
 } from "@/lib/agent-chat/model-picker";
 import type { ChatModelCatalog } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const SETTINGS_KEY = "agent-native:chat-settings";
 
@@ -94,6 +95,7 @@ function GroupHeader({
   expanded: boolean;
   onPress: () => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -103,9 +105,17 @@ function GroupHeader({
     >
       <View className="flex-row items-center gap-2">
         {expanded ? (
-          <IconChevronDown color="#71717a" size={15} strokeWidth={2.5} />
+          <IconChevronDown
+            color={mutedForeground}
+            size={15}
+            strokeWidth={2.5}
+          />
         ) : (
-          <IconChevronRight color="#71717a" size={15} strokeWidth={2.5} />
+          <IconChevronRight
+            color={mutedForeground}
+            size={15}
+            strokeWidth={2.5}
+          />
         )}
         <Text className="text-zinc-400 text-[13px] font-bold uppercase tracking-wider">
           {label}
@@ -131,6 +141,7 @@ function ModelItem({
   disabled?: boolean;
   onPress: () => void;
 }) {
+  const { accentBlue } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -148,7 +159,7 @@ function ModelItem({
       >
         {label}
       </Text>
-      {selected && <IconCheck color="#2563eb" size={15} strokeWidth={2.5} />}
+      {selected && <IconCheck color={accentBlue} size={15} strokeWidth={2.5} />}
     </Pressable>
   );
 }
@@ -160,6 +171,7 @@ function AutoItem({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { accentBlue } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -174,7 +186,7 @@ function AutoItem({
       >
         Auto
       </Text>
-      {selected && <IconCheck color="#2563eb" size={15} strokeWidth={2.5} />}
+      {selected && <IconCheck color={accentBlue} size={15} strokeWidth={2.5} />}
     </Pressable>
   );
 }
@@ -188,6 +200,7 @@ function PickerSectionRow({
   value: string;
   onPress: () => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -202,7 +215,7 @@ function PickerSectionRow({
       >
         {value}
       </Text>
-      <IconChevronRight color="#71717a" size={15} strokeWidth={2.2} />
+      <IconChevronRight color={mutedForeground} size={15} strokeWidth={2.2} />
     </Pressable>
   );
 }
@@ -220,6 +233,7 @@ function AgentItem({
   available: boolean;
   onPress: () => void;
 }) {
+  const { accentBlue } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -247,7 +261,7 @@ function AgentItem({
       {!available ? (
         <Text className="text-zinc-600 text-[11px]">Unavailable</Text>
       ) : selected ? (
-        <IconCheck color="#2563eb" size={15} strokeWidth={2.5} />
+        <IconCheck color={accentBlue} size={15} strokeWidth={2.5} />
       ) : null}
     </Pressable>
   );
@@ -262,6 +276,7 @@ function ProviderKeyRow({
   placeholder: string;
   onSave: (apiKey: string) => Promise<void>;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const [value, setValue] = useState("");
   const [status, setStatus] = useState<
     "idle" | "saving" | "saved" | { error: string }
@@ -292,7 +307,7 @@ function ProviderKeyRow({
             if (status !== "idle") setStatus("idle");
           }}
           placeholder={placeholder}
-          placeholderTextColor="#52525b"
+          placeholderTextColor={mutedForeground}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
@@ -301,7 +316,7 @@ function ProviderKeyRow({
         <Pressable
           className={`h-10 px-4 rounded-lg items-center justify-center ${
             value.trim() && status !== "saving"
-              ? "bg-white active:opacity-75"
+              ? "bg-primary active:opacity-75"
               : "bg-zinc-800"
           }`}
           onPress={() => void save()}
@@ -310,11 +325,11 @@ function ProviderKeyRow({
           accessibilityLabel={`Save ${label} API key`}
         >
           {status === "saving" ? (
-            <ActivityIndicator size="small" color="#71717a" />
+            <ActivityIndicator size="small" color={mutedForeground} />
           ) : (
             <Text
               className={`text-[13px] font-bold ${
-                value.trim() ? "text-zinc-950" : "text-zinc-500"
+                value.trim() ? "text-primary-foreground" : "text-zinc-500"
               }`}
             >
               Save
@@ -347,6 +362,7 @@ export function ChatSettingsSheet({
   onChange: (settings: AgentChatSettings) => void;
   onClose: () => void;
 }) {
+  const { mutedForeground, accentBlue } = useMobileThemeColors();
   const [pickerSection, setPickerSection] =
     useState<MobilePickerSection | null>(null);
   const [catalog, setCatalog] = useState<ChatModelCatalog | null>(null);
@@ -457,7 +473,7 @@ export function ChatSettingsSheet({
           >
             <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
             <View className="flex-row items-center justify-between px-4 py-4">
-              <Text className="text-white text-[20px] font-semibold">
+              <Text className="text-foreground text-[20px] font-semibold">
                 Configure
               </Text>
               <Pressable
@@ -466,19 +482,19 @@ export function ChatSettingsSheet({
                 accessibilityRole="button"
                 accessibilityLabel="Close settings"
               >
-                <IconX color="#71717a" size={18} strokeWidth={2.5} />
+                <IconX color={mutedForeground} size={18} strokeWidth={2.5} />
               </Pressable>
             </View>
 
             <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
               {catalogLoading && (
                 <View className="py-8 items-center justify-center">
-                  <ActivityIndicator color="#2563eb" />
+                  <ActivityIndicator color={accentBlue} />
                 </View>
               )}
 
               {catalog && (
-                <View className="bg-[#18181b] border-y border-zinc-800 mt-4">
+                <View className="bg-card-dark border-y border-zinc-800 mt-4">
                   {pickerSection ? (
                     <>
                       <Pressable
@@ -488,7 +504,7 @@ export function ChatSettingsSheet({
                         accessibilityLabel="Back to picker sections"
                       >
                         <IconChevronLeft
-                          color="#a1a1aa"
+                          color={mutedForeground}
                           size={17}
                           strokeWidth={2.2}
                         />

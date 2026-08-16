@@ -34,7 +34,7 @@ export function ComputerConnectSheet({
           >
             <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
             <View className="flex-row items-center justify-between py-4">
-              <Text className="text-white text-[20px] font-semibold">
+              <Text className="text-foreground text-[20px] font-semibold">
                 Connect computer
               </Text>
               <Pressable
@@ -53,12 +53,12 @@ export function ComputerConnectSheet({
               account. When it appears here, choose it from the computer menu.
             </Text>
             <Pressable
-              className="mb-3 h-12 items-center justify-center rounded-xl bg-white active:opacity-75"
+              className="mb-3 h-12 items-center justify-center rounded-xl bg-primary active:opacity-75"
               onPress={() => void onRefresh()}
               accessibilityRole="button"
               accessibilityLabel="Refresh computers"
             >
-              <Text className="text-background-dark text-[15px] font-semibold">
+              <Text className="text-primary-foreground text-[15px] font-semibold">
                 Refresh computers
               </Text>
             </Pressable>

@@ -18,7 +18,7 @@ export default function NotFoundScreen() {
         </Text>
         <Link href="/chat" asChild>
           <Pressable className="bg-primary rounded-xl px-5 py-3 mt-7 active:opacity-75">
-            <Text className="text-background-dark text-sm font-bold">
+            <Text className="text-primary-foreground text-sm font-bold">
               Back to Chat
             </Text>
           </Pressable>

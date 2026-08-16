@@ -96,6 +96,7 @@ import {
   type ChatFirstKeyboardNavigation,
   type ChatFirstKeyboardShortcut,
 } from "./keyboard-navigation.js";
+import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -878,6 +879,8 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
+  const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -2737,20 +2740,44 @@ export default function CodeAgentsApp({
                             />
                             {(projects.length > 0 ||
                               canChooseProjectFolder) && (
-                              <ProjectFolderPicker
-                                variant="bar"
-                                projects={projects}
-                                selectedPath={selectedProjectPath}
-                                executionTarget={newRunExecutionTarget}
-                                showExecutionTarget={supportsExecutionTarget}
-                                loading={loadingProjects}
-                                canChoose={canChooseProjectFolder}
-                                onSelect={selectProjectFolder}
-                                onChoose={chooseProjectFolder}
-                                onExecutionTargetChange={
-                                  setNewRunExecutionTarget
-                                }
-                              />
+                              <RemoteWaitlistPopover
+                                open={cloudWaitlistOpen}
+                                onOpenChange={(open) => {
+                                  if (
+                                    !open &&
+                                    cloudWaitlistOpeningRef.current
+                                  ) {
+                                    cloudWaitlistOpeningRef.current = false;
+                                    return;
+                                  }
+                                  setCloudWaitlistOpen(open);
+                                }}
+                                submit={host.submitRemoteWaitlist}
+                              >
+                                <ProjectFolderPicker
+                                  variant="bar"
+                                  projects={projects}
+                                  selectedPath={selectedProjectPath}
+                                  executionTarget={newRunExecutionTarget}
+                                  showExecutionTarget={supportsExecutionTarget}
+                                  loading={loadingProjects}
+                                  canChoose={canChooseProjectFolder}
+                                  onSelect={selectProjectFolder}
+                                  onChoose={chooseProjectFolder}
+                                  onCloudSelect={() => {
+                                    cloudWaitlistOpeningRef.current = true;
+                                    globalThis.setTimeout(() => {
+                                      setCloudWaitlistOpen(true);
+                                      globalThis.setTimeout(() => {
+                                        cloudWaitlistOpeningRef.current = false;
+                                      }, 0);
+                                    }, 0);
+                                  }}
+                                  onExecutionTargetChange={
+                                    setNewRunExecutionTarget
+                                  }
+                                />
+                              </RemoteWaitlistPopover>
                             )}
                             {overviewFooterSlot ? (
                               <div className="code-agents-overview-footer">
@@ -3067,6 +3094,7 @@ function ProjectFolderPicker({
   canChoose,
   onSelect,
   onChoose,
+  onCloudSelect,
   onExecutionTargetChange,
 }: {
   variant?: "rail" | "bar";
@@ -3078,6 +3106,7 @@ function ProjectFolderPicker({
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onCloudSelect?: () => void;
   onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
@@ -3131,9 +3160,13 @@ function ProjectFolderPicker({
         {showExecutionTarget && onExecutionTargetChange ? (
           <Select
             value={executionTarget}
-            onValueChange={(value) =>
-              onExecutionTargetChange(value as CodeAgentExecutionTarget)
-            }
+            onValueChange={(value) => {
+              if (value === "cloud") {
+                onCloudSelect?.();
+                return;
+              }
+              onExecutionTargetChange(value as CodeAgentExecutionTarget);
+            }}
           >
             <SelectTrigger
               className="code-agents-project-select code-agents-execution-target-select"
@@ -3168,6 +3201,15 @@ function ProjectFolderPicker({
                   <span className="code-agents-project-select__item">
                     <IconCloud size={14} strokeWidth={1.8} />
                     <span>Portal</span>
+                  </span>
+                </SelectItem>
+                <SelectItem
+                  value="cloud"
+                  description="Run in the cloud - join the waitlist"
+                >
+                  <span className="code-agents-project-select__item">
+                    <IconCloud size={14} strokeWidth={1.8} />
+                    <span>Cloud</span>
                   </span>
                 </SelectItem>
               </SelectGroup>

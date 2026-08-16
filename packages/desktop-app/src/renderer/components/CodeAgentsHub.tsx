@@ -2472,6 +2472,7 @@ export default function CodeAgentsHub({
                 <button
                   type="button"
                   className="code-agents-nav-link desktop-chat-first-rail-collapse"
+                  data-chat-first-rail-collapse
                   onClick={() =>
                     setChatFirstRailCollapsed((collapsed) => !collapsed)
                   }

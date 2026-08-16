@@ -5,11 +5,9 @@ import { Pressable, Text, View } from "react-native";
 
 import { AppIcon } from "@/components/AppCard";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
 import { useApps } from "@/lib/use-apps";
-
-const ICON_COLOR = "#d4d4d8";
-const MUTED_COLOR = "#71717a";
 
 type TabItem = {
   key: string;
@@ -31,6 +29,8 @@ function TabButton({
   active: boolean;
   onPress: () => void;
 }) {
+  const { foreground, mutedForeground, secondary } = useMobileThemeColors();
+
   return (
     <Pressable
       accessibilityRole="tab"
@@ -43,24 +43,24 @@ function TabButton({
       <View
         className="h-7 w-9 items-center justify-center rounded-lg"
         style={{
-          backgroundColor: active ? "#27272a" : "transparent",
+          backgroundColor: active ? secondary : "transparent",
         }}
       >
         {item.app ? (
           <AppIcon
             iconName={item.app.icon}
             size={18}
-            color={active ? "#fafafa" : ICON_COLOR}
+            color={active ? foreground : mutedForeground}
           />
         ) : item.key === "more" ? (
           <IconDots
-            color={active ? "#fafafa" : ICON_COLOR}
+            color={active ? foreground : mutedForeground}
             size={20}
             strokeWidth={active ? 2.1 : 1.8}
           />
         ) : (
           <IconMessageCircle
-            color={active ? "#fafafa" : ICON_COLOR}
+            color={active ? foreground : mutedForeground}
             size={19}
             strokeWidth={active ? 2.1 : 1.8}
           />
@@ -156,6 +156,9 @@ export default function ChatFirstBottomTabs({
   );
 }
 
-export function MoreTabIcon({ color = MUTED_COLOR }: { color?: string }) {
-  return <IconDots color={color} size={20} strokeWidth={1.8} />;
+export function MoreTabIcon({ color }: { color?: string }) {
+  const { mutedForeground } = useMobileThemeColors();
+  return (
+    <IconDots color={color ?? mutedForeground} size={20} strokeWidth={1.8} />
+  );
 }
