@@ -10,6 +10,7 @@ import {
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
   isDesktopIdentityGateEligible,
+  shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
 } from "./AppWebview.js";
 
@@ -18,14 +19,32 @@ describe("Desktop identity gate eligibility", () => {
     expect(
       isDesktopIdentityGateEligible(
         { id: "mail" },
-        { isBuiltIn: true, mode: "prod" },
+        {
+          isBuiltIn: true,
+          mode: "prod",
+          url: "https://mail.agent-native.com",
+        },
       ),
     ).toBe(true);
     expect(
       isDesktopIdentityGateEligible(
         { id: "mail" },
-        { isBuiltIn: true, mode: "prod" },
+        {
+          isBuiltIn: true,
+          mode: "prod",
+          url: "https://mail.agent-native.com",
+        },
         "https://example.com",
+      ),
+    ).toBe(false);
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "mail" },
+        {
+          isBuiltIn: true,
+          mode: "prod",
+          url: "https://example.com/mail",
+        },
       ),
     ).toBe(false);
   });
@@ -34,13 +53,23 @@ describe("Desktop identity gate eligibility", () => {
     expect(
       isDesktopIdentityGateEligible(
         { id: "workspace-reports" },
-        { isBuiltIn: false, mode: "prod", workspaceSso: false },
+        {
+          isBuiltIn: false,
+          mode: "prod",
+          url: "https://workspace.example/reports",
+          workspaceSso: false,
+        },
       ),
     ).toBe(false);
     expect(
       isDesktopIdentityGateEligible(
         { id: "workspace-reports" },
-        { isBuiltIn: false, mode: "prod", workspaceSso: true },
+        {
+          isBuiltIn: false,
+          mode: "prod",
+          url: "https://workspace.example/reports",
+          workspaceSso: true,
+        },
       ),
     ).toBe(true);
   });
@@ -49,9 +78,26 @@ describe("Desktop identity gate eligibility", () => {
     expect(
       isDesktopIdentityGateEligible(
         { id: "workspace-reports" },
-        { isBuiltIn: false, mode: "dev", workspaceSso: true },
+        {
+          isBuiltIn: false,
+          mode: "dev",
+          url: "https://workspace.example/reports",
+          workspaceSso: true,
+        },
       ),
     ).toBe(false);
+  });
+
+  it("only suppresses the ordinary prompt when the canary broker is available", () => {
+    const app = {
+      id: "workspace-reports",
+      isBuiltIn: false,
+      mode: "prod" as const,
+      url: "https://workspace.example/reports",
+      workspaceSso: true,
+    };
+    expect(shouldSuppressDesktopSignInPrompt(app, app, false)).toBe(false);
+    expect(shouldSuppressDesktopSignInPrompt(app, app, true)).toBe(true);
   });
 });
 

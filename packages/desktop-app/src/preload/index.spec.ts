@@ -45,6 +45,7 @@ describe("multi-frontier preload API", () => {
       electron.exposed as {
         identity: {
           getStatus(): Promise<unknown>;
+          getAvailability(): Promise<unknown>;
           signIn(): Promise<unknown>;
           signOut(): Promise<unknown>;
           onStatusChange(callback: (status: unknown) => void): () => void;
@@ -52,6 +53,7 @@ describe("multi-frontier preload API", () => {
       }
     ).identity;
     await identity.getStatus();
+    await identity.getAvailability();
     await identity.signIn();
     await identity.signOut();
     const callback = vi.fn();
@@ -61,6 +63,7 @@ describe("multi-frontier preload API", () => {
     unsubscribe();
 
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AVAILABILITY_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
     expect(callback).toHaveBeenCalledWith("signed-in");

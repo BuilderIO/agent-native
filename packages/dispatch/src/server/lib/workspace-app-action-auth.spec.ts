@@ -135,6 +135,45 @@ describe("workspace app action auth", () => {
     expect(mocks.resolveOrgIdForEmail).toHaveBeenCalledWith("steve@builder.io");
   });
 
+  it("preserves a signed org id when the token has no resolvable domain", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "steve@builder.io",
+      orgDomain: null,
+      orgId: "org-builder",
+    });
+    mocks.isOrgMember.mockResolvedValue(true);
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(
+        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer scoped"),
+      ),
+    ).resolves.toMatchObject({ orgId: "org-builder" });
+    expect(mocks.isOrgMember).toHaveBeenCalledWith(
+      "org-builder",
+      "steve@builder.io",
+    );
+    expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("rejects mismatched domain and org id claims", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "steve@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-other",
+    });
+    mocks.resolveOrgByDomain.mockResolvedValue({
+      orgId: "org-builder",
+      orgName: "Builder.io",
+    });
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(
+        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer mismatched"),
+      ),
+    ).rejects.toThrow("Invalid workspace registry authorization");
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
   it("rejects a verified domain that is not registered locally", async () => {
     mocks.verifyA2AToken.mockResolvedValue({
       email: "steve@builder.io",

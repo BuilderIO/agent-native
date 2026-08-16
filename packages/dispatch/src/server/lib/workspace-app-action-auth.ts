@@ -66,8 +66,23 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     }
 
     const orgDomain = identity.orgDomain?.trim().toLowerCase();
+    const claimedOrgId = identity.orgId?.trim();
     let orgId: string | null;
-    if (orgDomain) {
+    if (claimedOrgId) {
+      // A signed org_id is authoritative when the sender had an org-scoped
+      // request but could not resolve a domain. If both claims exist, reject
+      // a mismatch rather than allowing either claim to widen scope.
+      if (orgDomain) {
+        const org = await resolveOrgByDomain(orgDomain);
+        if (org && org.orgId !== claimedOrgId) {
+          throw new Error("Invalid workspace registry authorization");
+        }
+      }
+      if (!(await isOrgMember(claimedOrgId, identity.email))) {
+        throw new Error("Invalid workspace registry authorization");
+      }
+      orgId = claimedOrgId;
+    } else if (orgDomain) {
       // A verified domain claim identifies the caller's intended org. Resolve
       // it locally instead of falling back to the receiver's active-org or
       // first-membership selection, which can be wrong for multi-org users.

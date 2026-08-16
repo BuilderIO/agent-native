@@ -108,8 +108,8 @@ import {
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, {
-  isDesktopIdentityGateEligible,
   resolveAppWebviewUrl,
+  shouldSuppressDesktopSignInPrompt,
   type AppWebviewAuthState,
   type AppWebviewHandle,
 } from "./AppWebview.js";
@@ -526,6 +526,27 @@ export default function CodeAgentsHub({
   const [chatFirstAppAuthStates, setChatFirstAppAuthStates] = useState<
     Record<string, AppWebviewAuthState>
   >({});
+  const [desktopIdentityAvailable, setDesktopIdentityAvailable] =
+    useState(false);
+  useEffect(() => {
+    const getAvailability = window.electronAPI?.identity?.getAvailability;
+    if (!getAvailability) {
+      setDesktopIdentityAvailable(false);
+      return;
+    }
+    let active = true;
+    void getAvailability().then(
+      (available) => {
+        if (active) setDesktopIdentityAvailable(available);
+      },
+      () => {
+        if (active) setDesktopIdentityAvailable(false);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
   const chatFirstAppWebviewRefs = useRef(new Map<string, AppWebviewHandle>());
   const handleChatFirstAppAuthStateChange = useCallback(
     (appId: string, state: AppWebviewAuthState) => {
@@ -2148,10 +2169,6 @@ export default function CodeAgentsHub({
           tabId: tab.id,
           activeTabId: activeChatFirstSurfaceTab?.id,
         });
-        const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
-          { id: surfaceApp.id },
-          surfaceApp,
-        );
         return (
           <ChatFirstAppPane
             app={surfaceApp}
@@ -2162,7 +2179,11 @@ export default function CodeAgentsHub({
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
                 authState={chatFirstAppAuthStates[surfaceApp.id] ?? "unknown"}
-                suppressSignInPrompt={desktopIdentityGateEligible}
+                suppressSignInPrompt={shouldSuppressDesktopSignInPrompt(
+                  { id: surfaceApp.id },
+                  surfaceApp,
+                  desktopIdentityAvailable,
+                )}
                 onSignInRequest={() => focusChatFirstApp(tab.id)}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >

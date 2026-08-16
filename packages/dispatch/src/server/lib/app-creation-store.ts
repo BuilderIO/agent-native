@@ -1122,6 +1122,12 @@ async function readWorkspaceAppsFromGateway(): Promise<
           // shared deployment secret so a registry read does not depend on
           // every app having the same org row.
           preferGlobalSecret: true,
+          // Keep the exact request scope even when the org-domain lookup is
+          // unavailable. The receiver must never infer a different org from
+          // the caller's email in that case.
+          ...(requestContext.orgId
+            ? { extraClaims: { org_id: requestContext.orgId } }
+            : {}),
         },
       );
       authHeaders.Authorization = `Bearer ${token}`;

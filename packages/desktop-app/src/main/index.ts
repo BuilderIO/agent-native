@@ -1242,27 +1242,37 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   if (!isShellIdentityIpc(event)) {
     return "idle" satisfies DesktopIdentityStatus;
   }
-  await desktopIdentityBroker?.refreshStatus(
-    resolveDesktopIdentityApp("dispatch"),
-  );
-  return desktopIdentityBroker?.getStatus() ?? "idle";
+  const broker = ensureDesktopIdentityBroker();
+  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  return broker?.getStatus() ?? "idle";
+});
+
+ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
+  if (!isShellIdentityIpc(event) || !IS_DESKTOP_SSO_CANARY) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) return false;
+  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  return broker.isAvailable();
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  const status = desktopIdentityBroker.getStatus();
+  if (!isShellIdentityIpc(event)) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) return false;
+  const status = broker.getStatus();
   if (status !== "sign-in-required" && status !== "failed") return false;
   const identityApp =
     resolveDesktopIdentityApp(activeAppId) ??
     resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
-  return desktopIdentityBroker.signIn(identityApp.id);
+  return broker.signIn(identityApp.id);
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  if (desktopIdentityBroker.getStatus() === "idle") return false;
-  await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
+  if (!isShellIdentityIpc(event)) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker || broker.getStatus() === "idle") return false;
+  await broker.signOut(listDesktopIdentityCleanupApps());
   return true;
 });
 
@@ -11105,13 +11115,10 @@ function configurePermissionHandlers(
 
 app.whenReady().then(async () => {
   if (IS_DESKTOP_SSO_CANARY) {
-    const broker = ensureDesktopIdentityBroker();
-    if (!broker) return;
-    const shouldContinueStartup = await runDesktopStartupStep({
-      start: () => broker.refreshStatus(resolveDesktopIdentityApp("dispatch")),
-      isShuttingDown: () => appIsQuitting,
-    });
-    if (!shouldContinueStartup) return;
+    // Create the optional broker without blocking startup. The first eligible
+    // app asks it to refresh status, which keeps a slow identity authority
+    // from delaying the shell before the user opens an app.
+    ensureDesktopIdentityBroker();
   }
 
   const shouldContinueStartup = await runDesktopStartupStep({
