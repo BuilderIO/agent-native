@@ -135,7 +135,6 @@ import {
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
-import { CollapsedMacWindowControls } from "./WindowControls.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -2403,12 +2402,6 @@ export default function CodeAgentsHub({
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={emitChatFirstOpenAppStable}
-          railWindowControlsSlot={
-            chatFirstRailCollapsed &&
-            window.electronAPI?.platform === "darwin" ? (
-              <CollapsedMacWindowControls />
-            ) : undefined
-          }
           railWorkspaceSlot={chatFirstRailWorkspaceSlot}
           overviewFooterSlot={
             <DesktopAppsGrid

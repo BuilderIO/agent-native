@@ -27,10 +27,18 @@ export default function WindowControls({
   );
 }
 
-export function CollapsedMacWindowControls() {
+export function CollapsedMacWindowControls({
+  className,
+}: {
+  className?: string;
+}) {
   return (
     <div
-      className="collapsed-mac-window-controls"
+      className={
+        className
+          ? `collapsed-mac-window-controls ${className}`
+          : "collapsed-mac-window-controls"
+      }
       role="group"
       aria-label="Window controls"
     >

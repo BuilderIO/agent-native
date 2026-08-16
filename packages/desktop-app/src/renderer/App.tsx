@@ -20,7 +20,9 @@ import type {
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
-import WindowControls from "./components/WindowControls.js";
+import WindowControls, {
+  CollapsedMacWindowControls,
+} from "./components/WindowControls.js";
 
 function safeDesktopOpenPath(path: string | undefined): string | undefined {
   if (!path) return undefined;
@@ -358,6 +360,9 @@ export default function App() {
   return (
     <div className="shell">
       <WindowControls className="win-controls desktop-chat-first-window-controls" />
+      {window.electronAPI?.platform === "darwin" ? (
+        <CollapsedMacWindowControls className="desktop-chat-first-mac-window-controls" />
+      ) : null}
       <div className="shell-body">
         <div className="content-area content-area--chat-first">
           <div className="code-agents-shell-surface">

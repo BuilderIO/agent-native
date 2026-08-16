@@ -16,6 +16,7 @@ import {
 } from "@/components/uniwind-interop";
 import {
   authenticateWithPassword,
+  signInWithMagicLink,
   signInWithGoogle,
   type NativeAuthMode,
 } from "@/lib/native-auth";
@@ -37,12 +38,14 @@ export function NativeSignInSheet({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const [magicSubmitting, setMagicSubmitting] = useState(false);
 
   useEffect(() => {
     if (!visible) {
       setError(null);
       setSubmitting(false);
       setGoogleSubmitting(false);
+      setMagicSubmitting(false);
       setPassword("");
       setConfirmPassword("");
     }
@@ -51,6 +54,8 @@ export function NativeSignInSheet({
   const submit = async () => {
     if (
       submitting ||
+      googleSubmitting ||
+      magicSubmitting ||
       !email.trim() ||
       !password ||
       (mode === "sign-up" && password !== confirmPassword)
@@ -78,7 +83,7 @@ export function NativeSignInSheet({
   };
 
   const submitGoogle = async () => {
-    if (submitting || googleSubmitting) return;
+    if (submitting || googleSubmitting || magicSubmitting) return;
     setGoogleSubmitting(true);
     setError(null);
     try {
@@ -93,6 +98,29 @@ export function NativeSignInSheet({
       );
     } finally {
       setGoogleSubmitting(false);
+    }
+  };
+
+  const submitMagicLink = async () => {
+    if (submitting || googleSubmitting || magicSubmitting) return;
+    if (!email.trim()) {
+      setError("Enter your email to continue.");
+      return;
+    }
+    setMagicSubmitting(true);
+    setError(null);
+    try {
+      await signInWithMagicLink({ email });
+      await refreshWorkspaceApps();
+      await onSignedIn();
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Magic-link sign-in failed. Please try again.",
+      );
+    } finally {
+      setMagicSubmitting(false);
     }
   };
 
@@ -229,7 +257,13 @@ export function NativeSignInSheet({
                     : "bg-zinc-800"
                 }`}
                 onPress={() => void submit()}
-                disabled={!email.trim() || !password || submitting}
+                disabled={
+                  !email.trim() ||
+                  !password ||
+                  submitting ||
+                  googleSubmitting ||
+                  magicSubmitting
+                }
                 accessibilityRole="button"
                 accessibilityLabel="Sign in"
               >
@@ -257,7 +291,7 @@ export function NativeSignInSheet({
               <Pressable
                 className="mb-2 h-12 items-center justify-center rounded-xl border border-border-dark bg-background-dark active:opacity-75"
                 onPress={() => void submitGoogle()}
-                disabled={submitting || googleSubmitting}
+                disabled={submitting || googleSubmitting || magicSubmitting}
                 accessibilityRole="button"
                 accessibilityLabel="Continue with Google"
               >
@@ -268,6 +302,19 @@ export function NativeSignInSheet({
                     Continue with Google
                   </Text>
                 )}
+              </Pressable>
+              <Pressable
+                className="mb-2 h-11 items-center justify-center rounded-xl active:opacity-75"
+                onPress={() => void submitMagicLink()}
+                disabled={submitting || googleSubmitting || magicSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Email me a sign-in link"
+              >
+                <Text className="text-text-muted text-[14px] font-medium">
+                  {magicSubmitting
+                    ? "Waiting for your sign-in link…"
+                    : "Email me a sign-in link"}
+                </Text>
               </Pressable>
             </View>
           </SafeAreaView>

@@ -41,7 +41,11 @@ vi.mock("expo-secure-store", () => ({
 vi.mock("react-native", () => ({ Platform: platform }));
 vi.mock("expo-web-browser", () => browser);
 
-import { authenticateWithPassword, signInWithGoogle } from "./native-auth";
+import {
+  authenticateWithPassword,
+  signInWithGoogle,
+  signInWithMagicLink,
+} from "./native-auth";
 import { getSessionToken } from "./session-token-store";
 
 describe("mobile parent authentication", () => {
@@ -192,5 +196,78 @@ describe("mobile parent authentication", () => {
       "https://dispatch.example/_agent-native/google/auth-url?mobile=1",
       "https://dispatch.example/_agent-native/auth/session?_session=google-session",
     ]);
+  });
+
+  it("waits for a verified magic link through the one-time parent exchange", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            flowId: "flow-1",
+            verifier: "v".repeat(32),
+          }),
+          {
+            status: 200,
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ pending: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ email: "steve@builderio", orgId: "org-builder" }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      signInWithMagicLink({
+        email: " steve@builderio ",
+        baseUrl: "https://dispatch.example",
+        timeoutMs: 100,
+      }),
+    ).rejects.toThrow("expired");
+
+    const fastFetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            flowId: "flow-2",
+            verifier: "v".repeat(32),
+          }),
+          {
+            status: 200,
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "magic-session" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ email: "steve@builderio", orgId: "org-builder" }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fastFetchMock);
+
+    await expect(
+      signInWithMagicLink({
+        email: "steve@builderio",
+        baseUrl: "https://dispatch.example",
+      }),
+    ).resolves.toEqual({
+      email: "steve@builderio",
+      token: "magic-session",
+      orgId: "org-builder",
+    });
   });
 });

@@ -24,8 +24,11 @@ export const NATIVE_AUTH_BASE_URL =
 type NativeAuthResponse = {
   error?: unknown;
   email?: unknown;
+  flowId?: unknown;
   orgId?: unknown;
+  pending?: unknown;
   token?: unknown;
+  verifier?: unknown;
 };
 
 function responseMessage(
@@ -59,13 +62,16 @@ async function readSessionIdentity(
   let payload: NativeAuthResponse | null = null;
   try {
     payload = (await response.json()) as NativeAuthResponse;
-  } catch {
+  } catch (error) {
     // The status below remains the source of truth when the server did not
     // return JSON.
+    console.warn("[mobile auth] session response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
   }
   const email = typeof payload?.email === "string" ? payload.email.trim() : "";
   if (!response.ok || !email) {
-    throw new Error("Google sign-in did not create a usable session.");
+    throw new Error("Sign-in did not create a usable session.");
   }
   const orgId =
     typeof payload?.orgId === "string" && payload.orgId.trim()
@@ -82,15 +88,18 @@ async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
   const response = await fetch(authUrl.toString(), {
     headers: { Accept: "application/json" },
   });
-  let payload: { error?: unknown; url?: unknown } = {};
+  let payload: { error?: unknown; url?: unknown } | null = null;
   try {
     payload = (await response.json()) as { error?: unknown; url?: unknown };
-  } catch {
+  } catch (error) {
     // Use the status-based fallback below when the endpoint is not JSON.
+    console.warn("[mobile auth] Google auth-url response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
   }
-  if (!response.ok || typeof payload.url !== "string" || !payload.url) {
+  if (!response.ok || typeof payload?.url !== "string" || !payload.url) {
     throw new Error(
-      typeof payload.error === "string" && payload.error.trim()
+      typeof payload?.error === "string" && payload.error.trim()
         ? payload.error.trim()
         : "Google sign-in is unavailable right now.",
     );
@@ -99,12 +108,13 @@ async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
 }
 
 async function waitForStoredParentSession(
+  previousToken: string | null,
   timeoutMs = 8_000,
 ): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   do {
     const token = await getSessionToken();
-    if (token) return token;
+    if (token && token !== previousToken) return token;
     await new Promise<void>((resolve) => setTimeout(resolve, 250));
   } while (Date.now() < deadline);
   return null;
@@ -132,6 +142,7 @@ export async function signInWithGoogle({
 } = {}): Promise<NativeAuthResult> {
   const origin = cleanBaseUrl(baseUrl);
   const googleUrl = await resolveGoogleAuthUrl(origin);
+  const previousToken = await getSessionToken();
   await rememberOAuthState(googleUrl);
   await AsyncStorage.multiSet([
     [OAUTH_RETURN_PATH_KEY, ""],
@@ -149,7 +160,7 @@ export async function signInWithGoogle({
         browserPackage: preferredBrowserPackage,
         showInRecents: true,
       });
-      token = await waitForStoredParentSession();
+      token = await waitForStoredParentSession(previousToken);
     } else {
       const result = await WebBrowser.openAuthSessionAsync(
         googleUrl,
@@ -162,7 +173,8 @@ export async function signInWithGoogle({
           baseUrl: origin,
         });
       }
-      token ??= await getSessionToken();
+      const storedToken = await getSessionToken();
+      if (storedToken && storedToken !== previousToken) token = storedToken;
     }
   } finally {
     await clearNativeOAuthContext();
@@ -170,6 +182,102 @@ export async function signInWithGoogle({
 
   if (!token) throw new Error("Google sign-in was cancelled.");
   return readSessionIdentity(token, origin);
+}
+
+async function readMagicLinkResponse(
+  response: Response,
+): Promise<NativeAuthResponse | null> {
+  try {
+    return (await response.json()) as NativeAuthResponse;
+  } catch (error) {
+    console.warn("[mobile auth] magic-link response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return null;
+  }
+}
+
+/**
+ * Request and complete a parent magic-link sign-in. The verified browser
+ * session is bridged through the existing single-use desktop exchange; no
+ * child app page is opened and the bearer is stored only under the parent key.
+ */
+export async function signInWithMagicLink({
+  email,
+  baseUrl = NATIVE_AUTH_BASE_URL,
+  timeoutMs = 5 * 60 * 1000,
+}: {
+  email: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+}): Promise<NativeAuthResult> {
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail) throw new Error("Enter your email to continue.");
+  const origin = cleanBaseUrl(baseUrl);
+  const requestResponse = await fetch(
+    `${origin}/_agent-native/auth/magic-link`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: normalizedEmail,
+        callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+      }),
+    },
+  );
+  const requestPayload = await readMagicLinkResponse(requestResponse);
+  if (!requestResponse.ok) {
+    throw new Error(
+      responseMessage(requestPayload) ??
+        "Could not send a sign-in link. Please try again.",
+    );
+  }
+  const flowId =
+    typeof requestPayload?.flowId === "string" ? requestPayload.flowId : "";
+  const verifier =
+    typeof requestPayload?.verifier === "string" ? requestPayload.verifier : "";
+  if (!flowId || !verifier) {
+    throw new Error("The magic-link sign-in flow could not be initialized.");
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const exchangeUrl = new URL(
+      `${origin}/_agent-native/auth/desktop-exchange`,
+    );
+    exchangeUrl.searchParams.set("flow_id", flowId);
+    exchangeUrl.searchParams.set("verifier", verifier);
+    const exchangeResponse = await fetch(exchangeUrl.toString(), {
+      headers: { Accept: "application/json" },
+    });
+    const exchangePayload = await readMagicLinkResponse(exchangeResponse);
+    if (!exchangeResponse.ok) {
+      throw new Error(
+        responseMessage(exchangePayload) ??
+          "The magic-link sign-in flow could not be completed.",
+      );
+    }
+    if (
+      typeof exchangePayload?.error === "string" &&
+      exchangePayload.error.trim()
+    ) {
+      throw new Error(exchangePayload.error.trim());
+    }
+    const token =
+      typeof exchangePayload?.token === "string"
+        ? exchangePayload.token.trim()
+        : "";
+    if (token) {
+      await saveSessionToken(token);
+      return readSessionIdentity(token, origin);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  throw new Error("The magic link expired. Request a new link to continue.");
 }
 
 async function postPasswordAuth(
