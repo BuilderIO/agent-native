@@ -204,7 +204,7 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { getSession } from "./auth.js";
+import { getSession, registerAuthPublicPaths } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import {
   getH3App,
@@ -2668,6 +2668,12 @@ export function createAgentChatPlugin(
       }
       if (Object.keys(httpActions).length > 0) {
         const { mountActionRoutes } = await import("./action-routes.js");
+        if (options?.actionRoutePublicPaths?.length) {
+          registerAuthPublicPaths(
+            options.actionRoutePublicPaths,
+            getH3App(nitroApp),
+          );
+        }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
           getUserNameFromEvent,

@@ -1268,9 +1268,13 @@ ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   return true;
 });
 
-function maybeStartDesktopIdentitySignIn(win: BrowserWindow): void {
+async function maybeStartDesktopIdentitySignIn(
+  win: BrowserWindow,
+): Promise<void> {
   if (desktopIdentityAutoSignInStarted || !desktopIdentityBroker) return;
   const authorityApp = resolveDesktopIdentityApp("dispatch");
+  if (!authorityApp) return;
+  await desktopIdentityBroker.refreshStatus(authorityApp);
   if (
     !shouldStartDesktopIdentitySignIn(
       desktopIdentityBroker.getStatus(),
@@ -11396,7 +11400,7 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  if (IS_DESKTOP_SSO_CANARY) maybeStartDesktopIdentitySignIn(win);
+  if (IS_DESKTOP_SSO_CANARY) await maybeStartDesktopIdentitySignIn(win);
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.

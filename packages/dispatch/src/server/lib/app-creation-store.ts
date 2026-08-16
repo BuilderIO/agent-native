@@ -25,6 +25,7 @@ import {
   resolveLinkedOwner,
 } from "./dispatch-store.js";
 import { createRequest, listSecretOptions } from "./vault-store.js";
+import { WORKSPACE_APPS_ACTION_PATH } from "./workspace-app-action-auth.js";
 import {
   grantWorkspaceResourcesToApp,
   listWorkspaceResourceOptions,
@@ -44,7 +45,6 @@ const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
-const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -1109,7 +1109,7 @@ async function readWorkspaceAppsFromGateway(): Promise<
           // The workspace registry is an authenticated read. Prefer the
           // shared deployment secret so a registry read does not depend on
           // every app having the same org row.
-          preferGlobalSecret: !usableOrgSecret,
+          preferGlobalSecret: true,
         },
       );
       authHeaders.Authorization = `Bearer ${token}`;

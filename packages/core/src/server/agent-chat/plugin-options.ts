@@ -141,6 +141,11 @@ export interface AgentChatPluginOptions {
    */
   actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
   /**
+   * Framework action paths that use `actionRouteAuth` instead of the browser
+   * session guard. The route handler still owns credential verification.
+   */
+  actionRoutePublicPaths?: string[];
+  /**
    * Optional callback to append template-specific context to the system
    * prompt on each request. Runs after AGENTS.md / skills / memory are
    * loaded and before the schema block — use it to inject dynamic SQL
