@@ -32,6 +32,24 @@ function normalizeIdentityEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function isAllowedDesktopIdentityOAuthNavigation(
+  navigationUrl: string,
+): boolean {
+  try {
+    const parsed = new URL(navigationUrl);
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === "accounts.google.com" ||
+      host.endsWith(".google.com") ||
+      host.endsWith(".gstatic.com")
+    );
+  } catch (error) {
+    void error;
+    return false;
+  }
+}
+
 export type DesktopWorkspaceLogoutPath =
   | typeof DESKTOP_LOGOUT_PATH
   | typeof DESKTOP_LOGOUT_ALL_PATH;
@@ -1607,6 +1625,7 @@ export class DesktopIdentityBroker {
         if (isDesktopIdentityCompletion(url, app, nonce)) {
           return;
         }
+        if (isAllowedDesktopIdentityOAuthNavigation(url)) return;
         if (
           this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
         ) {
