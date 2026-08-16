@@ -9,8 +9,51 @@ import {
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
+  isDesktopIdentityGateEligible,
   resolveGuestChatCommand,
 } from "./AppWebview.js";
+
+describe("Desktop identity gate eligibility", () => {
+  it("covers canonical production apps but not browser surfaces", () => {
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "mail" },
+        { isBuiltIn: true, mode: "prod" },
+      ),
+    ).toBe(true);
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "mail" },
+        { isBuiltIn: true, mode: "prod" },
+        "https://example.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("requires an explicit opt-in for custom production apps", () => {
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "workspace-reports" },
+        { isBuiltIn: false, mode: "prod", workspaceSso: false },
+      ),
+    ).toBe(false);
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "workspace-reports" },
+        { isBuiltIn: false, mode: "prod", workspaceSso: true },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not gate local development apps", () => {
+    expect(
+      isDesktopIdentityGateEligible(
+        { id: "workspace-reports" },
+        { isBuiltIn: false, mode: "dev", workspaceSso: true },
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("AppWebview auth state", () => {
   it("recognizes framework and app-base sign-in routes", () => {

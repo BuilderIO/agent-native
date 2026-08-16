@@ -2,8 +2,12 @@ import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_MESSAGE,
 } from "@agent-native/core/client/hooks";
-import type { AppDefinition, AppConfig } from "@shared/app-registry";
-import { getTemplate } from "@shared/app-registry";
+import {
+  DESKTOP_DEFAULT_APPS,
+  getTemplate,
+  type AppDefinition,
+  type AppConfig,
+} from "@shared/app-registry";
 import {
   IconRefresh,
   IconCopy,
@@ -26,6 +30,7 @@ import {
 
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
+import DesktopIdentityGate from "./DesktopIdentityGate.js";
 
 const IS_DEV = window.location.protocol !== "file:";
 export const APP_WEBVIEW_PREFERENCES =
@@ -87,6 +92,17 @@ export function resolveAppWebviewAuthState(
   } catch {
     return "unknown";
   }
+}
+
+export function isDesktopIdentityGateEligible(
+  app: Pick<AppDefinition, "id">,
+  appConfig?: Pick<AppConfig, "isBuiltIn" | "mode" | "workspaceSso">,
+  sourceUrl?: string,
+): boolean {
+  if (sourceUrl?.trim() || appConfig?.mode === "dev") return false;
+  if (appConfig?.workspaceSso === true) return true;
+  if (appConfig && appConfig.isBuiltIn !== true) return false;
+  return DESKTOP_DEFAULT_APPS.some((candidate) => candidate.id === app.id);
 }
 
 interface AppWebviewProps {
@@ -319,6 +335,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           },
         );
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
+    const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
+      app,
+      appConfig,
+      sourceUrl,
+    );
+    const [desktopIdentityStatus, setDesktopIdentityStatus] =
+      useState<DesktopIdentityStatus>("idle");
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
@@ -363,6 +386,25 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onAuthStateChangeRef.current = onAuthStateChange;
     }, [onAuthStateChange]);
+
+    useEffect(() => {
+      const identity = window.electronAPI?.identity;
+      if (!identity || !desktopIdentityGateEligible || !isActive) {
+        setDesktopIdentityStatus("idle");
+        return;
+      }
+      let active = true;
+      void identity.getStatus().then((status) => {
+        if (active) setDesktopIdentityStatus(status);
+      });
+      const unsubscribe = identity.onStatusChange((status) => {
+        if (active) setDesktopIdentityStatus(status);
+      });
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    }, [desktopIdentityGateEligible, isActive]);
 
     useImperativeHandle(
       ref,
@@ -894,6 +936,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               flex: "1 1 auto",
               display: error ? "none" : "flex",
               flexDirection: "column",
+            }}
+          />
+        )}
+
+        {isActive && desktopIdentityGateEligible && (
+          <DesktopIdentityGate
+            appName={app.name}
+            status={desktopIdentityStatus}
+            onSignIn={() => {
+              void window.electronAPI?.identity?.signIn();
             }}
           />
         )}

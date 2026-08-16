@@ -1036,6 +1036,84 @@ body {
   border: none;
 }
 
+/* ─── Desktop identity gate ────────────────────────────────── */
+.desktop-identity-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--shell-bg);
+}
+
+.desktop-identity-gate__panel {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.desktop-identity-gate__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  color: var(--label-active);
+  background: var(--surface-active-bg);
+}
+
+.desktop-identity-gate__spinner {
+  animation: app-webview-spin 0.9s linear infinite;
+}
+
+.desktop-identity-gate h2 {
+  margin: 0;
+  color: var(--label-active);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.desktop-identity-gate p {
+  max-width: 320px;
+  margin: 0;
+  color: var(--label-inactive);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.desktop-identity-gate button {
+  margin-top: 4px;
+  padding: 8px 14px;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  color: var(--shell-fg);
+  background: var(--surface-active-bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.desktop-identity-gate button:hover {
+  border-color: var(--label-inactive);
+  background: var(--separator);
+}
+
+.desktop-identity-gate button:focus-visible {
+  outline: 2px solid var(--label-active);
+  outline-offset: 2px;
+}
+
 /* ─── Error overlay ──────────────────────────────────────────── */
 .error-overlay {
   position: absolute;
