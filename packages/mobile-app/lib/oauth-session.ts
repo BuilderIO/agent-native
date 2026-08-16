@@ -13,6 +13,12 @@ export function redirectParam(url: string, name: string): string | null {
   return value && value.length > 0 ? value : null;
 }
 
+/** Persist the server-minted state before handing the URL to the browser. */
+export async function rememberOAuthState(url: string): Promise<void> {
+  const state = redirectParam(url, "state");
+  if (state) await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
+}
+
 // Validate a callback `state` against the one stored before the browser opened,
 // consuming it so it can't be replayed. A custom URL scheme is not
 // origin-authenticated, so without this a mismatched or forged callback could
