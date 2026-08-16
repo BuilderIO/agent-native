@@ -33,7 +33,7 @@ describe("desktop app mode defaults", () => {
     expect(apps.some((app) => app.id === "chat")).toBe(false);
     expect(apps.every((app) => app.mode === "prod")).toBe(true);
     expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
-    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(true);
+    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(false);
   });
 
   it("preserves an explicit persisted workspace sign-in choice", () => {

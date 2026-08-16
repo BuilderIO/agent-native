@@ -492,7 +492,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
     appsRoot: getDefaultDesktopAppsRoot(),
     managedAppIds: [],
     appOrder: [],
-    desktopSsoEnabled: true,
+    desktopSsoEnabled: false,
   };
   try {
     const raw = JSON.parse(
