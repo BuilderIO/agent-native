@@ -940,6 +940,55 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
+  it("allows custom mounted workspace apps from the live workspace registry", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://agent-workspace.builder.io/atlas/_agent-native/embed/start?ticket=remote",
+      },
+    });
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "atlas",
+        name: "Atlas",
+        description: "Workspace app",
+        path: "/atlas",
+        url: "https://agent-workspace.builder.io/atlas",
+        isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "atlas",
+          path: "/",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "atlas",
+      startUrl:
+        "https://agent-workspace.builder.io/atlas/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://agent-workspace.builder.io/atlas/mcp",
+        }),
+      },
+    });
+  });
+
   it("allows an exact custom registry entry and rejects an unregistered external app", async () => {
     vi.stubEnv(
       "IDENTITY_SSO_APP_REGISTRY_JSON",

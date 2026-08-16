@@ -259,6 +259,48 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("falls back to the authenticated workspace action for hosted gateways", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "atlas",
+              name: "Atlas",
+              path: "/atlas",
+              url: "https://agent-workspace.builder.io/atlas",
+            },
+          ]),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://agent-workspace.builder.io/_agent-native/actions/list-workspace-apps",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          accept: "application/json",
+          Authorization: expect.stringMatching(/^Bearer /),
+        }),
+      }),
+    );
+    expect(apps.map((app) => app.id)).toEqual(["atlas"]);
+    expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
+  });
+
   it("filters workspace apps by audience", async () => {
     stubNoPendingContext();
     vi.stubEnv(

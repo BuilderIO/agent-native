@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { signA2AToken } from "@agent-native/core/a2a";
 import { getDbExec } from "@agent-native/core/db";
+import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
   ensureBuilderProject,
   getBuilderBranchProjectId,
@@ -42,7 +44,8 @@ const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
-const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 1_000;
+const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
+const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
@@ -1081,16 +1084,81 @@ async function readWorkspaceAppsFromGateway(): Promise<
     WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
   );
 
+  const requestContext = getRequestContext();
+  const authHeaders: Record<string, string> = {};
+  if (requestContext?.userEmail) {
+    const [orgDomain, orgSecret] = requestContext.orgId
+      ? await Promise.all([
+          // coercion-ok: an unavailable org row falls back to the deployment secret.
+          getOrgDomain(requestContext.orgId).catch(() => null),
+          // coercion-ok: an unavailable org row falls back to the deployment secret.
+          getOrgA2ASecret(requestContext.orgId).catch(() => null),
+        ])
+      : [null, null];
+    const usableOrgSecret =
+      typeof orgSecret === "string" && orgSecret.trim().length > 0;
+    const usableOrgDomain =
+      typeof orgDomain === "string" && orgDomain.trim().length > 0;
+    try {
+      const token = await signA2AToken(
+        requestContext.userEmail,
+        usableOrgDomain ? orgDomain.trim() : undefined,
+        usableOrgSecret ? orgSecret.trim() : undefined,
+        {
+          expiresIn: "1m",
+          // The workspace registry is an authenticated read. Prefer the
+          // shared deployment secret so a registry read does not depend on
+          // every app having the same org row.
+          preferGlobalSecret: !usableOrgSecret,
+        },
+      );
+      authHeaders.Authorization = `Bearer ${token}`;
+    } catch {
+      // coercion-ok: absent signing credentials keep local unauthenticated
+      // gateway discovery available and make hosted discovery fail closed.
+      // Keep the unauthenticated local-dev gateway path available. A hosted
+      // gateway will fail closed below when its action route needs identity.
+    }
+  }
+
+  const gatewayUrl = (pathname: string): URL => {
+    const url = new URL(base);
+    const basePath = url.pathname.replace(/\/+$/, "");
+    url.pathname = `${basePath}${pathname}` || "/";
+    url.search = "";
+    url.hash = "";
+    return url;
+  };
+
+  const headers = {
+    accept: "application/json",
+    ...authHeaders,
+  };
+
   try {
-    const response = await fetch(
-      new URL(WORKSPACE_APPS_GATEWAY_PATH, `${base.replace(/\/$/, "")}/`),
-      {
-        headers: { accept: "application/json" },
-        signal: controller.signal,
-      },
+    const localResponse = await fetch(gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH), {
+      headers,
+      signal: controller.signal,
+    });
+    if (localResponse.ok) {
+      return parseWorkspaceAppsManifest(
+        // coercion-ok: malformed gateway JSON is an unavailable registry and
+        // must fall through to the local manifest sources.
+        await localResponse.json().catch(() => null),
+      );
+    }
+
+    if (!authHeaders.Authorization) return null;
+    const actionResponse = await fetch(gatewayUrl(WORKSPACE_APPS_ACTION_PATH), {
+      headers,
+      signal: controller.signal,
+    });
+    if (!actionResponse.ok) return null;
+    return parseWorkspaceAppsManifest(
+      // coercion-ok: malformed gateway JSON is an unavailable registry and
+      // must fall through to the local manifest sources.
+      await actionResponse.json().catch(() => null),
     );
-    if (!response.ok) return null;
-    return parseWorkspaceAppsManifest(await response.json().catch(() => null));
   } catch {
     return null;
   } finally {
