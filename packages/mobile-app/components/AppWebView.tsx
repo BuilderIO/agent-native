@@ -24,12 +24,11 @@ import type { WebView as WebViewRef } from "react-native-webview";
 
 import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
-import { completeOAuthCallback } from "@/lib/oauth-session";
+import { completeOAuthCallback, rememberOAuthState } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
   OAUTH_OWNER_KEY_KEY,
   OAUTH_RETURN_PATH_KEY,
-  OAUTH_STATE_KEY,
   OAUTH_TOKEN_STORE_KEY,
 } from "@/lib/oauth-storage";
 import {
@@ -99,6 +98,7 @@ const SESSION_BRIDGE_SCRIPT = `
     if (window.__agentNativeSessionBridgeRunning) return true;
     window.__agentNativeSessionBridgeRunning = true;
     var tokenFetchInFlight = false;
+    var hasReportedSession = false;
     var postToken = function () {
       if (document.hidden || tokenFetchInFlight) return;
       tokenFetchInFlight = true;
@@ -119,13 +119,14 @@ const SESSION_BRIDGE_SCRIPT = `
             typeof data.email === 'string' &&
             data.email.length > 0
           ) {
+            hasReportedSession = true;
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'agent-native-session',
               token: data.token,
               email: data.email,
               orgId: typeof data.orgId === 'string' ? data.orgId : null
             }));
-          } else {
+          } else if (hasReportedSession) {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'agent-native-session-cleared'
             }));
@@ -146,15 +147,6 @@ const SESSION_BRIDGE_SCRIPT = `
   })();
   true;
 `;
-
-function rememberOAuthState(url: string) {
-  try {
-    const state = new URL(url).searchParams.get("state");
-    if (state) void AsyncStorage.setItem(OAUTH_STATE_KEY, state);
-  } catch {
-    // Invalid URL — ignore
-  }
-}
 
 function isGoogleAuthUrl(url: string): boolean {
   try {
@@ -199,6 +191,8 @@ function AppWebView(
   const [error, setError] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const lastTokenRef = useRef<string | null>(null);
+  const oauthInFlightRef = useRef(false);
+  const sessionUrlLoadedRef = useRef(false);
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
 
   // Remember the current route so the oauth-complete fallback can return here
@@ -291,15 +285,17 @@ function AppWebView(
   // browser tab.
   const openGoogleSession = useCallback(
     async (googleUrl: string) => {
-      rememberOAuthState(googleUrl);
+      if (oauthInFlightRef.current) return;
+      oauthInFlightRef.current = true;
       try {
+        await rememberOAuthState(googleUrl);
+        await persistOAuthReturnContext();
         if (Platform.OS === "android") {
           // openAuthSessionAsync is unreliable on Android — it can hand off to
           // an external browser/app and never redirect back (expo #27500).
           // Open a Custom Tab in the preferred browser and let the
           // agentnative://oauth-complete deep link (OAuthDeepLinkHandler) bring
           // the result back.
-          await persistOAuthReturnContext();
           const { preferredBrowserPackage } =
             await WebBrowser.getCustomTabsSupportingBrowsersAsync();
           await WebBrowser.openBrowserAsync(googleUrl, {
@@ -320,12 +316,23 @@ function AppWebView(
         if (token && token !== lastTokenRef.current) {
           lastTokenRef.current = token;
           setSessionToken(token);
+          return;
+        }
+        // The root deep-link handler can win the callback race on a cold or
+        // resumed app. In that case it already persisted the validated token;
+        // pick it up here so the WebView still transitions out of sign-in.
+        const storedToken = await getSessionToken(sessionTokenKey);
+        if (storedToken && storedToken !== lastTokenRef.current) {
+          lastTokenRef.current = storedToken;
+          setSessionToken(storedToken);
         }
       } catch (e) {
         console.log("[oauth] auth session error:", String(e));
+      } finally {
+        oauthInFlightRef.current = false;
       }
     },
-    [oauthContext, persistOAuthReturnContext],
+    [oauthContext, persistOAuthReturnContext, sessionTokenKey],
   );
 
   // Some core versions navigate the WebView straight to the auth-url endpoint,
@@ -414,6 +421,7 @@ function AppWebView(
                 ),
               );
             }
+            sessionUrlLoadedRef.current = true;
             if (msg.token !== lastTokenRef.current) {
               lastTokenRef.current = msg.token;
               setSessionToken(msg.token);
@@ -426,6 +434,20 @@ function AppWebView(
           msg.type === "agent-native-session-cleared"
         ) {
           void (async () => {
+            // The sign-in page has a separate cookie jar from the native
+            // browser auth session. Ignore its stale heartbeat while OAuth is
+            // open or while the newly returned token is loading into the URL.
+            if (oauthInFlightRef.current) return;
+            if (!sessionUrlLoadedRef.current) {
+              const storedToken =
+                lastTokenRef.current ??
+                (await getSessionToken(sessionTokenKey));
+              if (storedToken) {
+                lastTokenRef.current = storedToken;
+                setSessionToken(storedToken);
+                return;
+              }
+            }
             await clearSessionToken(sessionTokenKey);
             if (sessionOwnerKey) {
               await AsyncStorage.removeItem(sessionOwnerKey);
@@ -442,11 +464,7 @@ function AppWebView(
           // (like the intercepted-navigation path) before handing off, or the
           // deep-link callback can't restore the return route / Clips token key.
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-            rememberOAuthState(msg.url);
-            void (async () => {
-              await persistOAuthReturnContext();
-              await Linking.openURL(msg.url);
-            })().catch(() => {});
+            void openGoogleSession(msg.url);
           }
         }
       } catch {
@@ -458,7 +476,7 @@ function AppWebView(
       sessionOwnerKey,
       sessionTokenKey,
       trustedOrigin,
-      persistOAuthReturnContext,
+      openGoogleSession,
     ],
   );
 
@@ -469,6 +487,14 @@ function AppWebView(
         captureSessionToken &&
         isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)
       ) {
+        try {
+          if (new URL(event.nativeEvent.url).searchParams.has("_session")) {
+            sessionUrlLoadedRef.current = true;
+          }
+        } catch (error) {
+          console.warn("[webview] failed to parse trusted load URL:", error);
+          return;
+        }
         webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
       }
     },

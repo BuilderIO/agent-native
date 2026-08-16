@@ -1385,7 +1385,36 @@ interface AuthGuardConfig {
   workspaceAppProtectedPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
+const _registeredAuthPublicPaths = new Set<string>();
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+/**
+ * Allow framework routes with their own non-cookie authentication to reach
+ * the handler. The handler remains responsible for verifying the credential.
+ *
+ * This is registered separately from template auth options because framework
+ * routes can be mounted after the auth plugin and must also work in custom
+ * workspace deployments that do not own a template auth file.
+ */
+export function registerAuthPublicPaths(paths: readonly string[]): void {
+  for (const path of paths) {
+    const normalized = typeof path === "string" ? path.trim() : "";
+    if (!normalized.startsWith("/")) continue;
+    _registeredAuthPublicPaths.add(normalized);
+    if (
+      _authGuardConfig &&
+      !_authGuardConfig.publicPaths.includes(normalized)
+    ) {
+      _authGuardConfig.publicPaths.push(normalized);
+    }
+  }
+}
+
+function resolveAuthPublicPaths(
+  paths: readonly string[] | undefined,
+): string[] {
+  return [...new Set([...(paths ?? []), ..._registeredAuthPublicPaths])];
+}
 
 function getRequestHost(event: H3Event): string | undefined {
   return (
@@ -3372,7 +3401,7 @@ async function mountBetterAuthRoutes(
   app: H3App,
   options: AuthOptions,
 ): Promise<void> {
-  const publicPaths = [...(options.publicPaths ?? [])];
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
@@ -4816,7 +4845,7 @@ export async function autoMountAuth(
   // Reset globals
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
-  const publicPaths = options.publicPaths ?? [];
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 

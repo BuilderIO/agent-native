@@ -63,6 +63,7 @@ export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
+  registerAuthPublicPaths,
   getSession,
   COOKIE_NAME,
   addSession,

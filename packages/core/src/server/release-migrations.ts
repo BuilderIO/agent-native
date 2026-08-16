@@ -17,6 +17,10 @@ import {
   CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
 } from "../chat-threads/schema-migrations.js";
 import { runMigrations } from "../db/migrations.js";
+import {
+  REMOTE_DEVICE_MIGRATIONS,
+  REMOTE_DEVICE_MIGRATIONS_TABLE,
+} from "../integrations/remote-device-migrations.js";
 import { runAutomationRunMigrations } from "../jobs/run-history.js";
 import { runAutomationSchedulerHealthMigrations } from "../jobs/scheduler-health.js";
 import {
@@ -61,6 +65,9 @@ export async function runFrameworkReleaseMigrations(
     table: USAGE_ALERT_MIGRATIONS_TABLE,
   })(nitroApp);
   await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
+  await runMigrations(REMOTE_DEVICE_MIGRATIONS, {
+    table: REMOTE_DEVICE_MIGRATIONS_TABLE,
+  })(nitroApp);
   await runMigrations(IDENTITY_SSO_MIGRATIONS, {
     table: "_identity_sso_migrations",
   })(nitroApp);
