@@ -39,8 +39,7 @@ function clearAuthPublicPathRegistry(): void {
   const globalState = globalThis as unknown as {
     [key: symbol]: unknown;
   };
-  const registry = globalState[AUTH_PUBLIC_PATHS_REGISTRY_KEY];
-  if (registry instanceof Set) registry.clear();
+  delete globalState[AUTH_PUBLIC_PATHS_REGISTRY_KEY];
 }
 
 describe("server/auth", () => {
@@ -1351,12 +1350,15 @@ describe("server/auth", () => {
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       const { autoMountAuth, registerAuthPublicPaths } =
         await import("./auth.js");
-
-      registerAuthPublicPaths([
-        "/_agent-native/actions/list-feature-flags",
-        "/_agent-native/actions/set-feature-flag",
-      ]);
       const app = createMockApp();
+
+      registerAuthPublicPaths(
+        [
+          "/_agent-native/actions/list-feature-flags",
+          "/_agent-native/actions/set-feature-flag",
+        ],
+        app,
+      );
       await autoMountAuth(app);
 
       const guard = app.use.mock.calls
@@ -1396,9 +1398,10 @@ describe("server/auth", () => {
       // route registration must still reach the already-mounted guard.
       vi.resetModules();
       const secondCore = await import("./auth.js");
-      secondCore.registerAuthPublicPaths([
-        "/_agent-native/actions/cross-module-registry-test",
-      ]);
+      secondCore.registerAuthPublicPaths(
+        ["/_agent-native/actions/cross-module-registry-test"],
+        app,
+      );
 
       await expect(
         guard(
@@ -1407,6 +1410,35 @@ describe("server/auth", () => {
           }),
         ),
       ).resolves.toBeUndefined();
+    });
+
+    it("does not share public-path registrations across H3 app scopes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const firstCore = await import("./auth.js");
+      const app = createMockApp();
+      await firstCore.autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      vi.resetModules();
+      const secondCore = await import("./auth.js");
+      const otherApp = createMockApp();
+      secondCore.registerAuthPublicPaths(
+        ["/_agent-native/actions/other-app-only"],
+        otherApp,
+      );
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/actions/other-app-only",
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
     it("allows selected public workspace page paths in an internal app", async () => {
