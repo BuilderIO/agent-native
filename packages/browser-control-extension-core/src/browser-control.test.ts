@@ -125,6 +125,53 @@ describe("BrowserControlService", () => {
     expect(debuggerMethods).not.toContain("Runtime.evaluate");
   });
 
+  it("rechecks ownership before committing concurrent attaches", async () => {
+    let resolveFirstPersist: (() => void) | undefined;
+    persist.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirstPersist = resolve;
+        }),
+    );
+    const service = new BrowserControlService();
+
+    const firstAttach = service.execute({
+      id: "first-attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    await vi.waitFor(() => expect(resolveFirstPersist).toBeDefined());
+
+    const secondAttach = service
+      .execute({
+        id: "second-attach-request",
+        taskId: "task-2",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    resolveFirstPersist?.();
+
+    await expect(firstAttach).resolves.toEqual({
+      tabId: 42,
+      origin: "https://example.com",
+    });
+    await expect(secondAttach).resolves.toMatchObject({
+      code: "TAB_ALREADY_OWNED",
+    });
+    expect(service.activeTaskCount).toBe(1);
+  });
+
   it("creates and controls a new tab without activating Chrome", async () => {
     const service = new BrowserControlService();
 

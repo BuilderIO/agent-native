@@ -321,20 +321,7 @@ export class BrowserControlService {
     expectedSession?: TaskSession,
   ): Promise<{ tabId: number; origin: string }> {
     this.assertExpectedSession(taskId, expectedSession);
-    const reservationOwner = this.tabReservations.get(tabId);
-    if (reservationOwner && reservationOwner !== taskId) {
-      throw new BrowserControlError(
-        "TAB_ALREADY_OWNED",
-        "Another task already controls this tab.",
-      );
-    }
-    const owner = this.tabOwners.get(tabId);
-    if (owner && owner !== taskId) {
-      throw new BrowserControlError(
-        "TAB_ALREADY_OWNED",
-        "Another task already controls this tab.",
-      );
-    }
+    this.assertTabAvailable(taskId, tabId);
     let previous = this.sessions.get(taskId);
     if (previous?.tabId === tabId) {
       await this.detach(taskId);
@@ -442,20 +429,24 @@ export class BrowserControlService {
       try {
         const currentTab = await this.assertSessionAllowed(session);
         this.assertExpectedSession(taskId, expectedSession);
+        this.assertTabAvailable(taskId, session.tabId);
         const stagedSessions = new Map(previousSessions);
         stagedSessions.set(taskId, session);
         await this.persist(stagedSessions.values());
         stagedPersisted = true;
         const committedTab = await this.assertSessionAllowed(session);
         this.assertExpectedSession(taskId, expectedSession);
+        this.assertTabAvailable(taskId, session.tabId);
         if (previous && previous.tabId !== session.tabId) {
           this.tabOwners.delete(previous.tabId);
         }
         this.sessions.set(taskId, session);
         this.tabOwners.set(session.tabId, taskId);
         if (previous && previous.tabId !== session.tabId) {
-          await releaseInjectedInput(previous.tabId);
-          await detachDebugger(source(previous.tabId));
+          await Promise.allSettled([
+            releaseInjectedInput(previous.tabId),
+            detachDebugger(source(previous.tabId)),
+          ]);
         }
         this.assertSessionCurrent(taskId, session);
         return {
@@ -463,10 +454,32 @@ export class BrowserControlService {
           origin: new URL(committedTab.url ?? currentTab.url!).origin,
         };
       } catch (error) {
+        if (this.sessions.get(taskId) === session) {
+          this.sessions.delete(taskId);
+          this.tabOwners.delete(session.tabId);
+          if (previous && previousSessions.get(taskId) === previous) {
+            this.sessions.set(taskId, previous);
+            this.tabOwners.set(previous.tabId, taskId);
+          }
+        }
         if (stagedPersisted) await this.persist(previousSessions.values());
         throw error;
       }
     });
+  }
+
+  private assertTabAvailable(taskId: string, tabId: number): void {
+    const reservationOwner = this.tabReservations.get(tabId);
+    const owner = this.tabOwners.get(tabId);
+    if (
+      (reservationOwner && reservationOwner !== taskId) ||
+      (owner && owner !== taskId)
+    ) {
+      throw new BrowserControlError(
+        "TAB_ALREADY_OWNED",
+        "Another task already controls this tab.",
+      );
+    }
   }
 
   private async revalidate(taskId: string): Promise<TaskSession> {
