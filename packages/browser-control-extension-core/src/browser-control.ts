@@ -178,6 +178,7 @@ export class BrowserControlService {
   private readonly sessions = new Map<string, TaskSession>();
   private readonly tabOwners = new Map<number, string>();
   private readonly taskQueues = new Map<string, Promise<unknown>>();
+  private persistQueue: Promise<void> = Promise.resolve();
 
   get activeTaskCount(): number {
     return this.sessions.size;
@@ -323,14 +324,17 @@ export class BrowserControlService {
         "Another task already controls this tab.",
       );
     }
-    const previous = this.sessions.get(taskId);
-    if (previous?.tabId === tabId) await this.detach(taskId);
+    let previous = this.sessions.get(taskId);
+    if (previous?.tabId === tabId) {
+      await this.detach(taskId);
+      previous = undefined;
+    }
     const session: TaskSession = {
       taskId,
       tabId,
       allowedOrigins: new Set(origins),
     };
-    const tab = await this.assertSessionAllowed(session);
+    await this.assertSessionAllowed(session);
     this.assertExpectedSession(taskId, expectedSession);
     await attachDebugger(source(tabId));
     try {
@@ -339,16 +343,23 @@ export class BrowserControlService {
       this.assertExpectedSession(taskId, expectedSession);
       await sendDebuggerCommand(source(tabId), "Accessibility.enable");
       this.assertExpectedSession(taskId, expectedSession);
+      const currentTab = await this.assertSessionAllowed(session);
+      this.assertExpectedSession(taskId, expectedSession);
+      const stagedSessions = new Map(this.sessions);
+      stagedSessions.set(taskId, session);
+      await this.persist(stagedSessions.values());
+      this.assertExpectedSession(taskId, expectedSession);
       if (previous && previous.tabId !== tabId) {
         this.tabOwners.delete(previous.tabId);
-        await releaseInjectedInput(previous.tabId);
-        await detachDebugger(source(previous.tabId));
       }
       this.sessions.set(taskId, session);
       this.tabOwners.set(tabId, taskId);
-      await this.persist();
-      this.assertExpectedSession(taskId, session);
-      return { tabId, origin: new URL(tab.url!).origin };
+      if (previous && previous.tabId !== tabId) {
+        await releaseInjectedInput(previous.tabId);
+        await detachDebugger(source(previous.tabId));
+      }
+      this.assertSessionCurrent(taskId, session);
+      return { tabId, origin: new URL(currentTab.url!).origin };
     } catch (error) {
       await detachDebugger(source(tabId));
       throw error;
@@ -381,6 +392,15 @@ export class BrowserControlService {
     expectedSession: TaskSession | undefined,
   ): void {
     if (expectedSession && this.sessions.get(taskId) !== expectedSession) {
+      throw new BrowserControlError(
+        "TASK_HANDOFF_CANCELLED",
+        "The Chrome tab handoff was cancelled before it completed.",
+      );
+    }
+  }
+
+  private assertSessionCurrent(taskId: string, session: TaskSession): void {
+    if (this.sessions.get(taskId) !== session) {
       throw new BrowserControlError(
         "TASK_HANDOFF_CANCELLED",
         "The Chrome tab handoff was cancelled before it completed.",
@@ -734,14 +754,19 @@ export class BrowserControlService {
     }
   }
 
-  private async persist(): Promise<void> {
-    const stored: StoredTaskSession[] = [...this.sessions.values()].map(
-      (session) => ({
-        taskId: session.taskId,
-        tabId: session.tabId,
-        allowedOrigins: [...session.allowedOrigins],
-      }),
+  private persist(sessions: Iterable<TaskSession> = this.sessions.values()) {
+    const stored: StoredTaskSession[] = [...sessions].map((session) => ({
+      taskId: session.taskId,
+      tabId: session.tabId,
+      allowedOrigins: [...session.allowedOrigins],
+    }));
+    const write = this.persistQueue.then(() =>
+      chrome.storage.session.set({ [SESSION_STORAGE_KEY]: stored }),
     );
-    await chrome.storage.session.set({ [SESSION_STORAGE_KEY]: stored });
+    this.persistQueue = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    return write;
   }
 }
