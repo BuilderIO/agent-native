@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.14
+
+### Patch Changes
+
+- 4d8c36c: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
+
 ## 0.157.13
 
 ### Patch Changes
