@@ -500,6 +500,8 @@ export class BrowserControlService {
     }
     if (reservationTaskId) this.tabReservations.delete(tabId);
     if (teardownTaskId) this.finishTeardown(tabId);
+    await this.drainPendingInputOperations(tabId);
+    this.pressedKeys.delete(tabId);
     if (taskIds.size === 0) return;
     await this.enqueueState(() => this.persist());
     for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);

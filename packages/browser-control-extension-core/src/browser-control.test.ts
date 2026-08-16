@@ -1694,6 +1694,10 @@ describe("BrowserControlService", () => {
   it("treats an external debugger detach as completed teardown", async () => {
     let detachEvent: Promise<void> | undefined;
     const service = new BrowserControlService();
+    const internals = service as unknown as {
+      pressedKeys: Map<number, Map<string, unknown>>;
+    };
+    internals.pressedKeys.set(42, new Map([["Enter", {}]]));
     detach.mockImplementationOnce(
       (_source: chrome.debugger.Debuggee, callback?: () => void) => {
         detachEvent = service.handleDebuggerDetach(42);
@@ -1722,6 +1726,7 @@ describe("BrowserControlService", () => {
     ).resolves.toEqual({ detached: true });
     await detachEvent;
     expect(service.activeTaskCount).toBe(0);
+    expect(internals.pressedKeys.has(42)).toBe(false);
     expect(persist).toHaveBeenLastCalledWith({
       agentNativeBrowserTaskSessions: [],
       agentNativeBrowserPendingTeardowns: [],
