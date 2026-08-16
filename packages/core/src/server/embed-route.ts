@@ -15,11 +15,12 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
-  isMcpEmbedCorsOrigin,
+  isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
+import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
   consumeEmbedSessionTicket,
   isEmbedCapabilityScope,
@@ -90,7 +91,9 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
 
 function embedStartCorsOrigin(event: H3Event): string | null {
   const origin = getHeader(event, "origin");
-  return isMcpEmbedCorsOrigin(origin) ? (origin ?? null) : null;
+  if (!origin) return null;
+  if (isMcpEmbedTransplantOrigin(origin)) return origin;
+  return readCorsAllowedOrigins().includes(origin) ? origin : null;
 }
 
 function embedStartResponseHeaders(
@@ -196,6 +199,12 @@ function firstQueryValue(value: unknown): string {
 }
 
 function wantsTransplantLocationResponse(event: H3Event): boolean {
+  const origin = getHeader(event, "origin");
+  const canReadLocation =
+    !origin ||
+    embedStartCorsOrigin(event) !== null ||
+    isMcpEmbedTransplantOrigin(origin);
+  if (!canReadLocation) return false;
   if (getHeader(event, "x-agent-native-embed-transplant") === "1") {
     return true;
   }

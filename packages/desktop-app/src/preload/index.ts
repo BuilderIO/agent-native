@@ -55,6 +55,7 @@ import {
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
   type DesktopIdentityStatus,
+  type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrepareLocalCodeChangeRequest,
@@ -258,6 +259,10 @@ const electronAPI = {
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
       ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    getSettings: (): Promise<DesktopIdentitySettings> =>
+      ipcRenderer.invoke(IPC.IDENTITY_SETTINGS_GET),
+    setSsoEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_SSO_ENABLED_SET, enabled),
     getAvailability: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),

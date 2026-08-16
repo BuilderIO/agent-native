@@ -97,6 +97,7 @@ export interface DesktopAppPreferences {
   managedAppIds: string[];
   appOrder: string[];
   appModeDefaultsVersion?: number;
+  desktopSsoEnabled: boolean;
 }
 
 interface ShortcutStore {
@@ -491,6 +492,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
     appsRoot: getDefaultDesktopAppsRoot(),
     managedAppIds: [],
     appOrder: [],
+    desktopSsoEnabled: false,
   };
   try {
     const raw = JSON.parse(
@@ -514,6 +516,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
       appsRoot,
       managedAppIds: [...new Set(managedAppIds)],
       appOrder: [...new Set(appOrder)],
+      desktopSsoEnabled: raw.desktopSsoEnabled === true,
       ...(typeof raw.appModeDefaultsVersion === "number"
         ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
         : {}),
@@ -536,6 +539,10 @@ export function saveDesktopAppPreferences(
       ...new Set(settings.managedAppIds ?? current.managedAppIds),
     ],
     appOrder: [...new Set(settings.appOrder ?? current.appOrder)],
+    desktopSsoEnabled:
+      typeof settings.desktopSsoEnabled === "boolean"
+        ? settings.desktopSsoEnabled
+        : current.desktopSsoEnabled,
     ...(settings.appModeDefaultsVersion !== undefined
       ? { appModeDefaultsVersion: settings.appModeDefaultsVersion }
       : current.appModeDefaultsVersion !== undefined

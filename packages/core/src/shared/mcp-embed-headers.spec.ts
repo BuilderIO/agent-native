@@ -5,6 +5,7 @@ import {
   isChatGptMcpSandboxOrigin,
   isLocalMcpEmbedOrigin,
   isMcpEmbedCorsOrigin,
+  isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   mcpEmbedStaticAssetRouteRules,
   shouldAllowMcpEmbedCredentials,
@@ -56,6 +57,29 @@ describe("MCP embed headers", () => {
       expect(isMcpEmbedCorsOrigin(origin)).toBe(true);
       expect(shouldAllowMcpEmbedCredentials(origin)).toBe(false);
     }
+  });
+
+  it("does not allow builder or local fallback origins to read credentialed responses", () => {
+    expect(shouldAllowMcpEmbedCredentials("https://builder.io")).toBe(false);
+    expect(shouldAllowMcpEmbedCredentials("https://workspace.builder.io")).toBe(
+      false,
+    );
+    expect(shouldAllowMcpEmbedCredentials("http://localhost:9310")).toBe(false);
+  });
+
+  it("only allows trusted MCP or first-party origins to read transplant locations", () => {
+    expect(
+      isMcpEmbedTransplantOrigin(
+        "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      ),
+    ).toBe(true);
+    expect(isMcpEmbedTransplantOrigin("https://design.agent-native.com")).toBe(
+      true,
+    );
+    expect(isMcpEmbedTransplantOrigin("https://workspace.builder.io")).toBe(
+      false,
+    );
+    expect(isMcpEmbedTransplantOrigin("http://localhost:9310")).toBe(false);
   });
 
   it("allows first-party hosted apps to embed sibling MCP apps without credentialed CORS", () => {

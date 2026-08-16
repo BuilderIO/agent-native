@@ -122,15 +122,36 @@ export function isMcpEmbedCorsOrigin(
   );
 }
 
+/**
+ * Origins allowed to read the one-time embed location returned by a browser
+ * transplant request. Builder and localhost origins may use the broader MCP
+ * CORS surface, but must not receive a reusable session location unless they
+ * are explicitly configured through CORS_ALLOWED_ORIGINS.
+ */
+export function isMcpEmbedTransplantOrigin(
+  origin: string | null | undefined,
+): boolean {
+  return (
+    origin === "null" ||
+    isClaudeMcpContentOrigin(origin) ||
+    isChatGptMcpSandboxOrigin(origin) ||
+    isMcpProductHostOrigin(origin) ||
+    isAgentNativeFirstPartyAppOrigin(origin)
+  );
+}
+
 export function shouldAllowMcpEmbedCredentials(
   origin: string | null | undefined,
 ): boolean {
   return (
+    Boolean(origin) &&
     origin !== "null" &&
+    !isLocalMcpEmbedOrigin(origin) &&
     !isClaudeMcpContentOrigin(origin) &&
     !isChatGptMcpSandboxOrigin(origin) &&
     !isMcpProductHostOrigin(origin) &&
-    !isAgentNativeFirstPartyAppOrigin(origin)
+    !isAgentNativeFirstPartyAppOrigin(origin) &&
+    !isBuilderIoEmbedOrigin(origin)
   );
 }
 

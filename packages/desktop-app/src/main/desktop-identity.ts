@@ -328,6 +328,11 @@ export class DesktopIdentityBroker {
     return this.status;
   }
 
+  setStatusForSetting(status: DesktopIdentityStatus): void {
+    this.ceremonyGeneration += 1;
+    this.setStatus(status);
+  }
+
   isAvailable(): boolean {
     return this.availability === "available";
   }

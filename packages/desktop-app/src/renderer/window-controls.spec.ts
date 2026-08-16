@@ -44,4 +44,16 @@ describe("chat-first macOS window controls", () => {
     expect(shellCss).toContain("pointer-events: auto;");
     expect(shellCss).toContain("transform: translateX(0) scale(1);");
   });
+
+  it("shows all three controls without hover chrome in settings", () => {
+    expect(shellCss).toContain(
+      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls::before,",
+    );
+    expect(shellCss).toContain(
+      ".collapsed-mac-window-controls:hover::before,\n.platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls:focus-within::before {",
+    );
+    expect(shellCss).toContain(
+      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls\n  .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;\n  transform: translateX(0) scale(1);",
+    );
+  });
 });

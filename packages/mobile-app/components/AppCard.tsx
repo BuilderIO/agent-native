@@ -92,9 +92,15 @@ interface AppCardProps {
   app: AppConfig;
   onPress: () => void;
   onLongPress?: () => void;
+  sourceLabel?: string;
 }
 
-export default function AppCard({ app, onPress, onLongPress }: AppCardProps) {
+export default function AppCard({
+  app,
+  onPress,
+  onLongPress,
+  sourceLabel,
+}: AppCardProps) {
   const accentColor = appAccentColor(app);
 
   return (
@@ -115,6 +121,11 @@ export default function AppCard({ app, onPress, onLongPress }: AppCardProps) {
       >
         {app.name}
       </Text>
+      {sourceLabel ? (
+        <Text className="text-status-gray text-[10px] font-medium">
+          {sourceLabel}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }

@@ -520,6 +520,7 @@ export default function AppSettings({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [identityStatus, setIdentityStatus] =
     useState<DesktopIdentityStatus>("idle");
+  const [desktopSsoEnabled, setDesktopSsoEnabled] = useState(false);
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
@@ -587,6 +588,9 @@ export default function AppSettings({
     const identity = window.electronAPI?.identity;
     if (!identity) return;
     let active = true;
+    void identity.getSettings().then((settings) => {
+      if (active) setDesktopSsoEnabled(settings.ssoEnabled);
+    });
     void identity.getStatus().then((status) => {
       if (active) setIdentityStatus(status);
     });
@@ -597,6 +601,19 @@ export default function AppSettings({
       active = false;
       unsubscribe();
     };
+  }, []);
+
+  const handleDesktopSsoToggle = useCallback(async (enabled: boolean) => {
+    const identity = window.electronAPI?.identity;
+    if (!identity) return;
+    const saved = await identity.setSsoEnabled(enabled);
+    if (!saved) return;
+    setDesktopSsoEnabled(enabled);
+    if (!enabled) {
+      setIdentityStatus("idle");
+      return;
+    }
+    setIdentityStatus(await identity.getStatus());
   }, []);
 
   const handleWorkspaceSignOut = useCallback(async () => {
@@ -1453,11 +1470,28 @@ export default function AppSettings({
               <SettingsTabsPage
                 general={
                   <div className="w-full max-w-3xl space-y-8">
-                    {identityStatus !== "idle" ? (
-                      <SettingsGroup
-                        title="Workspace account"
-                        description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
-                      >
+                    <SettingsGroup
+                      title="Workspace account"
+                      description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
+                    >
+                      <SettingsRow
+                        label="Shared app sign-in"
+                        description={
+                          desktopSsoEnabled
+                            ? "Show the parent sign-in once, then open eligible apps automatically."
+                            : "Off by default while shared app sign-in is being tested on this device."
+                        }
+                        control={
+                          <Switch
+                            checked={desktopSsoEnabled}
+                            onCheckedChange={(enabled) =>
+                              void handleDesktopSsoToggle(enabled)
+                            }
+                            aria-label="Enable shared app sign-in"
+                          />
+                        }
+                      />
+                      {desktopSsoEnabled && identityStatus !== "idle" ? (
                         <SettingsRow
                           label="Agent Native workspace"
                           description={
@@ -1489,8 +1523,8 @@ export default function AppSettings({
                             )
                           }
                         />
-                      </SettingsGroup>
-                    ) : null}
+                      ) : null}
+                    </SettingsGroup>
                     <SettingsGroup
                       title="Software updates"
                       description="Keep Agent Native current."

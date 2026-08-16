@@ -39,6 +39,7 @@ import {
   saveSessionToken,
   SESSION_TOKEN_KEY,
 } from "@/lib/session-token-store";
+import { buildMobileWebViewAuthUrl } from "@/lib/webview-auth-url";
 import {
   isTrustedWebViewUrl,
   parseTrustedOrigin,
@@ -654,25 +655,23 @@ function AppWebView(
   // Append the session token as a query param so the server can promote it to
   // an httpOnly cookie (bridges the Safari/WKWebView cookie jar gap).
   const webviewUrl = useMemo(() => {
-    if (
-      effectiveCaptureSessionToken &&
-      workspaceEmbedState === "ready" &&
-      workspaceEmbedUrl
-    ) {
-      return workspaceEmbedUrl;
-    }
-    if (!effectiveCaptureSessionToken || !sessionToken) return url;
-    try {
-      const parsed = new URL(url);
-      parsed.searchParams.set("_session", sessionToken);
-      return parsed.toString();
-    } catch {
-      return url;
-    }
+    if (!effectiveCaptureSessionToken) return url;
+    return buildMobileWebViewAuthUrl({
+      url,
+      sessionToken,
+      sessionTokenKey,
+      parentSessionTokenKey: resolvedParentSessionTokenKey,
+      workspaceAppId,
+      workspaceEmbedState,
+      workspaceEmbedUrl,
+    });
   }, [
     effectiveCaptureSessionToken,
+    resolvedParentSessionTokenKey,
+    sessionTokenKey,
     sessionToken,
     url,
+    workspaceAppId,
     workspaceEmbedState,
     workspaceEmbedUrl,
   ]);
@@ -792,8 +791,9 @@ function AppWebView(
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onOpenWindow={handleOpenWindow}
         onMessage={handleMessage}
-        injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}
-${FORCE_REDIRECT_AUTH_SCRIPT}`}
+        injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}${
+          nativeAuthEnabled ? `\n${FORCE_REDIRECT_AUTH_SCRIPT}` : ""
+        }`}
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled

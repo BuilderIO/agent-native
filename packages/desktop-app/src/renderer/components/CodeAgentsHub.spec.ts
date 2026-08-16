@@ -17,6 +17,7 @@ import {
   dispatchControlPlaneUrlParams,
   dispatchControlPlaneTitle,
   filterDesktopApps,
+  mergeDesktopAppLists,
   isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
   orderDesktopApps,
@@ -312,6 +313,19 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ]);
     expect(filterDesktopApps(ordered, "plan").map((app) => app.id)).toEqual([
       "charlie",
+    ]);
+  });
+
+  it("keeps local apps first while adding each workspace app once", () => {
+    const merged = mergeDesktopAppLists(
+      [{ id: "mail" }, { id: "personal-notes" }],
+      [{ id: "team-ops" }, { id: "mail" }],
+    );
+
+    expect(merged.map((app) => app.id)).toEqual([
+      "mail",
+      "personal-notes",
+      "team-ops",
     ]);
   });
 

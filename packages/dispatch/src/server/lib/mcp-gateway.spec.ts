@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
   signA2AToken: vi.fn(),
+  canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
   getOrgDomain: vi.fn(),
   isFeatureFlagEnabled: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@agent-native/core/a2a", () => ({
     }
   },
   signA2AToken: mocks.signA2AToken,
+  canonicalA2AAudience: mocks.canonicalA2AAudience,
 }));
 
 vi.mock("@agent-native/core/org", () => ({
@@ -1255,6 +1257,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-specific-secret",
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: false,
       },
     );
@@ -1283,6 +1286,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );
@@ -1311,6 +1315,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );

@@ -112,6 +112,7 @@ import {
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
+  type DesktopIdentitySettings,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -230,7 +231,6 @@ import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
-import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
@@ -270,9 +270,6 @@ initializeDesktopStartup({
   logWarning: console.warn,
 });
 
-const IS_DESKTOP_SSO_CANARY =
-  app.isPackaged && isDesktopSsoCanaryVersion(app.getVersion());
-
 const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
   lockWaitMs: 50,
   reclaimFreshDeadOwner: false,
@@ -301,6 +298,10 @@ process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
 });
 
 const IS_DEV = !app.isPackaged;
+
+function isDesktopSsoEnabled(): boolean {
+  return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
+}
 
 if (IS_DEV) {
   // Keep local electron-vite runs out of the packaged app's Chromium profile.
@@ -332,10 +333,6 @@ if (IS_DEV) {
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
 // Open Agent Native" screen whose deep link can't fire.
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
-if (IS_DESKTOP_SSO_CANARY) {
-  app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktopSsoCanary/${app.getVersion()}`;
-}
-
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
@@ -1242,21 +1239,52 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   if (!isShellIdentityIpc(event)) {
     return "idle" satisfies DesktopIdentityStatus;
   }
+  if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
   await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
   return broker?.getStatus() ?? "idle";
 });
 
 ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
-  if (!isShellIdentityIpc(event) || !IS_DESKTOP_SSO_CANARY) return false;
+  if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
   await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
   return broker.isAvailable();
 });
 
+ipcMain.handle(IPC.IDENTITY_SETTINGS_GET, (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return { ssoEnabled: false } satisfies DesktopIdentitySettings;
+  }
+  return {
+    ssoEnabled: isDesktopSsoEnabled(),
+  } satisfies DesktopIdentitySettings;
+});
+
+ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
+  if (!isShellIdentityIpc(event) || typeof enabled !== "boolean") return false;
+  AppStore.saveDesktopAppPreferences({ desktopSsoEnabled: enabled });
+
+  if (!enabled) {
+    desktopIdentityBroker?.setStatusForSetting("idle");
+    mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "idle");
+    return true;
+  }
+
+  const broker = ensureDesktopIdentityBroker();
+  if (broker) {
+    await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    mainWindow?.webContents.send(
+      IPC.IDENTITY_STATUS_CHANGED,
+      broker.getStatus(),
+    );
+  }
+  return true;
+});
+
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
-  if (!isShellIdentityIpc(event)) return false;
+  if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
   const status = broker.getStatus();
@@ -1271,6 +1299,9 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
 ipcMain.handle(IPC.IDENTITY_AUTHENTICATE, async (event, request) => {
   if (!isShellIdentityIpc(event)) {
     return { ok: false, error: "The desktop identity surface is unavailable." };
+  }
+  if (!isDesktopSsoEnabled()) {
+    return { ok: false, error: "Desktop workspace sign-in is turned off." };
   }
   const broker = ensureDesktopIdentityBroker();
   if (!broker) {
@@ -1307,7 +1338,7 @@ ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
 });
 
 function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
-  if (!IS_DESKTOP_SSO_CANARY) return null;
+  if (!isDesktopSsoEnabled()) return null;
   if (desktopIdentityBroker) return desktopIdentityBroker;
 
   desktopIdentityBroker = new DesktopIdentityBroker({
@@ -11161,7 +11192,7 @@ function configurePermissionHandlers(
 }
 
 app.whenReady().then(async () => {
-  if (IS_DESKTOP_SSO_CANARY) {
+  if (isDesktopSsoEnabled()) {
     // Create the optional broker without blocking startup. The first eligible
     // app asks it to refresh status, which keeps a slow identity authority
     // from delaying the shell before the user opens an app.
@@ -11212,7 +11243,7 @@ app.whenReady().then(async () => {
       });
     }
 
-    if (IS_DESKTOP_SSO_CANARY) {
+    if (isDesktopSsoEnabled()) {
       sess.cookies.on("changed", (_event, cookie, _cause, removed) => {
         if (removed) return;
         const appId = getTargetAppId();
