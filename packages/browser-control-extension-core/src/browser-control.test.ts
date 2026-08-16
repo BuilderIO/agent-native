@@ -1578,9 +1578,9 @@ describe("BrowserControlService", () => {
     await expect(keyPromise).resolves.toMatchObject({
       code: "TASK_HANDOFF_CANCELLED",
     });
-    expect(keyUps).not.toContain("Enter");
     releaseKeyDown?.();
     await expect(stopPromise).resolves.toBeUndefined();
+    expect(keyUps).toContain("Enter");
   });
 
   it("clears stale restored ownership when Chrome is already detached", async () => {
@@ -1698,6 +1698,64 @@ describe("BrowserControlService", () => {
       (_source: chrome.debugger.Debuggee, callback?: () => void) => {
         detachEvent = service.handleDebuggerDetach(42);
         runtimeLastError = { message: "debugger already detached" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    await expect(
+      service.execute({
+        id: "stop-request",
+        taskId: "task-1",
+        command: { type: "stop" },
+      }),
+    ).resolves.toEqual({ detached: true });
+    await detachEvent;
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
+    });
+  });
+
+  it("ignores input-release errors after Chrome detaches externally", async () => {
+    let detachEvent: Promise<void> | undefined;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method.startsWith("Input.")) {
+          runtimeLastError = {
+            message: "Debugger is not attached to the tab with id: 42.",
+          };
+          callback?.({});
+          runtimeLastError = undefined;
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        detachEvent = service.handleDebuggerDetach(42);
+        runtimeLastError = {
+          message: "Debugger is not attached to the tab with id: 42.",
+        };
         callback?.();
         runtimeLastError = undefined;
       },

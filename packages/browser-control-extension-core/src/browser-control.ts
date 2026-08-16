@@ -4,6 +4,7 @@ import {
   createBackgroundTab,
   detachDebugger,
   getTab,
+  isDebuggerNotAttachedError,
   removeTab,
   sendDebuggerCommand,
   type DebuggerSource,
@@ -62,6 +63,13 @@ type BoxModelResult = { model?: { border?: number[]; content?: number[] } };
 type BrowserObservation = {
   id: string;
   targets: Map<number, { role?: unknown; name?: unknown }>;
+};
+type PressedKey = {
+  key: string;
+  code: string;
+  windowsVirtualKeyCode: number;
+  nativeVirtualKeyCode: number;
+  modifiers: number;
 };
 
 const MAX_SCREENSHOT_BASE64_CHARS = 4 * 1024 * 1024;
@@ -155,7 +163,10 @@ function centerOfBox(result: BoxModelResult): { x: number; y: number } {
   };
 }
 
-async function releaseInjectedInput(tabId: number): Promise<void> {
+async function releaseInjectedInput(
+  tabId: number,
+  pressedKeys: Iterable<PressedKey>,
+): Promise<void> {
   const debuggee = source(tabId);
   const results = await Promise.allSettled([
     ...(["left", "middle", "right"] as const).map((button) =>
@@ -182,14 +193,22 @@ async function releaseInjectedInput(tabId: number): Promise<void> {
         modifiers: 0,
       }),
     ),
+    ...[...pressedKeys].map((pressedKey) =>
+      sendDebuggerCommand(debuggee, "Input.dispatchKeyEvent", {
+        type: "keyUp",
+        ...pressedKey,
+      }),
+    ),
   ]);
   const errors = results.flatMap((result) =>
     result.status === "rejected"
-      ? [
-          result.reason instanceof Error
-            ? result.reason
-            : new Error(String(result.reason)),
-        ]
+      ? (() => {
+          const error =
+            result.reason instanceof Error
+              ? result.reason
+              : new Error(String(result.reason));
+          return isDebuggerNotAttachedError(error.message) ? [] : [error];
+        })()
       : [],
   );
   if (errors.length === 1) throw errors[0];
@@ -230,6 +249,7 @@ export class BrowserControlService {
     number,
     Set<Promise<unknown>>
   >();
+  private readonly pressedKeys = new Map<number, Map<string, PressedKey>>();
   private readonly taskCancellationWaiters = new Map<
     string,
     Map<number, Set<() => void>>
@@ -919,6 +939,48 @@ export class BrowserControlService {
     void operation.then(cleanup, cleanup);
   }
 
+  private trackInputOperation<T>(
+    tabId: number,
+    method: string,
+    params: Record<string, unknown>,
+    operation: Promise<T>,
+  ): Promise<T> {
+    if (method !== "Input.dispatchKeyEvent") {
+      this.trackPendingInputOperation(tabId, operation);
+      return operation;
+    }
+    const key =
+      typeof params.key === "string" &&
+      typeof params.code === "string" &&
+      typeof params.windowsVirtualKeyCode === "number" &&
+      typeof params.nativeVirtualKeyCode === "number" &&
+      typeof params.modifiers === "number"
+        ? {
+            key: params.key,
+            code: params.code,
+            windowsVirtualKeyCode: params.windowsVirtualKeyCode,
+            nativeVirtualKeyCode: params.nativeVirtualKeyCode,
+            modifiers: params.modifiers,
+          }
+        : undefined;
+    const settledOperation = operation.then((result) => {
+      if (key) {
+        const keys =
+          this.pressedKeys.get(tabId) ?? new Map<string, PressedKey>();
+        if (params.type === "keyDown") {
+          keys.set(key.code, key);
+          this.pressedKeys.set(tabId, keys);
+        } else if (params.type === "keyUp") {
+          keys.delete(key.code);
+          if (keys.size === 0) this.pressedKeys.delete(tabId);
+        }
+      }
+      return result;
+    });
+    this.trackPendingInputOperation(tabId, settledOperation);
+    return settledOperation;
+  }
+
   private async drainPendingInputOperations(tabId: number): Promise<void> {
     for (;;) {
       const operations = [...(this.pendingInputOperations.get(tabId) ?? [])];
@@ -1137,7 +1199,7 @@ export class BrowserControlService {
         method === "Input.dispatchKeyEvent" ||
         method === "Input.dispatchMouseEvent"
       ) {
-        this.trackPendingInputOperation(tabId, operation);
+        return this.trackInputOperation(tabId, method, params, operation);
       }
       return operation;
     });
@@ -1199,14 +1261,16 @@ export class BrowserControlService {
   ): Promise<Error | undefined> {
     let releaseError: Error | undefined;
     await this.drainPendingInputOperations(tabId);
+    const pressedKeys = this.pressedKeys.get(tabId)?.values() ?? [];
     try {
-      await releaseInjectedInput(tabId);
+      await releaseInjectedInput(tabId, pressedKeys);
     } catch (error) {
       releaseError = error instanceof Error ? error : new Error(String(error));
     }
     try {
       await detachDebugger(source(tabId));
       this.finishTeardown(tabId);
+      this.pressedKeys.delete(tabId);
       if (releaseError) {
         console.warn(
           "[browser-control] injected input release failed after debugger detach",
@@ -1218,13 +1282,14 @@ export class BrowserControlService {
       const teardownError =
         error instanceof Error ? error : new Error(String(error));
       if (!this.teardownOwners.has(tabId)) {
+        this.pressedKeys.delete(tabId);
         if (releaseError) {
           console.warn(
             "[browser-control] injected input release failed after external debugger detach",
             { tabId, taskId, error: releaseError },
           );
         }
-        return releaseError;
+        return undefined;
       }
       const combinedError = releaseError
         ? new AggregateError(
