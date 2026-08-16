@@ -1370,6 +1370,56 @@ describe("BrowserControlService", () => {
     });
   });
 
+  it("reconciles an external detach during an in-flight attach", async () => {
+    let releasePageEnable: (() => void) | undefined;
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        _params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (method === "Page.enable" && !releasePageEnable) {
+          releasePageEnable = () => callback?.({});
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    const attachPromise = service
+      .execute({
+        id: "attach-request",
+        taskId: "task-1",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releasePageEnable).toBeDefined());
+
+    const detachEvent = service.handleDebuggerDetach(42);
+    await expect(attachPromise).resolves.toMatchObject({
+      code: "TASK_HANDOFF_CANCELLED",
+    });
+    await detachEvent;
+    releasePageEnable?.();
+
+    expect(detach).not.toHaveBeenCalled();
+    expect(service.activeTaskCount).toBe(0);
+    expect(persist).toHaveBeenLastCalledWith({
+      agentNativeBrowserTaskSessions: [],
+      agentNativeBrowserPendingTeardowns: [],
+    });
+  });
+
   it("cancels an attach queued before stop", async () => {
     let releasePageEnable: (() => void) | undefined;
     sendCommand.mockImplementation(

@@ -35,6 +35,7 @@ type PendingAttach = {
   tabId: number;
   debuggerAttachStarted: boolean;
   debuggerAttached: boolean;
+  externalDetachObserved: boolean;
 };
 
 type AxValue = { value?: unknown };
@@ -382,7 +383,10 @@ export class BrowserControlService {
       ...this.teardownOwners.keys(),
       ...sessions.map((session) => session.tabId),
       ...pendingAttaches
-        .filter((pending) => pending.debuggerAttachStarted)
+        .filter(
+          (pending) =>
+            pending.debuggerAttachStarted && !pending.externalDetachObserved,
+        )
         .map((pending) => pending.tabId),
     ]);
     const taskIds = new Set([
@@ -398,7 +402,7 @@ export class BrowserControlService {
       this.beginTeardown(session.tabId, session.taskId);
     }
     for (const pending of pendingAttaches) {
-      if (pending.debuggerAttachStarted) {
+      if (pending.debuggerAttachStarted && !pending.externalDetachObserved) {
         this.beginTeardown(pending.tabId, pending.taskId);
       }
     }
@@ -436,11 +440,19 @@ export class BrowserControlService {
     const ownerTaskId = this.tabOwners.get(tabId);
     const reservationTaskId = this.tabReservations.get(tabId);
     const teardownTaskId = this.teardownOwners.get(tabId);
+    const pendingAttach = this.pendingAttaches.get(tabId);
     const taskIds = new Set(
-      [ownerTaskId, reservationTaskId, teardownTaskId].filter(
-        (taskId): taskId is string => Boolean(taskId),
-      ),
+      [
+        ownerTaskId,
+        reservationTaskId,
+        teardownTaskId,
+        pendingAttach?.taskId,
+      ].filter((taskId): taskId is string => Boolean(taskId)),
     );
+    if (pendingAttach) {
+      pendingAttach.externalDetachObserved = true;
+      pendingAttach.debuggerAttached = false;
+    }
     for (const taskId of [ownerTaskId, reservationTaskId]) {
       if (taskId) this.invalidateTask(taskId);
     }
@@ -549,6 +561,7 @@ export class BrowserControlService {
       tabId,
       debuggerAttachStarted: false,
       debuggerAttached: false,
+      externalDetachObserved: false,
     };
     this.pendingAttaches.set(tabId, pendingAttach);
     const operation = this.enqueueState(async () => {
@@ -583,8 +596,13 @@ export class BrowserControlService {
         const attachOperation = attachDebugger(source(tabId));
         void attachOperation.then(
           () => {
-            pendingAttach.debuggerAttached = true;
-            if (this.taskGeneration(taskId) !== expectedGeneration) {
+            if (!pendingAttach.externalDetachObserved) {
+              pendingAttach.debuggerAttached = true;
+            }
+            if (
+              !pendingAttach.externalDetachObserved &&
+              this.taskGeneration(taskId) !== expectedGeneration
+            ) {
               this.scheduleLateAttachTeardown(pendingAttach);
             }
           },
@@ -669,9 +687,10 @@ export class BrowserControlService {
           }
         }
         const shouldTeardown =
-          debuggerAttached ||
-          (pendingAttach.debuggerAttachStarted &&
-            this.isTaskCancellation(error));
+          !pendingAttach.externalDetachObserved &&
+          (debuggerAttached ||
+            (pendingAttach.debuggerAttachStarted &&
+              this.isTaskCancellation(error)));
         if (shouldTeardown) this.beginTeardown(tabId, taskId);
         const rollbackErrors: unknown[] = [];
         if (stagedPersisted || shouldTeardown) {
