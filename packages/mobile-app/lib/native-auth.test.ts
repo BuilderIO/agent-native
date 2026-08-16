@@ -202,7 +202,6 @@ describe("mobile parent authentication", () => {
       validateNativeSession("child-session", "https://dispatch.example"),
     ).resolves.toBeNull();
   });
-
   it("completes Google sign-in in the parent session", async () => {
     const fetchMock = vi
       .fn()

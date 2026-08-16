@@ -95,7 +95,6 @@ export async function validateNativeSession(
     return null;
   }
 }
-
 async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
   const authUrl = new URL(
     `${cleanBaseUrl(baseUrl)}/_agent-native/google/auth-url`,
