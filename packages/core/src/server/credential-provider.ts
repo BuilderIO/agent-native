@@ -992,13 +992,7 @@ export async function resolveBuilderCredentials(
   };
 }
 
-/**
- * Which lane answered a gateway-lane credential lookup.
- *
- * `gateway-deploy` means the values are the deployment's Builder-credits pair:
- * they belong to the site, not to the person chatting, so owner-facing
- * "reconnect Builder in Settings" copy must never be shown to that visitor.
- */
+/** `gateway-deploy` means the site pays, so owner-facing copy must not be shown. */
 export type BuilderGatewayLane = "identity" | "gateway-deploy";
 
 export interface BuilderGatewayCredentialsDetailed extends BuilderCredentialsDetailed {
@@ -1006,14 +1000,8 @@ export interface BuilderGatewayCredentialsDetailed extends BuilderCredentialsDet
 }
 
 /**
- * The deployment's Builder-credits pair, when it is set and not currently
- * marked bad.
- *
- * Both halves are required. The gateway answers a token with no
- * `x-builder-api-key` space id with 403 "Space ID is required for personal
- * access token authentication" before it consults any route policy, so half a
- * pair is not a usable credential — returning one would only move the failure
- * to a place with less context.
+ * Both halves required: the gateway 403s a token with no space id before it
+ * consults any route policy, so half a pair is not a usable credential.
  */
 export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
   token: string;
@@ -1038,31 +1026,16 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
 }
 
 /**
- * True when this deployment carries a Builder-credits gateway token at all.
- *
- * Deliberately weaker than "usable": a token that is present but rejected, or
- * present without its space id, still means the person chatting is a visitor on
- * a Builder-credits site who has no account and nothing to configure.
- *
- * The dev-preview pod is injected with the same `BUILDER_GATEWAY_TOKEN` as the
- * published site, but the person chatting there is the project owner in the
- * Fusion editor — they can read and act on the real reason, so the preview
- * runtime is not a visitor surface.
+ * Weaker than "usable" on purpose: a present-but-rejected token still means the
+ * reader is a visitor. Excludes the dev preview, which carries the same token but
+ * is read by the project owner.
  */
 export function isBuilderGatewayDeployConfigured(): boolean {
   if (isHostedWorkspaceRuntime()) return false;
   return Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR));
 }
 
-/**
- * Answer a failed gateway-lane call for whoever is actually reading it: the one
- * visitor line on a Builder-credits deployment, the caller's own diagnosable
- * copy everywhere else.
- *
- * Lives here, beside the lane itself, because every gateway-lane consumer needs
- * the same decision and a per-consumer copy is how one of them keeps the owner
- * copy on a visitor surface.
- */
+/** One decision for every gateway-lane consumer; a per-consumer copy drifts. */
 export function gatewayLaneUnavailableMessage(ownerFacing: string): string {
   return isBuilderGatewayDeployConfigured()
     ? GATEWAY_UNAVAILABLE_VISITOR_MESSAGE
@@ -1070,25 +1043,12 @@ export function gatewayLaneUnavailableMessage(ownerFacing: string): string {
 }
 
 /**
- * Gateway-lane Builder credentials — the lane that pays for model calls.
+ * Gateway-lane credentials. Fall-through: the request's own Builder connection,
+ * then the deployment's credits pair, then the legacy pair.
  *
- * Fall-through order, stated once here because every gateway-lane consumer
- * shares it:
- *   1. The request's own Builder connection (per-user, then org, then
- *      workspace `app_secrets`). Someone who connected their own account keeps
- *      spending their own credits.
- *   2. The deployment's Builder-credits pair (`BUILDER_GATEWAY_TOKEN` +
- *      `BUILDER_GATEWAY_SPACE_ID`). This is the only lane an anonymous visitor
- *      on a hosted site has.
- *   3. The deploy-level legacy pair, unchanged from `resolveBuilderCredentials`.
- *
- * `publicKey` is always the space id to send as `x-builder-api-key`, and this
- * resolver never returns a token without one (see
- * `resolveUsableBuilderGatewayDeployCredentials`).
- *
- * Identity-bearing Builder calls — asset/file upload, design systems, Admin
- * GraphQL, the browser agent — must keep using `resolveBuilderCredentials`: a
- * `['gateway']`-scoped token 403s on all of them.
+ * Identity-bearing calls (asset upload, design systems, Admin GraphQL, browser
+ * agent) must keep using `resolveBuilderCredentials`: a `['gateway']` token 403s
+ * on all of them.
  */
 export async function resolveBuilderGatewayCredentialsDetailed(
   identity?: BuilderCredentialLookupIdentity,
@@ -1169,33 +1129,21 @@ export async function resolveBuilderGatewayCredentials(
 export interface BuilderGatewayAuth {
   /** `Bearer <token>` for the `Authorization` header. */
   authorization: string;
-  /**
-   * Send as `x-builder-api-key` whenever it is present. Null only for a legacy
-   * single-key deployment that sets `BUILDER_PRIVATE_KEY` and nothing else; the
-   * gateway lane itself always carries a space id.
-   */
+  /** Send as `x-builder-api-key`. Null only for a legacy single-key deployment. */
   spaceId: string | null;
   /** Send as `x-builder-user-id` when the lane carries a Builder user. */
   userId: string | null;
 }
 
 /**
- * Whether a Builder-backed model call can authenticate at all, on any lane.
- *
- * The gate for gateway-lane features. `resolveHasBuilderPrivateKey` asks the
- * identity-only question, which is false on a Builder-credits site: gating a
- * gateway-lane feature on it leaves that feature dead there and answers the
- * visitor with copy telling them to connect an account they do not have.
+ * The gate for gateway-lane features. Not `resolveHasBuilderPrivateKey`, which is
+ * identity-only and false on a credits site.
  */
 export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
   return Boolean(await resolveBuilderGatewayAuth());
 }
 
-/**
- * Gateway-lane equivalent of `resolveBuilderAuthHeader`, for consumers that
- * need headers rather than the credential bundle. Same fall-through order as
- * `resolveBuilderGatewayCredentialsDetailed`.
- */
+/** Gateway-lane `resolveBuilderAuthHeader`, same fall-through order. */
 export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
   const creds = await resolveBuilderGatewayCredentialsDetailed();
   const token = creds.privateKey?.trim();
@@ -1458,13 +1406,9 @@ export async function clearProviderCredentialAuthFailure(opts: {
 }
 
 /**
- * Record a gateway rejection against whichever credential actually paid for the
- * call.
- *
- * `builderCredentialFingerprint` needs both legacy keys, so on a Builder-credits
- * site the legacy marker is a silent no-op and a rejected gateway token would be
- * resent on every turn forever. The gateway lane fingerprints the single token
- * through the provider marker instead.
+ * `builderCredentialFingerprint` needs both legacy keys, so on a credits site the
+ * legacy marker is a no-op and a rejected token would be resent forever. The
+ * gateway lane fingerprints its single token through the provider marker.
  */
 export async function recordBuilderGatewayAuthFailure(details?: {
   status?: number;
@@ -1488,11 +1432,7 @@ export async function recordBuilderGatewayAuthFailure(details?: {
   await recordBuilderCredentialAuthFailure(details);
 }
 
-/**
- * Clear both markers for a credential pair the gateway just accepted. Each call
- * is a no-op when its own fingerprint does not apply, so the caller does not
- * have to know which lane it is on.
- */
+/** Each clear is a no-op off its own lane, so callers need not know which they are on. */
 export async function clearBuilderGatewayAuthFailure(creds: {
   privateKey?: string | null;
   publicKey?: string | null;

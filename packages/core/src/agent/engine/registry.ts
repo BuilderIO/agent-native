@@ -36,12 +36,9 @@ export interface AgentEngineEnvCredentialSet {
   /** Every var here must resolve for the set to satisfy the engine. */
   envVars: string[];
   /**
-   * True when a deploy pipeline injects this set rather than the app owner
-   * configuring it. Such a set still selects the engine when nothing else
-   * resolves, but never outranks an engine holding a credential its owner set —
-   * an injected Builder-credits token must not move a customer who pasted their
-   * own provider key onto Builder credits. A credential the customer configured
-   * themselves, the legacy Builder pair included, keeps registration priority.
+   * Injected by a deploy pipeline rather than configured by the owner. Selects
+   * when nothing else resolves, but never outranks an owner-configured
+   * credential — including the legacy Builder pair, which keeps normal priority.
    */
   deployInjected?: boolean;
 }
@@ -63,12 +60,7 @@ export interface AgentEngineEntry {
   supportedModels: readonly string[];
   /** Environment variables required for this engine to work */
   requiredEnvVars: string[];
-  /**
-   * Further credential shapes that each independently satisfy this engine, for
-   * an engine whose credentials cannot be expressed as one AND-list. The Builder
-   * engine takes either the legacy key pair or a gateway token plus space id;
-   * detection treats `requiredEnvVars` and every set here as alternatives.
-   */
+  /** Alternative credential shapes; detection treats these and `requiredEnvVars` as OR. */
   alternateRequiredEnvVars?: AgentEngineEnvCredentialSet[];
   /** Create an engine instance from config */
   create(config: Record<string, unknown>): AgentEngine;
@@ -404,11 +396,7 @@ interface EngineEnvCredentialSet {
   deployInjected: boolean;
 }
 
-/**
- * Every credential set that independently satisfies this engine, in the order
- * detection should try them. The single source both detectors read, so a new
- * engine's alternates cannot be honoured by one and ignored by the other.
- */
+/** The single source both detectors read, so alternates cannot diverge between them. */
 function envCredentialSetsForEntry(
   entry: AgentEngineEntry,
 ): EngineEnvCredentialSet[] {
@@ -434,14 +422,9 @@ interface DetectedEngineEnvMatch {
 }
 
 /**
- * Pick from the engines whose env credentials resolved.
- *
- * Registration order decides, with one exception: a set the deploy pipeline
- * injects loses to any engine holding a credential its owner configured. Builder
- * is registered first, so without that exception an injected gateway token would
- * move a customer who pasted their own provider key onto Builder credits — our
- * spend, after they explicitly chose otherwise. A customer who set the legacy
- * Builder pair themselves chose Builder, so that pair keeps normal priority.
+ * Registration order decides, except that an injected set loses to any
+ * owner-configured credential. Builder is registered first, so without that
+ * exception an injected token would move a BYO customer onto Builder credits.
  */
 function selectDetectedEngine(
   matches: readonly DetectedEngineEnvMatch[],
@@ -513,16 +496,10 @@ function isBuilderLegacyEnvPair(envVars: readonly string[]): boolean {
 }
 
 /**
- * The legacy Builder pair's auth-failure marker is fingerprinted from
- * privateKey+publicKey together (see `builderCredentialFingerprint`), so the
- * per-var lookup in {@link envKeyUsableForEntry} can never match it and a
- * rejected deploy pair would keep reporting "usable" forever — the same class of
- * bug as the per-scope check in `credential-provider.ts`'s
- * `isCompleteBuilderConnection`.
- *
- * Selected by credential shape rather than engine name: whichever engine
- * declares that pair needs the paired check, and every other set — the
- * Builder-credits token included — carries a per-var marker already.
+ * The legacy pair's marker is fingerprinted from both keys together, so the
+ * per-var lookup in {@link envKeyUsableForEntry} can never match it and a rejected
+ * pair would report "usable" forever. Selected by credential shape, not engine
+ * name: every other set carries a per-var marker already.
  */
 async function hasUsableBuilderLegacyEnvPair(): Promise<boolean> {
   const privateKey = canUseDeployCredentialFallbackForRequest(
@@ -786,13 +763,8 @@ async function hasUsableBuilderConnection(
 }
 
 /**
- * Whether a builder-engine run would actually work, on either lane: the
- * request's own Builder connection, or the deployment's Builder-credits pair.
- *
- * Separate from {@link hasUsableBuilderConnection}, which answers the narrower
- * "did this user connect Builder" that drives `app_secrets` detection. A
- * preflight that asked the narrow question would report "no provider connected"
- * on every credits-only site and leave the whole lane dead.
+ * Either lane. Not {@link hasUsableBuilderConnection}, which asks the narrower
+ * "did this user connect Builder" and is false on every credits-only site.
  */
 async function canRunBuilderEngine(
   identity?: BuilderCredentialLookupIdentity,

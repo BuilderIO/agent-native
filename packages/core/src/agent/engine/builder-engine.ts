@@ -93,19 +93,13 @@ const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 export const BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE =
   "builder_model_unauthorized";
 /**
- * A truncated stream, not a rejected request: the partial turn is real and the
- * client continues it. Absent from `isRetryableError` (production-agent) on
- * purpose — an in-loop retry sends `clear` and re-runs the whole call, which is
- * what continuation exists to avoid. The code, not the sentence, is what says
- * so: on the credits lane the sentence is replaced by the visitor line.
+ * A truncated stream, not a rejected request: the client continues the partial
+ * turn, so this is absent from `isRetryableError` on purpose.
  *
- * Naming it took the classification off the message, which used to reach
- * `builder_gateway_network_error` through `classifyTerminalErrorCode`. Every
- * predicate that recognised THAT has to list this one too, or a live truncated
- * stream silently stops recovering: `isResumableEngineError`,
- * `isRecoverableContinuationError`, `shouldCaptureRunError` (run-manager),
- * `isInternalContinuationError` (thread-data-builder) and the client's
- * `sse-event-processor`.
+ * Every predicate that recognises `builder_gateway_network_error` must list this
+ * too, or a truncated stream silently stops recovering: `isResumableEngineError`,
+ * `isRecoverableContinuationError`, `shouldCaptureRunError`,
+ * `isInternalContinuationError` and the client's `sse-event-processor`.
  */
 export const BUILDER_GATEWAY_STREAM_ENDED_ERROR_CODE =
   "builder_gateway_stream_ended";
@@ -181,15 +175,8 @@ export interface BuilderEngineCredentials {
 }
 
 /**
- * Whether the deployment is paying for this call rather than the person making
- * it — and therefore whether this failure is read by a visitor with no account
- * and no settings page.
- *
- * `isBuilderGatewayDeployConfigured()` gates BOTH answers because it owns the
- * dev-preview exclusion: the preview pod is injected with the same credits token
- * as the published site, but the person chatting there is the project owner, who
- * needs the real reason. A captured lane says nothing about that, so it can only
- * narrow a deployment already known to be a visitor surface.
+ * `isBuilderGatewayDeployConfigured()` must gate both answers: it owns the
+ * dev-preview exclusion, and a captured lane cannot substitute for it.
  */
 function isBuilderCreditsLane(creds: BuilderEngineCredentials): boolean {
   if (!isBuilderGatewayDeployConfigured()) return false;
@@ -480,12 +467,7 @@ interface GatewayErrorStopDetails {
  */
 const RETRYABLE_GATEWAY_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
 
-/**
- * Mirrors the phrasings `isRetryableError` (production-agent.ts) matches. Read
- * against the RAW gateway reply, never the delivered message: on the credits
- * lane that message is replaced by one visitor line, so a branch that leaves its
- * retry decision in the text has none left.
- */
+/** Read against the RAW reply: on the credits lane the message is replaced. */
 const TRANSIENT_UPSTREAM_PATTERN =
   /overloaded|rate_limit|rate limit reached|too many requests|\b429\b|\b529\b|\b502\b|\b503\b|\b504\b|resource_exhausted|quota exceeded|socket hang up|connection reset|temporarily unavailable|timeout/i;
 
@@ -500,30 +482,15 @@ function isTransientGatewayFailure(
 }
 
 /**
- * Build a terminal stop event for a gateway rejection.
+ * EVERY terminal `reason: "error"` this module emits must go through here,
+ * including those with no HTTP response behind them. A branch building its own
+ * stop literal ships owner copy to a visitor; `gateway-error-retryability.spec.ts`
+ * fails on a second literal in this file.
  *
- * On the Builder-credits lane every rejection collapses to one visitor-facing
- * line, and the upgrade CTA is dropped: it would send a site's visitor to a
- * Builder billing page for an org they are not in. `errorCode` still carries the
- * real reason for the site owner.
- *
- * `statusCode` / `providerRetryable` survive that rewrite, and they are the only
- * retry signal production-agent's `isRetryableError` may read here: the message
- * is visitor copy that changes freely, so any keyword coupling turns a
- * retryable throttle into a dead turn on credits sites alone.
- *
- * `contextOverflow` is carried the same way and for the same reason. The gateway
- * reports an over-long prompt as a 400 `invalid_request_error` (or an in-stream
- * `reason: "invalid_request"`) whose prose is the only signal, so it is read here
- * off the RAW reply — deriving it once for every branch rather than per branch,
- * because a branch that forgets it silently loses the trim-and-retry recovery.
- *
- * EVERY terminal `reason: "error"` this module emits goes through here —
- * including the ones with no HTTP response behind them (transport failure,
- * unparseable JSONL, a stream that ended without a stop event). A branch that
- * builds its own stop literal ships the owner's copy to a visitor, and
- * `gateway-error-retryability.spec.ts` fails on a second literal appearing in
- * this file.
+ * On the credits lane the message collapses to one visitor line, so
+ * `statusCode` / `providerRetryable` / `contextOverflow` are the only retry
+ * signals downstream may read: keyword coupling to the message turns a retryable
+ * throttle into a dead turn on credits sites alone.
  */
 function gatewayErrorStop(
   details: GatewayErrorStopDetails,
@@ -1258,12 +1225,9 @@ function normalizeBuilderGatewayFetchError(
 }
 
 /**
- * A transport failure has no HTTP response to classify, so the code is derived
- * from the RAW error before `gatewayErrorStop` can replace the message with the
- * visitor line. `classifyTerminalErrorCode` is what run-manager would otherwise
- * have recovered from that text at persistence time — on the credits lane the
- * text is gone by then, and a run persisted as `unknown` reads to the client as
- * "do not attempt recovery".
+ * Derived from the RAW error before `gatewayErrorStop` replaces the message: on
+ * the credits lane run-manager has no text left to classify at persistence time,
+ * and a run persisted as `unknown` reads as "do not attempt recovery".
  */
 function createBuilderGatewayTimeoutStop(
   err: unknown,
