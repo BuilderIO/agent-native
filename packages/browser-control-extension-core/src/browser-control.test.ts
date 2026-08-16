@@ -242,6 +242,123 @@ describe("BrowserControlService", () => {
     expect(service.activeTaskCount).toBe(1);
   });
 
+  it("persists the stopped state after a cancelled handoff", async () => {
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    let resolveHandoffPersist: (() => void) | undefined;
+    persist.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveHandoffPersist = resolve;
+        }),
+    );
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(resolveHandoffPersist).toBeDefined());
+
+    const stopPromise = service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    resolveHandoffPersist?.();
+
+    const openError = await openPromise;
+    await stopPromise;
+    expect(openError).toMatchObject({ code: "TASK_HANDOFF_CANCELLED" });
+    const lastPersisted = persist.mock.calls.at(-1)?.[0] as {
+      agentNativeBrowserTaskSessions?: unknown[];
+    };
+    expect(lastPersisted.agentNativeBrowserTaskSessions).toEqual([]);
+  });
+
+  it("reserves a created tab until its handoff finishes", async () => {
+    let releaseTabLookup: (() => void) | undefined;
+    let blockNewTabLookup = true;
+    getTab.mockImplementation(
+      (tabId: number, callback: (tab: chrome.tabs.Tab) => void) => {
+        if (tabId === 77 && blockNewTabLookup) {
+          blockNewTabLookup = false;
+          releaseTabLookup = () =>
+            callback({
+              id: 77,
+              url: "https://example.com/next",
+            } as chrome.tabs.Tab);
+          return;
+        }
+        callback({
+          id: tabId,
+          url: "https://example.com/page",
+        } as chrome.tabs.Tab);
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service.execute({
+      id: "open-tab-request",
+      taskId: "task-1",
+      command: {
+        type: "open-tab",
+        url: "https://example.com/next",
+      },
+    });
+    await vi.waitFor(() => expect(releaseTabLookup).toBeDefined());
+
+    const competingError = await service
+      .execute({
+        id: "competing-attach-request",
+        taskId: "task-2",
+        command: {
+          type: "attach",
+          tabId: 77,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    releaseTabLookup?.();
+
+    await expect(openPromise).resolves.toEqual({
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+    expect(competingError).toMatchObject({ code: "TAB_ALREADY_OWNED" });
+    expect(removeTab).not.toHaveBeenCalled();
+  });
+
   it("removes a background tab when Chrome violates the inactive contract", async () => {
     createTab.mockImplementationOnce(
       (

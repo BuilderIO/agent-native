@@ -177,7 +177,9 @@ async function releaseInjectedInput(tabId: number): Promise<void> {
 export class BrowserControlService {
   private readonly sessions = new Map<string, TaskSession>();
   private readonly tabOwners = new Map<number, string>();
+  private readonly tabReservations = new Map<number, string>();
   private readonly taskQueues = new Map<string, Promise<unknown>>();
+  private stateQueue: Promise<void> = Promise.resolve();
   private persistQueue: Promise<void> = Promise.resolve();
 
   get activeTaskCount(): number {
@@ -236,13 +238,15 @@ export class BrowserControlService {
     this.sessions.clear();
     this.tabOwners.clear();
     this.taskQueues.clear();
-    await Promise.allSettled(
-      sessions.map(async (session) => {
-        await releaseInjectedInput(session.tabId);
-        await detachDebugger(source(session.tabId));
-      }),
-    );
-    await this.persist();
+    await this.enqueueState(async () => {
+      await Promise.allSettled(
+        sessions.map(async (session) => {
+          await releaseInjectedInput(session.tabId);
+          await detachDebugger(source(session.tabId));
+        }),
+      );
+      await this.persist();
+    });
   }
 
   async handleDebuggerDetach(tabId: number): Promise<void> {
@@ -250,7 +254,7 @@ export class BrowserControlService {
     if (!taskId) return;
     this.tabOwners.delete(tabId);
     this.sessions.delete(taskId);
-    await this.persist();
+    await this.enqueueState(() => this.persist());
   }
 
   async enforceTabOrigin(
@@ -317,6 +321,13 @@ export class BrowserControlService {
     expectedSession?: TaskSession,
   ): Promise<{ tabId: number; origin: string }> {
     this.assertExpectedSession(taskId, expectedSession);
+    const reservationOwner = this.tabReservations.get(tabId);
+    if (reservationOwner && reservationOwner !== taskId) {
+      throw new BrowserControlError(
+        "TAB_ALREADY_OWNED",
+        "Another task already controls this tab.",
+      );
+    }
     const owner = this.tabOwners.get(tabId);
     if (owner && owner !== taskId) {
       throw new BrowserControlError(
@@ -343,23 +354,12 @@ export class BrowserControlService {
       this.assertExpectedSession(taskId, expectedSession);
       await sendDebuggerCommand(source(tabId), "Accessibility.enable");
       this.assertExpectedSession(taskId, expectedSession);
-      const currentTab = await this.assertSessionAllowed(session);
-      this.assertExpectedSession(taskId, expectedSession);
-      const stagedSessions = new Map(this.sessions);
-      stagedSessions.set(taskId, session);
-      await this.persist(stagedSessions.values());
-      this.assertExpectedSession(taskId, expectedSession);
-      if (previous && previous.tabId !== tabId) {
-        this.tabOwners.delete(previous.tabId);
-      }
-      this.sessions.set(taskId, session);
-      this.tabOwners.set(tabId, taskId);
-      if (previous && previous.tabId !== tabId) {
-        await releaseInjectedInput(previous.tabId);
-        await detachDebugger(source(previous.tabId));
-      }
-      this.assertSessionCurrent(taskId, session);
-      return { tabId, origin: new URL(currentTab.url!).origin };
+      return await this.commitAttach(
+        taskId,
+        session,
+        previous,
+        expectedSession,
+      );
     } catch (error) {
       await detachDebugger(source(tabId));
       throw error;
@@ -372,9 +372,11 @@ export class BrowserControlService {
     this.sessions.delete(taskId);
     this.tabOwners.delete(session.tabId);
     this.taskQueues.delete(taskId);
-    await releaseInjectedInput(session.tabId);
-    await detachDebugger(source(session.tabId));
-    await this.persist();
+    await this.enqueueState(async () => {
+      await releaseInjectedInput(session.tabId);
+      await detachDebugger(source(session.tabId));
+      await this.persist();
+    });
   }
 
   private getSession(taskId: string): TaskSession {
@@ -426,6 +428,45 @@ export class BrowserControlService {
       throw error;
     }
     return tab;
+  }
+
+  private async commitAttach(
+    taskId: string,
+    session: TaskSession,
+    previous: TaskSession | undefined,
+    expectedSession: TaskSession | undefined,
+  ): Promise<{ tabId: number; origin: string }> {
+    return this.enqueueState(async () => {
+      const previousSessions = new Map(this.sessions);
+      let stagedPersisted = false;
+      try {
+        const currentTab = await this.assertSessionAllowed(session);
+        this.assertExpectedSession(taskId, expectedSession);
+        const stagedSessions = new Map(previousSessions);
+        stagedSessions.set(taskId, session);
+        await this.persist(stagedSessions.values());
+        stagedPersisted = true;
+        const committedTab = await this.assertSessionAllowed(session);
+        this.assertExpectedSession(taskId, expectedSession);
+        if (previous && previous.tabId !== session.tabId) {
+          this.tabOwners.delete(previous.tabId);
+        }
+        this.sessions.set(taskId, session);
+        this.tabOwners.set(session.tabId, taskId);
+        if (previous && previous.tabId !== session.tabId) {
+          await releaseInjectedInput(previous.tabId);
+          await detachDebugger(source(previous.tabId));
+        }
+        this.assertSessionCurrent(taskId, session);
+        return {
+          tabId: session.tabId,
+          origin: new URL(committedTab.url ?? currentTab.url!).origin,
+        };
+      } catch (error) {
+        if (stagedPersisted) await this.persist(previousSessions.values());
+        throw error;
+      }
+    });
   }
 
   private async revalidate(taskId: string): Promise<TaskSession> {
@@ -705,6 +746,7 @@ export class BrowserControlService {
         );
       }
       createdTabId = tab.id;
+      this.tabReservations.set(createdTabId, taskId);
       if (tab.active !== false) {
         throw new BrowserControlError(
           "TAB_NOT_BACKGROUND",
@@ -716,7 +758,14 @@ export class BrowserControlService {
     } catch (error) {
       if (createdTabId !== undefined) {
         try {
-          await removeTab(createdTabId);
+          const owner = this.tabOwners.get(createdTabId);
+          const reservationOwner = this.tabReservations.get(createdTabId);
+          if (
+            (!owner || owner === taskId) &&
+            (!reservationOwner || reservationOwner === taskId)
+          ) {
+            await removeTab(createdTabId);
+          }
         } catch (cleanupError) {
           const failure =
             error instanceof Error ? error.message : "Tab handoff failed.";
@@ -731,7 +780,23 @@ export class BrowserControlService {
         }
       }
       throw error;
+    } finally {
+      if (
+        createdTabId !== undefined &&
+        this.tabReservations.get(createdTabId) === taskId
+      ) {
+        this.tabReservations.delete(createdTabId);
+      }
     }
+  }
+
+  private enqueueState<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.stateQueue.then(operation);
+    this.stateQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private async scroll(
