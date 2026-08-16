@@ -53,6 +53,7 @@ function appFixture(): DesktopIdentityApp {
       "an_mail.session_token",
       "__Secure-an_mail.session_token",
     ],
+    workspaceSso: true,
     session: {
       cookies: cookieStore(),
       fetch: vi.fn(async () => new Response(null, { status: 200 })),
@@ -267,6 +268,452 @@ describe("Desktop identity navigation boundaries", () => {
 });
 
 describe("DesktopIdentityBroker", () => {
+  it("authenticates from the parent surface and fans the session out", async () => {
+    const authority = authorityFixture();
+    const authorityCookies = cookieStore();
+    authority.session = {
+      cookies: authorityCookies,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/login")) {
+        await identityCookies.set({
+          url: authority.origin,
+          name: "an_session_dispatch",
+          value: "new-session",
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ email: "steve@example.com" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const createWindow = vi.fn(() => {
+      let didNavigate:
+        | ((event: unknown, url: string, statusCode: number) => void)
+        | undefined;
+      const webContents = {
+        on: vi.fn((event: string, handler: typeof didNavigate) => {
+          if (event === "did-navigate") didNavigate = handler;
+        }),
+        setWindowOpenHandler: vi.fn(),
+      };
+      return {
+        webContents,
+        loadURL: vi.fn(async (url: string) => {
+          const returnPath = new URL(url).searchParams.get("return");
+          queueMicrotask(() =>
+            didNavigate?.(
+              {},
+              new URL(returnPath!, new URL(url).origin).toString(),
+              200,
+            ),
+          );
+        }),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as never;
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-in",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual({ ok: true, email: "steve@example.com" });
+
+    expect(identityFetch).toHaveBeenCalledWith(
+      `${authority.origin}/_agent-native/auth/login`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "steve@example.com",
+          password: "not-logged-or-stored",
+        }),
+      }),
+    );
+    expect(authorityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "new-session",
+      }),
+    );
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(createWindow).toHaveBeenCalledOnce();
+  });
+
+  it("adopts a normal Dispatch login into the isolated identity session", async () => {
+    const authority = authorityFixture();
+    const authorityCookies = cookieStore([
+      sessionCookie(
+        "an_session_dispatch",
+        authority.origin,
+        "dispatch-session",
+      ),
+    ]);
+    authority.session = {
+      cookies: authorityCookies,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore();
+    const identityFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ email: "steve@example.com" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const createWindow = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: createWindow as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.adoptAppSession(authority.id)).resolves.toBe(true);
+
+    expect(identityFetch).toHaveBeenCalledWith(
+      `${authority.origin}/_agent-native/auth/session`,
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(identityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "dispatch-session",
+      }),
+    );
+    expect(identityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session",
+        value: "dispatch-session",
+      }),
+    );
+    expect(createWindow).not.toHaveBeenCalled();
+    expect(broker.getStatus()).toBe("signed-in");
+  });
+
+  it("maps a normal app session into the Dispatch authority before verifying it", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "shared-session"),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    authority.session = {
+      cookies: cookieStore([
+        sessionCookie(
+          "an_session_dispatch",
+          authority.origin,
+          "shared-session",
+        ),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore();
+    const identityFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ email: "steve@example.com" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) =>
+        id === source.id ? source : id === authority.id ? authority : null,
+      listApps: () => [source, authority],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(true);
+
+    expect(identityFetch).toHaveBeenCalledOnce();
+    expect(identityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "shared-session",
+      }),
+    );
+    expect(broker.getStatus()).toBe("signed-in");
+  });
+
+  it("fans a verified parent login out to built-in and opted-in workspace apps", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "shared-session"),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    authority.session = {
+      cookies: cookieStore([
+        sessionCookie(
+          "an_session_dispatch",
+          authority.origin,
+          "previous-session",
+        ),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const calendar = {
+      ...appFixture(),
+      id: "calendar",
+      origin: "https://calendar.agent-native.com",
+      cookieNames: ["an_session_calendar", "an_session"],
+      cookieNamesToClear: ["an_session_calendar", "an_session"],
+    };
+    calendar.session = {
+      cookies: cookieStore([
+        sessionCookie(
+          "an_session_calendar",
+          calendar.origin,
+          "previous-session",
+        ),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const custom = {
+      ...appFixture(),
+      id: "custom-workspace-app",
+      origin: "https://custom.example",
+      cookieNames: ["an_session_custom_workspace_app", "an_session"],
+      cookieNamesToClear: ["an_session_custom_workspace_app", "an_session"],
+    };
+    const untrusted = {
+      ...appFixture(),
+      id: "untrusted-workspace-app",
+      origin: "https://untrusted.example",
+      workspaceSso: false,
+    };
+    const identityCookies = cookieStore();
+    const identityFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ email: "steve@example.com" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const windows: Array<{
+      webContents: {
+        on: ReturnType<typeof vi.fn>;
+        setWindowOpenHandler: ReturnType<typeof vi.fn>;
+      };
+      loadURL: ReturnType<typeof vi.fn>;
+      isDestroyed: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+      on: ReturnType<typeof vi.fn>;
+    }> = [];
+    const createWindow = vi.fn(() => {
+      let didNavigate:
+        | ((event: unknown, url: string, statusCode: number) => void)
+        | null = null;
+      const webContents = {
+        on: vi.fn((event: string, handler: typeof didNavigate) => {
+          if (event === "did-navigate") didNavigate = handler;
+        }),
+        setWindowOpenHandler: vi.fn(),
+      };
+      const identityWindow = {
+        webContents,
+        loadURL: vi.fn(async (url: string) => {
+          queueMicrotask(() => didNavigate?.({}, url, 200));
+        }),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn(),
+      };
+      windows.push(identityWindow);
+      return identityWindow as never;
+    });
+    const apps = [source, authority, calendar, custom, untrusted];
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveLoginRedirect: vi.fn(async (loginUrl: string) => {
+        const returnPath = new URL(loginUrl).searchParams.get("return")!;
+        return new URL(returnPath, new URL(loginUrl).origin).toString();
+      }),
+      resolveApp: (id) => apps.find((app) => app.id === id) ?? null,
+      listApps: () => apps,
+      createWindow,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(true);
+
+    expect(createWindow).toHaveBeenCalledTimes(3);
+    expect(windows).toHaveLength(3);
+    expect(authority.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "shared-session",
+      }),
+    );
+    expect(calendar.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session",
+        value: "shared-session",
+      }),
+    );
+    expect(custom.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session",
+        value: "shared-session",
+      }),
+    );
+    expect(untrusted.session.cookies.set).not.toHaveBeenCalled();
+    expect(broker.getStatus()).toBe("signed-in");
+  });
+
+  it("restores the previous identity session when authority synchronization fails", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "new-session"),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    const identityCookies = cookieStore([
+      sessionCookie(
+        "an_session_dispatch",
+        authority.origin,
+        "previous-session",
+      ),
+    ]);
+    const identityFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ email: "steve@example.com" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveLoginRedirect: vi.fn(async () => null),
+      resolveApp: (id) =>
+        id === source.id ? source : id === authority.id ? authority : null,
+      listApps: () => [source, authority],
+      createWindow: vi.fn() as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(false);
+
+    expect(await identityCookies.get()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "an_session_dispatch",
+          value: "previous-session",
+        }),
+      ]),
+    );
+    expect(reloadApp).toHaveBeenCalledWith(authority);
+    expect(broker.getStatus()).toBe("idle");
+  });
+
+  it("fails closed and restores an existing identity session for an invalid app cookie", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "invalid-session"),
+      ]),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    const identityCookies = cookieStore([
+      sessionCookie(
+        "an_session_dispatch",
+        authority.origin,
+        "existing-session",
+      ),
+    ]);
+    const identityFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "Not authenticated" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) =>
+        id === source.id ? source : id === authority.id ? authority : null,
+      listApps: () => [source, authority],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(false);
+
+    const restored = await identityCookies.get();
+    expect(restored).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "an_session_dispatch",
+          value: "existing-session",
+        }),
+      ]),
+    );
+    expect(broker.getStatus()).toBe("idle");
+  });
+
   it("refuses explicit workspace sign-in when the Dispatch authority is unavailable", async () => {
     const app = appFixture();
     const createWindow = vi.fn();

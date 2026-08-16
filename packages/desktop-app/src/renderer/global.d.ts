@@ -715,9 +715,11 @@ interface ElectronAPI {
     onKeydown(
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): () => void;
     loadBindings(): Promise<DesktopShortcutSettings>;
@@ -735,6 +737,11 @@ interface ElectronAPI {
     getStatus(): Promise<DesktopIdentityStatus>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
+    authenticate(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityAuthRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityAuthResult
+    >;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
   };
@@ -890,6 +897,9 @@ interface ElectronAPI {
 
   appConfig: {
     load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    loadWorkspace?(): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    >;
     add(
       app: import("@agent-native/shared-app-config").AppConfig,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;

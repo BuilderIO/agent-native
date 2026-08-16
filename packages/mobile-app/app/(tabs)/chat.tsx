@@ -1,4 +1,3 @@
-import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import {
   IconCopy,
   IconGitFork,
@@ -8,7 +7,7 @@ import {
   IconSquareRoundedPlus,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,7 +22,6 @@ import {
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
-import AppWebView from "@/components/AppWebView";
 import {
   ChatSettingsSheet,
   DEFAULT_CHAT_SETTINGS,
@@ -36,6 +34,8 @@ import {
   type ChatTarget,
 } from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
+import { ComputerConnectSheet } from "@/components/ComputerConnectSheet";
+import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import {
   ModalSafeAreaProvider,
   SafeAreaView,
@@ -44,7 +44,6 @@ import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
-import { getAppUrl } from "@/lib/get-app-url";
 import {
   appendRemoteFollowUp,
   createRemoteRun,
@@ -57,8 +56,6 @@ import {
   type RemoteTranscriptEvent,
 } from "@/lib/remote-sessions-api";
 import { getSessionToken } from "@/lib/session-token-store";
-
-const chatApp = TEMPLATE_APPS.find((a) => a.id === "chat")!;
 
 type AuthState = "checking" | "connected" | "signed-out";
 
@@ -194,7 +191,6 @@ function ComputerMessages({
 }
 
 export default function ChatTab() {
-  const router = useRouter();
   const isWebPreview =
     __DEV__ &&
     Platform.OS === "web" &&
@@ -206,6 +202,7 @@ export default function ChatTab() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
+  const [connectComputerOpen, setConnectComputerOpen] = useState(false);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
@@ -352,8 +349,7 @@ export default function ChatTab() {
       const prompt = text.trim();
       if (!prompt || remoteSending) return;
       if (!selectedRemoteHostId) {
-        setNotice("Connect a computer first");
-        router.push("/sessions" as never);
+        setConnectComputerOpen(true);
         return;
       }
 
@@ -411,7 +407,6 @@ export default function ChatTab() {
       remoteRun,
       remoteSending,
       refreshRemoteTranscript,
-      router,
       selectedRemoteHostId,
       settings.engine,
       settings.effort,
@@ -480,27 +475,22 @@ export default function ChatTab() {
         >
           <IconMenu2 color="#fafafa" size={21} strokeWidth={1.9} />
         </HeaderButton>
-        <Text className="flex-1 text-white text-[17px] font-bold pl-2">
-          Chat
-        </Text>
-        <HeaderButton label="Share chat" onPress={shareThread}>
-          <IconShare2 color="#fafafa" size={19} strokeWidth={1.9} />
-        </HeaderButton>
-        <HeaderButton label="New chat" onPress={startNewChat}>
-          <IconSquareRoundedPlus color="#fafafa" size={20} strokeWidth={1.9} />
-        </HeaderButton>
+        <View className="flex-1" />
+        {chat.messages.length > 0 || remoteEvents.length > 0 ? (
+          <>
+            <HeaderButton label="Share chat" onPress={shareThread}>
+              <IconShare2 color="#fafafa" size={19} strokeWidth={1.9} />
+            </HeaderButton>
+            <HeaderButton label="New chat" onPress={startNewChat}>
+              <IconSquareRoundedPlus
+                color="#fafafa"
+                size={20}
+                strokeWidth={1.9}
+              />
+            </HeaderButton>
+          </>
+        ) : null}
       </View>
-
-      {authState === "connected" ? (
-        <MobileWorkspaceControls
-          target={chatTarget}
-          hosts={remoteHosts}
-          selectedHostId={selectedRemoteHostId}
-          onTargetChange={setChatTarget}
-          onHostChange={setSelectedRemoteHostId}
-          onConnectComputer={() => router.push("/sessions" as never)}
-        />
-      ) : null}
 
       <KeyboardAvoidingView
         behavior="padding"
@@ -537,7 +527,7 @@ export default function ChatTab() {
                 events={remoteEvents}
                 loading={remoteLoading}
                 host={selectedRemoteHost}
-                onConnect={() => router.push("/sessions" as never)}
+                onConnect={() => setConnectComputerOpen(true)}
               />
             ) : chat.historyLoading ? (
               <View className="flex-1 items-center justify-center">
@@ -558,22 +548,33 @@ export default function ChatTab() {
           </>
         )}
         {authState === "connected" ? (
-          <Composer
-            isStreaming={
-              chatTarget === "computer" ? remoteSending : chat.isStreaming
-            }
-            settings={settings}
-            baseUrl={chat.baseUrl}
-            onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}
-            onStop={chatTarget === "computer" ? handleRemoteStop : chat.stop}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onToggleMode={() =>
-              setSettings({
-                ...settings,
-                mode: settings.mode === "plan" ? undefined : "plan",
-              })
-            }
-          />
+          <>
+            <MobileWorkspaceControls
+              target={chatTarget}
+              hosts={remoteHosts}
+              selectedHostId={selectedRemoteHostId}
+              onTargetChange={setChatTarget}
+              onHostChange={setSelectedRemoteHostId}
+              onConnectComputer={() => setConnectComputerOpen(true)}
+            />
+            <Composer
+              isStreaming={
+                chatTarget === "computer" ? remoteSending : chat.isStreaming
+              }
+              settings={settings}
+              baseUrl={chat.baseUrl}
+              onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}
+              onStop={chatTarget === "computer" ? handleRemoteStop : chat.stop}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onToggleMode={() =>
+                setSettings({
+                  ...settings,
+                  mode: settings.mode === "plan" ? undefined : "plan",
+                })
+              }
+              onSelectMode={(mode) => setSettings({ ...settings, mode })}
+            />
+          </>
         ) : null}
       </KeyboardAvoidingView>
 
@@ -634,33 +635,19 @@ export default function ChatTab() {
         onClose={() => setSettingsOpen(false)}
       />
 
-      <Modal
+      <NativeSignInSheet
         visible={signInOpen}
-        animationType="slide"
-        onRequestClose={() => setSignInOpen(false)}
-      >
-        <ModalSafeAreaProvider style={{ flex: 1 }}>
-          <SafeAreaView
-            edges={["top", "bottom"]}
-            className="flex-1 bg-background-dark"
-          >
-            <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
-              <Text className="px-2 text-[17px] font-bold text-foreground">
-                Sign in to Chat
-              </Text>
-              <HeaderButton
-                label="Close sign in"
-                onPress={() => setSignInOpen(false)}
-              >
-                <Text className="text-[15px] font-semibold text-text-muted">
-                  Close
-                </Text>
-              </HeaderButton>
-            </View>
-            <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
-          </SafeAreaView>
-        </ModalSafeAreaProvider>
-      </Modal>
+        onClose={() => setSignInOpen(false)}
+        onSignedIn={async () => {
+          setSignInOpen(false);
+          await refreshAuth();
+        }}
+      />
+      <ComputerConnectSheet
+        visible={connectComputerOpen}
+        onClose={() => setConnectComputerOpen(false)}
+        onRefresh={refreshRemoteHosts}
+      />
     </SafeAreaView>
   );
 }

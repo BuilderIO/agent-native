@@ -36,10 +36,32 @@ describe("DesktopIdentityGate", () => {
       );
     });
 
-    expect(container.textContent).toContain("Create your Agent Native account");
+    expect(container.textContent).toContain("Sign in to Agent Native");
     expect(container.textContent).toContain("magic link");
-    container.querySelector("button")?.click();
+    container
+      .querySelector(".desktop-identity-gate__alternate")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("renders the parent-owned credential form", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <DesktopIdentityGate
+          appName="Mail"
+          status="sign-in-required"
+          onSignIn={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector('input[type="email"]')).not.toBeNull();
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
+    expect(container.querySelector("form")).not.toBeNull();
   });
 
   it("keeps the app covered while the isolated Electron ceremony is open", () => {
@@ -57,7 +79,7 @@ describe("DesktopIdentityGate", () => {
       );
     });
 
-    expect(container.textContent).toContain("Finish signing in");
+    expect(container.textContent).toContain("Opening your workspace");
     expect(container.querySelector("button")).toBeNull();
   });
 

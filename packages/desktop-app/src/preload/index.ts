@@ -52,6 +52,8 @@ import {
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppRuntimeStatus,
+  type DesktopIdentityAuthRequest,
+  type DesktopIdentityAuthResult,
   type DesktopIdentityStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
@@ -155,18 +157,22 @@ const electronAPI = {
     onKeydown: (
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): (() => void) => {
       const handler = (
         _: Electron.IpcRendererEvent,
         info: {
           key: string;
+          code?: string;
           shiftKey: boolean;
           altKey?: boolean;
           ctrlKey?: boolean;
+          metaKey?: boolean;
         },
       ) => cb(info);
       ipcRenderer.on("shortcut:keydown", handler);
@@ -198,6 +204,9 @@ const electronAPI = {
   /** App config management */
   appConfig: {
     load: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
+    loadWorkspace: (): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    > => ipcRenderer.invoke(IPC.APPS_LOAD_WORKSPACE),
     add: (app: AppConfig): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_ADD, app),
     remove: (id: string): Promise<AppConfig[]> =>
@@ -252,6 +261,10 @@ const electronAPI = {
     getAvailability: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
+    authenticate: (
+      request: DesktopIdentityAuthRequest,
+    ): Promise<DesktopIdentityAuthResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_AUTHENTICATE, request),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (
       cb: (status: DesktopIdentityStatus) => void,

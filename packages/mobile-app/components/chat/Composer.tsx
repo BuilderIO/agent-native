@@ -4,6 +4,7 @@ import {
   IconBolt,
   IconBulb,
   IconCamera,
+  IconCheck,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
@@ -292,6 +293,7 @@ export function Composer({
   onStop,
   onOpenSettings,
   onToggleMode,
+  onSelectMode,
 }: {
   isStreaming: boolean;
   settings: AgentChatSettings;
@@ -304,6 +306,7 @@ export function Composer({
   onStop: () => void;
   onOpenSettings: () => void;
   onToggleMode: () => void;
+  onSelectMode?: (mode: "plan" | undefined) => void;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
@@ -313,6 +316,7 @@ export function Composer({
   const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [menuScreen, setMenuScreen] = useState<"main" | "skill">("main");
   const [actionTag, setActionTag] = useState<ActionTag | null>(null);
 
@@ -497,6 +501,15 @@ export function Composer({
     onOpenSettings();
   };
 
+  const selectMode = (mode: "plan" | undefined) => {
+    if (onSelectMode) {
+      onSelectMode(mode);
+    } else if (mode !== settings.mode) {
+      onToggleMode();
+    }
+    setModeMenuOpen(false);
+  };
+
   return (
     <View className="px-3 pt-2 pb-1">
       {attachments.length > 0 && (
@@ -648,9 +661,9 @@ export function Composer({
 
             <Pressable
               className="flex-row items-center gap-1 py-1 px-1 rounded-lg active:opacity-75"
-              onPress={onToggleMode}
+              onPress={() => setModeMenuOpen(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Mode ${settings.mode === "plan" ? "Plan" : "Act"} — tap to toggle`}
+              accessibilityLabel={`Choose mode, currently ${settings.mode === "plan" ? "Plan" : "Act"}`}
             >
               <Text
                 className={`text-[13px] font-medium ${
@@ -711,6 +724,65 @@ export function Composer({
           </View>
         </View>
       </View>
+
+      <Modal
+        visible={modeMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModeMenuOpen(false)}
+      >
+        <ModalSafeAreaProvider style={{ flex: 1 }}>
+          <Pressable
+            className="flex-1 justify-end bg-black/45"
+            onPress={() => setModeMenuOpen(false)}
+            accessibilityLabel="Dismiss mode picker"
+          >
+            <Pressable className="mx-3 mb-28 overflow-hidden rounded-2xl border border-border-dark bg-card-dark shadow-2xl">
+              <View className="flex-row items-center justify-between border-b border-border-dark px-4 py-3">
+                <Text className="text-white text-[15px] font-semibold">
+                  Mode
+                </Text>
+                <Pressable
+                  className="p-1 active:opacity-75"
+                  onPress={() => setModeMenuOpen(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close mode picker"
+                >
+                  <IconX color="#71717a" size={18} strokeWidth={2.2} />
+                </Pressable>
+              </View>
+              {(
+                [
+                  ["plan", "Plan mode"],
+                  [undefined, "Act mode"],
+                ] as const
+              ).map(([mode, label]) => (
+                <Pressable
+                  key={label}
+                  className="flex-row items-center justify-between border-b border-border-dark px-4 py-3.5 active:bg-white/5"
+                  onPress={() => selectMode(mode)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: settings.mode === mode }}
+                  accessibilityLabel={label}
+                >
+                  <Text
+                    className={`text-[15px] ${
+                      settings.mode === mode
+                        ? "font-semibold text-white"
+                        : "text-text-light"
+                    }`}
+                  >
+                    {label}
+                  </Text>
+                  {settings.mode === mode ? (
+                    <IconCheck color="#f4f4f5" size={17} strokeWidth={2.2} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </Pressable>
+          </Pressable>
+        </ModalSafeAreaProvider>
+      </Modal>
 
       <Modal
         visible={plusMenuOpen}

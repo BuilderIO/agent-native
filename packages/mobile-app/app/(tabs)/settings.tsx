@@ -28,6 +28,10 @@ import DictationSettings from "@/components/DictationSettings";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { supportsMobileTab } from "@/lib/mobile-app-navigation";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
+import {
+  setNativeAppAuthEnabled,
+  useNativeAppAuthEnabled,
+} from "@/lib/native-app-auth";
 import { useApps } from "@/lib/use-apps";
 
 const SWITCH_COLORS = {
@@ -130,6 +134,7 @@ export default function SettingsScreen() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingApp, setEditingApp] = useState<AppConfig | undefined>();
   const [tabLimitNotice, setTabLimitNotice] = useState<string | null>(null);
+  const nativeAppAuthEnabled = useNativeAppAuthEnabled();
 
   const handleToggle = useCallback(
     (id: string, enabled: boolean) => {
@@ -206,6 +211,17 @@ export default function SettingsScreen() {
           <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
             Settings
           </Text>
+        </View>
+
+        <SectionLabel>AUTHENTICATION</SectionLabel>
+        <View className="flex-row items-center justify-between border-b border-gray-dark px-4 py-3">
+          <Text className="flex-1 text-text-light text-[15px] font-medium">
+            Shared app sign-in
+          </Text>
+          <IOSBlueSwitch
+            value={nativeAppAuthEnabled}
+            onValueChange={(value) => void setNativeAppAuthEnabled(value)}
+          />
         </View>
 
         <SectionLabel>BOTTOM TABS</SectionLabel>

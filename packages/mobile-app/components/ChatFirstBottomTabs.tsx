@@ -3,11 +3,7 @@ import { IconDots, IconMessageCircle } from "@tabler/icons-react-native";
 import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
 import { Pressable, Text, View } from "react-native";
 
-import {
-  appAccentBackgroundColor,
-  appAccentColor,
-  AppIcon,
-} from "@/components/AppCard";
+import { AppIcon } from "@/components/AppCard";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
 import { useApps } from "@/lib/use-apps";
@@ -35,8 +31,6 @@ function TabButton({
   active: boolean;
   onPress: () => void;
 }) {
-  const accentColor = item.app ? appAccentColor(item.app) : ICON_COLOR;
-
   return (
     <Pressable
       accessibilityRole="tab"
@@ -49,17 +43,15 @@ function TabButton({
       <View
         className="h-7 w-9 items-center justify-center rounded-lg"
         style={{
-          backgroundColor: active
-            ? item.app
-              ? appAccentBackgroundColor(accentColor)
-              : "#27272a"
-            : item.app
-              ? appAccentBackgroundColor(accentColor)
-              : "transparent",
+          backgroundColor: active ? "#27272a" : "transparent",
         }}
       >
         {item.app ? (
-          <AppIcon iconName={item.app.icon} size={18} color={accentColor} />
+          <AppIcon
+            iconName={item.app.icon}
+            size={18}
+            color={active ? "#fafafa" : ICON_COLOR}
+          />
         ) : item.key === "more" ? (
           <IconDots
             color={active ? "#fafafa" : ICON_COLOR}

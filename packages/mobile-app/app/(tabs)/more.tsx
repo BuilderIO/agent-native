@@ -1,20 +1,30 @@
 import {
   IconChevronRight,
   IconSettings,
-  IconTerminal2,
+  IconWorld,
 } from "@tabler/icons-react-native";
 import { useRouter } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import AppCard from "@/components/AppCard";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useApps } from "@/lib/use-apps";
+import { useWorkspaceApps } from "@/lib/workspace-apps";
 
 export default function AppsScreen() {
   const router = useRouter();
-  const { enabledApps } = useApps();
+  const { enabledApps: localApps } = useApps();
+  const workspace = useWorkspaceApps();
+  const [scope, setScope] = useState<"workspace" | "local">("local");
+
+  useEffect(() => {
+    setScope(workspace.enabled ? "workspace" : "local");
+  }, [workspace.enabled]);
+
+  const showingWorkspace = workspace.enabled && scope === "workspace";
+  const enabledApps = showingWorkspace ? workspace.apps : localApps;
 
   const openApp = useCallback(
     (id: string) => {
@@ -40,40 +50,68 @@ export default function AppsScreen() {
           </Pressable>
         </View>
 
-        <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px] mb-2.5 mt-7">
-          WORKSPACE APPS
-        </Text>
-        <View className="flex-row flex-wrap -mx-[6px]">
-          {enabledApps.map((app) => (
-            <View key={app.id} className="w-[50%]">
-              <AppCard app={app} onPress={() => openApp(app.id)} />
-            </View>
-          ))}
-        </View>
-
-        <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px] mb-2.5 mt-7">
-          NATIVE TOOLS
-        </Text>
-        <View className="bg-card-dark border border-border-dark rounded-2xl overflow-hidden">
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push("/sessions" as never)}
-            className="flex-row items-center px-3.5 py-3.5 active:bg-white/5"
-          >
-            <View className="items-center justify-center bg-gray-charcoal rounded-xl h-10 w-10">
-              <IconTerminal2 color="#d4d4d8" size={19} strokeWidth={1.8} />
-            </View>
-            <Text className="text-text-light text-[15px] font-semibold flex-1 ml-3">
-              Sessions
+        {workspace.enabled ? (
+          <View className="mt-7 mb-1">
+            <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px] mb-2.5">
+              APPS IN
             </Text>
-            <IconChevronRight color="#71717a" size={19} />
-          </Pressable>
-        </View>
+            <View className="flex-row rounded-xl border border-border-dark bg-card-dark p-1">
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: showingWorkspace }}
+                onPress={() => setScope("workspace")}
+                className={`flex-1 flex-row items-center justify-center rounded-lg py-2 ${showingWorkspace ? "bg-gray-charcoal" : ""}`}
+              >
+                <IconWorld color="#d4d4d8" size={15} strokeWidth={1.8} />
+                <Text className="text-text-light text-xs font-semibold ml-1.5">
+                  Workspace
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: !showingWorkspace }}
+                onPress={() => setScope("local")}
+                className={`flex-1 rounded-lg py-2 items-center justify-center ${!showingWorkspace ? "bg-gray-charcoal" : ""}`}
+              >
+                <Text className="text-text-light text-xs font-semibold">
+                  Local
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
+        <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px] mb-2.5 mt-7">
+          {workspace.enabled && !showingWorkspace
+            ? "LOCAL APPS"
+            : "WORKSPACE APPS"}
+        </Text>
+        {enabledApps.length > 0 ? (
+          <View className="flex-row flex-wrap -mx-[6px]">
+            {enabledApps.map((app) => (
+              <View key={app.id} className="w-[50%]">
+                <AppCard app={app} onPress={() => openApp(app.id)} />
+              </View>
+            ))}
+          </View>
+        ) : showingWorkspace ? (
+          <View className="rounded-2xl border border-border-dark bg-card-dark px-4 py-5">
+            <Text className="text-text-light text-sm font-semibold">
+              No workspace apps yet
+            </Text>
+            <Text className="text-status-gray text-xs mt-1">
+              Apps added to this workspace will appear here.
+            </Text>
+          </View>
+        ) : null}
+
+        <Text className="text-status-gray text-[11px] font-bold tracking-[1.2px] mb-2.5 mt-7">
+          TOOLS
+        </Text>
         <Pressable
           accessibilityRole="button"
           onPress={() => router.push("/settings" as never)}
-          className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row mt-4 p-[14px] active:opacity-75"
+          className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row p-[14px] active:opacity-75"
         >
           <View className="items-center bg-gray-charcoal rounded-xl h-[42px] w-[42px] justify-center">
             <IconSettings color="#d4d4d8" size={20} strokeWidth={1.8} />

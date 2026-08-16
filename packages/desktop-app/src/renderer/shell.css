@@ -634,6 +634,66 @@ body {
   flex-wrap: nowrap;
 }
 
+.desktop-workspace-scope-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+  padding: 2px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.45);
+}
+
+.desktop-workspace-scope-picker__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    color var(--ease),
+    box-shadow var(--ease);
+}
+
+.desktop-workspace-scope-picker__item:hover,
+.desktop-workspace-scope-picker__item:focus-visible {
+  color: hsl(var(--foreground));
+}
+
+.desktop-workspace-scope-picker__item:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.55);
+  outline-offset: 1px;
+}
+
+.desktop-workspace-scope-picker__item--active {
+  background: hsl(var(--card));
+  box-shadow: 0 1px 2px hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground));
+}
+
+.desktop-workspace-scope-picker__rail {
+  padding: 8px 10px 6px;
+}
+
+.desktop-workspace-scope-picker__rail .desktop-workspace-scope-picker {
+  display: flex;
+  width: 100%;
+}
+
+.desktop-workspace-scope-picker__rail .desktop-workspace-scope-picker__item {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
 .desktop-apps-grid__search {
   display: flex;
   flex: 0 1 220px;
@@ -1087,8 +1147,81 @@ body {
   line-height: 1.55;
 }
 
-.desktop-identity-gate button {
-  margin-top: 4px;
+.desktop-identity-gate__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  padding: 3px;
+  border: 1px solid var(--separator);
+  border-radius: 9px;
+  background: var(--surface-active-bg);
+}
+
+.desktop-identity-gate__tabs button,
+.desktop-identity-gate__form button,
+.desktop-identity-gate__alternate {
+  border: 0;
+  color: var(--label-inactive);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-identity-gate__tabs button {
+  padding: 7px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.desktop-identity-gate__tabs button.is-active {
+  color: var(--shell-fg);
+  background: var(--separator);
+}
+
+.desktop-identity-gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+}
+
+.desktop-identity-gate__form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--label-inactive);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.desktop-identity-gate__form input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  color: var(--shell-fg);
+  background: var(--shell-bg);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.desktop-identity-gate__form input:focus {
+  border-color: var(--label-inactive);
+}
+
+.desktop-identity-gate__form .desktop-identity-gate__error {
+  max-width: none;
+  margin: 0;
+  color: hsl(var(--destructive));
+  font-size: 11px;
+}
+
+.desktop-identity-gate__submit {
   padding: 8px 14px;
   border: 1px solid var(--separator);
   border-radius: 7px;
@@ -1104,12 +1237,28 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.desktop-identity-gate button:hover {
+.desktop-identity-gate__submit:hover:not(:disabled) {
   border-color: var(--label-inactive);
   background: var(--separator);
 }
 
-.desktop-identity-gate button:focus-visible {
+.desktop-identity-gate__submit:disabled {
+  color: var(--label-inactive);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.desktop-identity-gate__alternate {
+  padding: 2px 4px;
+  color: var(--label-inactive);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.desktop-identity-gate__tabs button:focus-visible,
+.desktop-identity-gate__submit:focus-visible,
+.desktop-identity-gate__alternate:focus-visible {
   outline: 2px solid var(--label-active);
   outline-offset: 2px;
 }

@@ -13,7 +13,10 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Toaster, toast } from "sonner";
 
-import type { DesktopPrepareLocalCodeChangeResult } from "../../shared/ipc-channels.js";
+import type {
+  DesktopPrepareLocalCodeChangeResult,
+  DesktopWorkspaceAppListResult,
+} from "../../shared/ipc-channels.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
@@ -31,6 +34,8 @@ function safeDesktopOpenPath(path: string | undefined): string | undefined {
 
 export default function App() {
   const [apps, setApps] = useState<AppConfig[]>([]);
+  const [workspaceAppList, setWorkspaceAppList] =
+    useState<DesktopWorkspaceAppListResult>();
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
@@ -74,6 +79,28 @@ export default function App() {
     }
     void load();
   }, []);
+
+  const refreshWorkspaceAppList = useCallback(async () => {
+    const loader = window.electronAPI?.appConfig?.loadWorkspace;
+    if (!loader) {
+      setWorkspaceAppList(undefined);
+      return;
+    }
+    try {
+      setWorkspaceAppList(await loader());
+    } catch {
+      setWorkspaceAppList({ enabled: false, apps: [] });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshWorkspaceAppList();
+    const onStatusChange = window.electronAPI?.identity?.onStatusChange;
+    if (!onStatusChange) return;
+    return onStatusChange(() => {
+      void refreshWorkspaceAppList();
+    });
+  }, [refreshWorkspaceAppList]);
 
   const visibleEnabledApps = getDesktopVisibleApps(
     apps.filter((app) => app.enabled),
@@ -336,6 +363,7 @@ export default function App() {
           <div className="code-agents-shell-surface">
             <CodeAgentsHub
               apps={apps}
+              workspaceAppList={workspaceAppList}
               isActive
               openRequest={codeAgentsOpenRequest}
               chatFirstAppOpenRequest={chatFirstAppOpenRequest}

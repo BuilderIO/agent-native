@@ -90,6 +90,12 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+  type ChatFirstKeyboardNavigation,
+  type ChatFirstKeyboardShortcut,
+} from "./keyboard-navigation.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -339,6 +345,8 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
+  /** Desktop-native shortcuts for app and chat navigation. */
+  keyboardNavigation?: ChatFirstKeyboardNavigation;
   /** Route first-party MCP open_app results through the shared app pane. */
   onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
   /** Lets a host place the shared watch renderer in its side-surface slot. */
@@ -690,6 +698,7 @@ export default function CodeAgentsApp({
   terminalMode,
   terminalModeControl,
   chatFirstNavigation,
+  keyboardNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
   onRunsChange,
@@ -2232,6 +2241,81 @@ export default function CodeAgentsApp({
     },
     [markRunsRead, selectRun],
   );
+
+  useEffect(() => {
+    if (!isActive || !keyboardNavigation) return;
+
+    const handleShortcut = (
+      shortcut: ChatFirstKeyboardShortcut,
+      preventDefault?: () => void,
+    ) => {
+      const isCommand = Boolean(shortcut.metaKey || shortcut.ctrlKey);
+      if (!isCommand || shortcut.altKey) return;
+
+      if (!shortcut.shiftKey) {
+        const appId = getChatFirstNumericAppShortcut(
+          keyboardNavigation.appIds,
+          shortcut.key,
+        );
+        if (!appId) return;
+        preventDefault?.();
+        keyboardNavigation.onSelectApp(appId);
+        return;
+      }
+
+      const isBack =
+        shortcut.code === "BracketLeft" ||
+        shortcut.key === "[" ||
+        shortcut.key === "{";
+      const isForward =
+        shortcut.code === "BracketRight" ||
+        shortcut.key === "]" ||
+        shortcut.key === "}";
+      if (!isBack && !isForward) return;
+
+      const target = resolveChatFirstKeyboardNavigationTarget({
+        appIds: keyboardNavigation.appIds,
+        activeAppId: keyboardNavigation.activeAppId,
+        chatIds: railItems.map((item) => item.id),
+        selectedChatId: selectedRunId,
+        direction: isBack ? -1 : 1,
+      });
+      if (!target) return;
+      preventDefault?.();
+      if (target.kind === "app") {
+        keyboardNavigation.onSelectApp(target.id);
+      } else {
+        handleRailSelect(target.id);
+      }
+    };
+
+    const handleDomKeyDown = (event: KeyboardEvent) => {
+      handleShortcut(
+        {
+          key: event.key,
+          code: event.code,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        () => event.preventDefault(),
+      );
+    };
+
+    window.addEventListener("keydown", handleDomKeyDown);
+    const unsubscribe = keyboardNavigation.subscribe?.(handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleDomKeyDown);
+      unsubscribe?.();
+    };
+  }, [
+    handleRailSelect,
+    isActive,
+    keyboardNavigation,
+    railItems,
+    selectedRunId,
+  ]);
 
   const handleRailOpen = useCallback(
     (id: string) => {

@@ -1,11 +1,9 @@
-import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { Feather } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   RefreshControl,
   ScrollView,
@@ -15,12 +13,8 @@ import {
   View,
 } from "react-native";
 
-import AppWebView from "@/components/AppWebView";
-import {
-  ModalSafeAreaProvider,
-  SafeAreaView,
-} from "@/components/uniwind-interop";
-import { getAppUrl } from "@/lib/get-app-url";
+import { NativeSignInSheet } from "@/components/NativeSignInSheet";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import {
   appendRemoteFollowUp,
   clearRemoteSessionToken,
@@ -49,7 +43,6 @@ import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = Math.max(10_000, POLL_INTERVAL_MS * 4);
 const GOAL_ID = "task";
-const dispatchApp = TEMPLATE_APPS.find((app) => app.id === "dispatch")!;
 type RelayState = "checking" | "online" | "offline" | "error" | "signed-out";
 
 /**
@@ -518,7 +511,7 @@ export default function SessionsScreen() {
           <View className="flex-row items-end justify-between pb-5">
             <View className="flex-1">
               <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
-                Sessions
+                Connect computer
               </Text>
               <Text className="text-text-muted text-sm leading-5 mt-1">
                 Connect your laptop to run agents from your phone.
@@ -831,35 +824,14 @@ export default function SessionsScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-      <Modal
+      <NativeSignInSheet
         visible={signInOpen}
-        animationType="slide"
-        onRequestClose={() => setSignInOpen(false)}
-      >
-        <ModalSafeAreaProvider style={{ flex: 1 }}>
-          <SafeAreaView
-            edges={["top", "bottom"]}
-            className="flex-1 bg-background-dark"
-          >
-            <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
-              <Text className="px-2 text-[17px] font-bold text-foreground">
-                Sign in to Dispatch
-              </Text>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Close Dispatch sign in"
-                onPress={() => setSignInOpen(false)}
-                className="px-2 py-2 active:opacity-75"
-              >
-                <Text className="text-[15px] font-semibold text-text-muted">
-                  Close
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <AppWebView url={getAppUrl(dispatchApp)} captureSessionToken />
-          </SafeAreaView>
-        </ModalSafeAreaProvider>
-      </Modal>
+        onClose={() => setSignInOpen(false)}
+        onSignedIn={async () => {
+          setSignInOpen(false);
+          await refresh(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -885,17 +857,15 @@ function ConnectPhoneCard({ onConnect }: { onConnect: () => void }) {
         Connect your laptop
       </Text>
       <Text className="text-text-muted text-sm leading-5 mt-2">
-        Sign in to Dispatch, then pair your desktop app. Once connected, you can
-        start and monitor code-agent sessions from here.
+        Sign in, then pair your desktop app. Once connected, you can start and
+        monitor code-agent sessions from here.
       </Text>
       <TouchableOpacity
         className="mt-5 h-11 rounded-xl bg-white flex-row items-center justify-center gap-2 active:opacity-75"
         onPress={onConnect}
       >
         <Feather name="external-link" size={16} color="#111111" />
-        <Text className="text-background-pure text-sm font-bold">
-          Sign in to Dispatch
-        </Text>
+        <Text className="text-background-pure text-sm font-bold">Sign in</Text>
       </TouchableOpacity>
     </View>
   );

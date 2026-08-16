@@ -1,25 +1,84 @@
 import { IconLock, IconLoader2, IconRefresh } from "@tabler/icons-react";
+import { FormEvent, useEffect, useState } from "react";
 
 interface DesktopIdentityGateProps {
   appName: string;
   status: DesktopIdentityStatus | "checking";
+  /** Fallback for Google and magic-link accounts that need the full OAuth UI. */
   onSignIn: () => void;
 }
 
+type AuthMode = "sign-in" | "sign-up";
+
 /**
- * Keep the first-run decision in the Desktop surface while the actual
- * credential ceremony stays in the isolated main-process identity window.
+ * Keep account creation in the Desktop parent surface. Child app WebViews are
+ * never asked to render the identity-provider button or their own login page
+ * while the workspace identity is being established.
  */
 export default function DesktopIdentityGate({
   appName,
   status,
   onSignIn,
 }: DesktopIdentityGateProps) {
+  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (status === "sign-in-required") {
+      setSubmitting(false);
+      setError(null);
+    }
+  }, [status]);
+
   if (status === "idle" || status === "signed-in") return null;
 
   const isChecking = status === "checking";
-  const isSigningIn = status === "signing-in";
+  const isSigningIn = status === "signing-in" || submitting;
   const isRetry = status === "failed";
+  const canSubmit =
+    email.trim().length > 0 &&
+    password.length > 0 &&
+    (mode === "sign-in" || password === confirmPassword) &&
+    !isSigningIn;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    if (mode === "sign-up" && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    const authenticate = window.electronAPI?.identity?.authenticate;
+    if (!authenticate) {
+      onSignIn();
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await authenticate({
+        mode,
+        email: email.trim(),
+        password,
+      });
+      if (!result.ok) {
+        setError(result.error ?? "Sign-in could not be completed.");
+        setSubmitting(false);
+        return;
+      }
+      setPassword("");
+      setConfirmPassword("");
+    } catch {
+      setError("Could not reach the identity service. Please try again.");
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div
@@ -43,25 +102,119 @@ export default function DesktopIdentityGate({
           {isChecking
             ? "Checking your Agent Native account"
             : isSigningIn
-              ? "Finish signing in"
-              : isRetry
-                ? "Sign-in needs another try"
-                : "Create your Agent Native account"}
+              ? "Opening your workspace"
+              : mode === "sign-up"
+                ? "Create your Agent Native account"
+                : "Sign in to Agent Native"}
         </h2>
         <p>
           {isChecking
             ? "Checking your session before opening this app."
             : isSigningIn
-              ? "Complete magic link, Google, or email sign-in in the Agent Native window."
+              ? "Signing you in once, then opening your eligible workspace apps."
               : isRetry
                 ? "The workspace sign-in did not finish. Try again to open this app."
-                : `Use magic link, Google, or email sign-in to open ${appName} and your other eligible apps without repeating login.`}
+                : `Sign in here to open ${appName} and your other eligible apps without repeating login.`}
         </p>
-        {!isChecking && !isSigningIn && (
-          <button type="button" onClick={onSignIn}>
-            {isRetry ? "Try again" : "Sign in or create account"}
-          </button>
-        )}
+
+        {!isChecking && !isSigningIn ? (
+          <>
+            <div className="desktop-identity-gate__tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "sign-in"}
+                className={mode === "sign-in" ? "is-active" : undefined}
+                onClick={() => {
+                  setMode("sign-in");
+                  setError(null);
+                }}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "sign-up"}
+                className={mode === "sign-up" ? "is-active" : undefined}
+                onClick={() => {
+                  setMode("sign-up");
+                  setError(null);
+                }}
+              >
+                Create account
+              </button>
+            </div>
+            <form
+              className="desktop-identity-gate__form"
+              onSubmit={(event) => void submit(event)}
+            >
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setError(null);
+                  }}
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setError(null);
+                  }}
+                  autoComplete={
+                    mode === "sign-up" ? "new-password" : "current-password"
+                  }
+                  required
+                />
+              </label>
+              {mode === "sign-up" ? (
+                <label>
+                  Confirm password
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => {
+                      setConfirmPassword(event.target.value);
+                      setError(null);
+                    }}
+                    autoComplete="new-password"
+                    required
+                  />
+                </label>
+              ) : null}
+              {error ? (
+                <p className="desktop-identity-gate__error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="desktop-identity-gate__submit"
+              >
+                {mode === "sign-up" ? "Create account" : "Sign in"}
+              </button>
+            </form>
+            <button
+              type="button"
+              className="desktop-identity-gate__alternate"
+              onClick={onSignIn}
+            >
+              Use Google or a magic link
+            </button>
+          </>
+        ) : null}
       </div>
     </div>
   );

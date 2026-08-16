@@ -8,6 +8,7 @@ import type {
   ActionRouteAuthAdapter,
   ActionRouteResolvedCaller,
 } from "@agent-native/core/server";
+import { getSession } from "@agent-native/core/server";
 
 export const WORKSPACE_APPS_ACTION_PATH =
   "/_agent-native/actions/list-workspace-apps";
@@ -55,6 +56,22 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     if (!authorization) return null;
     if (!authorization.startsWith("Bearer ")) {
       throw new Error("Invalid workspace registry authorization");
+    }
+
+    // Native clients use their normal persisted session bearer for the same
+    // read-only action. Let the framework resolve that credential before
+    // treating an otherwise opaque bearer as an A2A token.
+    const hasRequestUrl =
+      typeof event?.node?.req?.url === "string" ||
+      typeof event?.req?.url === "string" ||
+      typeof event?.url === "string";
+    const session = hasRequestUrl ? await getSession(event) : null;
+    if (session?.email) {
+      return {
+        owner: session.email,
+        anonymous: false,
+        ...(session.orgId ? { orgId: session.orgId } : {}),
+      };
     }
 
     const token = authorization.slice("Bearer ".length).trim();

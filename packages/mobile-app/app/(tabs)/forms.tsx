@@ -9,7 +9,11 @@ const forms = TEMPLATE_APPS.find((a) => a.id === "forms")!;
 export default function FormsTab() {
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <AppWebView url={getAppUrl(forms)} />
+      <AppWebView
+        url={getAppUrl(forms)}
+        captureSessionToken
+        workspaceAppId="forms"
+      />
     </SafeAreaView>
   );
 }

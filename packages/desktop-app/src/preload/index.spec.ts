@@ -47,6 +47,11 @@ describe("multi-frontier preload API", () => {
           getStatus(): Promise<unknown>;
           getAvailability(): Promise<unknown>;
           signIn(): Promise<unknown>;
+          authenticate(request: {
+            mode: "sign-in" | "sign-up";
+            email: string;
+            password: string;
+          }): Promise<unknown>;
           signOut(): Promise<unknown>;
           onStatusChange(callback: (status: unknown) => void): () => void;
         };
@@ -55,6 +60,11 @@ describe("multi-frontier preload API", () => {
     await identity.getStatus();
     await identity.getAvailability();
     await identity.signIn();
+    await identity.authenticate({
+      mode: "sign-in",
+      email: "owner@example.com",
+      password: "password",
+    });
     await identity.signOut();
     const callback = vi.fn();
     const unsubscribe = identity.onStatusChange(callback);
@@ -65,6 +75,11 @@ describe("multi-frontier preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AVAILABILITY_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AUTHENTICATE, {
+      mode: "sign-in",
+      email: "owner@example.com",
+      password: "password",
+    });
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
     expect(callback).toHaveBeenCalledWith("signed-in");
     expect(electron.removeListener).toHaveBeenCalledWith(

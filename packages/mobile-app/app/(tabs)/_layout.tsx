@@ -50,13 +50,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="sessions"
-        options={{
-          title: "Sessions",
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="more"
         options={{
           title: "More",

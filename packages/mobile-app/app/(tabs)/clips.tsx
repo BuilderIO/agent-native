@@ -13,6 +13,7 @@ import {
 } from "@/lib/clips-session";
 import { getAppUrl } from "@/lib/get-app-url";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
 
 const clips = TEMPLATE_APPS.find((a) => a.id === "clips")!;
 
@@ -95,6 +96,8 @@ export default function ClipsTab() {
       <AppWebView
         url={getAppUrl(clips)}
         captureSessionToken
+        workspaceAppId="clips"
+        parentSessionTokenKey={SESSION_TOKEN_KEY}
         sessionOwnerKey={CLIPS_SESSION_OWNER_KEY}
         sessionTokenKey={CLIPS_SESSION_TOKEN_KEY}
       />

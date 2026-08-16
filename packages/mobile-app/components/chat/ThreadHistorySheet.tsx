@@ -2,11 +2,14 @@ import { IconPlus, IconTrash, IconX } from "@tabler/icons-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   Modal,
   Pressable,
   ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -97,10 +100,13 @@ export function ThreadHistorySheet({
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [partialError, setPartialError] = useState(false);
   const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string | null>(
     null,
   );
+  const { width } = useWindowDimensions();
+  const drawerWidth = Math.min(380, width * 0.88);
+  const drawerX = useRef(new Animated.Value(-drawerWidth)).current;
+  const [mounted, setMounted] = useState(visible);
   // Start with the complete workspace history, then let the user narrow it.
   const [selectedAppId, setSelectedAppId] = useState<"all" | string>("all");
   // Discards results from a superseded app-filter request.
@@ -119,7 +125,6 @@ export function ThreadHistorySheet({
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
-    setPartialError(false);
     const resultPromise =
       selectedAppId === "all"
         ? listAllThreadsWithStatus()
@@ -131,7 +136,6 @@ export function ThreadHistorySheet({
       .then((result) => {
         if (requestIdRef.current !== requestId) return;
         setThreads(result.threads);
-        setPartialError(result.failedAppIds.length > 0);
       })
       .catch((error) => {
         if (requestIdRef.current !== requestId) return;
@@ -143,6 +147,31 @@ export function ThreadHistorySheet({
         if (requestIdRef.current === requestId) setLoading(false);
       });
   }, [selectedAppId]);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      drawerX.setValue(-drawerWidth);
+      const frame = requestAnimationFrame(() => {
+        Animated.timing(drawerX, {
+          toValue: 0,
+          duration: 260,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    Animated.timing(drawerX, {
+      toValue: -drawerWidth,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
+  }, [drawerWidth, drawerX, visible]);
 
   useEffect(() => {
     if (visible) {
@@ -178,14 +207,27 @@ export function ThreadHistorySheet({
 
   return (
     <Modal
-      visible={visible}
-      animationType="fade"
+      visible={mounted}
+      animationType="none"
       transparent
       onRequestClose={onClose}
     >
       <ModalSafeAreaProvider style={{ flex: 1 }}>
         <View className="flex-1 flex-row">
-          <View className="w-[88%] max-w-[380px] bg-background-dark">
+          <Animated.View
+            className="bg-background-dark"
+            style={{
+              width: drawerWidth,
+              borderRightColor: "#27272a",
+              borderRightWidth: 1,
+              elevation: 18,
+              shadowColor: "#000000",
+              shadowOffset: { width: 8, height: 0 },
+              shadowOpacity: 0.42,
+              shadowRadius: 18,
+              transform: [{ translateX: drawerX }],
+            }}
+          >
             <SafeAreaView edges={["top", "bottom"]} className="flex-1">
               <View className="flex-row items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark">
                 <Text className="text-white text-lg font-bold">Chats</Text>
@@ -238,19 +280,6 @@ export function ThreadHistorySheet({
                   ))}
                 </ScrollView>
               </View>
-
-              {partialError ? (
-                <View className="flex-row items-center justify-between gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20">
-                  <Text className="flex-1 text-amber-200 text-xs">
-                    Some app chats could not be loaded.
-                  </Text>
-                  <Pressable onPress={refresh} accessibilityRole="button">
-                    <Text className="text-amber-200 text-xs font-semibold">
-                      Retry
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
 
               {loading && threads.length === 0 ? (
                 <View className="flex-1 items-center justify-center">
@@ -357,9 +386,9 @@ export function ThreadHistorySheet({
                 />
               )}
             </SafeAreaView>
-          </View>
+          </Animated.View>
           <Pressable
-            className="flex-1 bg-black/60"
+            className="flex-1 bg-black/55"
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close chat history"

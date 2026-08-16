@@ -221,6 +221,7 @@ import {
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
 } from "./desktop-startup.js";
+import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -254,6 +255,7 @@ import {
 } from "./sentry";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
+import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
@@ -355,6 +357,47 @@ let desktopIdentityBroker: DesktopIdentityBroker | null = null;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
+
+type DesktopNavigationShortcutInput = {
+  type: string;
+  key: string;
+  code?: string;
+  meta?: boolean;
+  control?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+};
+
+function forwardDesktopNavigationShortcut(
+  event: { preventDefault(): void },
+  input: DesktopNavigationShortcutInput,
+): boolean {
+  if (!(input.meta || input.control) || input.type !== "keyDown") return false;
+
+  const key = input.key.toLowerCase();
+  const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
+  const isBracketLeft =
+    input.code === "BracketLeft" || key === "[" || key === "{";
+  const isBracketRight =
+    input.code === "BracketRight" || key === "]" || key === "}";
+  const isBracketShortcut =
+    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
+  if (!isNumericShortcut && !isBracketShortcut) return false;
+
+  event.preventDefault();
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
+  win.webContents.send("shortcut:keydown", {
+    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
+    code: input.code,
+    shiftKey: Boolean(input.shift),
+    altKey: Boolean(input.alt),
+    ctrlKey: Boolean(input.control),
+    metaKey: Boolean(input.meta),
+  });
+  return true;
+}
+
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "ANTHROPIC_API_KEY",
@@ -708,6 +751,7 @@ function resolveDesktopIdentityApp(
       "__Secure-an.session_token",
     ],
     identityAuthority: appId === "dispatch",
+    workspaceSso: isCanonical || configured?.workspaceSso === true,
   };
 }
 
@@ -1222,6 +1266,36 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
     resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
+});
+
+ipcMain.handle(IPC.IDENTITY_AUTHENTICATE, async (event, request) => {
+  if (!isShellIdentityIpc(event)) {
+    return { ok: false, error: "The desktop identity surface is unavailable." };
+  }
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) {
+    return { ok: false, error: "Desktop workspace sign-in is unavailable." };
+  }
+  if (!request || typeof request !== "object") {
+    return { ok: false, error: "Enter your email and password to continue." };
+  }
+  const input = request as {
+    mode?: unknown;
+    email?: unknown;
+    password?: unknown;
+  };
+  if (
+    (input.mode !== "sign-in" && input.mode !== "sign-up") ||
+    typeof input.email !== "string" ||
+    typeof input.password !== "string"
+  ) {
+    return { ok: false, error: "Enter your email and password to continue." };
+  }
+  return broker.authenticateWithPassword({
+    mode: input.mode,
+    email: input.email,
+    password: input.password,
+  });
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
@@ -9859,6 +9933,17 @@ registerAppsIpc({
   createDesktopAppFromPrompt,
   prepareDesktopAppForLocalCodeChange,
   showDesktopAppContextMenu,
+  loadWorkspaceApps: () => {
+    const dispatch = DESKTOP_DEFAULT_APPS.find(
+      (appConfig) => appConfig.id === "dispatch",
+    );
+    const dispatchOrigin = dispatch ? getAppOrigin(dispatch) : null;
+    if (!dispatchOrigin) return Promise.resolve({ enabled: false, apps: [] });
+    return loadDesktopWorkspaceApps({
+      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+      dispatchOrigin,
+    });
+  },
 });
 
 registerDesktopChatIpc();
@@ -11019,7 +11104,7 @@ async function handleBlockedScreenCapture() {
 
 function configurePermissionHandlers(
   sess: Electron.Session,
-  targetAppId: string | null,
+  getTargetAppId: () => string | null,
 ) {
   if (permissionConfiguredSessions.has(sess)) return;
   permissionConfiguredSessions.add(sess);
@@ -11030,7 +11115,7 @@ function configurePermissionHandlers(
         isAllowedWebviewPermission(permission) &&
         isTrustedPermissionRequest(
           contents,
-          targetAppId,
+          getTargetAppId(),
           requestingOrigin,
           details,
         )
@@ -11042,12 +11127,17 @@ function configurePermissionHandlers(
     (contents, permission, callback, details) => {
       callback(
         isAllowedWebviewPermission(permission) &&
-          isTrustedPermissionRequest(contents, targetAppId, undefined, details),
+          isTrustedPermissionRequest(
+            contents,
+            getTargetAppId(),
+            undefined,
+            details,
+          ),
       );
     },
   );
 
-  if (targetAppId === "clips") {
+  if (getTargetAppId() === "clips") {
     console.info("[display-capture] registering clips display media handler", {
       platform: process.platform,
       osRelease: os.release(),
@@ -11094,13 +11184,20 @@ app.whenReady().then(async () => {
   // webRequest handlers must be attached to each partitioned session, not
   // just session.defaultSession.
   const configuredSessions = new WeakSet<Electron.Session>();
+  const sessionTargetAppIds = new WeakMap<Electron.Session, string | null>();
   function configureWebviewSession(
     sess: Electron.Session,
     targetAppId: string | null,
   ) {
+    if (targetAppId) {
+      sessionTargetAppIds.set(sess, targetAppId);
+    } else if (!sessionTargetAppIds.has(sess)) {
+      sessionTargetAppIds.set(sess, null);
+    }
+    const getTargetAppId = () => sessionTargetAppIds.get(sess) ?? null;
     if (configuredSessions.has(sess)) return;
     configuredSessions.add(sess);
-    configurePermissionHandlers(sess, targetAppId);
+    configurePermissionHandlers(sess, getTargetAppId);
 
     if (IS_DEV) {
       sess.webRequest.onHeadersReceived((details, callback) => {
@@ -11112,6 +11209,19 @@ app.whenReady().then(async () => {
             ],
           },
         });
+      });
+    }
+
+    if (IS_DESKTOP_SSO_CANARY) {
+      sess.cookies.on("changed", (_event, cookie, _cause, removed) => {
+        if (removed) return;
+        const appId = getTargetAppId();
+        if (!appId) return;
+        const identityApp = resolveDesktopIdentityApp(appId);
+        if (!identityApp || !identityApp.cookieNames.includes(cookie.name)) {
+          return;
+        }
+        void desktopIdentityBroker?.adoptAppSession(identityApp.id);
       });
     }
 
@@ -11129,9 +11239,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details, callback) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11174,8 +11283,9 @@ app.whenReady().then(async () => {
           callback({});
           return;
         }
+        const resolvedAppId = getTargetAppId();
         const app =
-          (targetAppId && apps.find((a) => a.id === targetAppId)) ||
+          (resolvedAppId && apps.find((a) => a.id === resolvedAppId)) ||
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
@@ -11199,9 +11309,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11231,9 +11340,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11310,6 +11418,9 @@ app.whenReady().then(async () => {
 
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
+    wc.on("before-input-event", (event, input) => {
+      forwardDesktopNavigationShortcut(event, input);
+    });
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
@@ -11317,14 +11428,27 @@ app.whenReady().then(async () => {
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
       if (!id) return;
-      desktopWebviewAppIds.set(wc, id);
-      // This is deliberately gated inside the broker. A signed-out or
-      // unavailable broker never turns an ordinary app load into SSO.
+      const appId = id;
+      configureWebviewSession(wc.session, appId);
+      desktopWebviewAppIds.set(wc, appId);
+      if (resolveDesktopIdentityApp(appId)) {
+        void wc
+          .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
+          .catch(() => {});
+      }
+      // Ordinary navigation only synchronizes an app after the identity
+      // authority is already signed in. Adoption is reserved for an explicit
+      // cookie transition so a persisted stale app session cannot switch the
+      // workspace account merely by being opened.
       const broker = desktopIdentityBroker;
       if (broker) {
-        void broker.ensureAppSession(id).catch(() => undefined);
+        void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };
+    wc.on("dom-ready", syncLoadedApp);
+    wc.on("did-navigate", syncLoadedApp);
+    wc.on("did-navigate-in-page", syncLoadedApp);
+    wc.on("did-stop-loading", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
     // Capture renderer console messages to the log file so they survive
@@ -11357,6 +11481,7 @@ app.whenReady().then(async () => {
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
+    if (forwardDesktopNavigationShortcut(_event, input)) return;
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();
