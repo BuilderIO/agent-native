@@ -1753,7 +1753,7 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("failed");
     expect(warn).toHaveBeenCalledWith(
       "[desktop-identity] target session transfer failed",
-      { appId: "mail" },
+      { appId: "mail", reason: "Missing app session cookie" },
     );
     expect(JSON.stringify(warn.mock.calls)).not.toContain("session-value");
     warn.mockRestore();
