@@ -179,6 +179,7 @@ export class BrowserControlService {
   private readonly tabOwners = new Map<number, string>();
   private readonly tabReservations = new Map<number, string>();
   private readonly teardownTabs = new Set<number>();
+  private readonly teardownOwners = new Map<number, string>();
   private readonly taskGenerations = new Map<string, number>();
   private readonly taskOperationCounts = new Map<string, number>();
   private readonly taskTeardowns = new Set<string>();
@@ -254,45 +255,57 @@ export class BrowserControlService {
 
   async emergencyStopAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
+    const tabsToTeardown = new Set([
+      ...this.teardownOwners.keys(),
+      ...sessions.map((session) => session.tabId),
+    ]);
     const taskIds = new Set([
       ...this.taskGenerations.keys(),
       ...this.tabReservations.values(),
       ...sessions.map((session) => session.taskId),
+      ...this.teardownOwners.values(),
     ]);
     for (const taskId of taskIds) this.invalidateTask(taskId);
     for (const session of sessions) {
-      this.teardownTabs.add(session.tabId);
-      this.taskTeardowns.add(session.taskId);
+      this.beginTeardown(session.tabId, session.taskId);
     }
     this.sessions.clear();
     this.tabOwners.clear();
     this.taskQueues.clear();
     await this.enqueueState(async () => {
       await Promise.allSettled(
-        sessions.map(async (session) => {
-          await releaseInjectedInput(session.tabId);
-          await detachDebugger(source(session.tabId));
+        [...tabsToTeardown].map(async (tabId) => {
+          const taskId = this.teardownOwners.get(tabId);
+          if (taskId) await this.teardownDebugger(tabId, taskId);
         }),
       );
-      for (const session of sessions) {
-        this.teardownTabs.delete(session.tabId);
-        this.taskTeardowns.delete(session.taskId);
-      }
       await this.persist();
       for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
     });
   }
 
   async handleDebuggerDetach(tabId: number): Promise<void> {
-    const taskId = this.tabOwners.get(tabId) ?? this.tabReservations.get(tabId);
-    if (taskId) this.invalidateTask(taskId);
-    this.tabOwners.delete(tabId);
-    if (taskId) this.sessions.delete(taskId);
-    this.tabReservations.delete(tabId);
-    this.teardownTabs.delete(tabId);
-    if (!taskId) return;
+    const ownerTaskId = this.tabOwners.get(tabId);
+    const reservationTaskId = this.tabReservations.get(tabId);
+    const teardownTaskId = this.teardownOwners.get(tabId);
+    const taskIds = new Set(
+      [ownerTaskId, reservationTaskId, teardownTaskId].filter(
+        (taskId): taskId is string => Boolean(taskId),
+      ),
+    );
+    for (const taskId of [ownerTaskId, reservationTaskId]) {
+      if (taskId) this.invalidateTask(taskId);
+    }
+    if (ownerTaskId) {
+      this.tabOwners.delete(tabId);
+      const session = this.sessions.get(ownerTaskId);
+      if (session?.tabId === tabId) this.sessions.delete(ownerTaskId);
+    }
+    if (reservationTaskId) this.tabReservations.delete(tabId);
+    if (teardownTaskId) this.finishTeardown(tabId);
+    if (taskIds.size === 0) return;
     await this.enqueueState(() => this.persist());
-    this.maybeReclaimTaskGeneration(taskId);
+    for (const taskId of taskIds) this.maybeReclaimTaskGeneration(taskId);
   }
 
   async enforceTabOrigin(
@@ -377,10 +390,9 @@ export class BrowserControlService {
       if (previous?.tabId === tabId) {
         this.sessions.delete(taskId);
         this.tabOwners.delete(tabId);
-        this.teardownTabs.add(tabId);
-        await releaseInjectedInput(tabId);
-        await detachDebugger(source(tabId));
-        this.teardownTabs.delete(tabId);
+        this.beginTeardown(tabId, taskId);
+        const teardownError = await this.teardownDebugger(tabId, taskId);
+        if (teardownError) throw teardownError;
         await this.persist();
         this.assertAttachActive(taskId, expectedSession, expectedGeneration);
         previous = undefined;
@@ -420,10 +432,17 @@ export class BrowserControlService {
         this.sessions.set(taskId, session);
         this.tabOwners.set(tabId, taskId);
         if (previous && previous.tabId !== tabId) {
-          await Promise.allSettled([
-            releaseInjectedInput(previous.tabId),
-            detachDebugger(source(previous.tabId)),
-          ]);
+          this.beginTeardown(previous.tabId, taskId);
+          const teardownError = await this.teardownDebugger(
+            previous.tabId,
+            taskId,
+          );
+          if (teardownError) {
+            console.warn(
+              "[browser-control] retaining a superseded tab until debugger teardown succeeds",
+              { tabId: previous.tabId, taskId, error: teardownError },
+            );
+          }
         }
         this.assertTaskGeneration(taskId, expectedGeneration);
         this.assertSessionCurrent(taskId, session);
@@ -440,8 +459,25 @@ export class BrowserControlService {
             this.tabOwners.set(previous.tabId, taskId);
           }
         }
-        if (stagedPersisted) await this.persist(previousSessions.values());
-        if (debuggerAttached) await detachDebugger(source(tabId));
+        let rollbackError: unknown;
+        if (stagedPersisted) {
+          try {
+            await this.persist(previousSessions.values());
+          } catch (error) {
+            rollbackError = error;
+          }
+        }
+        let teardownError: Error | undefined;
+        if (debuggerAttached) {
+          this.beginTeardown(tabId, taskId);
+          teardownError = await this.teardownDebugger(tabId, taskId);
+        }
+        if (rollbackError || teardownError) {
+          throw new AggregateError(
+            [error, rollbackError, teardownError].filter(Boolean),
+            "Chrome attach rollback failed.",
+          );
+        }
         throw error;
       } finally {
         if (!hadReservation && this.tabReservations.get(tabId) === taskId) {
@@ -460,21 +496,14 @@ export class BrowserControlService {
     }
     this.sessions.delete(taskId);
     this.tabOwners.delete(session.tabId);
-    this.teardownTabs.add(session.tabId);
-    this.taskTeardowns.add(taskId);
+    this.beginTeardown(session.tabId, taskId);
     this.taskQueues.delete(taskId);
     await this.enqueueState(async () => {
-      try {
-        await releaseInjectedInput(session.tabId);
-        await detachDebugger(source(session.tabId));
-      } finally {
-        this.teardownTabs.delete(session.tabId);
-        this.taskTeardowns.delete(taskId);
-        try {
-          await this.persist();
-        } finally {
-          this.maybeReclaimTaskGeneration(taskId);
-        }
+      const teardownError = await this.teardownDebugger(session.tabId, taskId);
+      await this.persist();
+      this.maybeReclaimTaskGeneration(taskId);
+      if (teardownError) {
+        throw teardownError;
       }
     });
   }
@@ -578,6 +607,45 @@ export class BrowserControlService {
       if (owner === taskId) return;
     }
     this.taskGenerations.delete(taskId);
+  }
+
+  private beginTeardown(tabId: number, taskId: string): void {
+    this.teardownTabs.add(tabId);
+    this.teardownOwners.set(tabId, taskId);
+    this.taskTeardowns.add(taskId);
+  }
+
+  private finishTeardown(tabId: number): void {
+    this.teardownTabs.delete(tabId);
+    const taskId = this.teardownOwners.get(tabId);
+    this.teardownOwners.delete(tabId);
+    if (
+      taskId &&
+      ![...this.teardownOwners.values()].some((owner) => owner === taskId)
+    ) {
+      this.taskTeardowns.delete(taskId);
+    }
+  }
+
+  private async teardownDebugger(
+    tabId: number,
+    taskId: string,
+  ): Promise<Error | undefined> {
+    await releaseInjectedInput(tabId);
+    try {
+      await detachDebugger(source(tabId));
+      this.finishTeardown(tabId);
+      return undefined;
+    } catch (error) {
+      const teardownError =
+        error instanceof Error ? error : new Error(String(error));
+      console.warn("[browser-control] debugger teardown is still pending", {
+        tabId,
+        taskId,
+        error: teardownError,
+      });
+      return teardownError;
+    }
   }
 
   private invalidateTask(taskId: string): void {

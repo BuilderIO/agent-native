@@ -18,8 +18,12 @@ export function attachDebugger(source: DebuggerSource): Promise<void> {
 }
 
 export function detachDebugger(source: DebuggerSource): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.debugger.detach(source, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.debugger.detach(source, () => {
+      if (chrome.runtime.lastError)
+        reject(new Error(lastErrorMessage("Could not detach from tab.")));
+      else resolve();
+    });
   });
 }
 

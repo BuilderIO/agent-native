@@ -10,6 +10,7 @@ describe("BrowserControlService", () => {
   const removeTab = vi.fn();
   const sendCommand = vi.fn();
   const persist = vi.fn();
+  let runtimeLastError: { message?: string } | undefined;
 
   beforeEach(() => {
     debuggerMethods.length = 0;
@@ -54,11 +55,16 @@ describe("BrowserControlService", () => {
         callback?.({});
       },
     );
+    runtimeLastError = undefined;
     persist.mockReset();
     persist.mockResolvedValue(undefined);
 
     const chromeMock = {
-      runtime: { lastError: undefined },
+      runtime: {
+        get lastError() {
+          return runtimeLastError;
+        },
+      },
       tabs: {
         get: getTab,
         create: createTab,
@@ -407,6 +413,177 @@ describe("BrowserControlService", () => {
     });
     expect(competingError).toMatchObject({ code: "TAB_ALREADY_OWNED" });
     expect(removeTab).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original lease when a reserved handoff tab detaches", async () => {
+    let releaseTabLookup: (() => void) | undefined;
+    let blockNewTabLookup = true;
+    getTab.mockImplementation(
+      (tabId: number, callback: (tab: chrome.tabs.Tab) => void) => {
+        if (tabId === 77 && blockNewTabLookup) {
+          blockNewTabLookup = false;
+          releaseTabLookup = () =>
+            callback({
+              id: 77,
+              url: "https://example.com/next",
+            } as chrome.tabs.Tab);
+          return;
+        }
+        callback({
+          id: tabId,
+          url: "https://example.com/page",
+        } as chrome.tabs.Tab);
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const openPromise = service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await vi.waitFor(() => expect(releaseTabLookup).toBeDefined());
+
+    const detachEvent = service.handleDebuggerDetach(77);
+    expect(service.activeTaskCount).toBe(1);
+    releaseTabLookup?.();
+
+    const openError = await openPromise;
+    await detachEvent;
+    expect(openError).toMatchObject({ code: "TASK_HANDOFF_CANCELLED" });
+    expect(service.activeTaskCount).toBe(1);
+    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+  });
+
+  it("retains a superseded tab reservation when debugger teardown fails", async () => {
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    detach.mockImplementationOnce(
+      (_source: chrome.debugger.Debuggee, callback?: () => void) => {
+        runtimeLastError = { message: "old debugger detach failed" };
+        callback?.();
+        runtimeLastError = undefined;
+      },
+    );
+
+    await expect(
+      service.execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      }),
+    ).resolves.toEqual({
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+
+    const competingError = await service
+      .execute({
+        id: "competing-attach-request",
+        taskId: "task-2",
+        command: {
+          type: "attach",
+          tabId: 42,
+          allowedOrigins: ["https://example.com"],
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(competingError).toMatchObject({ code: "TAB_ALREADY_OWNED" });
+    await expect(service.emergencyStopAll()).resolves.toBeUndefined();
+    expect(service.activeTaskCount).toBe(0);
+    expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
+  });
+
+  it("detaches a new debugger when rollback persistence fails", async () => {
+    const service = new BrowserControlService();
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+
+    let newTabLookups = 0;
+    getTab.mockImplementation(
+      (tabId: number, callback: (tab: chrome.tabs.Tab) => void) => {
+        if (tabId === 77) {
+          newTabLookups += 1;
+          callback({
+            id: 77,
+            url:
+              newTabLookups >= 3
+                ? "https://other.example/redirect"
+                : "https://example.com/next",
+          } as chrome.tabs.Tab);
+          return;
+        }
+        callback({
+          id: tabId,
+          url: "https://example.com/page",
+        } as chrome.tabs.Tab);
+      },
+    );
+    persist.mockImplementationOnce(async () => {
+      persist.mockRejectedValueOnce(new Error("rollback unavailable"));
+    });
+
+    const openError = await service
+      .execute({
+        id: "open-tab-request",
+        taskId: "task-1",
+        command: {
+          type: "open-tab",
+          url: "https://example.com/next",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(openError).toMatchObject({
+      message: "Chrome attach rollback failed.",
+    });
+    expect(detach).toHaveBeenCalledWith({ tabId: 77 }, expect.any(Function));
+    expect(removeTab).toHaveBeenCalledWith(77, expect.any(Function));
+    expect(service.activeTaskCount).toBe(1);
   });
 
   it("removes a background tab when Chrome violates the inactive contract", async () => {
