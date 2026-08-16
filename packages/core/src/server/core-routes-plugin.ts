@@ -1681,7 +1681,6 @@ export function createCoreRoutesPlugin(
             : getAllowedCorsOrigin(origin, {
                 allowedOrigins: allowlist,
                 allowAnyOriginWhenNoAllowlist: false,
-                allowLocalhostWhenNoAllowlist: true,
               });
 
           // Reject preflights from disallowed cross-origin callers BEFORE

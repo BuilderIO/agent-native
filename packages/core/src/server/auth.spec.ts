@@ -2346,6 +2346,7 @@ describe("server/auth", () => {
     it("allows app-state request-source headers in CORS preflight responses", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "http://localhost:1420");
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
