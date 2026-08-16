@@ -231,6 +231,7 @@ import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
+import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
@@ -332,7 +333,10 @@ if (IS_DEV) {
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
 // Open Agent Native" screen whose deep link can't fire.
-app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
+const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
+  ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
+  : "";
+app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
