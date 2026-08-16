@@ -287,6 +287,26 @@ describe("identity SSO browser contract", () => {
     });
   });
 
+  it("serves the Dispatch desktop completion page after ordinary sign-in", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    getSessionMock.mockResolvedValue({ email: "alice@example.test" });
+    const request = event(
+      `/_agent-native/identity/desktop-complete?nonce=${"n".repeat(32)}`,
+      {
+        headers: {
+          host: "dispatch.agent-native.com",
+          "user-agent": "AgentNativeDesktopSsoCanary/1.0",
+        },
+      },
+    );
+
+    expect(resolveIdentityHubUrl(request)).toBeUndefined();
+    const response = await handleIdentitySso(request, "/desktop-complete");
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain("Signed in");
+  });
+
   it("allows ordinary browsers to reach canonical apps without per-app env", async () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     const request = event("/_agent-native/identity/login?return=/inbox");
