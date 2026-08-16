@@ -11,6 +11,7 @@ import {
   isDesktopIdentityCompletion,
   isDesktopIdentityConfiguredAppEligible,
   isDesktopWorkspaceLogoutRequest,
+  shouldStartDesktopIdentitySignIn,
   type DesktopIdentityApp,
 } from "./desktop-identity";
 
@@ -245,6 +246,21 @@ describe("Desktop identity navigation boundaries", () => {
       false,
     );
     expect(isDesktopIdentityOriginEligible("https://custom.example/path")).toBe(
+      false,
+    );
+  });
+
+  it("only starts the automatic ceremony for a signed-out authority", () => {
+    const authority = authorityFixture();
+
+    expect(
+      shouldStartDesktopIdentitySignIn("sign-in-required", authority),
+    ).toBe(true);
+    expect(shouldStartDesktopIdentitySignIn("signed-in", authority)).toBe(
+      false,
+    );
+    expect(shouldStartDesktopIdentitySignIn("failed", authority)).toBe(false);
+    expect(shouldStartDesktopIdentitySignIn("sign-in-required", null)).toBe(
       false,
     );
   });

@@ -100,6 +100,7 @@ type CodeAgentRemoteConnectorStatus = {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -119,6 +120,7 @@ type CodeAgentRemoteConnectorControlResult = {
 type CodeAgentRemoteConnectorPairRequest = {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 };
 
 type CodeAgentRemoteConnectorPairResult = {
@@ -331,6 +333,7 @@ type CodeAgentCreateRunRequest = {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: "local" | "worktree" | "portal";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -345,6 +348,19 @@ type CodeAgentCreateRunResult = {
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
   message: string;
+  error?: string;
+};
+
+type CodeAgentRemoteWaitlistRequest = {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+};
+
+type CodeAgentRemoteWaitlistResult = {
+  ok: boolean;
+  message?: string;
   error?: string;
 };
 
@@ -422,6 +438,7 @@ type CodeAgentRerunRequest = {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: "local" | "worktree" | "portal";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -635,6 +652,13 @@ type DesktopCreateAppResult = {
   error?: string;
 };
 
+type DesktopPrepareLocalCodeChangeRequest = {
+  appId: string;
+  prompt: string;
+};
+
+type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
+
 type DesktopAppContextAction = "edit" | "remove" | "move-up" | "move-down";
 
 type DesktopAppRuntimeStatus = {
@@ -681,6 +705,7 @@ interface ElectronAPI {
     minimize(): void;
     maximize(): void;
     close(): void;
+    setNativeTrafficLightsVisible(visible: boolean): void;
     isMaximized(): Promise<boolean>;
     onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };
@@ -708,6 +733,7 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
@@ -732,29 +758,6 @@ interface ElectronAPI {
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
-  };
-
-  frame: {
-    load(): Promise<{
-      enabled: boolean;
-      showCodeTab: boolean;
-      chatFirstMode: boolean;
-      mode: "dev" | "prod";
-      prodUrl?: string;
-    }>;
-    update(settings: {
-      enabled?: boolean;
-      showCodeTab?: boolean;
-      chatFirstMode?: boolean;
-      mode?: "dev" | "prod";
-      prodUrl?: string;
-    }): Promise<{
-      enabled: boolean;
-      showCodeTab: boolean;
-      chatFirstMode: boolean;
-      mode: "dev" | "prod";
-      prodUrl?: string;
-    }>;
   };
 
   quickPrompt: {
@@ -782,6 +785,9 @@ interface ElectronAPI {
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;
+    submitRemoteWaitlist(
+      request: CodeAgentRemoteWaitlistRequest,
+    ): Promise<CodeAgentRemoteWaitlistResult>;
     readTranscript(
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult>;
@@ -907,12 +913,16 @@ interface ElectronAPI {
     createFromPrompt(
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult>;
+    prepareLocalCodeChange(
+      request: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
 
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
+    getTerminalInfoUrl(appId: string): Promise<string | null>;
   };
 
   mcpServers: {

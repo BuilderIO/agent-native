@@ -1,5 +1,50 @@
 # @agent-native/dispatch
 
+## 0.27.6
+
+### Patch Changes
+
+- 9e73795: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+- 9e73795: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
+
+## 0.27.5
+
+### Patch Changes
+
+- 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+
+## 0.27.4
+
+### Patch Changes
+
+- fa0f828: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+
+## 0.27.3
+
+### Patch Changes
+
+- 81fb79e: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
+- 81fb79e: Avoid querying admin-only vault grants from workspace member key panels and
+  return a proper forbidden response for unauthorized grant requests.
+- 81fb79e: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- 81fb79e: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- 81fb79e: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
+- Updated dependencies [81fb79e]
+  - @agent-native/toolkit@0.16.3
+
+## 0.27.2
+
+### Patch Changes
+
+- 43fa797: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
+- 43fa797: Avoid querying admin-only vault grants from workspace member key panels and
+  return a proper forbidden response for unauthorized grant requests.
+- 43fa797: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- 43fa797: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- 43fa797: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
+- Updated dependencies [43fa797]
+  - @agent-native/toolkit@0.16.2
+
 ## 0.27.1
 
 ### Patch Changes

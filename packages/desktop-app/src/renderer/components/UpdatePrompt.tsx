@@ -5,7 +5,7 @@ import { useUpdateStatus } from "./UpdateIndicator.js";
 
 /**
  * One-time toast that appears the first time an update finishes downloading.
- * The user can install now or dismiss; either way the persistent sidebar
+ * The user can install now or dismiss; either way the persistent rail
  * indicator stays visible so they can install later. Once dismissed for a
  * given version, we don't re-show the toast for that same version.
  */

@@ -34,6 +34,13 @@ export type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+export function shouldStartDesktopIdentitySignIn(
+  status: DesktopIdentityStatus,
+  authorityApp: Pick<DesktopIdentityApp, "origin"> | null,
+): boolean {
+  return status === "sign-in-required" && authorityApp !== null;
+}
+
 export interface DesktopIdentityApp {
   id: string;
   origin: string;
@@ -285,6 +292,10 @@ export class DesktopIdentityBroker {
 
   getStatus(): DesktopIdentityStatus {
     return this.status;
+  }
+
+  isAvailable(): boolean {
+    return this.availability === "available";
   }
 
   isInternalRevocationRequest(requestUrl: string): boolean {

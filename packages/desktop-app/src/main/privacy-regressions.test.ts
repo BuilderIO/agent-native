@@ -117,7 +117,7 @@ describe("desktop passive-access regressions", () => {
     expect(connectFlow).toContain('modelSelection.model === "auto"');
     expect(connectFlow).toContain("hasMissingCredentialSignal(");
     expect(connectFlow).toContain("await host.retryRun({");
-    expect(connectFlow).toContain("setSelectedRunId(retryResult.run.id)");
+    expect(connectFlow).toContain("selectRun(retryResult.run.id)");
     expect(agent).toContain(
       "const hasCredentialGap = providerBlocked && hasCredentialHistory",
     );
@@ -210,6 +210,11 @@ describe("desktop passive-access regressions", () => {
       "const appCreationCwd = resolveRepositoryRoot(appsRoot);",
     );
     expect(creation).toContain("cwd: appCreationCwd");
+    expect(creation).toContain(
+      "const requestedName = requestedDesktopAppName(prompt);",
+    );
+    expect(creation).toContain("requestedName ??");
+    expect(main).toContain("includeWorkspaceApps: !isDesktopAppCreation");
   });
 
   it("only marks the local Codex provider configured after authentication", () => {

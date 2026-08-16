@@ -469,7 +469,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
     const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
     expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBe(-1);
+    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
     const continuationText = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
@@ -1244,7 +1244,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
-  it("keeps the streamed prefix visible when a resume emits only the suffix", async () => {
+  it("clears the streamed prefix when a resume emits only the suffix", async () => {
     const sentEvents: AgentChatEvent[] = [];
     let attempts = 0;
 
@@ -1277,7 +1277,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     expect(attempts).toBe(2);
     expect(sentEvents.filter((event) => event.type === "clear")).toHaveLength(
-      0,
+      1,
     );
     expect(
       sentEvents

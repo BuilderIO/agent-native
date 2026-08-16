@@ -621,6 +621,17 @@ function workspaceSsoOriginForApp(appId: string): string | null {
   return custom?.origin ?? null;
 }
 
+function workspaceSsoGatewayOrigin(): string | null {
+  const configured = process.env.WORKSPACE_GATEWAY_URL?.trim();
+  if (!configured) return null;
+  try {
+    return new URL(configured).origin;
+  } catch {
+    // coercion-ok: malformed deployment configuration is not a trusted origin.
+    return null;
+  }
+}
+
 function isWorkspaceSsoCanonicalApp(app: DispatchMcpAccessibleApp): boolean {
   const origin = safeAppOrigin(app);
   if (!origin) return false;
@@ -664,7 +675,8 @@ async function isEligibleWorkspaceSsoApp(
     color: DISPATCH_COLOR,
     granted: true,
   });
-  if (origin !== dispatchOrigin) return false;
+  const trustedMountedOrigin = workspaceSsoGatewayOrigin() ?? dispatchOrigin;
+  if (origin !== trustedMountedOrigin) return false;
   return mountedApps.some((mounted) => sameWorkspaceApp(candidate, mounted));
 }
 
@@ -673,15 +685,32 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
     discoverAgents("dispatch"),
     listWorkspaceApps({ includeAgentCards: false }),
   ]);
-  const candidates = agents
-    .filter((agent) => normalizeAppId(agent.id) !== DISPATCH_APP_ID)
-    .map((agent) => ({
+  const candidatesById = new Map<string, DispatchMcpAccessibleApp>();
+  for (const agent of agents) {
+    if (normalizeAppId(agent.id) === DISPATCH_APP_ID) continue;
+    candidatesById.set(agent.id, {
       ...toAccessibleApp(agent, {
         mode: "all-apps",
         selectedAppIds: [],
       }),
       granted: true,
-    }));
+    });
+  }
+  // The hosted Dispatch database is separate from the shared Workspace
+  // database. Overlay the live mounted registry so custom apps are eligible
+  // without copying a stale app list into Dispatch configuration.
+  for (const app of mountedApps) {
+    if (app.isDispatch || !app.url) continue;
+    candidatesById.set(app.id, {
+      id: app.id,
+      name: app.name,
+      description: app.description,
+      url: app.url,
+      color: DISPATCH_COLOR,
+      granted: true,
+    });
+  }
+  const candidates = [...candidatesById.values()];
   const eligible = [] as DispatchMcpAccessibleApp[];
   for (const candidate of candidates) {
     if (await isEligibleWorkspaceSsoApp(candidate, mountedApps)) {

@@ -4,11 +4,22 @@ import { computeComputerActionHash } from "../integrations/computer-supervision.
 import type { ComputerCommandEnvelope } from "../integrations/remote-types.js";
 import {
   callLocalComputerBridgeTool,
+  DEFAULT_REMOTE_EXECUTION_CAPABILITIES,
   dispatchComputerOperationToLocalBridge,
   loadLocalComputerBridgeConfig,
 } from "./code-agent-connector.js";
 
 describe("code agent connector computer bridge", () => {
+  it("advertises the always-on desktop as a scheduled-code host", () => {
+    expect(DEFAULT_REMOTE_EXECUTION_CAPABILITIES).toMatchObject({
+      backend: "desktop",
+      workloads: expect.arrayContaining(["code-agent", "scheduled-code"]),
+      engines: expect.arrayContaining(["codex-cli", "claude-cli"]),
+      acceptsScheduledWork: true,
+      persistence: "local-files",
+    });
+  });
+
   it("loads capabilities only from a fully authenticated loopback child env", () => {
     expect(
       loadLocalComputerBridgeConfig({

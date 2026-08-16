@@ -14,8 +14,8 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
         harness_name TEXT NOT NULL,
         thread_id TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'idle',
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )
     `,
   },
@@ -31,7 +31,7 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS resolved_approval_ids TEXT;
       ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS owner_email TEXT;
       ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS org_id TEXT;
-      ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at INTEGER;
+      ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at BIGINT;
       CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_thread
         ON agent_harness_sessions (thread_id, updated_at);
       CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_status
@@ -39,5 +39,26 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
       CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner
         ON agent_harness_sessions (owner_email, updated_at)
     `,
+  },
+  {
+    version: 3,
+    name: "agent-harness-sessions-widen-millisecond-timestamps",
+    // Existing release migrations may have created these columns as Postgres
+    // int4 before the timestamp contract was widened. The type change is
+    // additive and keeps Date.now() values representable on those databases.
+    sql: {
+      postgres: `
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+        ALTER TABLE agent_harness_sessions
+          ALTER COLUMN created_at TYPE BIGINT;
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+        ALTER TABLE agent_harness_sessions
+          ALTER COLUMN updated_at TYPE BIGINT;
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+        ALTER TABLE agent_harness_sessions
+          ALTER COLUMN stopped_at TYPE BIGINT
+      `,
+      sqlite: "",
+    },
   },
 ];

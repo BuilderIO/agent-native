@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.16.3
+
+### Patch Changes
+
+- 81fb79e: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.2
+
+### Patch Changes
+
+- 43fa797: Keep shared composer labels theme-safe and translatable.
+
 ## 0.16.1
 
 ### Patch Changes

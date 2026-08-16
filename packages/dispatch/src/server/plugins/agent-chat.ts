@@ -2,6 +2,10 @@ import { getOrgContext } from "@agent-native/core/org";
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
 import { dispatchActions } from "../../actions/index.js";
+import {
+  workspaceAppActionRouteAuth,
+  WORKSPACE_APPS_ACTION_PATH,
+} from "../lib/workspace-app-action-auth.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -53,6 +57,8 @@ export default createAgentChatPlugin({
   // a build-time-generated `.generated/actions-registry.ts` (the latter is a
   // template-only construct that the Vite plugin emits next to actions/).
   actions: dispatchActions,
+  actionRouteAuth: workspaceAppActionRouteAuth,
+  actionRoutePublicPaths: [WORKSPACE_APPS_ACTION_PATH],
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the central dispatch for this workspace.
 

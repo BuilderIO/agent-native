@@ -10,11 +10,14 @@
 -- never included in the candidate count. Session replay, exception issues,
 -- public-key metadata, rollups, alerts, and pressure data are reported as
 -- preserved SQL rows; they are not deletion candidates.
+-- The organization and owner values below are intentionally fake safe
+-- defaults. Supply scoped values in a local copy or SQL-client parameters;
+-- never commit real organization IDs or employee addresses here.
 
 WITH params AS (
   SELECT
-    'PlRt3bfcpJNnOyF_Wfgsh'::text AS org_id,
-    'steve@builder.io'::text AS owner_email,
+    'org-example'::text AS org_id,
+    'owner@example.com'::text AS owner_email,
     '2026-06-10T18:50:43.370Z'::text AS lookback_start,
     '2026-08-09T19:11:44.834Z'::text AS cutoff,
     'http.response'::text AS excluded_event_name

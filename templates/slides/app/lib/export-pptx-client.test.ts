@@ -12,10 +12,14 @@ vi.mock("dom-to-pptx", () => ({
 
 import {
   addSpeakerNotesToPptxBlob,
+  blankRasterResult,
   buildDeckPptxBlob,
   exportDeckAsPptx,
+  gradientPaint,
+  materializeClipPathShapes,
   patchBulletIndentsInPptxBlob,
   pptxExportScale,
+  replaceInlineSvgsWithImages,
 } from "./export-pptx-client";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
@@ -53,7 +57,21 @@ async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
 }
 
 function setRenderedSlide(html = "Editable title") {
-  document.body.innerHTML = `<div data-slide-canvas="slide-1" style="width: 960px; height: 540px;"><h1>${html}</h1></div>`;
+  document.body.innerHTML = `<div data-slide-canvas="slide-1" data-test-rect="0,0,960,540" style="width: 960px; height: 540px;"><h1>${html}</h1></div>`;
+  const slideCanvas = document.querySelector<HTMLElement>(
+    '[data-slide-canvas="slide-1"]',
+  );
+  if (!slideCanvas) throw new Error("test slide missing");
+  Object.defineProperty(slideCanvas, "offsetWidth", {
+    configurable: true,
+    value: 960,
+  });
+  return slideCanvas;
+}
+
+/** `setRenderedSlide` wraps its argument in an <h1>; imported-slide markup needs to sit directly on the canvas. */
+function setSlideMarkup(markup: string) {
+  document.body.innerHTML = `<div data-slide-canvas="slide-1" data-test-rect="0,0,960,540" style="width: 960px; height: 540px;">${markup}</div>`;
   const slideCanvas = document.querySelector<HTMLElement>(
     '[data-slide-canvas="slide-1"]',
   );
@@ -76,6 +94,34 @@ function setPendingImage() {
     naturalWidth: { configurable: true, value: 0 },
   });
   return image;
+}
+
+/**
+ * happy-dom has no layout, so every getBoundingClientRect is 0x0 and the
+ * geometry passes under test never see an element. Give the fixture a fake
+ * layout: `data-test-rect="x,y,w,h"`, read identically on the source DOM and
+ * on the export clone (which is a deep copy, i.e. already in place).
+ */
+function stubRectsFromDataAttr() {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: Element) {
+      const raw = (this as HTMLElement).dataset?.testRect;
+      const [x, y, width, height] = raw
+        ? raw.split(",").map(Number)
+        : [0, 0, 0, 0];
+      return {
+        bottom: y + height,
+        height,
+        left: x,
+        right: x + width,
+        toJSON: () => ({}),
+        top: y,
+        width,
+        x,
+        y,
+      } as DOMRect;
+    },
+  );
 }
 
 function markImageAsLoaded(image: HTMLImageElement) {
@@ -192,6 +238,154 @@ describe("exportDeckAsPptx", () => {
       height: 10,
       width: 10,
     });
+  });
+
+  it("inserts a real space after imported-PPTX bullet marker spans so the marker and text don't run together", async () => {
+    setRenderedSlide(
+      '<p data-pptx-paragraph="0"><span aria-hidden="true" style="margin-right:8px;">•</span>PLG-first approach</p>',
+    );
+
+    await exportDeckAsPptx("Contents", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const paragraph = target.querySelector('p[data-pptx-paragraph="0"]');
+    expect(paragraph?.textContent).toBe("• PLG-first approach");
+  });
+
+  it("keeps a single-line imported paragraph whitespace-preserving instead of collapsing it to nowrap", async () => {
+    // dom-to-pptx extracts one text run per inline node and trims each one
+    // under a collapsing white-space mode, so the space that only exists at
+    // the boundary between two <span> runs ("IMAGE " + "COMPOSITION") is the
+    // thing that disappears. `pre` stops wrapping without collapsing.
+    // Measured on creative-circus slide 8: exported runs were
+    // ["IMAGE","COMPOSITION"], now ["IMAGE ","COMPOSITION"].
+    stubRectsFromDataAttr();
+    setSlideMarkup(
+      '<p data-pptx-paragraph="0" data-test-rect="0,0,300,24" style="white-space:pre-wrap;line-height:24px;">' +
+        "<span>IMAGE </span><span>COMPOSITION</span></p>" +
+        '<h1 data-test-rect="0,40,300,24" style="line-height:24px;">Generated heading</h1>',
+    );
+
+    await exportDeckAsPptx("Brand Guide", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    expect(
+      target.querySelector<HTMLElement>("p[data-pptx-paragraph]")?.style
+        .whiteSpace,
+    ).toBe("pre");
+    // Markup that never preserved whitespace keeps the plain no-wrap flag.
+    expect(target.querySelector<HTMLElement>("h1")?.style.whiteSpace).toBe(
+      "nowrap",
+    );
+  });
+
+  it("does not re-anchor a cropped image to slide coordinates inside its own positioned wrapper", async () => {
+    // A cropped imported image is position:absolute inside the equally
+    // absolute .fmd-pptx-image wrapper. Writing the slide-space left/top onto
+    // it added the wrapper's offset a second time: superteam slide 32 tiles
+    // measured at x=313.8/406.1 exported at 627.6/812.1, off the canvas.
+    stubRectsFromDataAttr();
+    setSlideMarkup(
+      '<div class="fmd-pptx-image" data-slide-object-id="373" data-test-rect="313.801,142.444,150,150" ' +
+        'style="position:absolute;left:313.801px;top:142.444px;width:150px;height:150px;overflow:hidden;">' +
+        '<img alt="" src="data:image/png;base64,iVBORw0KGgo=" data-test-rect="313.801,142.444,150,150" ' +
+        'style="display:block;position:absolute;left:0px;top:0px;width:100%;height:100%;" /></div>',
+    );
+    const image = document.querySelector<HTMLImageElement>("img");
+    if (!image) throw new Error("test image missing");
+    markImageAsLoaded(image);
+
+    await exportDeckAsPptx("Superteam", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const exported = target.querySelector<HTMLImageElement>("img");
+    expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
+    expect(Number.parseFloat(exported?.style.top ?? "")).toBeCloseTo(0, 3);
+  });
+
+  it("sizes a rotated freeform from its own box, not its rotated bounding box", async () => {
+    // infog1 slide 5: each ring-segment arrow is a 405.164px square at
+    // rotate(-137.6deg), whose axis-aligned bounding box measures 572.4px.
+    // getBoundingClientRect reports that box, and the rotation is carried onto
+    // the <img>, so measuring it here applied the angle twice and shipped the
+    // arrows 1.41x oversized — one of them over the slide title.
+    stubRectsFromDataAttr();
+    setSlideMarkup(
+      '<svg data-test-rect="195.9,19.5,572.4,572.4" viewBox="0 0 405.164 405.164" ' +
+        'style="position:absolute;left:279.547px;top:103.078px;width:405.164px;height:405.164px;' +
+        'transform:rotate(-137.59755deg);transform-origin:center center;">' +
+        '<path d="M8.9 261.8 L65.7 53.2 L127.5 120.7 Z" fill="#DA474F" /></svg>',
+    );
+
+    await exportDeckAsPptx("Infographics", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const exported = target.querySelector<HTMLImageElement>("img");
+    expect(exported?.style.width).toBe("405.164px");
+    expect(exported?.style.height).toBe("405.164px");
+    expect(exported?.style.transform).toBe("rotate(-137.59755deg)");
+    // ...and the angle stays out of the bitmap it is applied to. Serializing
+    // it into the standalone SVG rotated the drawing inside its own viewport
+    // instead: measured on that arrow, 0 painted pixels of 16,313.
+    expect(decodeURIComponent(exported?.src ?? "")).not.toContain("rotate(");
+  });
+
+  it("bakes an overflow-hidden crop into the exported bitmap", async () => {
+    // soze slide 2: a PPTX srcRect crop is a 521.6x347.6px <img> hanging out
+    // of a 192.9x192.1px overflow-hidden wrapper. dom-to-pptx exports the
+    // image's own box and never sees the clip, so the portrait shipped at
+    // 2.7x, covering the body text.
+    stubRectsFromDataAttr();
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/png;base64,Q1JPUA==",
+    );
+    setSlideMarkup(
+      '<div class="fmd-pptx-image" data-test-rect="612.7,192,192.9,192.1" ' +
+        'style="position:absolute;left:612.7px;top:192px;width:192.9px;height:192.1px;overflow:hidden;">' +
+        '<img alt="" src="/portrait.png" data-test-rect="445,192,521.6,347.6" ' +
+        'style="position:absolute;left:-167.7px;top:0px;width:521.6px;height:347.6px;" /></div>',
+    );
+    // The export clone carries its own <img>, so the decoded state has to be
+    // on the prototype rather than on the source element.
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+      true,
+    );
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(
+      5216,
+    );
+    vi.spyOn(
+      HTMLImageElement.prototype,
+      "naturalHeight",
+      "get",
+    ).mockReturnValue(3476);
+    vi.spyOn(HTMLImageElement.prototype, "decode").mockResolvedValue(undefined);
+
+    await exportDeckAsPptx("Soze", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const exported = target.querySelector<HTMLImageElement>("img");
+    expect(exported?.style.width).toBe("192.9px");
+    expect(exported?.style.height).toBe("192.1px");
+    expect(exported?.src).toContain("Q1JPUA==");
+    // Source window in natural pixels: the wrapper starts 167.7px into the
+    // image, at 10 natural px per CSS px.
+    const [source, sx, sy, sw, sh] = drawImage.mock.calls[0];
+    expect(source).toBe(exported);
+    expect(sx).toBeCloseTo(1677, 3);
+    expect(sy).toBeCloseTo(0, 3);
+    expect(sw).toBe(1929);
+    expect(sh).toBe(1921);
+    // ...and the shrunk image lands on the wrapper it used to overflow.
+    expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
   });
 });
 
@@ -384,5 +578,282 @@ describe("patchBulletIndentsInPptxBlob", () => {
       ?.async("string");
 
     expect(slideXml).toContain('marL="251460" indent="-251460"');
+  });
+});
+
+describe("materializeClipPathShapes", () => {
+  function clipped(clipPath: string, inner = "") {
+    const element = document.createElement("div");
+    element.setAttribute(
+      "style",
+      `position:absolute;width:192px;height:108px;background-color:rgb(18, 52, 86);clip-path:${clipPath};`,
+    );
+    element.innerHTML = inner;
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+    return root;
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("redraws a freeform clip as a real path, since dom-to-pptx exports the box", () => {
+    const root = clipped("path('M0 0 L96 0 L0 54 Z')");
+
+    materializeClipPathShapes(root);
+
+    // The clipped div is replaced, not wrapped: leaving it behind ships the
+    // rectangle underneath the silhouette.
+    expect(root.querySelector("div")).toBeNull();
+    const svg = root.querySelector("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 192 108");
+    expect(svg?.querySelector("path")?.getAttribute("d")).toBe(
+      "M0 0 L96 0 L0 54 Z",
+    );
+    expect(svg?.querySelector("path")?.getAttribute("fill")).toBe(
+      "rgb(18, 52, 86)",
+    );
+  });
+
+  it("traces a polygon clip through the same path, in the element's pixels", () => {
+    const root = clipped("polygon(0% 0%, 100% 0%, 50% 100%)");
+
+    materializeClipPathShapes(root);
+
+    expect(root.querySelector("svg > path")?.getAttribute("d")).toBe(
+      "M0 0 L192 0 L96 108 Z",
+    );
+  });
+
+  it("keeps the freeform's stroke overlay, which 211 of 212 world-map shapes carry", () => {
+    const root = clipped(
+      "path('M0 0 L96 54 Z')",
+      `<svg viewBox="0 0 192 108"><path d="M0 0 L96 54" fill="none" stroke="#ff0000" stroke-width="2" /></svg>`,
+    );
+
+    materializeClipPathShapes(root);
+
+    const paths = root.querySelectorAll("svg > path");
+    expect(paths).toHaveLength(2);
+    expect(paths[0]?.getAttribute("fill")).toBe("rgb(18, 52, 86)");
+    expect(paths[1]?.getAttribute("stroke")).toBe("#ff0000");
+  });
+
+  it("leaves a clipped container's children as their own exported objects", () => {
+    const root = clipped("path('M0 0 L96 54 Z')", "<div>a</div><div>b</div>");
+
+    materializeClipPathShapes(root);
+
+    expect(root.querySelector("svg")).toBeNull();
+  });
+
+  it("leaves an unclipped element alone", () => {
+    const element = document.createElement("div");
+    element.setAttribute(
+      "style",
+      "width:192px;height:108px;background:#123456;",
+    );
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+
+    materializeClipPathShapes(root);
+
+    expect(root.querySelector("svg")).toBeNull();
+    expect(root.querySelector("div")).toBe(element);
+  });
+});
+
+describe("gradientPaint", () => {
+  it("fills a gradient shape with a paint server, not the transparent background-color", () => {
+    const element = document.createElement("div");
+    element.setAttribute(
+      "style",
+      "position:absolute;width:192px;height:108px;background-image:linear-gradient(315deg, #038DAF 0%, #038DAF 26%, #57308B 62%, #57308B 100%);clip-path:path('M0 0 L96 0 L0 54 Z');",
+    );
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+
+    materializeClipPathShapes(root);
+
+    // canyon's master draws 20 gradFill freeforms behind every slide; filling
+    // them from `background-color` made each one a fully transparent PNG.
+    const fill = root.querySelector("svg > path")?.getAttribute("fill");
+    expect(fill).toMatch(/^url\(#/);
+    const stops = root.querySelectorAll("svg > defs > linearGradient > stop");
+    expect(stops).toHaveLength(4);
+    expect(stops[0]?.getAttribute("stop-color")).toBe("#038DAF");
+    expect(stops[3]?.getAttribute("offset")).toBe("100%");
+    document.body.innerHTML = "";
+  });
+
+  it("places the gradient line the way CSS measures it", () => {
+    const toRight = gradientPaint(
+      "linear-gradient(to right, #000000, #ffffff)",
+      200,
+      100,
+      "g",
+    );
+    expect(toRight?.getAttribute("x1")).toBe("0");
+    expect(toRight?.getAttribute("x2")).toBe("200");
+    expect(toRight?.getAttribute("y1")).toBe("50");
+    expect(toRight?.getAttribute("y2")).toBe("50");
+
+    // No direction: CSS defaults to `to bottom`, and the stops spread evenly.
+    const implicit = gradientPaint(
+      "linear-gradient(rgb(1, 2, 3), rgb(4, 5, 6), rgb(7, 8, 9))",
+      200,
+      100,
+      "g",
+    );
+    expect(implicit?.getAttribute("y1")).toBe("0");
+    expect(implicit?.getAttribute("y2")).toBe("100");
+    expect(
+      Array.from(implicit?.children ?? []).map((stop) =>
+        stop.getAttribute("offset"),
+      ),
+    ).toEqual(["0%", "50%", "100%"]);
+  });
+
+  it("paints canyon slide 13's freeform, which shipped as a blank PNG", () => {
+    const element = document.createElement("div");
+    // Copied from the imported deck: this shape's only paint is the gradient,
+    // so filling the traced outline from `background-color` produced a fully
+    // transparent 384x332 bitmap that the export reported as rendered.
+    element.setAttribute(
+      "style",
+      "position: absolute; left: 3.631px; top: 133.58px; width: 191.887px; height: 166.037px; transform: rotate(145.47675deg);background: radial-gradient(circle at 0% 0%, #038DAF2d 0%, #038DAF2d 17%, #57308B38 62%, #57308B38 100%);clip-path: path('m143.6 14c-31.1-18.5-79.3-16.9-103-5.4-23.8 11.5-45.5 37.2-39.6 74.4 5.8 37.2 39.5 76.8 57.5 82 18 5.2 36.2-8.6 50.4-50.9 14.1-42.3 76.3 6.2 82.1-10.5 5.8-16.7-16.4-71-47.4-89.6z');",
+    );
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+
+    materializeClipPathShapes(root);
+
+    const path = root.querySelector("svg > path");
+    const gradient = root.querySelector("svg > defs > radialGradient");
+    expect(path?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
+    expect(gradient?.children).toHaveLength(4);
+    document.body.innerHTML = "";
+  });
+
+  it("sizes a radial to its farthest corner and keeps its stop alpha", () => {
+    // canyon slide 13, shape 1: a 191.887x166.037 freeform whose only paint is
+    // this gradient, which is why it rasterized to a fully transparent PNG.
+    const gradient = gradientPaint(
+      "radial-gradient(circle at 0% 0%, #038DAF2d 0%, #038DAF2d 17%, #57308B38 62%, #57308B38 100%)",
+      192,
+      166,
+      "g",
+    );
+
+    expect(gradient?.tagName).toBe("radialGradient");
+    expect(gradient?.getAttribute("cx")).toBe("0");
+    expect(gradient?.getAttribute("cy")).toBe("0");
+    expect(Number(gradient?.getAttribute("r"))).toBeCloseTo(
+      Math.hypot(192, 166),
+      2,
+    );
+    const first = gradient?.children[0];
+    expect(first?.getAttribute("stop-color")).toBe("#038DAF");
+    expect(first?.getAttribute("stop-opacity")).toBe("0.176");
+  });
+
+  it("declines a direction it cannot place instead of inventing one", () => {
+    for (const value of [
+      "linear-gradient(to bottom right, #000000, #ffffff)",
+      "linear-gradient(0.25turn, #000000, #ffffff)",
+      "radial-gradient(farthest-side at 10px 20px, #000000, #ffffff)",
+      "radial-gradient(circle at left top, #000000, #ffffff)",
+      "none",
+    ]) {
+      expect(gradientPaint(value, 200, 100, "g")).toBeUndefined();
+    }
+  });
+});
+
+describe("blank shape rasters", () => {
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  function stubRasterizer(alphaPerPixel: number) {
+    const realCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(((
+      tag: string,
+      ...rest: unknown[]
+    ) => {
+      const element = realCreateElement(tag, ...(rest as []));
+      if (tag === "canvas") {
+        const canvas = element as HTMLCanvasElement;
+        canvas.getContext = (() => ({
+          drawImage: () => {},
+          getImageData: () => ({
+            data: new Uint8ClampedArray([0, 0, 0, alphaPerPixel]),
+          }),
+        })) as never;
+        canvas.toDataURL = () => "data:image/png;base64,iVBORw0KGgo=";
+      }
+      return element;
+    }) as typeof document.createElement);
+    vi.stubGlobal(
+      "Image",
+      class {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+  }
+
+  function shapeRoot() {
+    const root = document.createElement("div");
+    root.innerHTML = `<svg width="384" height="332" viewBox="0 0 384 332"><path d="M0 0 L384 0 L0 332 Z" fill="url(#missing)" /></svg>`;
+    document.body.appendChild(root);
+    return root;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  it("reports a shape that rasterized to nothing instead of shipping the blank", async () => {
+    stubRasterizer(0);
+    const root = shapeRoot();
+
+    const blanks = await replaceInlineSvgsWithImages(root, 13);
+
+    expect(blanks).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("slide 13 shape 1 rasterized empty"),
+    );
+  });
+
+  it("says nothing about a shape that actually painted", async () => {
+    stubRasterizer(255);
+    const root = shapeRoot();
+
+    const blanks = await replaceInlineSvgsWithImages(root, 13);
+
+    expect(blanks).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("treats an unreadable canvas as unknown, not as a blank render", () => {
+    expect(blankRasterResult(undefined)).toBeUndefined();
+    expect(blankRasterResult(new Uint8ClampedArray())).toBeUndefined();
+    expect(blankRasterResult(new Uint8ClampedArray([0, 0, 0, 0]))).toBe(true);
+    expect(blankRasterResult(new Uint8ClampedArray([255, 255, 255, 255]))).toBe(
+      false,
+    );
   });
 });

@@ -26,6 +26,7 @@ import {
   backfillFirstPartyAnalyticsBatch,
   createFirstPartyAnalyticsInserter,
   getFirstPartyAnalyticsBackend,
+  getFirstPartyAnalyticsBigQueryMetrics,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   renderFirstPartyAnalyticsBigQuerySql,
@@ -194,6 +195,31 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("compares BigQuery retention metrics against the copied non-http scope", async () => {
+    runQuery.mockResolvedValue({
+      rows: [
+        {
+          event_count: "12",
+          daily_rollup_rows: "3",
+          first_event_date: "2026-07-01",
+          last_event_date: "2026-08-01",
+        },
+      ],
+    });
+
+    await expect(
+      getFirstPartyAnalyticsBigQueryMetrics(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        { includeLegacyOwnerRows: false, startDate: "2026-07-01" },
+      ),
+    ).resolves.toMatchObject({ eventCount: 12, dailyRollupRows: 3 });
+
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.stringContaining("event_name IS DISTINCT FROM 'http.response'"),
+    );
   });
 
   it("uses separate indexed tenant branches for the backfill cursor", async () => {

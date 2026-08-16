@@ -660,6 +660,7 @@ async function executeClaudeCliRun(options: {
     options.streamToolOutputToStdout ??
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const assistantText: string[] = [];
+  const claudeToolNames = new Map<string, string>();
 
   appendCodeAgentTranscriptEvent({
     runId: options.run.id,
@@ -689,7 +690,11 @@ async function executeClaudeCliRun(options: {
       effort: reasoningEffort,
       signal: options.signal,
       onEvent: (event) => {
-        const text = readClaudeParticipantAssistantText(event);
+        const text = appendClaudeParticipantTranscriptEvents(
+          options.run.id,
+          event,
+          claudeToolNames,
+        );
         if (!text) return;
         assistantText.push(text);
         if (streamToolOutputToStdout) options.stdout?.write(text);
@@ -858,19 +863,276 @@ function normalizeClaudeCliEffort(
   return effort && effort !== "auto" ? effort : undefined;
 }
 
-function readClaudeParticipantAssistantText(
+function appendClaudeParticipantTranscriptEvents(
+  runId: string,
   event: ClaudeCodeParticipantEvent,
+  toolNames: Map<string, string>,
 ): string | null {
-  if (event.type !== "assistant") return null;
+  const eventType = cliStringValue(event.type);
   const message = asRecordValue(event.message);
-  const content = message?.content;
-  if (!Array.isArray(content)) return null;
-  const text = content
-    .filter((part): part is Record<string, unknown> => isRecordValue(part))
-    .map((part) => (typeof part.text === "string" ? part.text : ""))
-    .filter(Boolean)
-    .join("");
-  return text.trim() || null;
+  const messageContent = Array.isArray(message?.content)
+    ? message.content.filter((part): part is Record<string, unknown> =>
+        isRecordValue(part),
+      )
+    : [];
+  const content =
+    messageContent.length > 0
+      ? messageContent
+      : eventType === "tool_use" || eventType === "tool_result"
+        ? [event]
+        : [];
+  let assistantText = "";
+
+  for (const part of content) {
+    const partType = cliStringValue(part.type);
+    if (eventType === "assistant" && partType === "text") {
+      const text = typeof part.text === "string" ? part.text : "";
+      if (!text.trim()) continue;
+      assistantText += text;
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "system",
+        message: text,
+        metadata: { role: "assistant", source: "claude-cli" },
+      });
+      continue;
+    }
+
+    if (eventType === "assistant" && partType === "thinking") {
+      const thinking = cliTranscriptValue(part.thinking ?? part.text);
+      if (!thinking) continue;
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: thinking,
+        metadata: { type: "thinking", source: "claude-cli" },
+      });
+      continue;
+    }
+
+    if (partType === "tool_use") {
+      const toolName =
+        cliStringValue(part.name) ?? cliStringValue(part.tool_name) ?? "tool";
+      const toolCallId = cliStringValue(part.id);
+      if (toolCallId) toolNames.set(toolCallId, toolName);
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Running ${toolName}.`,
+        metadata: {
+          type: "tool_start",
+          tool: toolName,
+          input: part.input ?? {},
+          ...(toolCallId ? { toolCallId } : {}),
+          source: "claude-cli",
+        },
+      });
+      continue;
+    }
+
+    if (partType === "tool_result") {
+      const toolCallId = cliStringValue(part.tool_use_id);
+      const toolName =
+        cliStringValue(part.tool_name) ??
+        (toolCallId ? toolNames.get(toolCallId) : undefined) ??
+        "tool";
+      const result = cliTranscriptValue(
+        part.content ?? part.output ?? part.result ?? "",
+      );
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Finished ${toolName}.`,
+        metadata: {
+          type: "tool_done",
+          tool: toolName,
+          result,
+          ...(part.is_error === true ? { isError: true } : {}),
+          ...(toolCallId ? { toolCallId } : {}),
+          source: "claude-cli",
+        },
+      });
+      if (toolCallId) toolNames.delete(toolCallId);
+    }
+  }
+
+  return assistantText.trim() || null;
+}
+
+function appendCodexCliTranscriptEvent(
+  runId: string,
+  event: Record<string, unknown>,
+): void {
+  const eventType = cliStringValue(event.type);
+  const item = asRecordValue(event.item);
+  if (eventType?.startsWith("item.") && item) {
+    const itemType = cliStringValue(item.type);
+    if (itemType === "agent_message") {
+      const text = cliStringValue(item.text ?? item.message ?? item.content);
+      if (text) {
+        appendCodeAgentTranscriptEvent({
+          runId,
+          kind: "system",
+          message: text,
+          metadata: {
+            role: "assistant",
+            source: "codex-cli",
+            cliEventType: eventType,
+            itemType,
+          },
+        });
+      }
+      return;
+    }
+
+    if (itemType === "reasoning") {
+      const text = cliTranscriptValue(item.text ?? item.summary);
+      if (text) {
+        appendCodeAgentTranscriptEvent({
+          runId,
+          kind: "status",
+          message: text,
+          metadata: {
+            type: "thinking",
+            source: "codex-cli",
+            cliEventType: eventType,
+            itemType,
+          },
+        });
+      }
+      return;
+    }
+
+    const toolName = codexCliToolName(itemType, item);
+    if (!toolName) return;
+    const toolCallId = cliStringValue(item.id);
+    const metadata = {
+      source: "codex-cli",
+      cliEventType: eventType,
+      itemType,
+      tool: toolName,
+      ...(toolCallId ? { toolCallId } : {}),
+    };
+    if (eventType === "item.started") {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Running ${toolName}.`,
+        metadata: {
+          ...metadata,
+          type: "tool_start",
+          input: codexCliToolInput(item),
+        },
+      });
+    } else if (eventType === "item.completed") {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Finished ${toolName}.`,
+        metadata: {
+          ...metadata,
+          type: "tool_done",
+          result: cliTranscriptValue(codexCliToolResult(item)),
+        },
+      });
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Working with ${toolName}.`,
+        metadata: { ...metadata, type: "activity" },
+      });
+    }
+    return;
+  }
+
+  if (eventType === "error" || eventType === "turn.failed") {
+    const message = cliStringValue(event.message ?? event.error) ?? eventType;
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message,
+      metadata: { type: "error", source: "codex-cli", cliEventType: eventType },
+    });
+  }
+}
+
+function codexCliToolName(
+  itemType: string | undefined,
+  item: Record<string, unknown>,
+): string | null {
+  switch (itemType) {
+    case "command_execution":
+      return "bash";
+    case "file_change":
+      return "file-change";
+    case "mcp_tool_call":
+      return (
+        cliStringValue(item.name) ?? cliStringValue(item.tool) ?? "mcp-tool"
+      );
+    case "web_search":
+      return "web-search";
+    case "function_call":
+      return cliStringValue(item.name) ?? "function";
+    default:
+      return itemType?.includes("tool")
+        ? (cliStringValue(item.name) ?? itemType)
+        : null;
+  }
+}
+
+function codexCliToolInput(item: Record<string, unknown>): unknown {
+  if (typeof item.command === "string") return { command: item.command };
+  return item.arguments ?? item.input ?? item.params ?? item.changes ?? {};
+}
+
+function codexCliToolResult(item: Record<string, unknown>): unknown {
+  return (
+    item.aggregated_output ??
+    item.output ??
+    item.result ??
+    item.error ??
+    item.content ??
+    item.status ??
+    ""
+  );
+}
+
+function consumeCodexJsonLine(
+  line: string,
+  onEvent?: (event: Record<string, unknown>) => void,
+): void {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecordValue(parsed)) onEvent?.(parsed);
+  } catch {
+    // coercion-ok: older CLI output is intentionally ignored when it is not JSON.
+    // Older Codex versions and test doubles can still emit human-readable
+    // stdout. Keep that output available to terminal callers without making
+    // the structured transcript parser fail the run.
+  }
+}
+
+function cliStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function cliTranscriptValue(value: unknown): string {
+  if (typeof value === "string") {
+    return truncateBashOutput(
+      truncateCodingOutput(value, MAX_TOOL_OUTPUT_CHARS),
+    );
+  }
+  if (value == null) return "";
+  try {
+    return truncateBashOutput(
+      truncateCodingOutput(JSON.stringify(value) ?? "", MAX_TOOL_OUTPUT_CHARS),
+    );
+  } catch {
+    return truncateCodingOutput(String(value), MAX_TOOL_OUTPUT_CHARS);
+  }
 }
 
 function readClaudeParticipantResultText(
@@ -1277,6 +1539,7 @@ async function executeCodexCliRun(options: {
     "exec",
     "--color",
     "never",
+    "--json",
     "--skip-git-repo-check",
     "--ignore-user-config",
     "--output-last-message",
@@ -1311,6 +1574,9 @@ async function executeCodexCliRun(options: {
       prompt: buildCodexCliPrompt(options.run, options.prompt),
       stdout: options.stdout,
       streamToolOutputToStdout,
+      onEvent: (event) => {
+        appendCodexCliTranscriptEvent(options.run.id, event);
+      },
       signal: options.signal,
     });
 
@@ -1453,11 +1719,13 @@ function runCodexCliProcess(options: {
   prompt: string;
   stdout?: NodeJS.WritableStream;
   streamToolOutputToStdout?: boolean;
+  onEvent?: (event: Record<string, unknown>) => void;
   signal?: AbortSignal;
 }): Promise<CodexCliProcessResult> {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
+    let pendingJson = "";
     let settled = false;
     const child = spawn("codex", options.args, {
       cwd: options.cwd,
@@ -1482,6 +1750,13 @@ function runCodexCliProcess(options: {
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString();
       stdout += text;
+      pendingJson += text;
+      let newline = pendingJson.indexOf("\n");
+      while (newline !== -1) {
+        consumeCodexJsonLine(pendingJson.slice(0, newline), options.onEvent);
+        pendingJson = pendingJson.slice(newline + 1);
+        newline = pendingJson.indexOf("\n");
+      }
       if (options.streamToolOutputToStdout ?? true) {
         options.stdout?.write(text);
       }
@@ -1502,6 +1777,8 @@ function runCodexCliProcess(options: {
       });
     });
     child.on("exit", (exitCode, exitSignal) => {
+      if (pendingJson.trim())
+        consumeCodexJsonLine(pendingJson, options.onEvent);
       finish({ exitCode, exitSignal });
     });
     child.stdin?.end(options.prompt);

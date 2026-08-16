@@ -107,6 +107,21 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
   return !!existing?.user?.email;
 }
 
+/** Return whether the canonical user has a verified Google account link. */
+export async function hasGoogleAuthIdentity(
+  email: string,
+): Promise<boolean | undefined> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) return undefined;
+  const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+    includeAccounts: true,
+  });
+  return (
+    existing?.accounts.some((account) => account.providerId === "google") ??
+    false
+  );
+}
+
 export async function trackSignupEvent({
   authProvider,
   authUserId,
