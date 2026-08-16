@@ -229,7 +229,13 @@ private final class ComputerHelper {
 
     private func focusedContext() throws -> (application: AXUIElement, bundleId: String, applicationName: String?, origin: String?) {
         let system = AXUIElementCreateSystemWide()
-        guard let application = copyElement(system, kAXFocusedApplicationAttribute as CFString) else {
+        // The system-wide focused-app attribute can be temporarily unavailable
+        // during WindowServer transitions even when the frontmost app is AX-readable.
+        let application = copyElement(system, kAXFocusedApplicationAttribute as CFString)
+            ?? NSWorkspace.shared.frontmostApplication.map {
+                AXUIElementCreateApplication($0.processIdentifier)
+            }
+        guard let application else {
             throw HelperFailure(description: "No focused application is available.")
         }
         var pid: pid_t = 0
