@@ -91,7 +91,10 @@ export async function validateNativeSession(
   if (!token) return null;
   try {
     return await readSessionIdentity(token, baseUrl);
-  } catch {
+  } catch (error) {
+    console.warn("[mobile auth] stored session validation failed", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
     return null;
   }
 }
