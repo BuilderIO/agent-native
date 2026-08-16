@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/skills",
-  "version": "0.2.572",
+  "version": "0.2.573",
   "description": "Install BuilderIO skills for coding agents.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
