@@ -420,6 +420,11 @@ function applyWorkspaceAppMetadataOverride(
   };
 }
 
+// Workspace apps are mounted beneath the Dispatch gateway origin. That makes
+// them same-origin with Dispatch, so a mounted pane runs with the signed-in
+// user's session cookie (`path: "/"`). Only trusted, workspace-owner-authored
+// code belongs here; changes to authorship, content trust, or sharing require
+// an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
   const base =
     process.env.WORKSPACE_GATEWAY_URL ||

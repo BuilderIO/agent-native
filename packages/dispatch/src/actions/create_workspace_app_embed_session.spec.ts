@@ -21,6 +21,7 @@ import { assertWorkspaceEmbedSessionCaller } from "./create_workspace_app_embed_
 
 describe("assertWorkspaceEmbedSessionCaller", () => {
   beforeEach(() => {
+    apps.listWorkspaceApps.mockClear();
     server.getRequestContext.mockReturnValue({
       requestOrigin: "https://dispatch.agent-native.com",
     });
@@ -28,6 +29,7 @@ describe("assertWorkspaceEmbedSessionCaller", () => {
       {
         id: "custom-app",
         path: "/apps/custom-app",
+        url: "https://dispatch.agent-native.com/apps/custom-app",
         isDispatch: false,
       },
     ]);
@@ -41,7 +43,6 @@ describe("assertWorkspaceEmbedSessionCaller", () => {
       assertWorkspaceEmbedSessionCaller(
         new Headers({
           Authorization: "Bearer parent-session",
-          "Sec-Fetch-Site": "cross-site",
         }),
       ),
     ).resolves.toBeUndefined();
@@ -52,7 +53,7 @@ describe("assertWorkspaceEmbedSessionCaller", () => {
     await expect(
       assertWorkspaceEmbedSessionCaller(
         new Headers({
-          Referer: "https://dispatch.agent-native.com/",
+          Referer: "https://dispatch.agent-native.com/apps/clips",
           "Sec-Fetch-Site": "same-origin",
         }),
       ),
@@ -83,11 +84,26 @@ describe("assertWorkspaceEmbedSessionCaller", () => {
     ).rejects.toThrow("cannot mint sessions for themselves");
   });
 
+  it("does not let a browser bearer bypass the fetch-metadata gate", async () => {
+    await expect(
+      assertWorkspaceEmbedSessionCaller(
+        new Headers({
+          Authorization: "Bearer attacker-set-header",
+          Referer: "https://dispatch.agent-native.com/apps/custom-app/",
+          "Sec-Fetch-Site": "same-origin",
+        }),
+      ),
+    ).rejects.toThrow("cannot mint sessions for themselves");
+  });
+
   it("fails closed when the browser caller has no trustworthy parent context", async () => {
     server.getRequestContext.mockReturnValue(undefined);
     await expect(
       assertWorkspaceEmbedSessionCaller(
-        new Headers({ Referer: "https://dispatch.agent-native.com/" }),
+        new Headers({
+          Referer: "https://dispatch.agent-native.com/",
+          "Sec-Fetch-Site": "same-origin",
+        }),
       ),
     ).rejects.toThrow("requested by Dispatch");
   });
