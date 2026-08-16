@@ -750,6 +750,7 @@ function resolveDesktopIdentityApp(
       "__Secure-an.session_token",
     ],
     identityAuthority: appId === "dispatch",
+    workspaceSso: isCanonical || configured?.workspaceSso === true,
   };
 }
 
@@ -11380,17 +11381,13 @@ app.whenReady().then(async () => {
           .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
           .catch(() => {});
       }
-      // This is deliberately gated inside the broker. A signed-out or
-      // unavailable broker never turns an ordinary app load into SSO.
+      // Ordinary navigation only synchronizes an app after the identity
+      // authority is already signed in. Adoption is reserved for an explicit
+      // cookie transition so a persisted stale app session cannot switch the
+      // workspace account merely by being opened.
       const broker = desktopIdentityBroker;
       if (broker) {
-        void broker
-          .adoptAppSession(appId)
-          .then((adopted) => {
-            if (!adopted) return broker.ensureAppSession(appId);
-            return true;
-          })
-          .catch(() => undefined);
+        void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };
     wc.on("dom-ready", syncLoadedApp);

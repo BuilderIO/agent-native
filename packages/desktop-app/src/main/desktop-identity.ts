@@ -48,6 +48,7 @@ export interface DesktopIdentityApp {
   cookieNames: string[];
   cookieNamesToClear: string[];
   identityAuthority?: boolean;
+  workspaceSso?: boolean;
 }
 
 export function isDesktopIdentityAppIdEligible(
@@ -362,6 +363,7 @@ export class DesktopIdentityBroker {
       interactive?: boolean;
       preserveIdentitySession?: boolean;
       skipIfPresent?: boolean;
+      waitForSignOut?: boolean;
     } = {},
   ): Promise<boolean> {
     const existing = this.pendingByApp.get(appId);
@@ -369,8 +371,11 @@ export class DesktopIdentityBroker {
 
     const generation = this.ceremonyGeneration;
     const operation = this.queue.then(async () => {
-      await this.signOutOperation;
+      if (options.waitForSignOut !== false) {
+        await this.signOutOperation;
+      }
       await this.waitForActiveSessionCopies();
+      if (!this.isCeremonyCurrent(generation)) return false;
       const app = this.options.resolveApp(appId);
       if (!app) return false;
       if (options.skipIfPresent && (await this.hasAppSession(app))) {
@@ -434,9 +439,10 @@ export class DesktopIdentityBroker {
    * compatible with custom workspace apps without moving account data.
    */
   adoptAppSession(appId: string): Promise<boolean> {
-    if (this.signOutOperation || this.signInOperation) {
+    if (this.signOutOperation) {
       return Promise.resolve(false);
     }
+    if (this.signInOperation) return this.signInOperation;
     const app = this.options.resolveApp(appId);
     if (!app) return Promise.resolve(false);
     if (this.sessionAdoptionOperation) return this.sessionAdoptionOperation;
@@ -461,6 +467,7 @@ export class DesktopIdentityBroker {
 
   signIn(appId: string): Promise<boolean> {
     if (
+      this.signOutOperation ||
       !this.options.resolveApp(appId) ||
       (this.options.isAvailable && !this.options.resolveApp("dispatch")) ||
       (this.options.isAvailable && this.availability !== "available")
@@ -470,7 +477,14 @@ export class DesktopIdentityBroker {
     if (this.signInOperation) return this.signInOperation;
 
     this.unsupportedAppIds.delete(appId);
-    const operation = this.runSignInFanout(appId);
+    const generation = this.ceremonyGeneration;
+    const adoption = this.sessionAdoptionOperation;
+    const operation = adoption
+      ? adoption.then(
+          () => this.runSignInFanout(appId, generation),
+          () => this.runSignInFanout(appId, generation),
+        )
+      : this.runSignInFanout(appId, generation);
     this.signInOperation = operation;
     void operation.then(
       () => {
@@ -483,19 +497,30 @@ export class DesktopIdentityBroker {
     return operation;
   }
 
-  private async runSignInFanout(appId: string): Promise<boolean> {
+  private async runSignInFanout(
+    appId: string,
+    generation: number,
+  ): Promise<boolean> {
+    if (!this.isCeremonyCurrent(generation)) return false;
     if (!this.options.listApps) {
-      return this.ensureAppSessionInternal(appId, { interactive: true });
+      return this.ensureAppSessionInternal(appId, {
+        interactive: true,
+      });
     }
 
-    const generation = this.ceremonyGeneration;
     const requestedApp = this.options.resolveApp(appId);
     if (!requestedApp) return false;
 
     const appsById = new Map<string, DesktopIdentityApp>();
     try {
       for (const app of this.options.listApps()) {
-        if (!appsById.has(app.id)) appsById.set(app.id, app);
+        if (
+          app.id === appId ||
+          app.identityAuthority === true ||
+          app.workspaceSso === true
+        ) {
+          if (!appsById.has(app.id)) appsById.set(app.id, app);
+        }
       }
     } catch (error) {
       void error;
@@ -568,9 +593,11 @@ export class DesktopIdentityBroker {
     sourceApp: DesktopIdentityApp,
     generation: number,
   ): Promise<boolean> {
-    await this.signOutOperation;
+    if (!sourceApp.identityAuthority && sourceApp.workspaceSso !== true) {
+      return false;
+    }
     await this.waitForActiveSessionCopies();
-    if (!this.isCeremonyCurrent(generation) || this.signInOperation) {
+    if (!this.isCeremonyCurrent(generation)) {
       return false;
     }
 
@@ -609,18 +636,14 @@ export class DesktopIdentityBroker {
       return false;
     }
     const authorityCookieNames = new Set(authority.cookieNames);
-    const currentAuthorityCookie = currentIdentityCookies.find(
-      (cookie) =>
-        authorityCookieNames.has(cookie.name) &&
-        cookie.value === sourceCookie.value,
+    const currentAuthorityCookies = currentIdentityCookies.filter((cookie) =>
+      authorityCookieNames.has(cookie.name),
     );
-
-    // A subsequent navigation in an already authenticated app should only
-    // synchronize that one app. Newly opened apps still go through the normal
-    // non-interactive ceremony below when they have no session yet.
-    if (this.status === "signed-in" && currentAuthorityCookie) {
-      return this.ensureAppSession(sourceApp.id);
-    }
+    const identityMatchesSource =
+      currentAuthorityCookies.length > 0 &&
+      currentAuthorityCookies.every(
+        (cookie) => cookie.value === sourceCookie.value,
+      );
 
     const previousStatus = this.status;
     this.setStatus("signing-in");
@@ -628,12 +651,20 @@ export class DesktopIdentityBroker {
       authorityCookieNames.has(cookie.name),
     );
     try {
-      await this.replaceIdentitySessionCookies(
-        authority,
-        sourceCookie,
-        previousAuthorityCookies,
-      );
-      if (!this.isCeremonyCurrent(generation)) return false;
+      if (!identityMatchesSource) {
+        await this.replaceIdentitySessionCookies(
+          authority,
+          sourceCookie,
+          previousAuthorityCookies,
+        );
+        if (!this.isCeremonyCurrent(generation)) {
+          await this.restoreIdentitySessionCookies(
+            authority,
+            previousAuthorityCookies,
+          );
+          return false;
+        }
+      }
 
       const verified = await this.verifyIdentitySession(authority);
       if (!verified || !this.isCeremonyCurrent(generation)) {
@@ -647,16 +678,24 @@ export class DesktopIdentityBroker {
         return false;
       }
 
-      const authoritySucceeded = await this.ensureAppSessionInternal(
-        authority.id,
-        {
-          interactive: false,
-          preserveIdentitySession: true,
-          skipIfPresent: true,
-        },
-      );
+      const authorityAlreadyMatches =
+        sourceApp.id === authority.id ||
+        (await this.hasMatchingAppSession(authority, sourceCookie.value));
+      const authoritySucceeded = authorityAlreadyMatches
+        ? true
+        : await this.ensureAppSessionInternal(authority.id, {
+            interactive: false,
+            preserveIdentitySession: true,
+            waitForSignOut: false,
+          });
       if (!authoritySucceeded || !this.isCeremonyCurrent(generation)) {
-        if (this.isCeremonyCurrent(generation)) this.setStatus("failed");
+        await this.restoreIdentitySessionCookies(
+          authority,
+          previousAuthorityCookies,
+        );
+        if (this.isCeremonyCurrent(generation)) {
+          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
+        }
         return false;
       }
 
@@ -668,6 +707,7 @@ export class DesktopIdentityBroker {
             interactive: false,
             preserveIdentitySession: true,
             skipIfPresent: true,
+            waitForSignOut: false,
           }),
         ),
       );
@@ -736,8 +776,7 @@ export class DesktopIdentityBroker {
     appsById.set(authority.id, authority);
     return [...appsById.values()].filter(
       (app) =>
-        app.id === sourceApp.id ||
-        app.id === authority.id ||
+        (app.id === authority.id || app.workspaceSso === true) &&
         !this.unsupportedAppIds.has(app.id),
     );
   }
@@ -960,6 +999,7 @@ export class DesktopIdentityBroker {
     apps: DesktopIdentityApp[],
     intent: DesktopSignOutIntent,
   ): Promise<void> {
+    await this.waitForSessionAdoption();
     await this.waitForActiveSessionCopies();
     await this.ensureRevocationTargets(apps);
     const errors = [...this.revocationTargetErrors];
@@ -1126,6 +1166,26 @@ export class DesktopIdentityBroker {
       const cookies = await app.session.cookies.get({ url: app.origin });
       const allowed = new Set(app.cookieNames);
       return cookies.some((cookie) => allowed.has(cookie.name));
+    } catch (error) {
+      void error;
+      return false;
+    }
+  }
+
+  private async hasMatchingAppSession(
+    app: DesktopIdentityApp,
+    value: string,
+  ): Promise<boolean> {
+    try {
+      const cookies = await app.session.cookies.get({ url: app.origin });
+      const allowed = new Set(app.cookieNames);
+      const sessionCookies = cookies.filter((cookie) =>
+        allowed.has(cookie.name),
+      );
+      return (
+        sessionCookies.length > 0 &&
+        sessionCookies.every((cookie) => cookie.value === value)
+      );
     } catch (error) {
       void error;
       return false;
@@ -1541,6 +1601,11 @@ export class DesktopIdentityBroker {
     while (this.activeSessionCopies.size > 0) {
       await Promise.allSettled([...this.activeSessionCopies]);
     }
+  }
+
+  private async waitForSessionAdoption(): Promise<void> {
+    const operation = this.sessionAdoptionOperation;
+    if (operation) await Promise.allSettled([operation]);
   }
 
   private isCeremonyCurrent(generation: number): boolean {
