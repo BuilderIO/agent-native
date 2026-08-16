@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.27.5
+
+### Patch Changes
+
+- 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+
 ## 0.27.4
 
 ### Patch Changes
