@@ -5,6 +5,7 @@ import { AGENT_HARNESS_SESSION_MIGRATIONS } from "../agent/harness/migrations.js
 import { AGENT_RUN_MIGRATIONS } from "../agent/run-migrations.js";
 import { CHAT_THREAD_SCHEMA_MIGRATIONS } from "../chat-threads/schema-migrations.js";
 import type { MigrationEntry } from "../db/migrations.js";
+import { REMOTE_DEVICE_MIGRATIONS } from "../integrations/remote-device-migrations.js";
 import { USAGE_ALERT_MIGRATIONS } from "../usage/migrations.js";
 
 function applySqliteMigrations(
@@ -102,6 +103,28 @@ describe("framework release schema migrations", () => {
     ).toBe(true);
     expect(columns(db, "usage_alert_rules")).toContain("is_default");
     expect(columns(db, "usage_alert_events")).toContain("notification_id");
+    db.close();
+  });
+
+  it("creates the remote-device schema before Portal requests run", () => {
+    const db = new Database(":memory:");
+    applySqliteMigrations(db, REMOTE_DEVICE_MIGRATIONS);
+
+    expect(columns(db, "integration_remote_devices")).toEqual(
+      expect.arrayContaining([
+        "device_token_hash",
+        "last_seen_at",
+        "metadata_json",
+        "revoked_at",
+      ]),
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_remote_devices_token_hash', 'idx_remote_devices_owner') ORDER BY name",
+        )
+        .all(),
+    ).toHaveLength(2);
     db.close();
   });
 });
