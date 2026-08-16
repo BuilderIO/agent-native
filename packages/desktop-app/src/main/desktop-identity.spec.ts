@@ -1220,6 +1220,16 @@ describe("DesktopIdentityBroker", () => {
   it("coalesces duplicate requests and copies only the target cookie", async () => {
     const app = appFixture();
     const identityCookies = cookieStore([
+      sessionCookie(
+        "an_session",
+        "https://calendar.agent-native.com",
+        "wrong-generic-session",
+      ),
+      sessionCookie(
+        "an_session_mail",
+        "https://calendar.agent-native.com",
+        "wrong-mail-session",
+      ),
       {
         name: "an_session_mail",
         value: "example-session-value",

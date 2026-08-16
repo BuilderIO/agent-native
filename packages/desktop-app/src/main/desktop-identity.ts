@@ -32,6 +32,24 @@ function normalizeIdentityEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function cookieMatchesOrigin(
+  cookie: Pick<Electron.Cookie, "domain" | "hostOnly">,
+  origin: string,
+): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    const domain = (cookie.domain ?? "").replace(/^\./, "").toLowerCase();
+    return Boolean(
+      domain &&
+      (hostname === domain ||
+        (!cookie.hostOnly && hostname.endsWith(`.${domain}`))),
+    );
+  } catch (error) {
+    void error;
+    return false;
+  }
+}
+
 function isAllowedDesktopIdentityOAuthNavigation(
   navigationUrl: string,
 ): boolean {
@@ -1752,7 +1770,10 @@ export class DesktopIdentityBroker {
       if (remainingMs <= 0) break;
       const sourceCookies = await this.readIdentityCookies(remainingMs, signal);
       this.assertCeremonyActive(generation, signal);
-      cookies = sourceCookies.filter((cookie) => allowed.has(cookie.name));
+      cookies = sourceCookies.filter(
+        (cookie) =>
+          cookieMatchesOrigin(cookie, app.origin) && allowed.has(cookie.name),
+      );
       if (cookies.length > 0) {
         console.info("[desktop-identity] target session cookie observed", {
           appId: app.id,
