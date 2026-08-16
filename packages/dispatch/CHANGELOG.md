@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.27.8
+
+### Patch Changes
+
+- 8d34d57: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
+
 ## 0.27.7
 
 ### Patch Changes
