@@ -1385,7 +1385,40 @@ interface AuthGuardConfig {
   workspaceAppProtectedPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
+// Pin the registry to globalThis so template plugins and framework routes that
+// load Core through different SSR bundle or pnpm peer graphs still share it.
+// Scope entries by H3 app so a route registered by one app cannot become public
+// in another app that happens to share the same Node realm.
+const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core/auth.publicPaths",
+);
+interface AuthPublicPathRegistry {
+  pathsByApp: WeakMap<object, Set<string>>;
+}
+interface GlobalWithAuthPublicPaths {
+  [AUTH_PUBLIC_PATHS_REGISTRY_KEY]?: AuthPublicPathRegistry;
+}
+
 const _registeredAuthPublicPaths = new Set<string>();
+
+function getAuthPublicPathRegistry(): AuthPublicPathRegistry {
+  const globals = globalThis as unknown as GlobalWithAuthPublicPaths;
+  return (globals[AUTH_PUBLIC_PATHS_REGISTRY_KEY] ??= {
+    pathsByApp: new WeakMap(),
+  });
+}
+
+function getRegisteredAuthPublicPaths(app?: object): Set<string> {
+  if (!app) return _registeredAuthPublicPaths;
+  const registry = getAuthPublicPathRegistry();
+  let paths = registry.pathsByApp.get(app);
+  if (!paths) {
+    paths = new Set();
+    registry.pathsByApp.set(app, paths);
+  }
+  return paths;
+}
+
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
 
 /**
@@ -1396,24 +1429,29 @@ const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
  * routes can be mounted after the auth plugin and must also work in custom
  * workspace deployments that do not own a template auth file.
  */
-export function registerAuthPublicPaths(paths: readonly string[]): void {
+export function registerAuthPublicPaths(
+  paths: readonly string[],
+  app?: object,
+): void {
+  const registeredPaths = getRegisteredAuthPublicPaths(app);
   for (const path of paths) {
     const normalized = typeof path === "string" ? path.trim() : "";
     if (!normalized.startsWith("/")) continue;
-    _registeredAuthPublicPaths.add(normalized);
-    if (
-      _authGuardConfig &&
-      !_authGuardConfig.publicPaths.includes(normalized)
-    ) {
-      _authGuardConfig.publicPaths.push(normalized);
-    }
+    registeredPaths.add(normalized);
   }
 }
 
 function resolveAuthPublicPaths(
   paths: readonly string[] | undefined,
+  app?: object,
 ): string[] {
-  return [...new Set([...(paths ?? []), ..._registeredAuthPublicPaths])];
+  return [
+    ...new Set([
+      ...(paths ?? []),
+      ..._registeredAuthPublicPaths,
+      ...(app ? getRegisteredAuthPublicPaths(app) : []),
+    ]),
+  ];
 }
 
 function getRequestHost(event: H3Event): string | undefined {
@@ -2213,13 +2251,15 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
-function createAuthGuardFn(): (
-  event: H3Event,
-) => Promise<Response | object | string | void> {
+function createAuthGuardFn(
+  app?: object,
+): (event: H3Event) => Promise<Response | object | string | void> {
   return async (event: H3Event) => {
     const config = _authGuardConfig;
     if (!config) return;
-    const { publicPaths } = config;
+    // Resolve on every request because a framework route can be mounted by a
+    // different Core module instance after this auth guard is initialized.
+    const publicPaths = resolveAuthPublicPaths(config.publicPaths, app);
 
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
@@ -3401,7 +3441,7 @@ async function mountBetterAuthRoutes(
   app: H3App,
   options: AuthOptions,
 ): Promise<void> {
-  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths, app);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
@@ -4585,7 +4625,7 @@ async function mountBetterAuthRoutes(
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
     workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
   };
-  const guardFn = createAuthGuardFn();
+  const guardFn = createAuthGuardFn(app);
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
 }
@@ -4845,7 +4885,7 @@ export async function autoMountAuth(
   // Reset globals
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
-  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths, app);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
@@ -4901,7 +4941,7 @@ export async function autoMountAuth(
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
       workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
     };
-    const guardFn = createAuthGuardFn();
+    const guardFn = createAuthGuardFn(app);
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
 
@@ -4931,7 +4971,7 @@ export async function autoMountAuth(
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
       workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
     };
-    const guardFn = createAuthGuardFn();
+    const guardFn = createAuthGuardFn(app);
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
     console.log(

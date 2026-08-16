@@ -390,6 +390,7 @@ export function mountActionRoutes(
   options?: MountActionRoutesOptions,
 ) {
   const mounted: string[] = [];
+  const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
     // Skip agent-only actions
@@ -404,10 +405,10 @@ export function mountActionRoutes(
     // auth guard rejects it; the action route still fails closed on invalid
     // or missing credentials.
     if (name === "list-feature-flags" || name === "set-feature-flag") {
-      registerAuthPublicPaths([routePath]);
+      registerAuthPublicPaths([routePath], app);
     }
 
-    getH3App(nitroApp).use(
+    app.use(
       routePath,
       defineEventHandler(async (event) => {
         const reqMethod = getMethod(event);
