@@ -7,6 +7,7 @@ import {
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
   type CodeAgentRun,
+  type ChatFirstKeyboardNavigation,
   type CodeAgentsHost,
   type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
@@ -107,12 +108,7 @@ import {
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
-import AppWebview, {
-  resolveAppWebviewUrl,
-  shouldSuppressDesktopSignInPrompt,
-  type AppWebviewAuthState,
-  type AppWebviewHandle,
-} from "./AppWebview.js";
+import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
@@ -523,42 +519,6 @@ export default function CodeAgentsHub({
   const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
-  const [chatFirstAppAuthStates, setChatFirstAppAuthStates] = useState<
-    Record<string, AppWebviewAuthState>
-  >({});
-  const [desktopIdentityAvailable, setDesktopIdentityAvailable] =
-    useState(false);
-  useEffect(() => {
-    const getAvailability = window.electronAPI?.identity?.getAvailability;
-    if (!getAvailability) {
-      setDesktopIdentityAvailable(false);
-      return;
-    }
-    let active = true;
-    void getAvailability().then(
-      (available) => {
-        if (active) setDesktopIdentityAvailable(available);
-      },
-      () => {
-        if (active) setDesktopIdentityAvailable(false);
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, []);
-  const chatFirstAppWebviewRefs = useRef(new Map<string, AppWebviewHandle>());
-  const handleChatFirstAppAuthStateChange = useCallback(
-    (appId: string, state: AppWebviewAuthState) => {
-      setChatFirstAppAuthStates((current) =>
-        current[appId] === state ? current : { ...current, [appId]: state },
-      );
-    },
-    [],
-  );
-  const focusChatFirstApp = useCallback((tabId: string) => {
-    chatFirstAppWebviewRefs.current.get(tabId)?.focus();
-  }, []);
   const chatFirstSessionWatch = useChatFirstSessionWatch();
   const [chatFirstWatchedRun, setChatFirstWatchedRun] =
     useState<CodeAgentRun | null>(null);
@@ -871,6 +831,35 @@ export default function CodeAgentsHub({
         terminalPreferences.enabled ? "side" : "main",
       ),
     [openChatFirstApp, terminalPreferences.enabled],
+  );
+  const selectChatFirstAppFromKeyboard = useCallback(
+    (appId: string) =>
+      openChatFirstApp(
+        appId,
+        undefined,
+        undefined,
+        terminalPreferences.enabled ? "side" : "main",
+      ),
+    [openChatFirstApp, terminalPreferences.enabled],
+  );
+  const chatFirstKeyboardNavigation = useMemo<ChatFirstKeyboardNavigation>(
+    () => ({
+      appIds: orderDesktopApps(apps, chatFirstAppLayout).map((app) => app.id),
+      activeAppId:
+        activeChatFirstSurfaceTab?.kind === "app"
+          ? activeChatFirstSurfaceTab.appId
+          : undefined,
+      onSelectApp: selectChatFirstAppFromKeyboard,
+      subscribe: (listener) =>
+        window.electronAPI?.shortcuts?.onKeydown(listener) ?? (() => {}),
+    }),
+    [
+      activeChatFirstSurfaceTab?.appId,
+      activeChatFirstSurfaceTab?.kind,
+      apps,
+      chatFirstAppLayout,
+      selectChatFirstAppFromKeyboard,
+    ],
   );
   const openChatFirstAppInBrowser = useCallback((app: AppConfig) => {
     const url = resolveAppWebviewUrl(toAppDefinition(app), app);
@@ -2178,23 +2167,9 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
-                authState={chatFirstAppAuthStates[surfaceApp.id] ?? "unknown"}
-                suppressSignInPrompt={shouldSuppressDesktopSignInPrompt(
-                  { id: surfaceApp.id },
-                  surfaceApp,
-                  desktopIdentityAvailable,
-                )}
-                onSignInRequest={() => focusChatFirstApp(tab.id)}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <AppWebview
-                  ref={(instance) => {
-                    if (instance) {
-                      chatFirstAppWebviewRefs.current.set(tab.id, instance);
-                    } else {
-                      chatFirstAppWebviewRefs.current.delete(tab.id);
-                    }
-                  }}
                   app={toAppDefinition(surfaceApp)}
                   appConfig={surfaceApp}
                   isActive={isTabActive}
@@ -2205,11 +2180,6 @@ export default function CodeAgentsHub({
                       ? dispatchControlPlaneUrlParams(tab.path)
                       : { embedded: "1", chatFirst: "1" }
                   }
-                  onAuthStateChange={(state) => {
-                    if (isTabActive) {
-                      handleChatFirstAppAuthStateChange(surfaceApp.id, state);
-                    }
-                  }}
                 />
               </DesktopAppChatShell>
             )}
@@ -2240,11 +2210,8 @@ export default function CodeAgentsHub({
       chatFirstWatchedRun,
       chatFirstWatchedSourceRunId,
       closeChatFirstSurfaceTab,
-      focusChatFirstApp,
-      handleChatFirstAppAuthStateChange,
       host,
       isActive,
-      chatFirstAppAuthStates,
       onLocalCodeChangeStarted,
       refreshKey,
       terminalPreferences.agent,
@@ -2339,6 +2306,10 @@ export default function CodeAgentsHub({
             enabled: terminalPreferences.enabled,
             onChange: handleTerminalModeChange,
             onNewTerminal: handleNewTerminal,
+          }}
+          keyboardNavigation={chatFirstKeyboardNavigation}
+          onChatFirstMainKindChange={(kind) => {
+            if (kind === "code") returnToChatFirstChats();
           }}
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}

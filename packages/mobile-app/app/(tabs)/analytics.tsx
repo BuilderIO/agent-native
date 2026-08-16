@@ -9,7 +9,7 @@ const analytics = TEMPLATE_APPS.find((a) => a.id === "analytics")!;
 export default function AnalyticsTab() {
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <AppWebView url={getAppUrl(analytics)} />
+      <AppWebView url={getAppUrl(analytics)} captureSessionToken />
     </SafeAreaView>
   );
 }

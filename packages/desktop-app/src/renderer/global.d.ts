@@ -715,9 +715,11 @@ interface ElectronAPI {
     onKeydown(
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): () => void;
     loadBindings(): Promise<DesktopShortcutSettings>;

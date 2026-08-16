@@ -155,18 +155,22 @@ const electronAPI = {
     onKeydown: (
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): (() => void) => {
       const handler = (
         _: Electron.IpcRendererEvent,
         info: {
           key: string;
+          code?: string;
           shiftKey: boolean;
           altKey?: boolean;
           ctrlKey?: boolean;
+          metaKey?: boolean;
         },
       ) => cb(info);
       ipcRenderer.on("shortcut:keydown", handler);

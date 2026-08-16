@@ -9,7 +9,7 @@ const design = TEMPLATE_APPS.find((a) => a.id === "design")!;
 export default function DesignTab() {
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <AppWebView url={getAppUrl(design)} />
+      <AppWebView url={getAppUrl(design)} captureSessionToken />
     </SafeAreaView>
   );
 }

@@ -71,11 +71,15 @@ const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 // forever polling a callback that never lands. Neutering window.open on the
 // sign-in page forces the page's built-in redirect fallback, which navigates
 // the main frame to /_agent-native/google/auth-url — a top-level navigation
-// handleShouldStartLoad intercepts and hands to the system browser. Scoped to
-// the sign-in page so the authenticated app's own window.open is untouched.
+// handleShouldStartLoad intercepts and hands to the system browser. The SSO
+// button is hidden for the whole embedded document because the parent mobile
+// shell owns Agent Native sign-in; the CSS also covers client-side route changes.
 const FORCE_REDIRECT_AUTH_SCRIPT = `
   (function () {
     try {
+      var style = document.createElement('style');
+      style.textContent = '#identity-sso-btn { display: none !important; }';
+      (document.head || document.documentElement).appendChild(style);
       if (
         location.pathname.endsWith('/sign-in') ||
         location.pathname.endsWith('/_agent-native/sign-in')
@@ -164,6 +168,10 @@ async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
   try {
     const parsed = new URL(startUrl);
     parsed.searchParams.delete("redirect");
+    // The callback can be handled by a browser with a desktop-style user
+    // agent. Carry native intent in the signed server state so the callback
+    // always returns to this app instead of redirecting the WebView to sign-in.
+    parsed.searchParams.set("mobile", "1");
     const res = await fetch(parsed.toString(), {
       headers: { Accept: "application/json" },
     });

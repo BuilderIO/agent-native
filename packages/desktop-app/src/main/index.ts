@@ -221,6 +221,7 @@ import {
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
 } from "./desktop-startup.js";
+import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -355,6 +356,47 @@ let desktopIdentityBroker: DesktopIdentityBroker | null = null;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
+
+type DesktopNavigationShortcutInput = {
+  type: string;
+  key: string;
+  code?: string;
+  meta?: boolean;
+  control?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+};
+
+function forwardDesktopNavigationShortcut(
+  event: { preventDefault(): void },
+  input: DesktopNavigationShortcutInput,
+): boolean {
+  if (!(input.meta || input.control) || input.type !== "keyDown") return false;
+
+  const key = input.key.toLowerCase();
+  const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
+  const isBracketLeft =
+    input.code === "BracketLeft" || key === "[" || key === "{";
+  const isBracketRight =
+    input.code === "BracketRight" || key === "]" || key === "}";
+  const isBracketShortcut =
+    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
+  if (!isNumericShortcut && !isBracketShortcut) return false;
+
+  event.preventDefault();
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
+  win.webContents.send("shortcut:keydown", {
+    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
+    code: input.code,
+    shiftKey: Boolean(input.shift),
+    altKey: Boolean(input.alt),
+    ctrlKey: Boolean(input.control),
+    metaKey: Boolean(input.meta),
+  });
+  return true;
+}
+
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "ANTHROPIC_API_KEY",
@@ -11115,6 +11157,17 @@ app.whenReady().then(async () => {
       });
     }
 
+    if (IS_DESKTOP_SSO_CANARY && targetAppId) {
+      sess.cookies.on("changed", (_event, cookie, _cause, removed) => {
+        if (removed) return;
+        const identityApp = resolveDesktopIdentityApp(targetAppId);
+        if (!identityApp || !identityApp.cookieNames.includes(cookie.name)) {
+          return;
+        }
+        void desktopIdentityBroker?.adoptAppSession(identityApp.id);
+      });
+    }
+
     // Intercept OAuth callbacks on the frame port and redirect to the app's server.
     // Google redirects to localhost:3334/api/google/... but the frame doesn't
     // serve API routes — the actual app server runs on a different port.
@@ -11310,6 +11363,9 @@ app.whenReady().then(async () => {
 
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
+    wc.on("before-input-event", (event, input) => {
+      forwardDesktopNavigationShortcut(event, input);
+    });
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
@@ -11317,14 +11373,30 @@ app.whenReady().then(async () => {
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
       if (!id) return;
-      desktopWebviewAppIds.set(wc, id);
+      const appId = id;
+      desktopWebviewAppIds.set(wc, appId);
+      if (resolveDesktopIdentityApp(appId)) {
+        void wc
+          .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
+          .catch(() => {});
+      }
       // This is deliberately gated inside the broker. A signed-out or
       // unavailable broker never turns an ordinary app load into SSO.
       const broker = desktopIdentityBroker;
       if (broker) {
-        void broker.ensureAppSession(id).catch(() => undefined);
+        void broker
+          .adoptAppSession(appId)
+          .then((adopted) => {
+            if (!adopted) return broker.ensureAppSession(appId);
+            return true;
+          })
+          .catch(() => undefined);
       }
     };
+    wc.on("dom-ready", syncLoadedApp);
+    wc.on("did-navigate", syncLoadedApp);
+    wc.on("did-navigate-in-page", syncLoadedApp);
+    wc.on("did-stop-loading", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
     // Capture renderer console messages to the log file so they survive
@@ -11357,6 +11429,7 @@ app.whenReady().then(async () => {
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
+    if (forwardDesktopNavigationShortcut(_event, input)) return;
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();

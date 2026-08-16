@@ -7,7 +7,9 @@ import { getAppUrl } from "@/lib/get-app-url";
 
 export default function WorkspaceAppTab({
   appId,
-  captureSessionToken = false,
+  // Every workspace tab shares the parent app's default identity session.
+  // Clips is the intentional exception because it has its own owner-scoped key.
+  captureSessionToken = true,
 }: {
   appId: string;
   captureSessionToken?: boolean;

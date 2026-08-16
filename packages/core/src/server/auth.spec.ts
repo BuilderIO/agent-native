@@ -895,16 +895,26 @@ describe("server/auth", () => {
       const app = createMockApp();
       await autoMountAuth(app);
 
+      const { decodeOAuthState } = await import("./google-oauth.js");
       const authUrlHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/google/auth-url",
       )?.[1];
       const result = await authUrlHandler(
-        createMockEvent({ path: "/_agent-native/google/auth-url" }),
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: { mobile: "1" },
+        }),
       );
 
       expect(new URL(result.url).searchParams.get("client_id")).toBe(
         "sign-in-client",
       );
+      expect(
+        decodeOAuthState(
+          new URL(result.url).searchParams.get("state") ?? undefined,
+          "http://localhost/_agent-native/google/callback",
+        ).mobile,
+      ).toBe(true);
     });
 
     it("lets templates own Google OAuth routes when opted out", async () => {
@@ -4364,6 +4374,17 @@ describe("server/auth", () => {
       expect(decoded.app).toBe("mail");
     });
 
+    it("encodes and decodes native mobile intent through signed state", async () => {
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
+      const state = encodeOAuthState({
+        redirectUri: "http://x/cb",
+        mobile: true,
+      });
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.mobile).toBe(true);
+    });
+
     it("encodes and decodes org id through signed state for scoped OAuth credentials", async () => {
       const { encodeOAuthState, decodeOAuthState } =
         await import("./google-oauth.js");
@@ -5307,6 +5328,31 @@ describe("server/auth", () => {
       const html = await (response as Response).text();
       expect(html).toContain("agentnative://oauth-complete");
       expect(html).toContain('window.location.href="/"');
+    });
+
+    it("deep-links when signed native mobile intent is present even with a desktop-style callback UA", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            sessionToken: "token-1",
+            mobile: true,
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative://oauth-complete");
+      expect(html).toContain("token=token-1");
     });
   });
 

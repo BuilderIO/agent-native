@@ -40,7 +40,12 @@ export default function AppScreen() {
           ),
         }}
       />
-      <AppWebView ref={webviewRef} url={app.url} appName={app.name} />
+      <AppWebView
+        ref={webviewRef}
+        url={app.url}
+        appName={app.name}
+        captureSessionToken
+      />
     </>
   );
 }

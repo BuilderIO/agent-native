@@ -113,6 +113,13 @@ describe("getOnboardingHtml", () => {
       expect(html).toContain(
         "identity.addEventListener('click', __anStartIdentitySso)",
       );
+      expect(html).toContain("data-agent-native-embedded-init");
+      expect(html).toContain(
+        'params.get("embedded") === "1" || window.self !== window.top',
+      );
+      expect(html).toContain(
+        'html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }',
+      );
       // Exactly one rendered element — not duplicated across layout branches.
       expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
     });

@@ -1515,6 +1515,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
   const builderPreviewLocalDevEnabled = isBuilderPreviewLocalDevEnabled();
   const localeInitScript = getLocaleInitScript();
+  const embeddedAuthInitScript = `(function() {
+  try {
+    var params = new URLSearchParams(window.location.search || "");
+    if (params.get("embedded") === "1" || window.self !== window.top) {
+      document.documentElement.setAttribute("data-agent-native-embedded", "1");
+    }
+  } catch (error) {
+    void error;
+  }
+})();`;
 
   const marketing: AuthMarketingContent | undefined =
     opts.marketing ??
@@ -1637,6 +1647,9 @@ ${localeMenuItemsHtml}
       </div>`
     : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const embeddedAuthCss = identitySsoHtml
+    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
+    : "";
   const localDevHtml = `
   <div class="local-dev-signin" id="local-dev-signin" hidden>
     <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
@@ -2005,6 +2018,7 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
 <head>
 <meta charset="UTF-8">
 <script data-agent-native-locale-init>${localeInitScript}</script>
+<script data-agent-native-embedded-init>${embeddedAuthInitScript}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${hasMarketing ? esc(marketing!.appName) + " — " + esc(t("pageTitleSignIn")) : esc(t("pageTitleWelcome"))}</title>
 <link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
@@ -2554,6 +2568,7 @@ ${marketingStyles}
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
   body.simplified-auth .local-note { display: none !important; }
+${embeddedAuthCss}
 </style>
 </head>
 <body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>

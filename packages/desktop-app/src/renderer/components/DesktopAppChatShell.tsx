@@ -19,10 +19,8 @@ import type {
 } from "@shared/ipc-channels";
 import {
   IconAlertCircle,
-  IconArrowUpRight,
   IconCircleCheck,
   IconLoader2,
-  IconLock,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -44,8 +42,6 @@ import {
   createDesktopLocalAgentRuntime,
   type DesktopLocalAgentId,
 } from "../lib/desktop-local-agent-runtime.js";
-import type { AppWebviewAuthState } from "./AppWebview.js";
-
 const desktopChatQueryClient = createAgentNativeQueryClient();
 
 type DesktopChatModelGroup = {
@@ -75,9 +71,6 @@ export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
   children: ReactNode;
-  authState?: AppWebviewAuthState;
-  suppressSignInPrompt?: boolean;
-  onSignInRequest?: () => void;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
@@ -93,9 +86,6 @@ export default function DesktopAppChatShell({
   appId,
   appName,
   children,
-  authState = "unknown",
-  suppressSignInPrompt = false,
-  onSignInRequest,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const shellRootRef = useRef<HTMLDivElement>(null);
@@ -421,24 +411,6 @@ export default function DesktopAppChatShell({
     </Dialog>
   );
 
-  const signInPrompt =
-    !suppressSignInPrompt && authState === "unauthenticated" ? (
-      <div className="flex shrink-0 items-center px-3 pb-1">
-        <button
-          type="button"
-          data-desktop-app-sign-in
-          aria-label={`Sign in to ${appName} on the right`}
-          title={`Sign in to ${appName} on the right`}
-          onClick={onSignInRequest}
-          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background/60 px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <IconLock size={12} stroke={1.8} />
-          <span>Sign in on the right</span>
-          <IconArrowUpRight size={12} stroke={1.8} />
-        </button>
-      </div>
-    ) : null;
-
   return (
     <div
       ref={shellRootRef}
@@ -460,7 +432,6 @@ export default function DesktopAppChatShell({
               }}
               apiUrl={apiUrl}
               agentChatSurface="desktop"
-              composerSlot={signInPrompt}
               showTabBar
               suppressInlineOpenApp
               dynamicSuggestions={false}

@@ -3503,6 +3503,7 @@ async function mountBetterAuthRoutes(
         const q = getQuery(event);
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
+        const mobile = q.mobile === "1" || q.mobile === "true";
         const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
         // Validate the caller's return param up front and only embed it
         // into the OAuth state when it normalises to a non-root path —
@@ -3526,6 +3527,7 @@ async function mountBetterAuthRoutes(
         const state = encodeOAuthState({
           redirectUri,
           desktop,
+          mobile,
           addAccount: false,
           app: getOAuthStateAppId(),
           returnUrl,
@@ -3536,6 +3538,7 @@ async function mountBetterAuthRoutes(
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
           desktop,
+          mobile,
           redirectPath: oauthDebugUrlPath(redirectUri),
           returnUrl,
           redirect: q.redirect === "1",
@@ -3583,12 +3586,14 @@ async function mountBetterAuthRoutes(
         if (callbackRelay) return callbackRelay;
         let callbackFlowId: string | undefined;
         let callbackDesktop = false;
+        let callbackMobile = false;
         try {
           const query = getQuery(event);
           const code = query.code as string;
           const {
             redirectUri,
             desktop,
+            mobile,
             returnUrl,
             flowId,
             signupAttribution,
@@ -3599,9 +3604,11 @@ async function mountBetterAuthRoutes(
           );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
+          callbackMobile = mobile ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
             flowId,
             desktop,
+            mobile,
             redirectPath: oauthDebugUrlPath(redirectUri),
             hasCode: !!code,
             returnUrl,
@@ -3724,6 +3731,7 @@ async function mountBetterAuthRoutes(
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
+            mobile,
             trackSignup: {
               authProvider: "google",
               authUserId: typeof user.id === "string" ? user.id : undefined,
@@ -3735,6 +3743,7 @@ async function mountBetterAuthRoutes(
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
             desktop,
+            mobile,
             hasSessionToken: !!sessionToken,
             emailDomain: email.split("@")[1] || "",
           });
@@ -3750,6 +3759,7 @@ async function mountBetterAuthRoutes(
           return oauthCallbackResponse(event, email, {
             sessionToken,
             desktop,
+            mobile,
             returnUrl,
             flowId,
           });
@@ -3764,6 +3774,7 @@ async function mountBetterAuthRoutes(
           logGoogleOAuthDebug(event, "callback-error", {
             flowId: callbackFlowId,
             desktop: callbackDesktop,
+            mobile: callbackMobile,
             message: msg,
           });
           return oauthErrorPage(AUTH_GOOGLE_FALLBACK);

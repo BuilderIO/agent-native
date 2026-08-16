@@ -9,7 +9,7 @@ const brain = TEMPLATE_APPS.find((a) => a.id === "brain")!;
 export default function BrainTab() {
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <AppWebView url={getAppUrl(brain)} />
+      <AppWebView url={getAppUrl(brain)} captureSessionToken />
     </SafeAreaView>
   );
 }

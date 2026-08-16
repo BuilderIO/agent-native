@@ -13,6 +13,10 @@ import {
   type CodeAgentsNewSessionExtension,
 } from "./CodeAgentsApp.js";
 import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+} from "./keyboard-navigation.js";
+import {
   mergeSessionWatchTranscriptEvents,
   SESSION_WATCH_TRANSCRIPT_EVENT_LIMIT,
 } from "./SessionWatchPanel.js";
@@ -42,6 +46,52 @@ describe("CodeAgentsApp new-session extension seam", () => {
       useDefaultModeControl: true,
       showModelSelector: true,
     });
+  });
+});
+
+describe("chat-first keyboard navigation", () => {
+  const appIds = ["mail", "calendar", "design"];
+  const chatIds = ["chat-1", "chat-2"];
+
+  it("maps Cmd+number positions to the ordered app list", () => {
+    expect(getChatFirstNumericAppShortcut(appIds, "1")).toBe("mail");
+    expect(getChatFirstNumericAppShortcut(appIds, "3")).toBe("design");
+    expect(getChatFirstNumericAppShortcut(appIds, "4")).toBeNull();
+  });
+
+  it("crosses from apps into chats and cycles back through the full sequence", () => {
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        activeAppId: "design",
+        chatIds,
+        direction: 1,
+      }),
+    ).toEqual({ kind: "chat", id: "chat-1" });
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        chatIds,
+        selectedChatId: "chat-1",
+        direction: 1,
+      }),
+    ).toEqual({ kind: "chat", id: "chat-2" });
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        chatIds,
+        selectedChatId: "chat-2",
+        direction: 1,
+      }),
+    ).toEqual({ kind: "app", id: "mail" });
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        activeAppId: "mail",
+        chatIds,
+        direction: -1,
+      }),
+    ).toEqual({ kind: "chat", id: "chat-2" });
   });
 });
 
