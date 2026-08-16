@@ -60,3 +60,13 @@ export function createBackgroundTab(url: string): Promise<chrome.tabs.Tab> {
     });
   });
 }
+
+export function removeTab(tabId: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.remove(tabId, () => {
+      if (chrome.runtime.lastError)
+        reject(new Error(lastErrorMessage("Could not remove tab.")));
+      else resolve();
+    });
+  });
+}

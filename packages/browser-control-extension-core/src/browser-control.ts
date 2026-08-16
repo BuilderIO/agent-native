@@ -4,6 +4,7 @@ import {
   createBackgroundTab,
   detachDebugger,
   getTab,
+  removeTab,
   sendDebuggerCommand,
   type DebuggerSource,
 } from "./chrome-debugger";
@@ -221,10 +222,11 @@ export class BrowserControlService {
       .catch(() => undefined)
       .then(() => this.executeCommand(request.taskId, request.command));
     this.taskQueues.set(request.taskId, next);
-    void next.finally(() => {
+    const clearTaskQueue = () => {
       if (this.taskQueues.get(request.taskId) === next)
         this.taskQueues.delete(request.taskId);
-    });
+    };
+    void next.then(clearTaskQueue, clearTaskQueue);
     return next;
   }
 
@@ -311,7 +313,9 @@ export class BrowserControlService {
     taskId: string,
     tabId: number,
     origins: string[],
+    expectedSession?: TaskSession,
   ): Promise<{ tabId: number; origin: string }> {
+    this.assertExpectedSession(taskId, expectedSession);
     const owner = this.tabOwners.get(tabId);
     if (owner && owner !== taskId) {
       throw new BrowserControlError(
@@ -327,10 +331,14 @@ export class BrowserControlService {
       allowedOrigins: new Set(origins),
     };
     const tab = await this.assertSessionAllowed(session);
+    this.assertExpectedSession(taskId, expectedSession);
     await attachDebugger(source(tabId));
     try {
+      this.assertExpectedSession(taskId, expectedSession);
       await sendDebuggerCommand(source(tabId), "Page.enable");
+      this.assertExpectedSession(taskId, expectedSession);
       await sendDebuggerCommand(source(tabId), "Accessibility.enable");
+      this.assertExpectedSession(taskId, expectedSession);
       if (previous && previous.tabId !== tabId) {
         this.tabOwners.delete(previous.tabId);
         await releaseInjectedInput(previous.tabId);
@@ -339,6 +347,7 @@ export class BrowserControlService {
       this.sessions.set(taskId, session);
       this.tabOwners.set(tabId, taskId);
       await this.persist();
+      this.assertExpectedSession(taskId, session);
       return { tabId, origin: new URL(tab.url!).origin };
     } catch (error) {
       await detachDebugger(source(tabId));
@@ -365,6 +374,18 @@ export class BrowserControlService {
         "This task has not attached a Chrome tab.",
       );
     return session;
+  }
+
+  private assertExpectedSession(
+    taskId: string,
+    expectedSession: TaskSession | undefined,
+  ): void {
+    if (expectedSession && this.sessions.get(taskId) !== expectedSession) {
+      throw new BrowserControlError(
+        "TASK_HANDOFF_CANCELLED",
+        "The Chrome tab handoff was cancelled before it completed.",
+      );
+    }
   }
 
   private async assertSessionAllowed(
@@ -654,21 +675,43 @@ export class BrowserControlService {
   private async openTab(taskId: string, rawUrl: string): Promise<unknown> {
     const session = await this.revalidate(taskId);
     const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
-    const tab = await createBackgroundTab(url.href);
-    if (typeof tab.id !== "number") {
-      throw new BrowserControlError(
-        "TAB_ID_UNAVAILABLE",
-        "Chrome did not return an id for the background tab.",
-      );
+    let createdTabId: number | undefined;
+    try {
+      const tab = await createBackgroundTab(url.href);
+      if (typeof tab.id !== "number") {
+        throw new BrowserControlError(
+          "TAB_ID_UNAVAILABLE",
+          "Chrome did not return an id for the background tab.",
+        );
+      }
+      createdTabId = tab.id;
+      if (tab.active !== false) {
+        throw new BrowserControlError(
+          "TAB_NOT_BACKGROUND",
+          "Chrome could not create the requested tab in the background.",
+        );
+      }
+      await this.attach(taskId, tab.id, [...session.allowedOrigins], session);
+      return { url: url.href, origin: url.origin, active: false };
+    } catch (error) {
+      if (createdTabId !== undefined) {
+        try {
+          await removeTab(createdTabId);
+        } catch (cleanupError) {
+          const failure =
+            error instanceof Error ? error.message : "Tab handoff failed.";
+          const cleanupFailure =
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : "Could not remove the created tab.";
+          throw new BrowserControlError(
+            "TAB_HANDOFF_CLEANUP_FAILED",
+            `${failure} ${cleanupFailure}`,
+          );
+        }
+      }
+      throw error;
     }
-    if (tab.active !== false) {
-      throw new BrowserControlError(
-        "TAB_NOT_BACKGROUND",
-        "Chrome could not create the requested tab in the background.",
-      );
-    }
-    await this.attach(taskId, tab.id, [...session.allowedOrigins]);
-    return { url: url.href, origin: url.origin, active: false };
   }
 
   private async scroll(
