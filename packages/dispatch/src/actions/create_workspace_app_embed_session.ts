@@ -22,10 +22,12 @@ export async function assertWorkspaceEmbedSessionCaller(
 ): Promise<void> {
   if (!headers) return;
 
-  const authorization = headers.get("authorization")?.trim();
-  if (authorization?.toLowerCase().startsWith("bearer ")) return;
-
-  if (headers.get("sec-fetch-site")?.toLowerCase() === "cross-site") {
+  const fetchSite = headers.get("sec-fetch-site")?.trim().toLowerCase();
+  // Browsers always send Sec-Fetch-Site and page scripts cannot forge or strip
+  // this forbidden header. Native clients do not send it and authenticate
+  // through the normal action request context below.
+  if (!fetchSite) return;
+  if (fetchSite !== "same-origin") {
     throw new Error("Workspace app sessions must be requested by Dispatch.");
   }
 
@@ -44,7 +46,6 @@ export async function assertWorkspaceEmbedSessionCaller(
   if (refererUrl.origin !== requestOrigin) {
     throw new Error("Workspace app sessions must be requested by Dispatch.");
   }
-
   const apps = await listWorkspaceApps({
     includeAgentCards: false,
     audience: "all",
