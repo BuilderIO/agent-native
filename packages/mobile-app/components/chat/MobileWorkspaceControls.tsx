@@ -8,6 +8,7 @@ import type { RemoteHost } from "@/lib/remote-sessions-api";
 import { MobilePopover } from "./MobilePopover";
 
 export type ChatTarget = "cloud" | "computer";
+export { useMobileThemeColors } from "@/lib/mobile-colors";
 
 function TargetOption({
   label,

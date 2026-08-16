@@ -31,6 +31,7 @@ import { MobilePopover } from "@/components/chat/MobilePopover";
 import {
   MobileWorkspaceControls,
   type ChatTarget,
+  useMobileThemeColors,
 } from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
 import { ComputerConnectSheet } from "@/components/ComputerConnectSheet";
@@ -42,7 +43,6 @@ import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import type { AgentChatController } from "@/lib/agent-chat/use-agent-chat";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
-import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
 import {
   appendRemoteFollowUp,
@@ -223,12 +223,12 @@ export default function ChatTab() {
     __DEV__ && Platform.OS === "web" && typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("preview")
       : null;
-  const isWebPreview = previewMode === "chat-empty";
   const isComputerPreview =
     previewMode === "chat-computer" || previewMode === "chat-computer-complete";
+  const isWebPreview = previewMode === "chat-empty" || isComputerPreview;
   const computerPreviewComplete = previewMode === "chat-computer-complete";
   const [authState, setAuthState] = useState<AuthState>(
-    isWebPreview || isComputerPreview ? "connected" : "checking",
+    isWebPreview ? "connected" : "checking",
   );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -273,7 +273,7 @@ export default function ChatTab() {
   }, [chat.baseUrl, settings, setSettings]);
 
   const refreshAuth = useCallback(async () => {
-    if (isWebPreview || isComputerPreview) {
+    if (isWebPreview) {
       setAuthState("connected");
       return;
     }
@@ -291,7 +291,7 @@ export default function ChatTab() {
     } else if (result.status === "invalid") {
       setAuthState("signed-out");
     }
-  }, [isComputerPreview, isWebPreview]);
+  }, [isWebPreview]);
 
   useEffect(() => {
     if (authState !== "checking") return;
