@@ -209,6 +209,7 @@ import {
   fetchDesktopIdentityAvailability,
   isDesktopIdentityAppConfigEligible,
   isDesktopIdentityOriginEligible,
+  shouldStartDesktopIdentitySignIn,
   type DesktopIdentityApp,
 } from "./desktop-identity";
 import {
@@ -353,6 +354,7 @@ let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
 let desktopIdentityBroker: DesktopIdentityBroker | null = null;
+let desktopIdentityAutoSignInStarted = false;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
@@ -1265,6 +1267,31 @@ ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
   return true;
 });
+
+function maybeStartDesktopIdentitySignIn(win: BrowserWindow): void {
+  if (desktopIdentityAutoSignInStarted || !desktopIdentityBroker) return;
+  const authorityApp = resolveDesktopIdentityApp("dispatch");
+  if (
+    !shouldStartDesktopIdentitySignIn(
+      desktopIdentityBroker.getStatus(),
+      authorityApp,
+    )
+  ) {
+    return;
+  }
+  desktopIdentityAutoSignInStarted = true;
+
+  const start = () => {
+    const identityApp = resolveDesktopIdentityApp(activeAppId) ?? authorityApp;
+    if (!identityApp) return;
+    void desktopIdentityBroker?.signIn(identityApp.id).catch(() => undefined);
+  };
+  if (win.webContents.isLoading()) {
+    win.webContents.once("did-finish-load", start);
+  } else {
+    start();
+  }
+}
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -11369,6 +11396,7 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
+  if (IS_DESKTOP_SSO_CANARY) maybeStartDesktopIdentitySignIn(win);
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.
