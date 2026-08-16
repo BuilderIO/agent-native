@@ -181,7 +181,9 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
-  it("fails before calling Builder when the public key is missing", async () => {
+  // The gateway lane resolves a space id into `publicKey`, so the copy names the
+  // credential rather than the legacy env var it used to be read from.
+  it("fails before calling Builder when the space id is missing", async () => {
     resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: "bpk-builder-key",
       publicKey: null,
@@ -196,7 +198,7 @@ describe("generateWithManagedImageProvider", () => {
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
         requiredCredential: "BUILDER_PRIVATE_KEY",
-        message: expect.stringContaining("Builder public key is missing"),
+        message: expect.stringContaining("Builder space id is missing"),
       }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
