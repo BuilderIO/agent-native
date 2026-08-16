@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
+  getBuiltinAgents: vi.fn(() => []),
   listWorkspaceApps: vi.fn(),
   getUserSetting: vi.fn(),
   getOrgSetting: vi.fn(),
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: mocks.discoverAgents,
+  getBuiltinAgents: mocks.getBuiltinAgents,
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -129,6 +131,7 @@ beforeEach(() => {
   mocks.a2aGetTask.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
+  mocks.getBuiltinAgents.mockReturnValue([]);
   mocks.listWorkspaceApps.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
   mocks.getOrgSetting.mockResolvedValue({ mode: "all-apps" });
@@ -940,6 +943,109 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
     });
     expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
+  it("uses a built-in home URL when discovery returns a deep agent link", async () => {
+    mocks.getBuiltinAgents.mockReturnValue([
+      {
+        id: "clips",
+        name: "Clips",
+        description: "Record and share",
+        url: "https://clips.agent-native.com",
+        color: "#000000",
+      },
+    ]);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "clips",
+        name: "Clips",
+        description: "Record and share",
+        url: "https://clips.agent-native.com/share/deep-link",
+        color: "#000000",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "clips",
+          path: "/inbox",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://clips.agent-native.com/inbox",
+        chrome: "full",
+      },
+    );
+    expect(result).toMatchObject({
+      app: "clips",
+      startUrl:
+        "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
+  it("uses an external agent origin as the home fallback for deep registrations", async () => {
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "custom-agent",
+          clientId: "custom-agent-client",
+          origin: "https://custom.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "custom-agent",
+        name: "Custom agent",
+        description: "Deep endpoint",
+        url: "https://custom.example.com/agent/deep-link",
+        color: "#000000",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://custom.example.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "custom-agent",
+          path: "/home",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://custom.example.com/home",
+        chrome: "full",
+      },
+    );
+    expect(result.app).toBe("custom-agent");
   });
 
   it("excludes path-mounted apps from SSO while retaining canonical apps", async () => {

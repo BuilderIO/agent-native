@@ -1,14 +1,46 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMobileWebViewAuthUrl } from "./webview-auth-url";
+import {
+  buildMobileWebViewAuthUrl,
+  canCaptureMobileWebViewSession,
+} from "./webview-auth-url";
+
+describe("canCaptureMobileWebViewSession", () => {
+  it("never lets a WebView write the shared parent key", () => {
+    expect(
+      canCaptureMobileWebViewSession({
+        enabled: true,
+        sessionTokenKey: "parent",
+        parentSessionTokenKey: "parent",
+      }),
+    ).toBe(false);
+  });
+
+  it("allows an app-scoped key when native capture is enabled", () => {
+    expect(
+      canCaptureMobileWebViewSession({
+        enabled: true,
+        sessionTokenKey: "clips",
+        parentSessionTokenKey: "parent",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not capture when native capture is disabled", () => {
+    expect(
+      canCaptureMobileWebViewSession({
+        enabled: false,
+        sessionTokenKey: "clips",
+        parentSessionTokenKey: "parent",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("buildMobileWebViewAuthUrl", () => {
   it("uses only the one-time embed URL for workspace apps", () => {
     const url = buildMobileWebViewAuthUrl({
       url: "https://calendar.example/events",
-      sessionToken: "parent-bearer",
-      sessionTokenKey: "parent",
-      parentSessionTokenKey: "parent",
       workspaceAppId: "calendar",
       workspaceEmbedState: "ready",
       workspaceEmbedUrl:
@@ -23,23 +55,17 @@ describe("buildMobileWebViewAuthUrl", () => {
     expect(
       buildMobileWebViewAuthUrl({
         url: "https://calendar.example/events",
-        sessionToken: "parent-bearer",
-        sessionTokenKey: "parent",
-        parentSessionTokenKey: "parent",
         workspaceAppId: "calendar",
         workspaceEmbedState: "disabled",
       }),
     ).toBe("https://calendar.example/events");
   });
 
-  it("keeps the legacy bridge for a separately stored non-workspace token", () => {
+  it("does not put a separately stored token into a non-workspace URL", () => {
     expect(
       buildMobileWebViewAuthUrl({
         url: "https://clips.example/library",
-        sessionToken: "clips-token",
-        sessionTokenKey: "clips",
-        parentSessionTokenKey: "parent",
       }),
-    ).toBe("https://clips.example/library?_session=clips-token");
+    ).toBe("https://clips.example/library");
   });
 });

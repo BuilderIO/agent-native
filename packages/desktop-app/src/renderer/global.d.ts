@@ -741,6 +741,7 @@ interface ElectronAPI {
     getStatus(): Promise<DesktopIdentityStatus>;
     getSettings(): Promise<DesktopIdentitySettings>;
     setSsoEnabled(enabled: boolean): Promise<boolean>;
+    ensureAppSession(appId: string): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     authenticate(

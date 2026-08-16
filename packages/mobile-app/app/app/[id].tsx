@@ -4,6 +4,8 @@ import { useRef } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 
 import AppWebView, { type AppWebViewHandle } from "@/components/AppWebView";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
 import { useApps } from "@/lib/use-apps";
 import { useWorkspaceApps } from "@/lib/workspace-apps";
 
@@ -12,6 +14,7 @@ export default function AppScreen() {
   const { apps } = useApps();
   const workspace = useWorkspaceApps();
   const webviewRef = useRef<AppWebViewHandle>(null);
+  const { background, foreground } = useMobileThemeColors();
 
   const app =
     (workspace.enabled &&
@@ -31,19 +34,22 @@ export default function AppScreen() {
     );
   }
 
+  const usesWorkspaceEmbed =
+    isWorkspaceApp || (app.isBuiltIn && app.mode !== "dev");
+
   return (
     <>
       <Stack.Screen
         options={{
           title: app.name,
-          headerStyle: { backgroundColor: "#111111" },
-          headerTintColor: "#ffffff",
+          headerStyle: { backgroundColor: background },
+          headerTintColor: foreground,
           headerRight: () => (
             <TouchableOpacity
               onPress={() => webviewRef.current?.reload()}
               className="p-2 active:opacity-75"
             >
-              <Feather name="refresh-cw" size={20} color="#ffffff" />
+              <Feather name="refresh-cw" size={20} color={foreground} />
             </TouchableOpacity>
           ),
         }}
@@ -53,7 +59,8 @@ export default function AppScreen() {
         url={app.url}
         appName={app.name}
         captureSessionToken
-        workspaceAppId={isWorkspaceApp ? app.id : undefined}
+        parentSessionTokenKey={SESSION_TOKEN_KEY}
+        workspaceAppId={usesWorkspaceEmbed ? app.id : undefined}
       />
     </>
   );

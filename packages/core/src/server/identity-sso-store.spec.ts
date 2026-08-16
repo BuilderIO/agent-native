@@ -175,7 +175,10 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(store.getIdentityHubUrl()).toBe("http://localhost:3000");
   });
 
-  it("recognizes only the packaged Canary marker and canonical hosts", () => {
+  it("recognizes desktop clients and canonical hosts", () => {
+    expect(
+      store.isDesktopSsoUserAgent("Mozilla/5.0 AgentNativeDesktop/1.2.3"),
+    ).toBe(true);
     expect(
       store.isDesktopSsoCanaryUserAgent(
         "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",

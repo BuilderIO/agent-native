@@ -51,10 +51,12 @@ export async function resolveAndStoreOwnerKey(
 ): Promise<void> {
   if (!ownerKeyName || !baseUrl) return;
   try {
-    const res = await fetch(
-      `${baseUrl}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
-      { headers: { Accept: "application/json" } },
-    );
+    const res = await fetch(`${baseUrl}/_agent-native/auth/session`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
     const data = (await res.json()) as { email?: unknown; orgId?: unknown };
     if (typeof data.email === "string" && data.email.trim()) {
       await AsyncStorage.setItem(

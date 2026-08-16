@@ -411,10 +411,12 @@ export class DesktopIdentityBroker {
       }
       if (!available) {
         this.availability = "unavailable";
-        this.setStatus("idle");
-        return;
+        // The native setting owns whether the parent sign-in surface is
+        // shown. Availability is still recorded so background fan-out stays
+        // fail-closed, but an anonymous user must be able to start the
+        // hosted parent login even when the server flag is user-scoped.
       }
-      this.availability = "available";
+      if (available) this.availability = "available";
     }
     const verifiedEmail = await this.verifyIdentitySession(authorityApp).catch(
       () => null,
@@ -544,8 +546,7 @@ export class DesktopIdentityBroker {
     if (
       this.signOutOperation ||
       !this.options.resolveApp(appId) ||
-      (this.options.isAvailable && !this.options.resolveApp("dispatch")) ||
-      (this.options.isAvailable && this.availability !== "available")
+      (this.options.isAvailable && !this.options.resolveApp("dispatch"))
     ) {
       return Promise.resolve(false);
     }
@@ -654,11 +655,17 @@ export class DesktopIdentityBroker {
           reason: error instanceof Error ? error.message : "unknown error",
         });
       }
-      if (!available || !this.isCeremonyCurrent(generation)) {
+      if (!this.isCeremonyCurrent(generation)) {
         this.availability = "unavailable";
-        return fail("The Agent Native identity service is unavailable.");
+        return fail("Sign-in was cancelled. Please try again.");
       }
-      this.availability = "available";
+      if (available) {
+        this.availability = "available";
+      } else {
+        // This is an explicit parent-auth attempt. The availability probe is
+        // user-scoped, so an anonymous false result must not block login.
+        this.availability = "unavailable";
+      }
     }
 
     await this.waitForActiveSessionCopies();
@@ -1601,12 +1608,15 @@ export class DesktopIdentityBroker {
       if (!this.isCeremonyCurrent(generation)) return false;
       if (!available) {
         this.availability = "unavailable";
-        markUnsupported();
-        this.setStatus("idle");
-        this.options.reloadApp(app);
-        return false;
+        if (options.interactive === false) {
+          markUnsupported();
+          this.setStatus("idle");
+          this.options.reloadApp(app);
+          return false;
+        }
+      } else {
+        this.availability = "available";
       }
-      this.availability = "available";
     }
 
     this.setStatus("signing-in");

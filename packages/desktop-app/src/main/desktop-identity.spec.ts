@@ -795,23 +795,39 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).not.toHaveBeenCalled();
   });
 
-  it("refuses explicit workspace sign-in before rollout availability is known", async () => {
+  it("starts explicit workspace sign-in when anonymous availability is false", async () => {
     const app = appFixture();
     const authority = authorityFixture();
+    let closedHandler: (() => void) | undefined;
+    const identityWindow = {
+      webContents: {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(() => closedHandler?.()),
+      on: vi.fn((event: string, handler: () => void) => {
+        if (event === "closed") closedHandler = handler;
+      }),
+    };
     const broker = new DesktopIdentityBroker({
       identitySession: {
         cookies: cookieStore(),
         clearStorageData: vi.fn(async () => {}),
       } as unknown as Electron.Session,
-      isAvailable: vi.fn(async () => true),
+      isAvailable: vi.fn(async () => false),
       resolveApp: (id) =>
         id === app.id ? app : id === authority.id ? authority : null,
-      createWindow: vi.fn() as never,
+      createWindow: vi.fn(() => identityWindow) as never,
       reloadApp: vi.fn(),
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.signIn(app.id)).resolves.toBe(false);
+    const signIn = broker.signIn(app.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    closedHandler?.();
+    await expect(signIn).resolves.toBe(false);
   });
 
   it("fails explicit sign-in if Dispatch disappears before the ceremony", async () => {
@@ -843,7 +859,7 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("idle");
   });
 
-  it("leaves ordinary per-app sign-in alone when rollout availability is off", async () => {
+  it("shows the parent sign-in surface when rollout availability is off", async () => {
     const app = appFixture();
     const authority = authorityFixture();
     const createWindow = vi.fn();
@@ -867,8 +883,7 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).not.toHaveBeenCalled();
     expect(resolveLoginRedirect).not.toHaveBeenCalled();
     expect(reloadApp).not.toHaveBeenCalled();
-    expect(broker.getStatus()).toBe("idle");
-    await expect(broker.signIn(app.id)).resolves.toBe(false);
+    expect(broker.getStatus()).toBe("sign-in-required");
   });
 
   it("leaves ordinary per-app sign-out alone after rollout availability turns off", async () => {

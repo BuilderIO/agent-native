@@ -43,11 +43,14 @@ vi.mock("expo-web-browser", () => browser);
 
 import {
   authenticateWithPassword,
+  bootstrapNativeSession,
+  inspectNativeSession,
+  NATIVE_SESSION_BOOTSTRAP_KEY,
   signInWithGoogle,
   signInWithMagicLink,
   validateNativeSession,
 } from "./native-auth";
-import { getSessionToken } from "./session-token-store";
+import { getSessionToken, saveSessionToken } from "./session-token-store";
 
 describe("mobile parent authentication", () => {
   beforeEach(() => {
@@ -182,8 +185,13 @@ describe("mobile parent authentication", () => {
       orgId: "org-builder",
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://dispatch.example/_agent-native/auth/session?_session=parent-session",
-      { headers: { Accept: "application/json" } },
+      "https://dispatch.example/_agent-native/auth/session",
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer parent-session",
+        },
+      },
     );
   });
 
@@ -201,6 +209,77 @@ describe("mobile parent authentication", () => {
     await expect(
       validateNativeSession("child-session", "https://dispatch.example"),
     ).resolves.toBeNull();
+  });
+
+  it("distinguishes an unavailable parent check from an invalid session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("upstream unavailable", { status: 503 })),
+    );
+
+    await expect(
+      inspectNativeSession("parent-session", "https://dispatch.example"),
+    ).resolves.toEqual({
+      reason: "server",
+      status: "unavailable",
+      statusCode: 503,
+    });
+  });
+
+  it("validates a surviving Keychain token on the first launch after reinstall", async () => {
+    await saveSessionToken("surviving-parent-session");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ email: "steve@builderio" }), {
+            status: 200,
+          }),
+      ),
+    );
+
+    await expect(
+      bootstrapNativeSession({ baseUrl: "https://dispatch.example" }),
+    ).resolves.toMatchObject({ firstInstall: true, status: "connected" });
+    await expect(getSessionToken()).resolves.toBe("surviving-parent-session");
+    await expect(
+      (
+        await import("@react-native-async-storage/async-storage")
+      ).default.getItem(NATIVE_SESSION_BOOTSTRAP_KEY),
+    ).resolves.toBe("1");
+  });
+
+  it("clears a surviving Keychain token when Dispatch rejects it", async () => {
+    await saveSessionToken("expired-parent-session");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+          }),
+      ),
+    );
+
+    await expect(
+      bootstrapNativeSession({ baseUrl: "https://dispatch.example" }),
+    ).resolves.toMatchObject({ firstInstall: true, status: "signed-out" });
+    await expect(getSessionToken()).resolves.toBeNull();
+  });
+
+  it("keeps the token when startup validation is unavailable", async () => {
+    await saveSessionToken("offline-parent-session");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+
+    await expect(
+      bootstrapNativeSession({ baseUrl: "https://dispatch.example" }),
+    ).resolves.toMatchObject({ firstInstall: true, status: "unavailable" });
+    await expect(getSessionToken()).resolves.toBe("offline-parent-session");
   });
   it("completes Google sign-in in the parent session", async () => {
     const fetchMock = vi
@@ -233,8 +312,14 @@ describe("mobile parent authentication", () => {
     await expect(getSessionToken()).resolves.toBe("google-session");
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "https://dispatch.example/_agent-native/google/auth-url?mobile=1",
-      "https://dispatch.example/_agent-native/auth/session?_session=google-session",
+      "https://dispatch.example/_agent-native/auth/session",
     ]);
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual({
+      headers: {
+        Accept: "application/json",
+        Authorization: "Bearer google-session",
+      },
+    });
   });
 
   it("waits for a verified magic link through the one-time parent exchange", async () => {
