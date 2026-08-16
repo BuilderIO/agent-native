@@ -20,6 +20,7 @@ import {
 } from "@agent-native/core/server";
 import {
   discoverAgents,
+  getBuiltinAgents,
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
 
@@ -69,6 +70,8 @@ export interface DispatchMcpAccessibleApp {
   name: string;
   description: string;
   url: string;
+  /** Canonical browser entry point when `url` is a deep A2A/agent link. */
+  homeUrl?: string;
   color: string;
   granted: boolean;
 }
@@ -477,12 +480,29 @@ function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
 
+function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
+  const configured = app.homeUrl?.trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return url.toString().replace(/\/+$/, "");
+      }
+    } catch {
+      // coercion-ok: invalid optional home URL falls back to endpoint.
+      // Fall back to the registered endpoint below. The endpoint has already
+      // passed the app-origin validation before this helper is reached.
+    }
+  }
+  return appBaseUrl(app);
+}
+
 function resolveGrantedAppEmbedStartUrl(
   app: DispatchMcpAccessibleApp,
   startUrl: string,
 ): string {
   try {
-    const baseUrl = appBaseUrl(app);
+    const baseUrl = appHomeBaseUrl(app);
     const resolved = new URL(startUrl, `${baseUrl}/`);
     if (!appMatchesUrlPath(app, resolved)) {
       throw new Error(
@@ -496,12 +516,12 @@ function resolveGrantedAppEmbedStartUrl(
 }
 
 function appBasePath(app: DispatchMcpAccessibleApp): string {
-  const pathname = new URL(appBaseUrl(app)).pathname.replace(/\/+$/, "");
+  const pathname = new URL(appHomeBaseUrl(app)).pathname.replace(/\/+$/, "");
   return pathname === "/" ? "" : pathname;
 }
 
 function appMatchesUrlPath(app: DispatchMcpAccessibleApp, url: URL): boolean {
-  const origin = safeAppOrigin(app);
+  const origin = new URL(appHomeBaseUrl(app)).origin;
   if (!origin || url.origin !== origin) return false;
   const basePath = appBasePath(app);
   if (!basePath) return true;
@@ -520,6 +540,15 @@ function appRelativePath(app: DispatchMcpAccessibleApp, url: URL): string {
       : url.pathname.slice(basePath.length)
     : url.pathname;
   return `${path || "/"}${url.search}${url.hash}`;
+}
+
+function defaultWorkspaceSsoHomeUrl(
+  app: DispatchMcpAccessibleApp,
+  builtinHomeUrls: ReadonlyMap<string, string>,
+): string | undefined {
+  const builtinHomeUrl = builtinHomeUrls.get(app.id);
+  if (builtinHomeUrl) return builtinHomeUrl;
+  return safeAppOrigin(app) ?? undefined;
 }
 
 function isDispatchControlPath(path: string | null): boolean {
@@ -659,14 +688,19 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
     discoverAgents("dispatch"),
     listWorkspaceApps({ includeAgentCards: false }),
   ]);
+  const builtinHomeUrls = new Map(
+    getBuiltinAgents("dispatch").map((agent) => [agent.id, agent.url]),
+  );
   const candidatesById = new Map<string, DispatchMcpAccessibleApp>();
   for (const agent of agents) {
     if (normalizeAppId(agent.id) === DISPATCH_APP_ID) continue;
+    const accessible = toAccessibleApp(agent, {
+      mode: "all-apps",
+      selectedAppIds: [],
+    });
     candidatesById.set(agent.id, {
-      ...toAccessibleApp(agent, {
-        mode: "all-apps",
-        selectedAppIds: [],
-      }),
+      ...accessible,
+      homeUrl: defaultWorkspaceSsoHomeUrl(accessible, builtinHomeUrls),
       granted: true,
     });
   }
@@ -1108,7 +1142,7 @@ async function resolveEmbedTarget(
     return {
       app: explicitApp,
       path,
-      url: `${appBaseUrl(explicitApp)}${path}`,
+      url: `${appHomeBaseUrl(explicitApp)}${path}`,
     };
   }
 
@@ -1128,7 +1162,7 @@ async function resolveEmbedTarget(
     return {
       app: explicitApp,
       path,
-      url: `${appBaseUrl(explicitApp)}${path}`,
+      url: `${appHomeBaseUrl(explicitApp)}${path}`,
     };
   }
 
@@ -1142,7 +1176,7 @@ async function resolveEmbedTarget(
   const path = safeAppPath(appRelativePath(target, parsed));
   if (!path) throw new Error("Embed URL path is not safe.");
   assertAppCanOpenPath(target, path);
-  return { app: target, path, url: `${appBaseUrl(target)}${path}` };
+  return { app: target, path, url: `${appHomeBaseUrl(target)}${path}` };
 }
 
 async function resolveDispatchEmbedTarget(input: {
