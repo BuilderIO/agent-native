@@ -16,6 +16,7 @@ import {
 } from "@/components/uniwind-interop";
 import {
   authenticateWithPassword,
+  signInWithGoogle,
   type NativeAuthMode,
 } from "@/lib/native-auth";
 import { refreshWorkspaceApps } from "@/lib/workspace-apps";
@@ -35,11 +36,13 @@ export function NativeSignInSheet({
   const [mode, setMode] = useState<NativeAuthMode>("sign-in");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
 
   useEffect(() => {
     if (!visible) {
       setError(null);
       setSubmitting(false);
+      setGoogleSubmitting(false);
       setPassword("");
       setConfirmPassword("");
     }
@@ -71,6 +74,25 @@ export function NativeSignInSheet({
       );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const submitGoogle = async () => {
+    if (submitting || googleSubmitting) return;
+    setGoogleSubmitting(true);
+    setError(null);
+    try {
+      await signInWithGoogle();
+      await refreshWorkspaceApps();
+      await onSignedIn();
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Google sign-in failed. Please try again.",
+      );
+    } finally {
+      setGoogleSubmitting(false);
     }
   };
 
@@ -224,6 +246,26 @@ export function NativeSignInSheet({
                     }`}
                   >
                     {mode === "sign-up" ? "Create account" : "Sign in"}
+                  </Text>
+                )}
+              </Pressable>
+              <View className="mb-3 flex-row items-center gap-3">
+                <View className="h-px flex-1 bg-border-dark" />
+                <Text className="text-text-muted text-[12px]">or</Text>
+                <View className="h-px flex-1 bg-border-dark" />
+              </View>
+              <Pressable
+                className="mb-2 h-12 items-center justify-center rounded-xl border border-border-dark bg-background-dark active:opacity-75"
+                onPress={() => void submitGoogle()}
+                disabled={submitting || googleSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Continue with Google"
+              >
+                {googleSubmitting ? (
+                  <ActivityIndicator color="#d4d4d8" />
+                ) : (
+                  <Text className="text-white text-[15px] font-semibold">
+                    Continue with Google
                   </Text>
                 )}
               </Pressable>

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Ship Now"
-  short_description: "Prep, admin-merge, rotate, then monitor"
-  default_prompt: "Use $ship-now to prep the current branch, admin-merge it immediately, rotate to a fresh branch, and monitor the post-merge release tail."

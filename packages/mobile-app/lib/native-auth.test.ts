@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const plaintextStorage = new Map<string, string>();
 const secureStorage = new Map<string, string>();
 const platform = vi.hoisted(() => ({ OS: "ios" as string }));
+const browser = vi.hoisted(() => ({
+  openAuthSessionAsync: vi.fn(),
+  getCustomTabsSupportingBrowsersAsync: vi.fn(),
+  openBrowserAsync: vi.fn(),
+}));
 
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: {
@@ -10,8 +15,14 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
     setItem: vi.fn(async (key: string, value: string) => {
       plaintextStorage.set(key, value);
     }),
+    multiSet: vi.fn(async (entries: [string, string][]) => {
+      for (const [key, value] of entries) plaintextStorage.set(key, value);
+    }),
     removeItem: vi.fn(async (key: string) => {
       plaintextStorage.delete(key);
+    }),
+    multiRemove: vi.fn(async (keys: string[]) => {
+      for (const key of keys) plaintextStorage.delete(key);
     }),
   },
 }));
@@ -28,8 +39,9 @@ vi.mock("expo-secure-store", () => ({
 }));
 
 vi.mock("react-native", () => ({ Platform: platform }));
+vi.mock("expo-web-browser", () => browser);
 
-import { authenticateWithPassword } from "./native-auth";
+import { authenticateWithPassword, signInWithGoogle } from "./native-auth";
 import { getSessionToken } from "./session-token-store";
 
 describe("mobile parent authentication", () => {
@@ -38,6 +50,9 @@ describe("mobile parent authentication", () => {
     plaintextStorage.clear();
     secureStorage.clear();
     vi.restoreAllMocks();
+    browser.openAuthSessionAsync.mockReset();
+    browser.getCustomTabsSupportingBrowsersAsync.mockReset();
+    browser.openBrowserAsync.mockReset();
   });
 
   it("signs in once and stores the returned parent session", async () => {
@@ -142,5 +157,40 @@ describe("mobile parent authentication", () => {
       }),
     ).rejects.toThrow("Google sign-in is required.");
     await expect(getSessionToken()).resolves.toBeNull();
+  });
+
+  it("completes Google sign-in in the parent session", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ url: "https://accounts.google.com/auth?state=s1" }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ email: "steve@builderio", orgId: "org-builder" }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    browser.openAuthSessionAsync.mockResolvedValue({
+      type: "success",
+      url: "agentnative://oauth-complete?token=google-session&state=s1",
+    });
+
+    await expect(
+      signInWithGoogle({ baseUrl: "https://dispatch.example" }),
+    ).resolves.toEqual({
+      email: "steve@builderio",
+      token: "google-session",
+      orgId: "org-builder",
+    });
+    await expect(getSessionToken()).resolves.toBe("google-session");
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://dispatch.example/_agent-native/google/auth-url?mobile=1",
+      "https://dispatch.example/_agent-native/auth/session?_session=google-session",
+    ]);
   });
 });

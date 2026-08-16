@@ -1,6 +1,21 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as WebBrowser from "expo-web-browser";
+import { Platform } from "react-native";
 
-import { saveSessionToken } from "./session-token-store";
+import { completeOAuthCallback, rememberOAuthState } from "./oauth-session";
+import {
+  OAUTH_BASE_URL_KEY,
+  OAUTH_OWNER_KEY_KEY,
+  OAUTH_RETURN_PATH_KEY,
+  OAUTH_STATE_KEY,
+  OAUTH_TOKEN_STORE_KEY,
+} from "./oauth-storage";
+import {
+  getSessionToken,
+  saveSessionToken,
+  SESSION_TOKEN_KEY,
+} from "./session-token-store";
 
 const dispatchApp = TEMPLATE_APPS.find((app) => app.id === "dispatch");
 export const NATIVE_AUTH_BASE_URL =
@@ -27,6 +42,134 @@ export interface NativeAuthResult {
   email: string;
   token: string;
   orgId?: string;
+}
+
+function cleanBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+async function readSessionIdentity(
+  token: string,
+  baseUrl: string,
+): Promise<NativeAuthResult> {
+  const response = await fetch(
+    `${cleanBaseUrl(baseUrl)}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
+    { headers: { Accept: "application/json" } },
+  );
+  let payload: NativeAuthResponse | null = null;
+  try {
+    payload = (await response.json()) as NativeAuthResponse;
+  } catch {
+    // The status below remains the source of truth when the server did not
+    // return JSON.
+  }
+  const email = typeof payload?.email === "string" ? payload.email.trim() : "";
+  if (!response.ok || !email) {
+    throw new Error("Google sign-in did not create a usable session.");
+  }
+  const orgId =
+    typeof payload?.orgId === "string" && payload.orgId.trim()
+      ? payload.orgId.trim()
+      : undefined;
+  return { email, token, ...(orgId ? { orgId } : {}) };
+}
+
+async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
+  const authUrl = new URL(
+    `${cleanBaseUrl(baseUrl)}/_agent-native/google/auth-url`,
+  );
+  authUrl.searchParams.set("mobile", "1");
+  const response = await fetch(authUrl.toString(), {
+    headers: { Accept: "application/json" },
+  });
+  let payload: { error?: unknown; url?: unknown } = {};
+  try {
+    payload = (await response.json()) as { error?: unknown; url?: unknown };
+  } catch {
+    // Use the status-based fallback below when the endpoint is not JSON.
+  }
+  if (!response.ok || typeof payload.url !== "string" || !payload.url) {
+    throw new Error(
+      typeof payload.error === "string" && payload.error.trim()
+        ? payload.error.trim()
+        : "Google sign-in is unavailable right now.",
+    );
+  }
+  return payload.url;
+}
+
+async function waitForStoredParentSession(
+  timeoutMs = 8_000,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const token = await getSessionToken();
+    if (token) return token;
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  } while (Date.now() < deadline);
+  return null;
+}
+
+async function clearNativeOAuthContext(): Promise<void> {
+  await AsyncStorage.multiRemove([
+    OAUTH_STATE_KEY,
+    OAUTH_RETURN_PATH_KEY,
+    OAUTH_TOKEN_STORE_KEY,
+    OAUTH_OWNER_KEY_KEY,
+    OAUTH_BASE_URL_KEY,
+  ]);
+}
+
+/**
+ * Sign the native parent into Google. The browser owns Google's UI; the
+ * callback is state-validated before its one-time session is stored under the
+ * parent key. Child WebViews never receive the parent bearer.
+ */
+export async function signInWithGoogle({
+  baseUrl = NATIVE_AUTH_BASE_URL,
+}: {
+  baseUrl?: string;
+} = {}): Promise<NativeAuthResult> {
+  const origin = cleanBaseUrl(baseUrl);
+  const googleUrl = await resolveGoogleAuthUrl(origin);
+  await rememberOAuthState(googleUrl);
+  await AsyncStorage.multiSet([
+    [OAUTH_RETURN_PATH_KEY, ""],
+    [OAUTH_TOKEN_STORE_KEY, SESSION_TOKEN_KEY],
+    [OAUTH_OWNER_KEY_KEY, ""],
+    [OAUTH_BASE_URL_KEY, origin],
+  ]);
+
+  let token: string | null = null;
+  try {
+    if (Platform.OS === "android") {
+      const { preferredBrowserPackage } =
+        await WebBrowser.getCustomTabsSupportingBrowsersAsync();
+      await WebBrowser.openBrowserAsync(googleUrl, {
+        browserPackage: preferredBrowserPackage,
+        showInRecents: true,
+      });
+      token = await waitForStoredParentSession();
+    } else {
+      const result = await WebBrowser.openAuthSessionAsync(
+        googleUrl,
+        "agentnative://oauth-complete",
+      );
+      if (result.type === "success" && result.url) {
+        token = await completeOAuthCallback(result.url, {
+          tokenKey: SESSION_TOKEN_KEY,
+          ownerKeyName: null,
+          baseUrl: origin,
+        });
+      }
+      token ??= await getSessionToken();
+    }
+  } finally {
+    await clearNativeOAuthContext();
+  }
+
+  if (!token) throw new Error("Google sign-in was cancelled.");
+  return readSessionIdentity(token, origin);
 }
 
 async function postPasswordAuth(
