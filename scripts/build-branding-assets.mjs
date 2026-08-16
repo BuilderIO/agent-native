@@ -168,6 +168,21 @@ const ICON_BUNDLE = join(BRANDING, "agent-native.icon");
 const ICTOOL =
   "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool";
 const HAS_ICTOOL = existsSync(ICTOOL) && existsSync(ICON_BUNDLE);
+
+function exportIconPreview(outputPath, size) {
+  try {
+    execSync(
+      `"${ICTOOL}" "${ICON_BUNDLE}" --export-preview macOS Default ${size} ${size} 1 "${outputPath}"`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+  } catch {
+    execSync(
+      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${outputPath}" --platform macOS --rendition Default --width ${size} --height ${size} --scale 1`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+  }
+}
+
 if (existsSync(DESKTOP_BUILD)) {
   writeSizedSvg(join(DESKTOP_BUILD, "icon.svg"), 1024);
   rasterize(
@@ -229,22 +244,10 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   // PNG is a raw SVG rasterization that fills the whole 1024 canvas
   // and ends up visibly larger than every neighbouring app.
   if (HAS_ICTOOL) {
-    execSync(
-      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "icon.png")}" --platform macOS --rendition Default --width 1024 --height 1024 --scale 1`,
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
-    execSync(
-      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "32x32.png")}" --platform macOS --rendition Default --width 32 --height 32 --scale 1`,
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
-    execSync(
-      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "128x128.png")}" --platform macOS --rendition Default --width 128 --height 128 --scale 1`,
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
-    execSync(
-      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "128x128@2x.png")}" --platform macOS --rendition Default --width 256 --height 256 --scale 1`,
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
+    exportIconPreview(join(CLIPS_TAURI_ICONS, "icon.png"), 1024);
+    exportIconPreview(join(CLIPS_TAURI_ICONS, "32x32.png"), 32);
+    exportIconPreview(join(CLIPS_TAURI_ICONS, "128x128.png"), 128);
+    exportIconPreview(join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
     // ictool writes 16-bit PNGs; Tauri requires 8-bit RGBA at runtime.
     for (const name of [
       "icon.png",
@@ -280,10 +283,7 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   ];
   if (HAS_ICTOOL) {
     for (const [size, name] of sizes) {
-      execSync(
-        `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(ICONSET, name)}" --platform macOS --rendition Default --width ${size} --height ${size} --scale 1`,
-        { stdio: ["ignore", "ignore", "inherit"] },
-      );
+      exportIconPreview(join(ICONSET, name), size);
     }
   } else {
     for (const [size, name] of sizes) {

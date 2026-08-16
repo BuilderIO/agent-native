@@ -257,7 +257,14 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --${{ matrix.platform }} --config --publish always
+        run: |
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            pnpm build:mac-assets
+          else
+            pnpm build:chrome-extension
+          fi
+          pnpm build
+          npx electron-builder --${{ matrix.platform }} --config --publish always
 
   publish-desktop-release:
     name: Publish desktop release
