@@ -13,8 +13,10 @@ type NativeAuthResponse = {
   token?: unknown;
 };
 
-function responseMessage(payload: NativeAuthResponse): string | undefined {
-  return typeof payload.error === "string" && payload.error.trim()
+function responseMessage(
+  payload: NativeAuthResponse | null,
+): string | undefined {
+  return typeof payload?.error === "string" && payload.error.trim()
     ? payload.error.trim()
     : undefined;
 }
@@ -32,7 +34,7 @@ async function postPasswordAuth(
   email: string,
   password: string,
   baseUrl: string,
-): Promise<NativeAuthResponse> {
+): Promise<NativeAuthResponse | null> {
   const response = await fetch(
     `${baseUrl.replace(/\/+$/, "")}/_agent-native/auth/${mode === "sign-up" ? "register" : "login"}`,
     {
@@ -46,12 +48,15 @@ async function postPasswordAuth(
     },
   );
 
-  let payload: NativeAuthResponse = {};
+  let payload: NativeAuthResponse | null = null;
   try {
     payload = (await response.json()) as NativeAuthResponse;
-  } catch {
+  } catch (error) {
     // The status below remains the source of truth when the server did not
     // return JSON.
+    console.warn("[mobile auth] auth response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
   }
 
   if (!response.ok) {
@@ -94,9 +99,9 @@ export async function authenticateWithPassword({
     baseUrl,
   );
 
-  const token = typeof payload.token === "string" ? payload.token.trim() : "";
+  const token = typeof payload?.token === "string" ? payload.token.trim() : "";
   const returnedEmail =
-    typeof payload.email === "string" && payload.email.trim()
+    typeof payload?.email === "string" && payload.email.trim()
       ? payload.email.trim()
       : email.trim();
   if (!token || !returnedEmail) {
@@ -109,7 +114,7 @@ export async function authenticateWithPassword({
 
   await saveSessionToken(token);
   const orgId =
-    typeof payload.orgId === "string" && payload.orgId.trim()
+    typeof payload?.orgId === "string" && payload.orgId.trim()
       ? payload.orgId.trim()
       : undefined;
   return { email: returnedEmail, token, ...(orgId ? { orgId } : {}) };
