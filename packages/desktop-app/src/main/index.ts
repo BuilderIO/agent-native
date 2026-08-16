@@ -4156,9 +4156,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     desktopCapturer,
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
   });
-  const browserBridge = new BrowserControlLoopbackBridge();
-  const browserHost = await browserBridge.start();
-  desktopBrowserControlBridge = browserBridge;
+  let browserBridge: BrowserControlLoopbackBridge | undefined;
   const hostEntryPath = app.isPackaged
     ? path.join(
         process.resourcesPath,
@@ -4168,6 +4166,9 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     : path.resolve(__dirname, "browser-control-host.js");
   const extensionPath = getBundledChromeExtensionPath();
   try {
+    browserBridge = new BrowserControlLoopbackBridge();
+    const browserHost = await browserBridge.start();
+    desktopBrowserControlBridge = browserBridge;
     browserNativeHostManifestPath = installBrowserNativeHost({
       ...browserHost,
       executablePath: process.execPath,
@@ -4178,9 +4179,17 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       ),
     }).manifestPath;
   } catch (error) {
-    await browserBridge.close();
+    try {
+      await browserBridge?.close();
+    } catch (closeError) {
+      console.warn(
+        "[browser-control] failed to close the unavailable Chrome bridge:",
+        closeError instanceof Error ? closeError.message : "unknown error",
+      );
+    }
+    browserBridge = undefined;
     desktopBrowserControlBridge = null;
-    broker.close();
+    browserNativeHostManifestPath = null;
     console.warn(
       "[browser-control] Chrome native host installation failed:",
       error instanceof Error ? error.message : "unknown error",
@@ -4204,7 +4213,14 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     await bridge.start();
     desktopComputerMcpBridge = bridge;
   } catch (error) {
-    await browserBridge.close();
+    try {
+      await browserBridge?.close();
+    } catch (closeError) {
+      console.warn(
+        "[browser-control] failed to close the unavailable Chrome bridge:",
+        closeError instanceof Error ? closeError.message : "unknown error",
+      );
+    }
     desktopBrowserControlBridge = null;
     broker.close();
     console.warn(
