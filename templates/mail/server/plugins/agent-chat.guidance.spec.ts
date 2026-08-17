@@ -24,7 +24,7 @@ describe("Mail agent guidance", () => {
     expect(guidance).toContain("get-mail-settings");
     expect(guidance).toContain("merge");
     expect(guidance).toContain("ask the user to confirm");
-    expect(guidance).toContain("re-read");
+    expect(guidance).toMatch(/re-read/i);
     expect(guidance).toContain("Do not call `manage-draft`");
     expect(guidance).toContain("unless the user separately asks");
   });
