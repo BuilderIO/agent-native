@@ -510,7 +510,7 @@ private func keyCode(_ name: String) -> CGKeyCode? {
 
 private let helper = ComputerHelper()
 let application = NSApplication.shared
-application.setActivationPolicy(.prohibited)
+application.setActivationPolicy(.accessory)
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
         autoreleasepool {

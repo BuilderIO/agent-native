@@ -606,6 +606,7 @@ describe("BrowserControlService", () => {
       }),
     ).rejects.toMatchObject({ code: "BROWSER_STOPPING" });
 
+    await vi.waitFor(() => expect(releaseDetach).toBeDefined());
     releaseDetach?.();
     await expect(emergencyStop).resolves.toBeUndefined();
   });

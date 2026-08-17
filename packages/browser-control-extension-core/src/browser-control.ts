@@ -1323,9 +1323,10 @@ export class BrowserControlService {
   ): Promise<Error | undefined> {
     let releaseError: Error | undefined;
     await this.drainPendingInputOperations(tabId);
-    // Cursor cleanup must never hold the input-release or debugger-detach gate.
-    // The page marker also owns a hard removal timer for the crash/stall case.
-    void this.hideCursor(tabId, taskId);
+    // Complete the owned cleanup before detach so it cannot outlive teardown
+    // and remove a later owner's cursor after this tab is reused. The page
+    // marker still owns a hard removal timer if the renderer is unavailable.
+    await this.hideCursor(tabId, taskId);
     const pressedKeys = this.pressedKeys.get(tabId)?.values() ?? [];
     try {
       await releaseInjectedInput(tabId, pressedKeys);
