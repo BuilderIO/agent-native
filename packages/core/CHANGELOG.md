@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.158.9
+
+### Patch Changes
+
+- f411be6: Rotate persisted Better Auth JWKS keys safely after an auth-secret change.
+
 ## 0.158.8
 
 ### Patch Changes
