@@ -467,6 +467,24 @@ export async function callAppAction<T>(
   );
 }
 
+/** GET variant for actions whose declared HTTP surface is query-based. */
+export async function callAppActionGet<T>(
+  name: string,
+  args: Record<string, string | number | boolean> = {},
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<T> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(args)) {
+    query.set(key, String(value));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return jsonRequest<T>(
+    `/_agent-native/actions/${encodeURIComponent(name)}${suffix}`,
+    { method: "GET" },
+    baseUrl,
+  );
+}
+
 const HIDDEN_ENGINES = new Set([
   "ai-sdk:groq",
   "ai-sdk:mistral",

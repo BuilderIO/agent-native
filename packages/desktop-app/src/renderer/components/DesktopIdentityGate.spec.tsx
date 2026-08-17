@@ -20,7 +20,7 @@ describe("DesktopIdentityGate", () => {
     vi.unstubAllGlobals();
   });
 
-  it("offers account creation and sign-in on the first eligible app", () => {
+  it("opens the hosted sign-in on the first eligible app", () => {
     const onSignIn = vi.fn();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -36,10 +36,34 @@ describe("DesktopIdentityGate", () => {
       );
     });
 
-    expect(container.textContent).toContain("Create your Agent Native account");
-    expect(container.textContent).toContain("magic link");
-    container.querySelector("button")?.click();
+    expect(container.textContent).toContain(
+      "Sign in once to open your workspace",
+    );
+    expect(container.textContent).toContain("Continue to sign in");
+    container
+      .querySelector(".desktop-identity-gate__provider")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("does not duplicate the hosted credential form in the child gate", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <DesktopIdentityGate
+          appName="Mail"
+          status="sign-in-required"
+          onSignIn={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector('input[type="email"]')).toBeNull();
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(container.querySelector("form")).toBeNull();
   });
 
   it("keeps the app covered while the isolated Electron ceremony is open", () => {
@@ -57,7 +81,7 @@ describe("DesktopIdentityGate", () => {
       );
     });
 
-    expect(container.textContent).toContain("Finish signing in");
+    expect(container.textContent).toContain("Opening your workspace");
     expect(container.querySelector("button")).toBeNull();
   });
 

@@ -1575,6 +1575,7 @@ const arSA = {
     messagingRecipes: "وصفات المراسلة",
     messagingInternals: "المراسلة الداخلية",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "بروتوكول A2A",
     mcpClients: "MCP Clients (إضافة أدوات)",
     httpApi: "HTTP API (استدعاء الإجراءات)",

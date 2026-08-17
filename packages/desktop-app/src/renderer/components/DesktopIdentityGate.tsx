@@ -3,12 +3,14 @@ import { IconLock, IconLoader2, IconRefresh } from "@tabler/icons-react";
 interface DesktopIdentityGateProps {
   appName: string;
   status: DesktopIdentityStatus | "checking";
+  /** Opens the hosted canonical Google and magic-link flow. */
   onSignIn: () => void;
 }
 
 /**
- * Keep the first-run decision in the Desktop surface while the actual
- * credential ceremony stays in the isolated main-process identity window.
+ * Keep the canonical hosted login in the Desktop parent identity window. Child
+ * app WebViews are never asked to render a second credential surface while the
+ * workspace identity is being established.
  */
 export default function DesktopIdentityGate({
   appName,
@@ -43,25 +45,28 @@ export default function DesktopIdentityGate({
           {isChecking
             ? "Checking your Agent Native account"
             : isSigningIn
-              ? "Finish signing in"
-              : isRetry
-                ? "Sign-in needs another try"
-                : "Create your Agent Native account"}
+              ? "Opening your workspace"
+              : "Sign in once to open your workspace"}
         </h2>
         <p>
           {isChecking
             ? "Checking your session before opening this app."
             : isSigningIn
-              ? "Complete magic link, Google, or email sign-in in the Agent Native window."
+              ? "Signing you in once, then opening your eligible workspace apps."
               : isRetry
                 ? "The workspace sign-in did not finish. Try again to open this app."
-                : `Use magic link, Google, or email sign-in to open ${appName} and your other eligible apps without repeating login.`}
+                : `Continue to the hosted sign-in to open ${appName} and your other eligible apps without repeating login.`}
         </p>
-        {!isChecking && !isSigningIn && (
-          <button type="button" onClick={onSignIn}>
-            {isRetry ? "Try again" : "Sign in or create account"}
+
+        {!isChecking && !isSigningIn ? (
+          <button
+            type="button"
+            className="desktop-identity-gate__provider"
+            onClick={onSignIn}
+          >
+            Continue to sign in
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );

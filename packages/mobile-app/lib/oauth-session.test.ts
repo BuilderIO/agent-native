@@ -77,4 +77,21 @@ describe("mobile OAuth session handoff", () => {
       ).default.getItem(OAUTH_STATE_KEY),
     ).resolves.toBe("server-state");
   });
+
+  it("does not overwrite a different in-progress OAuth flow", async () => {
+    await rememberOAuthState(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=active-state",
+    );
+
+    await expect(
+      rememberOAuthState(
+        "https://accounts.google.com/o/oauth2/v2/auth?state=other-state",
+      ),
+    ).rejects.toThrow("Another Google sign-in is already in progress.");
+    await expect(
+      (
+        await import("@react-native-async-storage/async-storage")
+      ).default.getItem(OAUTH_STATE_KEY),
+    ).resolves.toBe("active-state");
+  });
 });

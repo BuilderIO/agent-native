@@ -709,13 +709,13 @@ const messages = {
     collapse: "Einklappen",
     changelogMarkdown: `# Änderungsprotokoll
 
-Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd K -> "Neuigkeiten") oder über die Einstellungen öffnen.
+Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
 
 ## 2026-06-23
 
 ### Hinzugefügt
 
-- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd K) und in den Einstellungen verfügbar.`,
+- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -1069,8 +1069,13 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Aufnahme stoppen",
     elapsed: "Verstrichene Zeit",
-    cancel: "Aufnahme abbrechen",
-    cancelShortcut: "Abbrechen (⌥⇧C)",
+    cancel: "Aufnahme verwerfen",
+    cancelShortcut: "Verwerfen (⌥⇧C)",
+    discardConfirmTitle: "Diese Aufnahme verwerfen?",
+    discardConfirmDescription:
+      "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
+    resume: "Fortsetzen",
+    discardRecording: "Aufnahme verwerfen",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",
@@ -1273,7 +1278,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     seekTo: "Seek to {{time}} (Lokalisiert)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (Lokalisiert)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",
     playPauseTooltip: "Play / Pause (Space) (Lokalisiert)",
     sourceDuration: "({{duration}} src) (Lokalisiert)",
     previewSpeed: "Preview speed (Lokalisiert)",

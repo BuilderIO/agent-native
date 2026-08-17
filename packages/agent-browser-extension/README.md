@@ -32,8 +32,10 @@ envelopes whose approval hash passes the core supervision parser:
 - `browser.attach` resolves `target.sessionHandle` locally, then attaches the
   shared `BrowserControlService` under `envelope.runId`.
 - `browser.observe`, `browser.click`, `browser.type`, `browser.key`,
-  `browser.navigate`, `browser.scroll`, and `browser.stop` use that same
-  reviewed service and lease.
+  `browser.navigate`, `browser.open-tab`, `browser.scroll`, and
+  `browser.stop` use that same reviewed service and lease. `browser.open-tab`
+  creates an inactive tab on the assigned exact origin and moves the control
+  lease to it without focusing Chrome.
 
 Control observations exclude screenshots from relay results. There is no
 arbitrary CDP method, expression, function-call, or `Runtime.evaluate` surface.

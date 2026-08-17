@@ -678,13 +678,13 @@ const messages = {
     collapse: "समेटें",
     changelogMarkdown: `# बदलाव लॉग
 
-Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
+Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd+K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
 
 ## 2026-06-23
 
 ### जोड़ा गया
 
-- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd K) और सेटिंग्स में उपलब्ध है।`,
+- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
@@ -1025,8 +1025,13 @@ Clips में उपयोगकर्ताओं को दिखने व�
     pauseShortcut: "रोकें (⌥⇧P)",
     stop: "रिकॉर्डिंग बंद करें",
     elapsed: "बीता समय",
-    cancel: "रिकॉर्डिंग रद्द करें",
-    cancelShortcut: "रद्द करें (⌥⇧C)",
+    cancel: "रिकॉर्डिंग हटाएं",
+    cancelShortcut: "हटाएं (⌥⇧C)",
+    discardConfirmTitle: "क्या इस रिकॉर्डिंग को हटाना है?",
+    discardConfirmDescription:
+      "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
+    resume: "फिर शुरू करें",
+    discardRecording: "रिकॉर्डिंग हटाएं",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",
@@ -1225,7 +1230,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     seekTo: "Seek to {{time}} (स्थानीयकृत)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (स्थानीयकृत)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (स्थानीयकृत)",
     playPauseTooltip: "Play / Pause (Space) (स्थानीयकृत)",
     sourceDuration: "({{duration}} src) (स्थानीयकृत)",
     previewSpeed: "Preview speed (स्थानीयकृत)",

@@ -90,6 +90,13 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+  type ChatFirstKeyboardNavigation,
+  type ChatFirstKeyboardShortcut,
+} from "./keyboard-navigation.js";
+import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -339,6 +346,8 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
+  /** Desktop-native shortcuts for app and chat navigation. */
+  keyboardNavigation?: ChatFirstKeyboardNavigation;
   /** Route first-party MCP open_app results through the shared app pane. */
   onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
   /** Lets a host place the shared watch renderer in its side-surface slot. */
@@ -690,6 +699,7 @@ export default function CodeAgentsApp({
   terminalMode,
   terminalModeControl,
   chatFirstNavigation,
+  keyboardNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
   onRunsChange,
@@ -869,6 +879,8 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
+  const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -2233,6 +2245,81 @@ export default function CodeAgentsApp({
     [markRunsRead, selectRun],
   );
 
+  useEffect(() => {
+    if (!isActive || !keyboardNavigation) return;
+
+    const handleShortcut = (
+      shortcut: ChatFirstKeyboardShortcut,
+      preventDefault?: () => void,
+    ) => {
+      const isCommand = Boolean(shortcut.metaKey || shortcut.ctrlKey);
+      if (!isCommand || shortcut.altKey) return;
+
+      if (!shortcut.shiftKey) {
+        const appId = getChatFirstNumericAppShortcut(
+          keyboardNavigation.appIds,
+          shortcut.key,
+        );
+        if (!appId) return;
+        preventDefault?.();
+        keyboardNavigation.onSelectApp(appId);
+        return;
+      }
+
+      const isBack =
+        shortcut.code === "BracketLeft" ||
+        shortcut.key === "[" ||
+        shortcut.key === "{";
+      const isForward =
+        shortcut.code === "BracketRight" ||
+        shortcut.key === "]" ||
+        shortcut.key === "}";
+      if (!isBack && !isForward) return;
+
+      const target = resolveChatFirstKeyboardNavigationTarget({
+        appIds: keyboardNavigation.appIds,
+        activeAppId: keyboardNavigation.activeAppId,
+        chatIds: railItems.map((item) => item.id),
+        selectedChatId: selectedRunId,
+        direction: isBack ? -1 : 1,
+      });
+      if (!target) return;
+      preventDefault?.();
+      if (target.kind === "app") {
+        keyboardNavigation.onSelectApp(target.id);
+      } else {
+        handleRailSelect(target.id);
+      }
+    };
+
+    const handleDomKeyDown = (event: KeyboardEvent) => {
+      handleShortcut(
+        {
+          key: event.key,
+          code: event.code,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        () => event.preventDefault(),
+      );
+    };
+
+    window.addEventListener("keydown", handleDomKeyDown);
+    const unsubscribe = keyboardNavigation.subscribe?.(handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleDomKeyDown);
+      unsubscribe?.();
+    };
+  }, [
+    handleRailSelect,
+    isActive,
+    keyboardNavigation,
+    railItems,
+    selectedRunId,
+  ]);
+
   const handleRailOpen = useCallback(
     (id: string) => {
       onChatFirstMainKindChangeRef.current?.("code");
@@ -2653,20 +2740,44 @@ export default function CodeAgentsApp({
                             />
                             {(projects.length > 0 ||
                               canChooseProjectFolder) && (
-                              <ProjectFolderPicker
-                                variant="bar"
-                                projects={projects}
-                                selectedPath={selectedProjectPath}
-                                executionTarget={newRunExecutionTarget}
-                                showExecutionTarget={supportsExecutionTarget}
-                                loading={loadingProjects}
-                                canChoose={canChooseProjectFolder}
-                                onSelect={selectProjectFolder}
-                                onChoose={chooseProjectFolder}
-                                onExecutionTargetChange={
-                                  setNewRunExecutionTarget
-                                }
-                              />
+                              <RemoteWaitlistPopover
+                                open={cloudWaitlistOpen}
+                                onOpenChange={(open) => {
+                                  if (
+                                    !open &&
+                                    cloudWaitlistOpeningRef.current
+                                  ) {
+                                    cloudWaitlistOpeningRef.current = false;
+                                    return;
+                                  }
+                                  setCloudWaitlistOpen(open);
+                                }}
+                                submit={host.submitRemoteWaitlist}
+                              >
+                                <ProjectFolderPicker
+                                  variant="bar"
+                                  projects={projects}
+                                  selectedPath={selectedProjectPath}
+                                  executionTarget={newRunExecutionTarget}
+                                  showExecutionTarget={supportsExecutionTarget}
+                                  loading={loadingProjects}
+                                  canChoose={canChooseProjectFolder}
+                                  onSelect={selectProjectFolder}
+                                  onChoose={chooseProjectFolder}
+                                  onCloudSelect={() => {
+                                    cloudWaitlistOpeningRef.current = true;
+                                    globalThis.setTimeout(() => {
+                                      setCloudWaitlistOpen(true);
+                                      globalThis.setTimeout(() => {
+                                        cloudWaitlistOpeningRef.current = false;
+                                      }, 0);
+                                    }, 0);
+                                  }}
+                                  onExecutionTargetChange={
+                                    setNewRunExecutionTarget
+                                  }
+                                />
+                              </RemoteWaitlistPopover>
                             )}
                             {overviewFooterSlot ? (
                               <div className="code-agents-overview-footer">
@@ -2983,6 +3094,7 @@ function ProjectFolderPicker({
   canChoose,
   onSelect,
   onChoose,
+  onCloudSelect,
   onExecutionTargetChange,
 }: {
   variant?: "rail" | "bar";
@@ -2994,6 +3106,7 @@ function ProjectFolderPicker({
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onCloudSelect?: () => void;
   onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
@@ -3047,9 +3160,13 @@ function ProjectFolderPicker({
         {showExecutionTarget && onExecutionTargetChange ? (
           <Select
             value={executionTarget}
-            onValueChange={(value) =>
-              onExecutionTargetChange(value as CodeAgentExecutionTarget)
-            }
+            onValueChange={(value) => {
+              if (value === "cloud") {
+                onCloudSelect?.();
+                return;
+              }
+              onExecutionTargetChange(value as CodeAgentExecutionTarget);
+            }}
           >
             <SelectTrigger
               className="code-agents-project-select code-agents-execution-target-select"
@@ -3084,6 +3201,15 @@ function ProjectFolderPicker({
                   <span className="code-agents-project-select__item">
                     <IconCloud size={14} strokeWidth={1.8} />
                     <span>Portal</span>
+                  </span>
+                </SelectItem>
+                <SelectItem
+                  value="cloud"
+                  description="Run in the cloud - join the waitlist"
+                >
+                  <span className="code-agents-project-select__item">
+                    <IconCloud size={14} strokeWidth={1.8} />
+                    <span>Cloud</span>
                   </span>
                 </SelectItem>
               </SelectGroup>

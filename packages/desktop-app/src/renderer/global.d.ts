@@ -24,6 +24,10 @@ type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+type DesktopIdentitySettings = {
+  ssoEnabled: boolean;
+};
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -715,9 +719,11 @@ interface ElectronAPI {
     onKeydown(
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): () => void;
     loadBindings(): Promise<DesktopShortcutSettings>;
@@ -733,8 +739,16 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    getSettings(): Promise<DesktopIdentitySettings>;
+    setSsoEnabled(enabled: boolean): Promise<boolean>;
+    ensureAppSession(appId: string): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
+    authenticate(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityAuthRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityAuthResult
+    >;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
   };
@@ -890,6 +904,9 @@ interface ElectronAPI {
 
   appConfig: {
     load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    loadWorkspace?(): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    >;
     add(
       app: import("@agent-native/shared-app-config").AppConfig,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;

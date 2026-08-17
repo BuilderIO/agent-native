@@ -11,12 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import {
-  IconArrowLeft,
-  IconArrowUpRight,
-  IconClockHour4,
-  IconLock,
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconClockHour4 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -57,31 +52,6 @@ interface GrantedWorkspaceAppsResult {
 }
 
 type WorkspaceAppTheme = "light" | "dark";
-type WorkspaceAppAuthState = "unknown" | "authenticated" | "unauthenticated";
-
-function resolveWorkspaceAppAuthState(
-  rawUrl: string | null,
-): WorkspaceAppAuthState {
-  if (!rawUrl) return "unknown";
-  try {
-    const lastSegment = new URL(rawUrl, window.location.origin).pathname
-      .split("/")
-      .filter(Boolean)
-      .at(-1)
-      ?.toLowerCase();
-    if (
-      lastSegment === "sign-in" ||
-      lastSegment === "login" ||
-      lastSegment === "signup"
-    ) {
-      return "unauthenticated";
-    }
-    return "authenticated";
-  } catch {
-    return "unknown";
-  }
-}
-
 function buildWorkspaceAppThemeUpdate(theme: WorkspaceAppTheme) {
   return {
     type: "agent-native-theme-update" as const,
@@ -131,7 +101,6 @@ export function WorkspaceAppFrame({
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
-  const [authState, setAuthState] = useState<WorkspaceAppAuthState>("unknown");
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
   const postThemeToFrame = useCallback(() => {
     embedFrameRef.current?.contentWindow?.postMessage(
@@ -142,17 +111,7 @@ export function WorkspaceAppFrame({
   const handleFrameLoad = useCallback(() => {
     postThemeToFrame();
     if (isDirectFallback) setEmbedError(null);
-    const frame = embedFrameRef.current;
-    let frameUrl = embedUrl;
-    try {
-      frameUrl = frame?.contentWindow?.location.href ?? frameUrl;
-      // coercion-ok: Cross-origin frames cannot expose location; their auth state arrives by message.
-    } catch {
-      // Cross-origin app frames report their auth state through postMessage.
-    }
-    const nextAuthState = resolveWorkspaceAppAuthState(frameUrl);
-    if (nextAuthState !== "unknown") setAuthState(nextAuthState);
-  }, [embedUrl, isDirectFallback, postThemeToFrame]);
+  }, [isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
@@ -190,7 +149,6 @@ export function WorkspaceAppFrame({
     setEmbedUrl(null);
     setEmbedError(null);
     setIsDirectFallback(false);
-    setAuthState("unknown");
     const createSession = workspaceSsoEnabled
       ? createWorkspaceSsoEmbedSession
       : createEmbedSession;
@@ -201,6 +159,17 @@ export function WorkspaceAppFrame({
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        if (workspaceSsoEnabled) {
+          // An SSO-enabled pane must never fall back to the child app's
+          // unauthenticated shell. Keep the parent-owned retry surface in
+          // place so a transient exchange failure cannot expose another
+          // login form.
+          setIsDirectFallback(false);
+          setEmbedUrl(null);
+          setEmbedError(error);
+          return;
+        }
         setIsDirectFallback(true);
         setEmbedUrl(
           workspaceAppDirectHref(
@@ -208,9 +177,7 @@ export function WorkspaceAppFrame({
             embedPath ?? "/",
           ),
         );
-        setEmbedError(
-          cause instanceof Error ? cause : new Error(String(cause)),
-        );
+        setEmbedError(error);
       });
     return () => {
       cancelled = true;
@@ -241,21 +208,6 @@ export function WorkspaceAppFrame({
     return () =>
       window.removeEventListener("message", handleEmbedSessionExpired);
   }, [embedUrl]);
-
-  useEffect(() => {
-    const handleAuthState = (event: MessageEvent) => {
-      const frame = embedFrameRef.current;
-      if (!frame || event.source !== frame.contentWindow) return;
-      if (event.data?.type !== "agentNative.authState") return;
-      const status = event.data.data?.status;
-      if (status === "authenticated" || status === "unauthenticated") {
-        setAuthState(status);
-      }
-    };
-
-    window.addEventListener("message", handleAuthState);
-    return () => window.removeEventListener("message", handleAuthState);
-  }, []);
 
   useEffect(() => {
     postThemeToFrame();
@@ -315,24 +267,6 @@ export function WorkspaceAppFrame({
       dynamicSuggestions={false}
       suggestions={[]}
       emptyStateText={`Ask about ${app.name}`}
-      composerSlot={
-        authState === "unauthenticated" ? (
-          <div className="flex shrink-0 items-center px-3 pb-1">
-            <button
-              type="button"
-              data-dispatch-app-sign-in
-              aria-label={`Sign in to ${app.name} on the right`}
-              title={`Sign in to ${app.name} on the right`}
-              onClick={() => embedFrameRef.current?.focus()}
-              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background/60 px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <IconLock size={12} stroke={1.8} />
-              <span>Sign in on the right</span>
-              <IconArrowUpRight size={12} stroke={1.8} />
-            </button>
-          </div>
-        ) : null
-      }
     >
       {appPane}
     </AgentSidebar>

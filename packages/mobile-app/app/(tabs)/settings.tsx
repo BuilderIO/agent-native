@@ -9,7 +9,6 @@ import { useCallback, useState } from "react";
 import {
   Alert,
   Platform,
-  PlatformColor,
   Pressable,
   ScrollView,
   Switch,
@@ -27,35 +26,13 @@ import AppForm from "@/components/AppForm";
 import DictationSettings from "@/components/DictationSettings";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { supportsMobileTab } from "@/lib/mobile-app-navigation";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
+import {
+  setNativeAppAuthEnabled,
+  useNativeAppAuthEnabled,
+} from "@/lib/native-app-auth";
 import { useApps } from "@/lib/use-apps";
-
-const SWITCH_COLORS = {
-  offTrack:
-    Platform.OS === "ios"
-      ? PlatformColor("systemGray4")
-      : Platform.OS === "android"
-        ? PlatformColor("?android:attr/colorControlNormal")
-        : "#3f3f46",
-  onTrack:
-    Platform.OS === "ios"
-      ? PlatformColor("systemBlue")
-      : Platform.OS === "android"
-        ? PlatformColor("?android:attr/colorAccent")
-        : "#0A84FF",
-  offThumb:
-    Platform.OS === "ios"
-      ? PlatformColor("secondaryLabelColor")
-      : Platform.OS === "android"
-        ? PlatformColor("?android:attr/textColorSecondary")
-        : "#71717a",
-  onThumb:
-    Platform.OS === "ios"
-      ? "#ffffff"
-      : Platform.OS === "android"
-        ? PlatformColor("?android:attr/textColorPrimary")
-        : "#ffffff",
-};
 
 function IOSBlueSwitch({
   value,
@@ -66,11 +43,12 @@ function IOSBlueSwitch({
   onValueChange: (value: boolean) => void;
   disabled?: boolean;
 }) {
+  const colors = useMobileThemeColors();
   if (Platform.OS === "web") {
     return (
       <Pressable
         className={`h-5 w-10 justify-center rounded-full p-0.5 ${
-          value ? "bg-accent-blue" : "bg-gray-zinc"
+          value ? "bg-accent-blue" : "bg-muted"
         } ${disabled ? "opacity-50" : ""}`}
         disabled={disabled}
         onPress={() => onValueChange(!value)}
@@ -89,12 +67,12 @@ function IOSBlueSwitch({
       value={value}
       disabled={disabled}
       onValueChange={onValueChange}
-      ios_backgroundColor={SWITCH_COLORS.offTrack}
+      ios_backgroundColor={colors.muted}
       trackColor={{
-        false: SWITCH_COLORS.offTrack,
-        true: SWITCH_COLORS.onTrack,
+        false: colors.muted,
+        true: colors.accentBlue,
       }}
-      thumbColor={value ? SWITCH_COLORS.onThumb : SWITCH_COLORS.offThumb}
+      thumbColor={value ? colors.primaryForeground : colors.mutedForeground}
     />
   );
 }
@@ -120,6 +98,7 @@ function AppIdentity({ app }: { app: AppConfig }) {
 }
 
 export default function SettingsScreen() {
+  const colors = useMobileThemeColors();
   const { apps, updateApp, addApp, removeApp, resetToDefaults } = useApps();
   const {
     error: tabLayoutError,
@@ -130,6 +109,7 @@ export default function SettingsScreen() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingApp, setEditingApp] = useState<AppConfig | undefined>();
   const [tabLimitNotice, setTabLimitNotice] = useState<string | null>(null);
+  const nativeAppAuthEnabled = useNativeAppAuthEnabled();
 
   const handleToggle = useCallback(
     (id: string, enabled: boolean) => {
@@ -208,6 +188,17 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
+        <SectionLabel>AUTHENTICATION</SectionLabel>
+        <View className="flex-row items-center justify-between border-b border-gray-dark px-4 py-3">
+          <Text className="flex-1 text-text-light text-[15px] font-medium">
+            Shared app sign-in
+          </Text>
+          <IOSBlueSwitch
+            value={nativeAppAuthEnabled}
+            onValueChange={(value) => void setNativeAppAuthEnabled(value)}
+          />
+        </View>
+
         <SectionLabel>BOTTOM TABS</SectionLabel>
         <View className="flex-row items-center justify-between border-b border-gray-dark px-4 pb-2">
           <Text className="text-text-muted text-xs">
@@ -260,7 +251,11 @@ export default function SettingsScreen() {
                 onPress={() => handleEdit(app)}
                 className="p-1.5 active:opacity-75"
               >
-                <IconPencil color="#888888" size={16} strokeWidth={1.8} />
+                <IconPencil
+                  color={colors.mutedForeground}
+                  size={16}
+                  strokeWidth={1.8}
+                />
               </TouchableOpacity>
               {!app.isBuiltIn && (
                 <TouchableOpacity
@@ -268,7 +263,11 @@ export default function SettingsScreen() {
                   onPress={() => handleRemove(app)}
                   className="p-1.5 active:opacity-75"
                 >
-                  <IconTrash color="#f87171" size={16} strokeWidth={1.8} />
+                  <IconTrash
+                    color={colors.errorText}
+                    size={16}
+                    strokeWidth={1.8}
+                  />
                 </TouchableOpacity>
               )}
               <IOSBlueSwitch
@@ -285,10 +284,14 @@ export default function SettingsScreen() {
           <TouchableOpacity
             accessibilityRole="button"
             onPress={() => setShowAddForm(true)}
-            className="flex-row items-center justify-center rounded-xl border border-[#33333366] bg-gray-dark p-3.5 gap-2 active:opacity-75"
+            className="flex-row items-center justify-center rounded-xl border border-gray-border-dim bg-gray-dark p-3.5 gap-2 active:opacity-75"
           >
-            <IconPlus color="#ffffff" size={18} strokeWidth={1.8} />
-            <Text className="text-white text-[15px] font-semibold">
+            <IconPlus
+              color={colors.primaryForeground}
+              size={18}
+              strokeWidth={1.8}
+            />
+            <Text className="text-primary-foreground text-[15px] font-semibold">
               Add Custom App
             </Text>
           </TouchableOpacity>
@@ -298,7 +301,11 @@ export default function SettingsScreen() {
             onPress={handleReset}
             className="flex-row items-center justify-center p-3.5 gap-2 active:opacity-75"
           >
-            <IconRotateClockwise color="#f87171" size={16} strokeWidth={1.8} />
+            <IconRotateClockwise
+              color={colors.errorText}
+              size={16}
+              strokeWidth={1.8}
+            />
             <Text className="text-error text-sm">Reset to Defaults</Text>
           </TouchableOpacity>
         </View>

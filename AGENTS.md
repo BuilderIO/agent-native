@@ -205,6 +205,11 @@ argument rots into exactly the patchwork it warns about.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
 - Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Server configuration is one zod schema. Add a field under
+  `packages/core/src/app-config/` and read it with `getAppConfig()`; an
+  environment variable is a declared `.meta({ env })` alias into that field, not
+  a parallel namespace. Consumer code never reads `process.env` — four
+  resolvers do, and `configuration` names them.
 - Never do heavy work at serverless cold start — migrations, backfills,
   aggregation, index builds, provider handshakes, or warmup probes in module
   load or plugin init run on every cold Lambda and surface as sitewide slowness,

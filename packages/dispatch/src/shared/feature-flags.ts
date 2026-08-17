@@ -11,3 +11,10 @@ export const DISPATCH_WORKSPACE_SSO_FLAG = defineFeatureFlag({
   description:
     "Let Dispatch use the signed-in workspace identity for exact registered app panes.",
 });
+
+export const DISPATCH_WORKSPACE_APP_LIST_FLAG = defineFeatureFlag({
+  key: "dispatch.workspace-app-list",
+  displayName: "Workspace app list",
+  description:
+    "Show apps from the signed-in workspace in native desktop and mobile app lists.",
+});

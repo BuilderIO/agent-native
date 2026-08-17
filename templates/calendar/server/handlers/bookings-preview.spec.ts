@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   accessFilter: vi.fn(() => undefined),
@@ -111,6 +111,10 @@ function createDb() {
 describe("draft booking availability previews", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Slot generation drops anything before `Date.now()`, so the Monday this
+    // asserts on has to stay in the future or every slot vanishes.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T12:00:00.000Z"));
     mocks.getSession.mockResolvedValue({
       email: "owner@example.com",
       orgId: "org-1",
@@ -129,6 +133,10 @@ describe("draft booking availability previews", () => {
       errors: [],
     });
     mocks.listEvents.mockResolvedValue({ events: [], errors: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("uses the draft slug, duration, and hosts for a saved link preview", async () => {

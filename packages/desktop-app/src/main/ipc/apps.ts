@@ -7,6 +7,7 @@ import {
   type DesktopCreateAppResult,
   type DesktopPrepareLocalCodeChangeRequest,
   type DesktopPrepareLocalCodeChangeResult,
+  type DesktopWorkspaceAppListResult,
   type LocalAppFolderSelectResult,
 } from "@shared/ipc-channels";
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
@@ -30,6 +31,7 @@ export interface AppsIpcDeps {
   showDesktopAppContextMenu: (
     appId: string,
   ) => Promise<DesktopAppContextAction | null>;
+  loadWorkspaceApps?: () => Promise<DesktopWorkspaceAppListResult>;
 }
 
 /** Registers the app-config (chat-first app rail) CRUD and creation IPC handlers. */
@@ -44,11 +46,18 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     createDesktopAppFromPrompt,
     prepareDesktopAppForLocalCodeChange,
     showDesktopAppContextMenu,
+    loadWorkspaceApps,
   } = deps;
 
   ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
     return AppStore.loadApps();
   });
+
+  ipcMain.handle(
+    IPC.APPS_LOAD_WORKSPACE,
+    async (): Promise<DesktopWorkspaceAppListResult> =>
+      (await loadWorkspaceApps?.()) ?? { enabled: false, apps: [] },
+  );
 
   ipcMain.handle(
     IPC.APPS_ADD,

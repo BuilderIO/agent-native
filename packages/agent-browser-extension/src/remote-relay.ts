@@ -197,6 +197,8 @@ export function controlCommand(
       return { type: "key", key: input.key, modifiers: input.modifiers };
     case "browser.navigate":
       return { type: "navigate", url: input.url };
+    case "browser.open-tab":
+      return { type: "open-tab", url: input.url };
     case "browser.scroll":
       return {
         type: "scroll",
@@ -242,6 +244,7 @@ export function relayOperationClass(
     "browser.type",
     "browser.key",
     "browser.navigate",
+    "browser.open-tab",
     "browser.scroll",
   ].includes(actionType)
     ? "browser.control"

@@ -1,11 +1,11 @@
 {
   "name": "@agent-native/agent-browser-extension",
-  "version": "0.1.127",
+  "version": "0.1.152",
   "private": true,
   "description": "Public Agent Native browser context and chat extension.",
   "type": "module",
   "scripts": {
-    "build": "pnpm icons && vite build",
+    "build": "pnpm icons && vite build && vite build --config vite.capture-page.config.ts && tsx scripts/verify-capture-bundle.ts",
     "icons": "tsx scripts/generate-icons.ts",
     "package": "pnpm build && tsx scripts/package.ts",
     "test": "pnpm icons && vitest run",

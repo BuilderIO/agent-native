@@ -7,6 +7,7 @@ import {
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
   type CodeAgentRun,
+  type ChatFirstKeyboardNavigation,
   type CodeAgentsHost,
   type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
@@ -73,6 +74,7 @@ import {
 } from "@shared/app-registry";
 import {
   IconArrowLeft,
+  IconGripVertical,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconPlus,
@@ -94,6 +96,7 @@ import {
 import type {
   DesktopCreateAppResult,
   DesktopPrepareLocalCodeChangeResult,
+  DesktopWorkspaceAppListResult,
 } from "../../../shared/ipc-channels.js";
 import type {
   MultiFrontierIpcEvent,
@@ -107,12 +110,7 @@ import {
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
-import AppWebview, {
-  resolveAppWebviewUrl,
-  shouldSuppressDesktopSignInPrompt,
-  type AppWebviewAuthState,
-  type AppWebviewHandle,
-} from "./AppWebview.js";
+import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
@@ -137,7 +135,6 @@ import {
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
-import { CollapsedMacWindowControls } from "./WindowControls.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -184,6 +181,17 @@ export function orderDesktopApps<T extends Pick<AppConfig, "id" | "enabled">>(
   return orderedVisibleIds
     .map((id) => byId.get(id))
     .filter((app): app is T => Boolean(app));
+}
+
+export function mergeDesktopAppLists<T extends Pick<AppConfig, "id">>(
+  localApps: readonly T[],
+  workspaceApps: readonly T[],
+): T[] {
+  const localIds = new Set(localApps.map((app) => app.id));
+  return [
+    ...localApps,
+    ...workspaceApps.filter((app) => !localIds.has(app.id)),
+  ];
 }
 
 export function filterDesktopApps<
@@ -310,26 +318,48 @@ export function dispatchControlPlaneUrlParams(
 function DesktopAppsGrid({
   apps,
   layout,
+  workspaceAppIds,
+  reorderable = false,
   onCreateApp,
   onOpenApp,
   onOpenInBrowser,
+  onReorder,
   onTogglePinned,
   fullPage = false,
   onBack,
 }: {
   apps: AppConfig[];
   layout: ChatFirstAppLayoutPreference;
+  workspaceAppIds?: ReadonlySet<string>;
+  reorderable?: boolean;
   onCreateApp?: () => void;
   onOpenApp: (app: AppConfig) => void;
   onOpenInBrowser: (app: AppConfig) => void;
+  onReorder?: (orderedIds: string[]) => void;
   onTogglePinned: (appId: string) => void;
   fullPage?: boolean;
   onBack?: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [draggedAppId, setDraggedAppId] = useState<string | null>(null);
+  const [dragOverAppId, setDragOverAppId] = useState<string | null>(null);
   const orderedApps = orderDesktopApps(apps, layout);
   const visibleApps = filterDesktopApps(orderedApps, search);
   const hasSearch = search.trim().length > 0;
+
+  const reorderApps = useCallback(
+    (targetId: string) => {
+      if (!reorderable || !onReorder || !draggedAppId) return;
+      const fromIndex = orderedApps.findIndex((app) => app.id === draggedAppId);
+      const targetIndex = orderedApps.findIndex((app) => app.id === targetId);
+      if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return;
+      const nextOrder = orderedApps.map((app) => app.id);
+      nextOrder.splice(fromIndex, 1);
+      nextOrder.splice(targetIndex, 0, draggedAppId);
+      onReorder(nextOrder);
+    },
+    [draggedAppId, onReorder, orderedApps, reorderable],
+  );
 
   return (
     <section
@@ -402,8 +432,39 @@ function DesktopAppsGrid({
         <div className="desktop-apps-grid__list">
           {visibleApps.map((app) => {
             const pinned = layout.pinnedIds.includes(app.id);
+            const isWorkspaceApp = workspaceAppIds?.has(app.id) === true;
             return (
-              <div key={app.id} className="desktop-app-card">
+              <div
+                key={app.id}
+                className={cn(
+                  "desktop-app-card",
+                  reorderable && draggedAppId === app.id && "is-dragging",
+                  reorderable && dragOverAppId === app.id && "is-drag-over",
+                )}
+                draggable={reorderable}
+                onDragStart={(event) => {
+                  if (!reorderable) return;
+                  event.dataTransfer.effectAllowed = "move";
+                  setDraggedAppId(app.id);
+                }}
+                onDragOver={(event) => {
+                  if (!reorderable) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverAppId(app.id);
+                }}
+                onDrop={(event) => {
+                  if (!reorderable) return;
+                  event.preventDefault();
+                  reorderApps(app.id);
+                  setDraggedAppId(null);
+                  setDragOverAppId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggedAppId(null);
+                  setDragOverAppId(null);
+                }}
+              >
                 <button
                   type="button"
                   className="desktop-app-card__body"
@@ -425,8 +486,23 @@ function DesktopAppsGrid({
                     <span className="desktop-app-card__description">
                       {app.description}
                     </span>
+                    {isWorkspaceApp ? (
+                      <span className="desktop-app-card__source">
+                        <IconWorld size={11} aria-hidden="true" />
+                        Workspace
+                      </span>
+                    ) : null}
                   </span>
                 </button>
+                {reorderable ? (
+                  <span
+                    className="desktop-app-card__drag-handle"
+                    title="Drag to rearrange"
+                    aria-label="Drag to rearrange"
+                  >
+                    <IconGripVertical size={16} aria-hidden="true" />
+                  </span>
+                ) : null}
                 <AppOpenActions
                   name={app.name}
                   labels={{ openApp: "Open" }}
@@ -460,6 +536,7 @@ function DesktopAppsGrid({
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
+  workspaceAppList?: DesktopWorkspaceAppListResult;
   isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
   chatFirstAppOpenRequest?: { appId: string; path?: string; nonce: number };
@@ -496,6 +573,7 @@ interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
 
 export default function CodeAgentsHub({
   apps,
+  workspaceAppList,
   isActive = true,
   openRequest,
   chatFirstAppOpenRequest,
@@ -521,44 +599,30 @@ export default function CodeAgentsHub({
   const chatFirstSurfaceResize = useChatFirstSurfaceResize("desktop");
   const chatFirstSurfacePanel = useChatFirstSurfacePanel("desktop");
   const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
+  const workspaceAppListEnabled = workspaceAppList?.enabled === true;
+  const workspaceApps = workspaceAppListEnabled ? workspaceAppList.apps : [];
+  const listApps = useMemo(
+    () =>
+      workspaceAppListEnabled
+        ? mergeDesktopAppLists(apps, workspaceApps)
+        : apps,
+    [apps, workspaceAppListEnabled, workspaceApps],
+  );
+  const surfaceApps = listApps;
+  const localAppIds = useMemo(() => new Set(apps.map((app) => app.id)), [apps]);
+  const workspaceAppIds = useMemo(
+    () =>
+      workspaceAppListEnabled
+        ? new Set(
+            workspaceApps
+              .filter((app) => !localAppIds.has(app.id))
+              .map((app) => app.id),
+          )
+        : undefined,
+    [localAppIds, workspaceAppListEnabled, workspaceApps],
+  );
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
-  const [chatFirstAppAuthStates, setChatFirstAppAuthStates] = useState<
-    Record<string, AppWebviewAuthState>
-  >({});
-  const [desktopIdentityAvailable, setDesktopIdentityAvailable] =
-    useState(false);
-  useEffect(() => {
-    const getAvailability = window.electronAPI?.identity?.getAvailability;
-    if (!getAvailability) {
-      setDesktopIdentityAvailable(false);
-      return;
-    }
-    let active = true;
-    void getAvailability().then(
-      (available) => {
-        if (active) setDesktopIdentityAvailable(available);
-      },
-      () => {
-        if (active) setDesktopIdentityAvailable(false);
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, []);
-  const chatFirstAppWebviewRefs = useRef(new Map<string, AppWebviewHandle>());
-  const handleChatFirstAppAuthStateChange = useCallback(
-    (appId: string, state: AppWebviewAuthState) => {
-      setChatFirstAppAuthStates((current) =>
-        current[appId] === state ? current : { ...current, [appId]: state },
-      );
-    },
-    [],
-  );
-  const focusChatFirstApp = useCallback((tabId: string) => {
-    chatFirstAppWebviewRefs.current.get(tabId)?.focus();
-  }, []);
   const chatFirstSessionWatch = useChatFirstSessionWatch();
   const [chatFirstWatchedRun, setChatFirstWatchedRun] =
     useState<CodeAgentRun | null>(null);
@@ -572,10 +636,10 @@ export default function CodeAgentsHub({
     () =>
       chatFirstSurfaceTabs.tabs.filter(
         (tab) =>
-          isVisibleChatFirstSurfaceTab(tab, apps) &&
+          isVisibleChatFirstSurfaceTab(tab, surfaceApps) &&
           !(terminalPreferences.enabled && tab.kind === "terminal"),
       ),
-    [apps, chatFirstSurfaceTabs.tabs, terminalPreferences.enabled],
+    [chatFirstSurfaceTabs.tabs, surfaceApps, terminalPreferences.enabled],
   );
   const visibleActiveChatFirstSurfaceTabId = visibleChatFirstSurfaceTabs.some(
     (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
@@ -681,7 +745,7 @@ export default function CodeAgentsHub({
       view?: string,
       placement: ChatFirstAppSurfacePlacement = "main",
     ) => {
-      const app = apps.find(
+      const app = surfaceApps.find(
         (candidate) => candidate.id === appId && candidate.enabled,
       );
       if (!app) {
@@ -713,7 +777,7 @@ export default function CodeAgentsHub({
       );
       setChatFirstSurfacePanelOpen(true);
     },
-    [apps, chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
+    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen, surfaceApps],
   );
 
   useEffect(() => {
@@ -724,14 +788,14 @@ export default function CodeAgentsHub({
     ) {
       return;
     }
-    const app = apps.find(
+    const app = surfaceApps.find(
       (candidate) =>
         candidate.id === chatFirstAppOpenRequest.appId && candidate.enabled,
     );
     if (!app) return;
     handledChatFirstAppOpenNonceRef.current = chatFirstAppOpenRequest.nonce;
     openChatFirstApp(app.id, chatFirstAppOpenRequest.path, undefined, "main");
-  }, [apps, chatFirstAppOpenRequest, isActive, openChatFirstApp]);
+  }, [chatFirstAppOpenRequest, isActive, openChatFirstApp, surfaceApps]);
 
   useEffect(() => {
     const appId =
@@ -748,18 +812,18 @@ export default function CodeAgentsHub({
 
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
     () =>
-      apps.map((app) => ({
+      surfaceApps.map((app) => ({
         id: app.id,
         name: app.name,
         url: app.url,
         devUrl: app.devUrl,
         enabled: app.enabled,
       })),
-    [apps],
+    [surfaceApps],
   );
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
-      getDesktopVisibleApps(apps)
+      getDesktopVisibleApps(listApps)
         .filter((app) => app.enabled && app.id !== "agent")
         .map((app) => ({
           id: app.id,
@@ -767,7 +831,7 @@ export default function CodeAgentsHub({
           ...(app.icon ? { icon: app.icon } : {}),
           ...(app.color ? { color: app.color } : {}),
         })),
-    [apps],
+    [listApps],
   );
   const toggleChatFirstAppPinned = useCallback((appId: string) => {
     setChatFirstAppLayout((layout) => {
@@ -775,6 +839,13 @@ export default function CodeAgentsHub({
         ? layout.pinnedIds.filter((id) => id !== appId)
         : [appId, ...layout.pinnedIds];
       const next = { ...layout, pinnedIds };
+      writeChatFirstAppLayout(next);
+      return next;
+    });
+  }, []);
+  const reorderChatFirstApps = useCallback((orderedIds: string[]) => {
+    setChatFirstAppLayout((layout) => {
+      const next = { ...layout, orderedIds };
       writeChatFirstAppLayout(next);
       return next;
     });
@@ -871,6 +942,37 @@ export default function CodeAgentsHub({
         terminalPreferences.enabled ? "side" : "main",
       ),
     [openChatFirstApp, terminalPreferences.enabled],
+  );
+  const selectChatFirstAppFromKeyboard = useCallback(
+    (appId: string) =>
+      openChatFirstApp(
+        appId,
+        undefined,
+        undefined,
+        terminalPreferences.enabled ? "side" : "main",
+      ),
+    [openChatFirstApp, terminalPreferences.enabled],
+  );
+  const chatFirstKeyboardNavigation = useMemo<ChatFirstKeyboardNavigation>(
+    () => ({
+      appIds: orderDesktopApps(listApps, chatFirstAppLayout).map(
+        (app) => app.id,
+      ),
+      activeAppId:
+        activeChatFirstSurfaceTab?.kind === "app"
+          ? activeChatFirstSurfaceTab.appId
+          : undefined,
+      onSelectApp: selectChatFirstAppFromKeyboard,
+      subscribe: (listener) =>
+        window.electronAPI?.shortcuts?.onKeydown(listener) ?? (() => {}),
+    }),
+    [
+      activeChatFirstSurfaceTab?.appId,
+      activeChatFirstSurfaceTab?.kind,
+      chatFirstAppLayout,
+      listApps,
+      selectChatFirstAppFromKeyboard,
+    ],
   );
   const openChatFirstAppInBrowser = useCallback((app: AppConfig) => {
     const url = resolveAppWebviewUrl(toAppDefinition(app), app);
@@ -1157,7 +1259,7 @@ export default function CodeAgentsHub({
   useEffect(() => {
     for (const tab of chatFirstSurfaceTabs.tabs) {
       if (tab.kind !== "app" || !tab.appId) continue;
-      const app = apps.find(
+      const app = surfaceApps.find(
         (candidate) => candidate.id === tab.appId && candidate.enabled,
       );
       const dispatchControlPlane =
@@ -1166,7 +1268,7 @@ export default function CodeAgentsHub({
         chatFirstSurfaceTabsStore.close(tab.id);
       }
     }
-  }, [apps, chatFirstSurfaceTabs.tabs, chatFirstSurfaceTabsStore]);
+  }, [chatFirstSurfaceTabs.tabs, chatFirstSurfaceTabsStore, surfaceApps]);
 
   const openChatFirstSurface = useCallback(
     (kind: ChatFirstSurfaceKind) => {
@@ -2157,7 +2259,7 @@ export default function CodeAgentsHub({
         );
       }
       if (tab.kind === "app" && tab.appId) {
-        const app = apps.find((candidate) => candidate.id === tab.appId);
+        const app = surfaceApps.find((candidate) => candidate.id === tab.appId);
         if (!app) return null;
         const dispatchControlPlane =
           tab.appId === "dispatch" && isDispatchControlPlanePath(tab.path);
@@ -2178,23 +2280,9 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
-                authState={chatFirstAppAuthStates[surfaceApp.id] ?? "unknown"}
-                suppressSignInPrompt={shouldSuppressDesktopSignInPrompt(
-                  { id: surfaceApp.id },
-                  surfaceApp,
-                  desktopIdentityAvailable,
-                )}
-                onSignInRequest={() => focusChatFirstApp(tab.id)}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <AppWebview
-                  ref={(instance) => {
-                    if (instance) {
-                      chatFirstAppWebviewRefs.current.set(tab.id, instance);
-                    } else {
-                      chatFirstAppWebviewRefs.current.delete(tab.id);
-                    }
-                  }}
                   app={toAppDefinition(surfaceApp)}
                   appConfig={surfaceApp}
                   isActive={isTabActive}
@@ -2205,11 +2293,6 @@ export default function CodeAgentsHub({
                       ? dispatchControlPlaneUrlParams(tab.path)
                       : { embedded: "1", chatFirst: "1" }
                   }
-                  onAuthStateChange={(state) => {
-                    if (isTabActive) {
-                      handleChatFirstAppAuthStateChange(surfaceApp.id, state);
-                    }
-                  }}
                 />
               </DesktopAppChatShell>
             )}
@@ -2230,7 +2313,6 @@ export default function CodeAgentsHub({
     },
     [
       activeChatFirstSurfaceTab?.id,
-      apps,
       chatFirstAgentActivities,
       chatFirstPreviewStatus,
       chatFirstPreviewStatusMessage,
@@ -2240,13 +2322,11 @@ export default function CodeAgentsHub({
       chatFirstWatchedRun,
       chatFirstWatchedSourceRunId,
       closeChatFirstSurfaceTab,
-      focusChatFirstApp,
-      handleChatFirstAppAuthStateChange,
       host,
       isActive,
-      chatFirstAppAuthStates,
       onLocalCodeChangeStarted,
       refreshKey,
+      surfaceApps,
       terminalPreferences.agent,
       theme,
       watchChatFirstAgent,
@@ -2295,13 +2375,16 @@ export default function CodeAgentsHub({
           renderChatFirstMainSurface={
             chatFirstAllAppsOpen ? (
               <DesktopAppsGrid
-                apps={apps}
+                apps={listApps}
                 layout={chatFirstAppLayout}
+                workspaceAppIds={workspaceAppIds}
+                reorderable={workspaceAppListEnabled}
                 fullPage
                 onBack={returnToChatFirstChats}
                 onCreateApp={onCreateApp}
                 onOpenApp={openChatFirstAppFromGrid}
                 onOpenInBrowser={openChatFirstAppInBrowser}
+                onReorder={reorderChatFirstApps}
                 onTogglePinned={toggleChatFirstAppPinned}
               />
             ) : chatFirstAppTakesMain && activeChatFirstSurfaceTab ? (
@@ -2340,6 +2423,10 @@ export default function CodeAgentsHub({
             onChange: handleTerminalModeChange,
             onNewTerminal: handleNewTerminal,
           }}
+          keyboardNavigation={chatFirstKeyboardNavigation}
+          onChatFirstMainKindChange={(kind) => {
+            if (kind === "code") returnToChatFirstChats();
+          }}
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}
           onSelectedRunChange={(runId) =>
@@ -2348,20 +2435,17 @@ export default function CodeAgentsHub({
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={emitChatFirstOpenAppStable}
-          railWindowControlsSlot={
-            chatFirstRailCollapsed &&
-            window.electronAPI?.platform === "darwin" ? (
-              <CollapsedMacWindowControls />
-            ) : undefined
-          }
           railWorkspaceSlot={chatFirstRailWorkspaceSlot}
           overviewFooterSlot={
             <DesktopAppsGrid
-              apps={apps}
+              apps={listApps}
               layout={chatFirstAppLayout}
+              workspaceAppIds={workspaceAppIds}
+              reorderable={workspaceAppListEnabled}
               onCreateApp={onCreateApp}
               onOpenApp={openChatFirstAppFromGrid}
               onOpenInBrowser={openChatFirstAppInBrowser}
+              onReorder={reorderChatFirstApps}
               onTogglePinned={toggleChatFirstAppPinned}
             />
           }
@@ -2388,6 +2472,7 @@ export default function CodeAgentsHub({
                 <button
                   type="button"
                   className="code-agents-nav-link desktop-chat-first-rail-collapse"
+                  data-chat-first-rail-collapse
                   onClick={() =>
                     setChatFirstRailCollapsed((collapsed) => !collapsed)
                   }

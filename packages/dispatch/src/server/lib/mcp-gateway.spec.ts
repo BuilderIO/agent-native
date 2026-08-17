@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
+  getBuiltinAgents: vi.fn(() => []),
   listWorkspaceApps: vi.fn(),
   getUserSetting: vi.fn(),
   getOrgSetting: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
   signA2AToken: vi.fn(),
+  canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
   getOrgDomain: vi.fn(),
   isFeatureFlagEnabled: vi.fn(),
@@ -24,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: mocks.discoverAgents,
+  getBuiltinAgents: mocks.getBuiltinAgents,
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -71,6 +74,7 @@ vi.mock("@agent-native/core/a2a", () => ({
     }
   },
   signA2AToken: mocks.signA2AToken,
+  canonicalA2AAudience: mocks.canonicalA2AAudience,
 }));
 
 vi.mock("@agent-native/core/org", () => ({
@@ -127,6 +131,7 @@ beforeEach(() => {
   mocks.a2aGetTask.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
+  mocks.getBuiltinAgents.mockReturnValue([]);
   mocks.listWorkspaceApps.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
   mocks.getOrgSetting.mockResolvedValue({ mode: "all-apps" });
@@ -940,13 +945,121 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
-  it("allows custom mounted workspace apps from the live workspace registry", async () => {
-    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
-    mocks.discoverAgents.mockResolvedValue([]);
+  it("uses a built-in home URL when discovery returns a deep agent link", async () => {
+    mocks.getBuiltinAgents.mockReturnValue([
+      {
+        id: "clips",
+        name: "Clips",
+        description: "Record and share",
+        url: "https://clips.agent-native.com",
+        color: "#000000",
+      },
+    ]);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "clips",
+        name: "Clips",
+        description: "Record and share",
+        url: "https://clips.agent-native.com/share/deep-link",
+        color: "#000000",
+      },
+    ]);
     mocks.managerCallTool.mockResolvedValueOnce({
       structuredContent: {
         startUrl:
-          "https://agent-workspace.builder.io/atlas/_agent-native/embed/start?ticket=remote",
+          "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "clips",
+          path: "/inbox",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://clips.agent-native.com/inbox",
+        chrome: "full",
+      },
+    );
+    expect(result).toMatchObject({
+      app: "clips",
+      startUrl:
+        "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
+  it("uses an external agent origin as the home fallback for deep registrations", async () => {
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "custom-agent",
+          clientId: "custom-agent-client",
+          origin: "https://custom.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "custom-agent",
+        name: "Custom agent",
+        description: "Deep endpoint",
+        url: "https://custom.example.com/agent/deep-link",
+        color: "#000000",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://custom.example.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "custom-agent",
+          path: "/home",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://custom.example.com/home",
+        chrome: "full",
+      },
+    );
+    expect(result.app).toBe("custom-agent");
+  });
+
+  it("excludes path-mounted apps from SSO while retaining canonical apps", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
       },
     });
     mocks.listWorkspaceApps.mockResolvedValue([
@@ -963,6 +1076,20 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       },
     ]);
 
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "atlas",
+            path: "/",
+          }),
+      ),
+    ).rejects.toThrow(/not registered/);
+
     const result = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
@@ -970,23 +1097,13 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       },
       () =>
         createWorkspaceSsoEmbedSession({
-          app: "atlas",
-          path: "/",
+          app: "analytics",
+          path: "/overview",
         }),
     );
 
-    expect(result).toMatchObject({
-      app: "atlas",
-      startUrl:
-        "https://agent-workspace.builder.io/atlas/_agent-native/embed/start?ticket=remote",
-    });
-    expect(mocks.managerConstructor).toHaveBeenCalledWith({
-      servers: {
-        target: expect.objectContaining({
-          url: "https://agent-workspace.builder.io/atlas/mcp",
-        }),
-      },
-    });
+    expect(result.app).toBe("analytics");
+    expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
   it("allows an exact custom registry entry and rejects an unregistered external app", async () => {
@@ -1255,7 +1372,76 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-specific-secret",
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: false,
+      },
+    );
+  });
+
+  it("falls back to the shared A2A secret when the target rejects org signing", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.signA2AToken
+      .mockResolvedValueOnce("org-signed-token")
+      .mockResolvedValueOnce("global-signed-token");
+    mocks.managerCallTool
+      .mockRejectedValueOnce(
+        new Error(
+          'MCP server "target" is not connected: HTTP 401 Unauthorized',
+        ),
+      )
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result).toMatchObject({ app: "analytics" });
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer global-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenNthCalledWith(
+      2,
+      "owner@example.test",
+      "builder.io",
+      undefined,
+      {
+        expiresIn: "5m",
+        audience: "http://localhost:8086",
+        preferGlobalSecret: true,
       },
     );
   });
@@ -1283,6 +1469,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );
@@ -1311,6 +1498,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );
