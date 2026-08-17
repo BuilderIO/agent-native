@@ -160,6 +160,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-content-sync",
           },
           {
+            id: "template-content-local-files",
+            labelKey: "localFileMode",
+            slug: "template-content-local-files",
+          },
+          {
             id: "template-content-developers",
             labelKey: "contentDevelopers",
             slug: "template-content-developers",
@@ -604,11 +609,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "internationalization",
         labelKey: "internationalization",
         slug: "internationalization",
-      },
-      {
-        id: "local-file-mode",
-        labelKey: "localFileMode",
-        slug: "local-file-mode",
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       { id: "deployment", labelKey: "deployment", slug: "deployment" },

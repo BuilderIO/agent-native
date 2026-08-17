@@ -16,6 +16,10 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // human-approval.mdx folded into the needsApproval section it was already
   // a deep-dive companion to.
   "human-approval": "actions-access-control",
+  // local-file-mode.mdx was entirely about the Content template's local-folder
+  // feature, not general framework architecture. Moved next to the other
+  // template-content-* docs.
+  "local-file-mode": "template-content-local-files",
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",
