@@ -75,7 +75,8 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
-    expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
+    expect(nitroNoExternalsForPreset("node")).toEqual([]);
+    expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
 
   it("bundles every dependency for edge output", () => {
@@ -2997,13 +2998,20 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
 
-  it("bundles bare Yjs imports in a Node .output server directory", () => {
+  it("routes mixed Node Yjs consumers through one runtime module", async () => {
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-node-yjs-"));
     dirs.push(cwd);
     const serverDir = path.join(cwd, ".output", "server");
     const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    const bundledChunk = path.join(serverDir, "server.mjs");
     fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "_libs", "yjs.mjs"), "export {};");
     fs.writeFileSync(collabChunk, 'import * as Y from "yjs";\nexport { Y };\n');
+    fs.writeFileSync(
+      bundledChunk,
+      'import { Text } from "./_libs/yjs.mjs";\nexport { Text };\n',
+    );
 
     expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
       collabChunk,
@@ -3014,6 +3022,14 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(fs.readFileSync(collabChunk, "utf8")).toContain(
       'from "../_libs/yjs-runtime.mjs"',
     );
+    expect(fs.readFileSync(bundledChunk, "utf8")).toContain(
+      'from "./_libs/yjs-runtime.mjs"',
+    );
+    const [collab, bundled] = await Promise.all([
+      import(`${pathToFileURL(collabChunk).href}?t=${Date.now()}`),
+      import(`${pathToFileURL(bundledChunk).href}?t=${Date.now()}`),
+    ]);
+    expect(collab.Y.Text).toBe(bundled.Text);
   });
 
   it("rejects unsupported Yjs subpath imports instead of rewriting their semantics", () => {
