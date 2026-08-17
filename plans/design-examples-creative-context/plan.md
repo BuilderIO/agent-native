@@ -34,7 +34,7 @@ system package ([README.md](../../packages/creative-context/README.md)). Its
 object model is four layers:
 
 - **Sources** (`creative_context_sources`) — Google Slides, Figma, Notion,
-  websites, uploaded files, and *native* app submissions.
+  websites, uploaded files, and _native_ app submissions.
 - **Items** (`creative_context_items`) — carries `kind`, `tags`, `colors`,
   `curationRank` (`canonical | exemplar | normal | ignored`), `starred`, and
   `parentItemId` ([schema/index.ts](../../packages/creative-context/src/schema/index.ts)).
@@ -77,16 +77,16 @@ Final score is relevance plus `rankQuality()`
 ([retrieval.ts](../../packages/creative-context/src/server/retrieval.ts#L97-L117),
 applied at [#L412](../../packages/creative-context/src/server/retrieval.ts#L412)):
 
-| Signal | Max contribution |
-| --- | --- |
-| `starred` or `curationRank: canonical` | 1.00 |
-| `curationRank: exemplar` | 0.50 |
-| recency | 0.03 |
-| prior reuse count | 0.04 |
-| helpful feedback | 0.04 |
+| Signal                                 | Max contribution |
+| -------------------------------------- | ---------------- |
+| `starred` or `curationRank: canonical` | 1.00             |
+| `curationRank: exemplar`               | 0.50             |
+| recency                                | 0.03             |
+| prior reuse count                      | 0.04             |
+| helpful feedback                       | 0.04             |
 
 Curation outweighs recency by roughly 30x. The system therefore retrieves the
-*best-curated* LinkedIn ads, not the *most recent* ones — and retrieves nothing
+_best-curated_ LinkedIn ads, not the _most recent_ ones — and retrieves nothing
 useful until someone marks items `exemplar`.
 
 ### Retrieval lanes
@@ -96,7 +96,7 @@ Three lanes, fused, with `coverage` reported on every response:
 - **lexical** — portable normalized grep, weighted title/summary/body.
 - **fts** — PostgreSQL `tsvector`/GIN.
 - **vector** — pgvector in the same `DATABASE_URL` database. Multimodal: one
-  family covers text and image, and text queries *are* embedded
+  family covers text and image, and text queries _are_ embedded
   ([retrieval.ts#L312-L320](../../packages/creative-context/src/server/retrieval.ts#L312-L320)).
 
 The vector lane requires `isPostgres()`, a resolvable
@@ -108,13 +108,13 @@ without it throws; a text query silently degrades to lexical, reporting
 
 ## Settled decisions
 
-| Question | Decision | Rationale |
-| --- | --- | --- |
-| Ranking | **Curation-led.** No changes to `rankQuality()`. | `rankQuality` is shared by Slides, Assets, and Content. Reweighting recency would change retrieval for every app. |
-| Template path | **Resolve once at copy time**, attach one `contextPackId` to the generation session. | Per-edit resolution would let different editing passes pull different examples into one design and split provenance across several packs. |
-| Deployment | **Postgres + embedding key.** Vector lane is live. | Semantic text matching and image similarity both available. |
-| Changeset | **Required.** | `@agent-native/creative-context` is public at 0.6.0 and absent from the `ignore` list in [.changeset/config.json](../../.changeset/config.json). |
-| One-specialty cap | **Deferred.** | Default + one specialty covers LinkedIn Ads. Lifting it changes ranking package-wide. |
+| Question          | Decision                                                                             | Rationale                                                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ranking           | **Curation-led.** No changes to `rankQuality()`.                                     | `rankQuality` is shared by Slides, Assets, and Content. Reweighting recency would change retrieval for every app.                                |
+| Template path     | **Resolve once at copy time**, attach one `contextPackId` to the generation session. | Per-edit resolution would let different editing passes pull different examples into one design and split provenance across several packs.        |
+| Deployment        | **Postgres + embedding key.** Vector lane is live.                                   | Semantic text matching and image similarity both available.                                                                                      |
+| Changeset         | **Required.**                                                                        | `@agent-native/creative-context` is public at 0.6.0 and absent from the `ignore` list in [.changeset/config.json](../../.changeset/config.json). |
+| One-specialty cap | **Deferred.**                                                                        | Default + one specialty covers LinkedIn Ads. Lifting it changes ranking package-wide.                                                            |
 
 Two consequences follow. Curation-led ranking makes Phase 4 load-bearing rather
 than cosmetic — nothing is retrieved until items are marked `exemplar`. And
@@ -173,9 +173,10 @@ taking precedence over both the app binding and `selectSemanticSpecialty`.
 Blocked on Phase 2.
 
 `create-design-from-template` returns `nextRequiredAction` → `get-design-snapshot`
-+ `edit-design`, so `resolveGenerationCreativeContext` never runs and the
-template path retrieves zero examples. This is the one flow that most needs
-examples and currently gets none.
+
+- `edit-design`, so `resolveGenerationCreativeContext` never runs and the
+  template path retrieves zero examples. This is the one flow that most needs
+  examples and currently gets none.
 
 Resolve context once at template-copy time and attach the `contextPackId` to the
 generation session so every downstream edit and variant inherits the same

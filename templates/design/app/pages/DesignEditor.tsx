@@ -6131,7 +6131,11 @@ function DesignEditor() {
             ? designVariantGenerationDirectives(id, pendingDesignSystemId)
             : shouldSkipQuestions
               ? [
-                  ...designGenerationDirectives(id, pendingDesignSystemId, images.length,),
+                  ...designGenerationDirectives(
+                    id,
+                    pendingDesignSystemId,
+                    images.length,
+                  ),
                   ...(precedent?.status === "strong"
                     ? designPrecedentDirectives(
                         precedent.contextId,
@@ -6139,7 +6143,11 @@ function DesignEditor() {
                       )
                     : []),
                 ]
-              : designIntakeQuestionDirectives(id, pendingDesignSystemId, images.length)),
+              : designIntakeQuestionDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                )),
       ].join("\n");
 
       clearGenerationCompleteTimer();
