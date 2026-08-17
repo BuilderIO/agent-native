@@ -1,7 +1,8 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { IconDots, IconMessageCircle } from "@tabler/icons-react-native";
+import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   appAccentBackgroundColor,
@@ -10,10 +11,17 @@ import {
 } from "@/components/AppCard";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
+import { TAB_BAR_PILL_RADIUS, TAB_BAR_THEME } from "@/lib/tab-bar-layout";
 import { useApps } from "@/lib/use-apps";
 
 const ICON_COLOR = "#d4d4d8";
 const MUTED_COLOR = "#71717a";
+
+/** Shared by the glass and fallback surfaces so the capsule can't drift apart. */
+const PILL_SURFACE = {
+  borderCurve: "continuous",
+  borderRadius: TAB_BAR_PILL_RADIUS,
+} as const;
 
 type TabItem = {
   key: string;
@@ -132,33 +140,66 @@ export default function ChatFirstBottomTabs({
   return (
     <View
       accessibilityLabel="Primary navigation"
-      className="border-border-dark bg-background-dark border-t"
-      style={{ paddingBottom: insets.bottom, width: "100%" }}
+      style={{
+        paddingBottom: Math.max(insets.bottom, 10),
+        paddingHorizontal: 12,
+        paddingTop: 6,
+        width: "100%",
+      }}
     >
-      <View
-        className="min-h-[62px] min-w-0 w-full flex-row items-start px-1 pt-1.5"
-        style={{ flexBasis: 0 }}
-      >
-        {items.map((item) => {
-          const active =
-            currentRouteName === item.routeName ||
-            (item.routeName === "more" &&
-              currentRouteName !== "chat" &&
-              !selectedApps.some(
-                (app) => routeNameForApp(app.id) === currentRouteName,
-              ));
-          return (
-            <TabButton
-              key={item.key}
-              active={active}
-              item={item}
-              onPress={() => navigateToTab({ item, navigation, state })}
-            />
-          );
-        })}
-        {items.length === 2 ? (
-          <View className="flex-1 items-center justify-center" />
-        ) : null}
+      <View className="min-w-0 w-full">
+        {/* The capsule is drawn by the glass view's own corner configuration —
+            clipping it with an RN mask would drop the squircle and rim
+            lighting. Android has no liquid glass, and the bar sits in layout
+            flow with no content passing beneath it, so the fallback is a plain
+            surface rather than a blur that would have nothing to sample. */}
+        {isLiquidGlassAvailable() ? (
+          <GlassView
+            glassEffectStyle="regular"
+            style={[
+              StyleSheet.absoluteFill,
+              PILL_SURFACE,
+              { backgroundColor: TAB_BAR_THEME.glassTint },
+            ]}
+          />
+        ) : (
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              PILL_SURFACE,
+              {
+                backgroundColor: TAB_BAR_THEME.solidFallback,
+                borderColor: TAB_BAR_THEME.fallbackBorder,
+                borderWidth: StyleSheet.hairlineWidth,
+              },
+            ]}
+          />
+        )}
+        <View
+          className="min-h-[62px] min-w-0 w-full flex-row items-center px-1"
+          style={{ flexBasis: 0 }}
+        >
+          {items.map((item) => {
+            const active =
+              currentRouteName === item.routeName ||
+              (item.routeName === "more" &&
+                currentRouteName !== "chat" &&
+                !selectedApps.some(
+                  (app) => routeNameForApp(app.id) === currentRouteName,
+                ));
+            return (
+              <TabButton
+                key={item.key}
+                active={active}
+                item={item}
+                onPress={() => navigateToTab({ item, navigation, state })}
+              />
+            );
+          })}
+          {items.length === 2 ? (
+            <View className="flex-1 items-center justify-center" />
+          ) : null}
+        </View>
       </View>
     </View>
   );
