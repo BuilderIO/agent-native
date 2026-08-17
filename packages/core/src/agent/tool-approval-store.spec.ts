@@ -49,7 +49,7 @@ describe("agent tool approval store", () => {
     await createAgentToolApproval(binding);
 
     expect(dbMocks.execute).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.objectContaining({
         sql: expect.stringContaining("INSERT INTO agent_tool_approvals"),
         args: expect.arrayContaining([
@@ -57,7 +57,7 @@ describe("agent tool approval store", () => {
         ]),
       }),
     );
-    expect(dbMocks.execute.mock.calls[2]?.[0].args).not.toContain(
+    expect(dbMocks.execute.mock.calls[3]?.[0].args).not.toContain(
       binding.approvalKey,
     );
   });
@@ -70,6 +70,7 @@ describe("agent tool approval store", () => {
     async ({ rowsAffected, expected }) => {
       dbMocks.execute
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected });
       const { consumeAgentToolApproval } =
@@ -84,17 +85,26 @@ describe("agent tool approval store", () => {
           args: expect.arrayContaining([
             binding.ownerEmail,
             binding.toolName,
-            binding.callId,
             expect.any(String),
           ]),
         }),
       );
+      const consumeQuery = dbMocks.execute.mock.calls.at(-1)?.[0] as {
+        sql: string;
+        args: unknown[];
+      };
+      expect(consumeQuery.sql).toContain("turn_id");
+      expect(consumeQuery.sql).not.toContain("call_id = ?");
+      expect(consumeQuery.args).toContain(binding.turnId);
+      expect(consumeQuery.args).not.toContain(binding.callId);
     },
   );
 
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockRejectedValueOnce(new Error("consume unavailable"));
     const { consumeAgentToolApproval } =
       await import("./tool-approval-store.js");
