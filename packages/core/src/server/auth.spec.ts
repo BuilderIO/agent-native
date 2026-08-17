@@ -405,14 +405,27 @@ describe("server/auth", () => {
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       const signInMagicLink = vi.fn(async () => ({ status: true }));
+      const getSession = vi.fn(async () => ({
+        user: { id: "user_1", email: "owner@example.com" },
+        session: { token: "magic-session-token" },
+      }));
+      const betterAuthHandler = vi.fn(async (request: Request) => {
+        const verificationURL = new URL(request.url);
+        return new Response(null, {
+          status: 302,
+          headers: {
+            "cache-control": "no-store",
+            location: verificationURL.searchParams.get("callbackURL")!,
+            "set-cookie":
+              "better-auth.session_token=magic-session-token; Path=/; HttpOnly",
+          },
+        });
+      });
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
-          handler: vi.fn(async () => new Response("{}")),
+          handler: betterAuthHandler,
           api: {
-            getSession: vi.fn(async () => ({
-              user: { id: "user_1", email: "owner@example.com" },
-              session: { token: "magic-session-token" },
-            })),
+            getSession,
             signInEmail: vi.fn(),
             signInMagicLink,
             signUpEmail: vi.fn(),
@@ -421,10 +434,7 @@ describe("server/auth", () => {
         })),
         getBetterAuthSync: vi.fn(() => ({
           api: {
-            getSession: vi.fn(async () => ({
-              user: { id: "user_1", email: "owner@example.com" },
-              session: { token: "magic-session-token" },
-            })),
+            getSession,
           },
         })),
       }));
@@ -447,10 +457,15 @@ describe("server/auth", () => {
         (call: any[]) =>
           call[0] === "/_agent-native/auth/magic-link/desktop-callback",
       )?.[1];
+      const landingHandler = app.use.mock.calls.find(
+        (call: any[]) =>
+          call[0] === "/_agent-native/auth/magic-link/desktop-landing",
+      )?.[1];
       const exchangeHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
       )?.[1];
       expect(callbackHandler).toBeTypeOf("function");
+      expect(landingHandler).toBeTypeOf("function");
       expect(exchangeHandler).toBeTypeOf("function");
 
       const magicLinkHandler = app.use.mock.calls.find(
@@ -467,6 +482,63 @@ describe("server/auth", () => {
         flowId: expect.any(String),
         verifier: expect.any(String),
       });
+
+      const desktopCallbackURL =
+        `/_agent-native/auth/magic-link/desktop-callback?flow_id=${flowResponse.flowId}` +
+        `&verifier=${flowResponse.verifier}`;
+      const landingResponse = await landingHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-landing",
+          query: {
+            token: "magic-link-token",
+            callbackURL: encodeURIComponent(desktopCallbackURL),
+          },
+        }),
+      );
+      expect(landingResponse).toBeInstanceOf(Response);
+      expect((landingResponse as Response).status).toBe(200);
+      const landingHtml = await (landingResponse as Response).text();
+      expect(landingHtml).toContain("Continue signing in");
+      expect(landingHtml).toContain('method="post"');
+      const landingAction = landingHtml.match(/action="([^"]+)"/)?.[1];
+      expect(landingAction).toBeTruthy();
+      expect(landingAction).toContain(
+        "/_agent-native/auth/magic-link/desktop-landing",
+      );
+      expect(landingAction).not.toContain("magic-link-token");
+      expect(landingAction).not.toContain("/magic-link/verify");
+      expect(landingHtml).toContain('name="token" value="magic-link-token"');
+      const postResponse = await landingHandler(
+        createFormPostEvent("/_agent-native/auth/magic-link/desktop-landing", {
+          token: "magic-link-token",
+          callbackURL: desktopCallbackURL,
+        }),
+      );
+      expect(postResponse).toBeInstanceOf(Response);
+      expect((postResponse as Response).status).toBe(302);
+      expect((postResponse as Response).headers.get("location")).toContain(
+        `flow_id=${flowResponse.flowId}`,
+      );
+      expect((postResponse as Response).headers.get("set-cookie")).toContain(
+        "better-auth.session_token=magic-session-token",
+      );
+      const verificationRequest = betterAuthHandler.mock.calls[0]?.[0];
+      expect(verificationRequest).toBeInstanceOf(Request);
+      const verificationURL = new URL(verificationRequest!.url);
+      expect(verificationURL.pathname).toBe(
+        "/_agent-native/auth/ba/magic-link/verify",
+      );
+      expect(verificationURL.searchParams.get("token")).toBe(
+        "magic-link-token",
+      );
+      const callbackURL = new URL(
+        verificationURL.searchParams.get("callbackURL")!,
+        "http://localhost",
+      );
+      expect(callbackURL.searchParams.get("flow_id")).toBe(flowResponse.flowId);
+      expect(callbackURL.searchParams.get("verifier")).toBe(
+        flowResponse.verifier,
+      );
 
       const wrongVerifier = `${flowResponse.verifier.slice(0, -1)}x`;
       const wrongVerifierResponse = await callbackHandler(
@@ -495,6 +567,33 @@ describe("server/auth", () => {
       await expect((callbackResponse as Response).text()).resolves.toContain(
         "Sign-in complete. You can return to the app.",
       );
+
+      const electronFlowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      const electronCallbackResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: electronFlowResponse.flowId,
+            verifier: electronFlowResponse.verifier,
+          },
+          headers: {
+            "user-agent":
+              "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.215",
+          },
+        }),
+      );
+      const electronCallbackHtml = await (
+        electronCallbackResponse as Response
+      ).text();
+      expect(electronCallbackHtml).toContain(
+        "Sign-in complete. You can return to the app.",
+      );
+      expect(electronCallbackHtml).not.toContain("window.close()");
 
       const replayResponse = await callbackHandler(
         createMockEvent({
@@ -541,6 +640,66 @@ describe("server/auth", () => {
           }),
         }),
       );
+
+      const errorFlowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      getSession.mockResolvedValueOnce(null as never);
+      await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: errorFlowResponse.flowId,
+            verifier: errorFlowResponse.verifier,
+          },
+        }),
+      );
+      const exchangeErrorEvent = createMockEvent({
+        path: "/_agent-native/auth/desktop-exchange",
+        query: {
+          flow_id: errorFlowResponse.flowId,
+          verifier: errorFlowResponse.verifier,
+        },
+      });
+      await expect(exchangeHandler(exchangeErrorEvent)).resolves.toMatchObject({
+        error: expect.any(String),
+        code: "callback_session_missing",
+      });
+      expect(exchangeErrorEvent.res.status).toBe(400);
+
+      const invalidTokenFlowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: invalidTokenFlowResponse.flowId,
+            verifier: invalidTokenFlowResponse.verifier,
+            error: "INVALID_TOKEN",
+          },
+        }),
+      );
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: {
+              flow_id: invalidTokenFlowResponse.flowId,
+              verifier: invalidTokenFlowResponse.verifier,
+            },
+          }),
+        ),
+      ).resolves.toMatchObject({
+        error: expect.any(String),
+        code: "INVALID_TOKEN",
+      });
     });
 
     it("sets first-run onboarding only for an authenticated callback", async () => {
@@ -6006,6 +6165,26 @@ function createJsonPostEvent(
       ...headers,
     },
     body: JSON.stringify(body),
+  });
+  const requestHeaders = Object.fromEntries(request.headers.entries());
+  const event = createMockEvent({ path, headers: requestHeaders });
+  event.url = new URL(`${origin}${path}`);
+  event.req = request;
+  event.headers = request.headers;
+  event.node.req.method = "POST";
+  event.node.req.headers = requestHeaders;
+  return event;
+}
+
+function createFormPostEvent(
+  path: string,
+  body: Record<string, string>,
+  origin = "http://localhost",
+): any {
+  const request = new Request(`${origin}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body),
   });
   const requestHeaders = Object.fromEntries(request.headers.entries());
   const event = createMockEvent({ path, headers: requestHeaders });

@@ -1,4 +1,12 @@
 export {
+  defineAppConfig,
+  getAppConfig,
+  resetAppConfigForTests,
+  appConfigSchema,
+  type AppConfig,
+  type AppConfigInput,
+} from "../app-config/index.js";
+export {
   createServer,
   type CreateServerOptions,
   type EnvKeyConfig,

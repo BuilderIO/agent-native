@@ -111,6 +111,7 @@ import type {
   AgentChatEvent,
   MentionProvider,
 } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
@@ -647,7 +648,7 @@ export function createAgentChatPlugin(
       // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
         (env === "development" || env === "test") &&
-        process.env.AGENT_MODE !== "production";
+        getAppConfig().agent.mode !== "production";
       const routePath = options?.path ?? "/_agent-native/agent-chat";
       const a2aAgentDelegationEnabled =
         resolveA2AAgentDelegationEnabled(options);
@@ -4124,8 +4125,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const modelDefaultsAppId =
         normalizeAgentAppModelDefaultAppId(
           options?.appId ??
-            process.env.AGENT_NATIVE_APP_ID ??
-            process.env.VITE_AGENT_NATIVE_TEMPLATE ??
+            getAppConfig().app.id ??
+            getAppConfig().app.template ??
             "app",
         ) ?? "app";
 

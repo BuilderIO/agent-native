@@ -9,6 +9,7 @@ import {
   setResponseHeader,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
@@ -835,7 +836,7 @@ function isHttpsRequest(event: H3Event): boolean {
     }
     const url = event.url?.toString?.() ?? "";
     if (url.startsWith("https://")) return true;
-    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    const appUrl = getAppConfig().app.url ?? "";
     if (appUrl.startsWith("https://")) return true;
   } catch {
     // ignore
