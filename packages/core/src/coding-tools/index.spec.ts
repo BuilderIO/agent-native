@@ -83,6 +83,10 @@ describe("shared coding tools", () => {
       }),
     ).resolves.toBe("Error: path must stay inside the workspace.");
     expect(fs.existsSync(path.join(outside, "created.txt"))).toBe(false);
+    fs.symlinkSync(outside, path.join(cwd, ".agent-native"), "dir");
+    expect(() => spawnBackgroundCommand("echo must-stay-inside", cwd)).toThrow(
+      "Background log path must stay inside the workspace.",
+    );
   });
 
   it("omits bridge-only actions from engine tool lists", () => {
@@ -370,6 +374,12 @@ describe("bash background execution", () => {
     expect(result).toMatch(/Background process spawned/);
     expect(result).toMatch(/pid:/);
     expect(result).toMatch(/log:/);
+    const logMatch = result.match(/log:\s*(\S+\.log)/);
+    expect(
+      logMatch?.[1]?.startsWith(
+        path.join(cwd, ".agent-native", "background-logs"),
+      ),
+    ).toBe(true);
   });
 
   it("spawnBackgroundCommand returns pid and log path in output", async () => {
@@ -382,13 +392,16 @@ describe("bash background execution", () => {
 
   it("writes output to the log file", async () => {
     const cwd = tempDir();
+    const registry = createCodingToolRegistry({ cwd, restrictToCwd: true });
     const result = spawnBackgroundCommand("echo logged-output", cwd);
     const logMatch = result.match(/log:\s*(\S+)/);
     expect(logMatch).not.toBeNull();
     const logFile = logMatch![1];
     // Give the process a moment to write its output.
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const content = fs.readFileSync(logFile, "utf8");
+    const content = await registry.read.run({
+      path: path.relative(cwd, logFile),
+    });
     expect(content).toContain("logged-output");
     fs.unlinkSync(logFile);
   });

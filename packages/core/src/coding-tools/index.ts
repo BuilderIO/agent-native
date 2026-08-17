@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -520,8 +519,17 @@ export async function runCodingCommand(
  * calling registry).
  */
 export function spawnBackgroundCommand(command: string, cwd: string): string {
+  const logDirectory = resolveCodingPath(
+    cwd,
+    path.join(".agent-native", "background-logs"),
+    { restrictToCwd: true },
+  );
+  if (!logDirectory) {
+    throw new Error("Background log path must stay inside the workspace.");
+  }
+  fs.mkdirSync(logDirectory, { recursive: true });
   const logFile = path.join(
-    os.tmpdir(),
+    logDirectory,
     `an-bg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`,
   );
 

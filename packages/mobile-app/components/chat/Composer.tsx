@@ -43,10 +43,6 @@ import {
   mentionToReference,
   replaceMention,
 } from "@/lib/agent-chat/mention-query";
-import {
-  formatMobileModelLabel,
-  getMobileAgentLabel,
-} from "@/lib/agent-chat/model-picker";
 import type {
   ChatAttachment,
   ChatReference,
@@ -122,14 +118,6 @@ function ActionMenuRow({
       {trailing}
     </Pressable>
   );
-}
-
-function settingsSummary(settings: AgentChatSettings): string {
-  const agent = getMobileAgentLabel(settings.engine);
-  const effort = settings.effort
-    ? ` · ${settings.effort[0]!.toUpperCase()}${settings.effort.slice(1, 3)}`
-    : "";
-  return `${agent === "Default" ? formatMobileModelLabel(settings.model) : agent}${effort}`;
 }
 
 function detectMimeType(fileName: string, providedMime?: string): string {
@@ -687,22 +675,6 @@ export function Composer({
           </Pressable>
 
           <View className="flex-row items-center gap-2.5">
-            <Pressable
-              className="flex-row items-center gap-1 py-1 px-1 rounded-lg active:bg-accent"
-              onPress={onOpenSettings}
-              accessibilityRole="button"
-              accessibilityLabel="Model and effort settings"
-            >
-              <Text className="text-[13px] font-medium text-zinc-400">
-                {settingsSummary(settings)}
-              </Text>
-              <IconChevronDown
-                color={mutedForeground}
-                size={13}
-                strokeWidth={2}
-              />
-            </Pressable>
-
             <Pressable
               className="flex-row items-center gap-1 py-1 px-1 rounded-lg active:opacity-75"
               onPress={() => setModeMenuOpen(true)}

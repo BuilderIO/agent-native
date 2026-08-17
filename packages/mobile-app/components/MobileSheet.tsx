@@ -60,6 +60,7 @@ export function MobileSheet({
 
   const duration = reducedMotion ? 0 : undefined;
   const openDuration = duration ?? (motion === "popover" ? 150 : 260);
+  const backdropOpenDuration = duration ?? (motion === "popover" ? 150 : 200);
   const closeDuration = duration ?? MOBILE_SHEET_CLOSE_DURATION_MS;
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export function MobileSheet({
       const frame = requestAnimationFrame(() => {
         backdropOpacity.set(
           withTiming(1, {
-            duration: openDuration,
+            duration: backdropOpenDuration,
             easing: Easing.out(Easing.cubic),
           }),
         );
@@ -142,6 +143,7 @@ export function MobileSheet({
     );
   }, [
     backdropOpacity,
+    backdropOpenDuration,
     closeDuration,
     contentOffset,
     contentOpacity,
@@ -179,37 +181,37 @@ export function MobileSheet({
       <ModalSafeAreaProvider style={{ flex: 1 }}>
         <View className="flex-1">
           <Animated.View
-            pointerEvents="none"
             className={`absolute inset-0 ${overlayClassName}`}
-            style={backdropStyle}
+            style={[backdropStyle, { zIndex: 0 }]}
+          />
+          <Pressable
+            className="absolute inset-0"
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
           />
 
           {side === "left" ? (
-            <View className="flex-1 flex-row">
+            <View
+              className="absolute inset-0 flex-row"
+              pointerEvents="box-none"
+            >
               <Animated.View
                 className={contentClassName}
-                style={[sheetStyle, contentStyle]}
+                style={[sheetStyle, { zIndex: 1 }, contentStyle]}
               >
                 {children}
               </Animated.View>
-              <Pressable
-                className="flex-1"
-                onPress={onClose}
-                accessibilityRole="button"
-                accessibilityLabel={accessibilityLabel}
-              />
+              <View className="flex-1" pointerEvents="box-none" />
             </View>
           ) : (
-            <View className="flex-1 justify-end">
-              <Pressable
-                className="absolute inset-0"
-                onPress={onClose}
-                accessibilityRole="button"
-                accessibilityLabel={accessibilityLabel}
-              />
+            <View
+              className="absolute inset-0 justify-end"
+              pointerEvents="box-none"
+            >
               <Animated.View
                 className={contentClassName}
-                style={[sheetStyle, contentStyle]}
+                style={[sheetStyle, { zIndex: 1 }, contentStyle]}
               >
                 {children}
               </Animated.View>
