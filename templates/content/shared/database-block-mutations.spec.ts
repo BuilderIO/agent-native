@@ -113,6 +113,36 @@ describe("individual Blocks-field document mutations", () => {
     ).toEqual([before.blocks[0]!.id, "block_requested", before.blocks[1]!.id]);
   });
 
+  it("preserves an unmentioned open toggle while updating its sibling", () => {
+    const markdown = [
+      '<details open="">',
+      "<summary>Expanded</summary>",
+      "\tChild",
+      "</details>",
+      "After",
+    ].join("\n");
+    const before = identity(markdown);
+    const changed = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: {
+        operation: "update",
+        blockId: before.blocks[2]!.id,
+        block: { kind: "paragraph", nfm: "Updated" },
+      },
+    });
+
+    expect(changed.markdown).toBe(
+      [
+        "<details open>",
+        "<summary>Expanded</summary>",
+        "\tChild",
+        "</details>",
+        "Updated",
+      ].join("\n"),
+    );
+  });
+
   it("keeps exact IDs when inserting among indistinguishable siblings", () => {
     const markdown = "Same\nSame";
     const before = identity(markdown);
