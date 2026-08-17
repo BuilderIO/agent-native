@@ -46,8 +46,9 @@ export function isValidTimezone(timezone: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof RangeError) return false;
+    throw error;
   }
 }
 
@@ -104,8 +105,9 @@ function dateTimeParts(value: Date | string, timezone: string) {
       minute: Number(minute),
       second: Number(second),
     } satisfies CalendarDateTimeParts;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
   }
 }
 
