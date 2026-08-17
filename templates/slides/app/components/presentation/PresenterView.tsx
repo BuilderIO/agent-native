@@ -55,18 +55,21 @@ export default function PresenterView({
   const [index, setIndex] = useState(initialIndex);
   const [elapsed, setElapsed] = useState(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const indexRef = useRef(index);
+  indexRef.current = index;
 
   // `initialIndex` only seeds the first render. Without this, reusing the
   // presenter route after a deep-link change leaves `index` pointing at the
   // previous (or now out-of-range) slide until the next broadcast-channel
-  // `state` message arrives. Keyed on `startIndex` alone (not `initialIndex`,
-  // which also recomputes on every slide content edit) so an in-progress
-  // presenter session isn't yanked back to the URL slide by an unrelated
-  // deck update.
+  // `state` message arrives. Keyed on `startIndex`/`deckId` (not
+  // `initialIndex`, which also recomputes on every slide content edit) so an
+  // in-progress presenter session isn't yanked back to the URL slide by an
+  // unrelated deck update, but a genuine deep link or deck switch — this
+  // route is reused across decks — still resets.
   useEffect(() => {
     setIndex(initialIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startIndex]);
+  }, [startIndex, deckId]);
 
   useEffect(() => {
     const channel = openPresentChannel(deckId);
@@ -130,16 +133,43 @@ export default function PresenterView({
     [slides],
   );
 
-  // A skip toggle changes how many slides are visible without changing
-  // `startIndex` (no `initialIndex` effect fires), so clamp separately here
-  // to keep `index` in range instead of pointing past the end.
+  // A skip toggle or reorder changes `safeSlides` without necessarily
+  // changing its length at the active position — a length-only clamp would
+  // silently swap in a different slide at the same index. Follow the
+  // previously-shown slide's id to its new position, and only fall back to
+  // clamping the raw index when that slide is gone.
+  const prevSafeSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
-    setIndex((prev) => Math.max(0, Math.min(prev, safeSlides.length - 1)));
-  }, [safeSlides.length]);
+    const newIds = safeSlides.map((s) => s.id);
+    const activeId = prevSafeSlideIdsRef.current[indexRef.current];
+    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    prevSafeSlideIdsRef.current = newIds;
+    setIndex(
+      followedIndex >= 0
+        ? followedIndex
+        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1)),
+    );
+  }, [safeSlides]);
 
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
   const notes = current?.notes?.trim();
+
+  if (safeSlides.length === 0) {
+    return (
+      // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
+      <div className="fixed inset-0 flex items-center justify-center bg-[hsl(240,6%,6%)] text-white">
+        <button
+          type="button"
+          onClick={() => window.close()}
+          // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
+          className="cursor-pointer rounded-lg bg-white/10 px-4 py-3 text-sm hover:bg-white/20"
+        >
+          {t("presentation.noSlides")}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[hsl(240,6%,6%)] text-white">

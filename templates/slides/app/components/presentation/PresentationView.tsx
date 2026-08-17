@@ -290,12 +290,25 @@ export default function PresentationView({
   const isSharedRef = useRef(isShared);
   isSharedRef.current = isShared;
 
+  // A skip toggle or reorder changes which slides make up `safeSlides`
+  // without necessarily changing its length at the active position — a
+  // length-only clamp would silently swap in a different slide at the same
+  // index. Track the previously-shown slide's id and follow it to its new
+  // position; only fall back to clamping the raw index when that slide is
+  // gone (e.g. it was just skipped).
+  const prevSafeSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
-    setCurrentIndex((prev) => clampIndex(prev));
+    const newIds = safeSlides.map((s) => s.id);
+    const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
+    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    prevSafeSlideIdsRef.current = newIds;
+    setCurrentIndex(
+      followedIndex >= 0 ? followedIndex : clampIndex(currentIndexRef.current),
+    );
     setPrevIndex((prev) =>
       prev !== null && prev >= safeSlides.length ? null : prev,
     );
-  }, [clampIndex, safeSlides.length]);
+  }, [clampIndex, safeSlides]);
 
   const clearTransitionTimer = useCallback(() => {
     if (transitionTimerRef.current !== null) {
@@ -317,9 +330,12 @@ export default function PresentationView({
     // skip toggle (they're derived from the whole `slides` array), which
     // would otherwise reset an in-progress presentation back to the deep
     // link's starting slide on unrelated updates. Only re-seed when
-    // `startIndex` itself changes.
+    // `startIndex` changes, or `deckId` does — this component is reused
+    // across deck navigation (see the exit-handler refs above), so a new
+    // deck at the same `?slide=` must still reset instead of inheriting the
+    // previous deck's position.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startIndex]);
+  }, [startIndex, deckId]);
 
   const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
