@@ -232,6 +232,34 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps the gateway requestId on an error stop that also carries a message", async () => {
+    // The gateway's opaque "ERROR ID: <hex>" sentence is not a diagnostic, so
+    // the requestId has to survive alongside it — an outage where every failure
+    // reads as its own one-off is exactly what dropping it produced.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: a3f9c2d1e4b78065",
+            requestId: "req_outage_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toContain("ERROR ID:");
+    expect(stop?.requestId).toBe("req_outage_1");
+  });
+
   it("POSTs to the gateway /messages endpoint with bearer auth and owner headers", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       jsonlResponse([

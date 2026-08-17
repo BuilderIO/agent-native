@@ -845,6 +845,8 @@ async function* parseJsonlStream(
             const errMsg =
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
+            const gatewayRequestId =
+              typeof event.requestId === "string" ? event.requestId : undefined;
             const gatewayErrCode = event.errorCode ?? event.code;
             // The gateway already authenticated this request before streaming,
             // so a bare "Unauthorized" here means the account cannot use this
@@ -878,7 +880,7 @@ async function* parseJsonlStream(
                         // record `unknown` on the credits lane alone.
                         classifyTerminalErrorCode(String(errMsg))));
             console.error(
-              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
+              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
             if (isCredentialAuthError) {
               await recordBuilderGatewayAuthFailure({
@@ -895,10 +897,7 @@ async function* parseJsonlStream(
             // it's thrown, but without these tags.
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({
-                requestId:
-                  typeof event.requestId === "string"
-                    ? event.requestId
-                    : undefined,
+                requestId: gatewayRequestId,
                 model,
                 gatewayUrl: captureContext.gatewayUrl,
                 rawEvent: event,
@@ -913,6 +912,10 @@ async function* parseJsonlStream(
               ...(isTransientGatewayFailure(String(errMsg))
                 ? { providerRetryable: true }
                 : {}),
+              // requestId rides the stop event whether or not the gateway sent a
+              // message: a message like "...ERROR ID: <hex>" is as opaque as no
+              // message at all, and this is the only key that reaches upstream.
+              ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (
             reason === "end_turn" ||

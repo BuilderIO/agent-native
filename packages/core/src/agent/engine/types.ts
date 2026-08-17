@@ -28,6 +28,8 @@ export class EngineError extends Error {
   readonly statusCode?: number;
   /** Whether the provider explicitly marked this error as retryable. */
   readonly providerRetryable?: boolean;
+  /** Upstream request id, when the provider/gateway supplied one. */
+  readonly requestId?: string;
   /**
    * Whether the request exceeded the model's context window. Set by engines that
    * classified the provider's own reply, because the delivered message may not
@@ -43,6 +45,7 @@ export class EngineError extends Error {
       upgradeUrl?: string;
       statusCode?: number;
       providerRetryable?: boolean;
+      requestId?: string;
       contextOverflow?: boolean;
     },
   ) {
@@ -52,6 +55,7 @@ export class EngineError extends Error {
     this.upgradeUrl = opts?.upgradeUrl;
     this.statusCode = opts?.statusCode;
     this.providerRetryable = opts?.providerRetryable;
+    this.requestId = opts?.requestId;
     this.contextOverflow = opts?.contextOverflow;
   }
 }
@@ -226,6 +230,13 @@ export type EngineEvent =
        * should retry even if status code / message patterns don't match.
        */
       providerRetryable?: boolean;
+      /**
+       * Upstream request id, when the provider/gateway supplies one. This is
+       * the only key that ties a user-facing error back to the upstream log,
+       * so it must survive to the capture even when the error also carries a
+       * message — an opaque message is not a diagnostic.
+       */
+      requestId?: string;
       /**
        * The request exceeded the model's context window. Carried structurally
        * for the same reason as `providerRetryable`: `error` is visitor copy on a
