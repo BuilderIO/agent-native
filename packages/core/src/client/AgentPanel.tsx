@@ -435,6 +435,14 @@ export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
 
+export function shouldKeepAgentPanelHeaderVisible(
+  headerMenuOpen: boolean,
+  feedbackOpen: boolean,
+  shareOpen: boolean,
+): boolean {
+  return headerMenuOpen || feedbackOpen || shareOpen;
+}
+
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
 export interface AgentPanelCodeAccess {
@@ -1118,6 +1126,7 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const getChatThreadShareUrl = useCallback(
     (threadId: string) => {
@@ -1190,6 +1199,7 @@ function AgentPanelInner({
               shareUrl={getChatThreadShareUrl(activeTab.id)}
               trigger="icon"
               triggerClassName="h-7 w-7"
+              onOpenChange={setShareOpen}
             />
           );
         })()}
@@ -1533,7 +1543,13 @@ function AgentPanelInner({
         className="agent-sidebar-chat-header flex flex-col shrink-0"
         data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
         data-agent-sidebar-chat-header-active={
-          headerMenuOpen || feedbackOpen ? "" : undefined
+          shouldKeepAgentPanelHeaderVisible(
+            headerMenuOpen,
+            feedbackOpen,
+            shareOpen,
+          )
+            ? ""
+            : undefined
         }
       >
         {/* Top bar: mode buttons + actions */}
@@ -1772,6 +1788,7 @@ function AgentPanelInner({
       canUseCodeTools,
       feedbackOpen,
       headerMenuOpen,
+      shareOpen,
       onCollapse,
       showTabBar,
       cliTabs,

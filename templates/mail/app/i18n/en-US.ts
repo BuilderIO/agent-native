@@ -496,7 +496,9 @@ const messages = {
     signature: "Signature",
     importFromGmail: "Import from Gmail",
     signatureHelp:
-      "Added to new drafts before quoted reply history. Markdown links and images are supported.",
+      "Added to new drafts before quoted reply history. Paste an image here or use Add image; Markdown links and images are supported.",
+    addSignatureImage: "Add image",
+    signatureImageUploadFailed: "Failed to upload signature image",
     writingStyle: "Writing style",
     writingStylePlaceholder: "Short, specific, warm. Avoid formal filler.",
     saveDraftingSettings: "Save drafting settings",

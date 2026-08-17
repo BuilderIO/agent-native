@@ -8,6 +8,7 @@ import {
   resolveAgentPanelChatSurface,
   shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
+  shouldKeepAgentPanelHeaderVisible,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
   shouldShowAgentPanelCliTabBar,
@@ -35,6 +36,11 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("keeps a sidebar header interactive while a share popover is open", () => {
+    expect(shouldKeepAgentPanelHeaderVisible(false, false, true)).toBe(true);
+    expect(shouldKeepAgentPanelHeaderVisible(false, false, false)).toBe(false);
+  });
+
   it("hides the chat tab strip for a single main tab", () => {
     expect(shouldShowAgentPanelChatTabBar([chatTab("main")], "main")).toBe(
       false,

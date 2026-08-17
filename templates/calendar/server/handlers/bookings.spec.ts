@@ -111,6 +111,82 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("narrows slots to the overlap with an eligible host schedule", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [],
+      hostSchedules: [
+        {
+          email: "peer@example.com",
+          timezone: "America/Los_Angeles",
+          weeklySchedule: {
+            monday: {
+              enabled: true,
+              slots: [{ start: "10:00", end: "11:00" }],
+            },
+            tuesday: { enabled: false, slots: [] },
+            wednesday: { enabled: false, slots: [] },
+            thursday: { enabled: false, slots: [] },
+            friday: { enabled: false, slots: [] },
+            saturday: { enabled: false, slots: [] },
+            sunday: { enabled: false, slots: [] },
+          },
+        },
+      ],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T17:00:00.000Z",
+      "2026-07-20T17:30:00.000Z",
+    ]);
+  });
+
+  it("returns no slots when an eligible host schedule does not overlap", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [],
+      hostSchedules: [
+        {
+          email: "peer@example.com",
+          timezone: "America/Los_Angeles",
+          weeklySchedule: {
+            monday: { enabled: false, slots: [] },
+            tuesday: { enabled: false, slots: [] },
+            wednesday: { enabled: false, slots: [] },
+            thursday: { enabled: false, slots: [] },
+            friday: { enabled: false, slots: [] },
+            saturday: { enabled: false, slots: [] },
+            sunday: { enabled: false, slots: [] },
+          },
+        },
+      ],
+    });
+
+    expect(slots).toEqual([]);
+  });
+
+  it("leaves slots unchanged for a host with no saved schedule", () => {
+    const withoutHost = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 45,
+      config: availabilityConfig(),
+      conflictItems: [],
+    });
+    const withUnscheduledHost = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 45,
+      config: availabilityConfig(),
+      conflictItems: [],
+      hostSchedules: [{ email: "peer@example.com" }],
+    });
+
+    expect(withUnscheduledHost).toEqual(withoutHost);
+  });
+
   it("marks owner availability unavailable when Google is not connected", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
 

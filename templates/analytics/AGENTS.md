@@ -63,6 +63,10 @@ details live in `.agents/skills/`.
   request action uses the shared `@agent-native/core/provider-api` runtime,
   injects configured credentials, blocks private/internal URLs, and redacts
   secrets.
+- For customer and third-party provider data, inspect workspace connections
+  first and use their granted vault-backed credential refs. Never read provider
+  API keys or tokens from `process.env`; deployment environment variables are
+  not a substitute for a connector or vault credential.
 - For questions about tracking events or instrumentation in GitHub-hosted code,
   use `github-repo-files` before raw provider requests: check
   `data-source-status` for GitHub, `operation="search"` likely event names/calls
