@@ -7,42 +7,62 @@ private struct HelperFailure: Error, CustomStringConvertible {
 }
 
 private final class PhantomCursorView: NSView {
-    var showsClickPulse = false {
-        didSet { needsDisplay = true }
-    }
-
     override var isOpaque: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill()
         dirtyRect.fill()
 
-        let hotspot = NSBezierPath(ovalIn: NSRect(x: 0, y: 24, width: 13, height: 13))
-        NSColor(calibratedRed: 0.35, green: 0.42, blue: 1.0, alpha: 0.2).setFill()
-        hotspot.fill()
-
-        if showsClickPulse {
-            let pulse = NSBezierPath(ovalIn: NSRect(x: -2, y: 22, width: 17, height: 17))
-            NSColor(calibratedRed: 0.35, green: 0.42, blue: 1.0, alpha: 0.7).setStroke()
-            pulse.lineWidth = 1.5
-            pulse.stroke()
-        }
-
         let pointer = NSBezierPath()
-        pointer.move(to: NSPoint(x: 3, y: 35))
-        pointer.line(to: NSPoint(x: 3, y: 7))
-        pointer.line(to: NSPoint(x: 11, y: 15))
-        pointer.line(to: NSPoint(x: 16, y: 4))
-        pointer.line(to: NSPoint(x: 20, y: 6))
-        pointer.line(to: NSPoint(x: 14, y: 17))
-        pointer.line(to: NSPoint(x: 27, y: 17))
+        pointer.move(to: NSPoint(x: 0, y: 44))
+        pointer.line(to: NSPoint(x: 0, y: 27))
+        pointer.line(to: NSPoint(x: 5, y: 31))
+        pointer.line(to: NSPoint(x: 9, y: 24))
+        pointer.line(to: NSPoint(x: 12, y: 26))
+        pointer.line(to: NSPoint(x: 8, y: 32))
+        pointer.line(to: NSPoint(x: 16, y: 32))
         pointer.close()
 
-        NSColor.white.setFill()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.26)
+        shadow.shadowBlurRadius = 1
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
         pointer.fill()
-        NSColor(calibratedWhite: 0.05, alpha: 0.82).setStroke()
-        pointer.lineWidth = 1.3
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.white.setStroke()
+        pointer.lineWidth = 1.1
         pointer.stroke()
+
+        let label = "Agent" as NSString
+        let labelFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+        ]
+        let labelSize = label.size(withAttributes: labelAttributes)
+        let labelRect = NSRect(
+            x: 16,
+            y: 5,
+            width: labelSize.width + 12,
+            height: 20
+        )
+        let labelPath = NSBezierPath(roundedRect: labelRect, xRadius: 2, yRadius: 2)
+        NSGraphicsContext.saveGraphicsState()
+        let labelShadow = NSShadow()
+        labelShadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.22)
+        labelShadow.shadowBlurRadius = 2
+        labelShadow.shadowOffset = NSSize(width: 0, height: -1)
+        labelShadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
+        labelPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        label.draw(
+            at: NSPoint(x: labelRect.minX + 6, y: labelRect.minY + 3),
+            withAttributes: labelAttributes
+        )
     }
 }
 
@@ -62,7 +82,7 @@ private final class PhantomCursorOverlay {
             if let existingView = panel?.contentView as? PhantomCursorView {
                 view = existingView
             } else {
-                view = PhantomCursorView(frame: NSRect(x: 0, y: 0, width: 32, height: 40))
+                view = PhantomCursorView(frame: NSRect(x: 0, y: 0, width: 68, height: 45))
                 let nextPanel = NSPanel(
                     contentRect: view.frame,
                     styleMask: [.borderless, .nonactivatingPanel],
@@ -80,7 +100,7 @@ private final class PhantomCursorOverlay {
                 panel = nextPanel
             }
 
-            view.showsClickPulse = click
+            _ = click
             panel?.alphaValue = 1
             panel?.setFrameOrigin(origin)
             panel?.orderFrontRegardless()
@@ -137,8 +157,8 @@ private final class PhantomCursorOverlay {
             return nil
         }
         return NSPoint(
-            x: appKitPoint.x - 3,
-            y: appKitPoint.y - 35
+            x: appKitPoint.x,
+            y: appKitPoint.y - 44
         )
     }
 }

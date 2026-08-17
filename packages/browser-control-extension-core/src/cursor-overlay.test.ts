@@ -20,6 +20,13 @@ describe("cursor overlay expression", () => {
     expect(expression).toContain('"x":120.5');
     expect(expression).toContain('"y":48');
     expect(expression).toContain('"click":true');
+    expect(expression).toContain('label.textContent = "Agent"');
+    expect(expression).toContain("border-radius: 2px");
+    expect(expression).toContain("#7b61ff");
+    expect(expression).toContain("pointer-outline");
+    expect(expression).toContain("drop-shadow");
+    expect(expression).not.toContain("click-ring");
+    expect(expression).not.toContain("royalblue");
     expect(expression).not.toContain("Runtime.evaluate");
     expect(expression).not.toContain("candidate.remove");
   });
