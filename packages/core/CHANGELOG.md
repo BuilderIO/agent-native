@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.160.2
+
+### Patch Changes
+
+- 831e915: Recover and index durable approval continuation scopes when clients omit a logical turn id.
+
 ## 0.160.1
 
 ### Patch Changes
