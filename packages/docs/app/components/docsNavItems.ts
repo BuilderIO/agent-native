@@ -617,7 +617,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "environmentVariables",
         slug: "environment-variables",
       },
-      { id: "progress", labelKey: "progress", slug: "progress" },
       {
         id: "agents-group",
         labelKey: "agents",
@@ -800,6 +799,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
+      { id: "progress", labelKey: "progress", slug: "progress" },
       {
         id: "automation-connectors",
         labelKey: "automationConnectors",
