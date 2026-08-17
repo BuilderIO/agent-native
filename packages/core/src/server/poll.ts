@@ -90,6 +90,12 @@ const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const DURABLE_PRUNE_BATCH = 10_000;
 const DURABLE_PRUNE_MAX_BATCHES = 40;
 /**
+ * Postgres advisory-lock key for the per-database retention worker. The lock
+ * is transaction-scoped so a serverless worker that is killed cannot leave a
+ * lease behind for another worker to clear.
+ */
+const DURABLE_PRUNE_LOCK_KEY = "agent-native:sync-events-prune";
+/**
  * How far back a cold-started process replays durable action markers.
  * Covers the gap between a separate action process writing its marker and this
  * process's first poll — seconds in practice. Anything older is history, and
@@ -679,10 +685,10 @@ export class AppSyncState {
    *     bounded index range scan.
    *
    * The `lastDurablePrune` throttle below is per-process, so every serverless
-   * worker prunes on its first poll. That was survivable only once the work
-   * itself became bounded and indexed; if concurrency is still a problem,
-   * the next step is a `pg_try_advisory_xact_lock` so one worker prunes at a
-   * time. Deliberately not done yet — measure before adding a lock.
+   * worker prunes on its first poll. Postgres workers also take a
+   * transaction-scoped advisory lease for each batch: only one worker deletes
+   * at a time, but each batch still commits independently so a killed worker
+   * cannot hold a long transaction open.
    */
   private async pruneDurableEvents(client: DbExec): Promise<void> {
     const now = Date.now();
@@ -692,17 +698,44 @@ export class AppSyncState {
     let deleted = 0;
     try {
       for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
-        const result = await client.execute({
+        const runBatch = async (tx: DbExec): Promise<number | null> => {
+          if (this.isPg()) {
+            const lockResult = await tx.execute({
+              sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+              args: [DURABLE_PRUNE_LOCK_KEY],
+            });
+            const acquired = lockResult.rows[0]?.acquired;
+            if (acquired !== true && acquired !== "t") return null;
+          }
+
           // `id IN (...)` rather than ctid/rowid: both are dialect-specific,
           // and the primary key is indexed on every dialect we ship.
-          sql: `DELETE FROM sync_events WHERE id IN (
-                  SELECT id FROM sync_events WHERE created_at < ?
-                  ORDER BY created_at, id LIMIT ?
-                )`,
-          args: [cutoff, DURABLE_PRUNE_BATCH],
-        });
-        deleted += result.rowsAffected;
-        if (result.rowsAffected < DURABLE_PRUNE_BATCH) break;
+          const result = await tx.execute({
+            sql: `DELETE FROM sync_events WHERE id IN (
+                    SELECT id FROM sync_events WHERE created_at < ?
+                    ORDER BY created_at, id LIMIT ?
+                  )`,
+            args: [cutoff, DURABLE_PRUNE_BATCH],
+          });
+          return result.rowsAffected;
+        };
+
+        // A Postgres advisory transaction lock is only useful when the lock
+        // and delete share a connection and transaction. Never fall back to
+        // an uncoordinated delete on a transactionless client.
+        const rowsAffected = this.isPg()
+          ? client.transaction
+            ? await client.transaction(runBatch)
+            : null
+          : await runBatch(client);
+        if (rowsAffected == null) {
+          if (this.isPg() && !client.transaction) {
+            throw new Error("Postgres prune requires a database transaction");
+          }
+          break;
+        }
+        deleted += rowsAffected;
+        if (rowsAffected < DURABLE_PRUNE_BATCH) break;
       }
       this.durablePruneFailures = 0;
     } catch (err) {

@@ -77,6 +77,7 @@ describe("desktop updates", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    electronState.app.isPackaged = true;
     electronState.ipcMain.handlers.clear();
     updaterState.handlers.clear();
     updaterState.checkForUpdates.mockReset();
@@ -231,7 +232,8 @@ describe("desktop updates", () => {
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps development updates explicitly unsupported", async () => {
+  it("keeps un-packaged development updates explicitly unsupported", async () => {
+    electronState.app.isPackaged = false;
     vi.stubGlobal("__AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__", "dev");
     vi.resetModules();
     const updates = await import("./updates.js");

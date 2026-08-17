@@ -4,6 +4,7 @@ import {
   IconBolt,
   IconBulb,
   IconCamera,
+  IconCheck,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
@@ -27,7 +28,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -36,6 +36,7 @@ import {
   View,
 } from "react-native";
 
+import { MOBILE_SHEET_CLOSE_DURATION_MS } from "@/components/MobileSheet";
 import { fetchMentions } from "@/lib/agent-chat/api";
 import {
   activeMentionQuery,
@@ -48,7 +49,10 @@ import type {
   MentionItem,
 } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { getAndClearLastDictatedText } from "@/lib/voice-api";
+
+import { MobilePopover } from "./MobilePopover";
 
 export type ActionTag = {
   id: string;
@@ -56,49 +60,64 @@ export type ActionTag = {
   icon: "bolt" | "bulb" | "clock" | "tools" | "upload";
 };
 
-function renderActionTagIcon(iconName: ActionTag["icon"]) {
+function renderActionTagIcon(iconName: ActionTag["icon"], color: string) {
   switch (iconName) {
     case "bolt":
-      return <IconBolt color="#d4d4d8" size={14} strokeWidth={2} />;
+      return <IconBolt color={color} size={14} strokeWidth={2} />;
     case "bulb":
-      return <IconBulb color="#d4d4d8" size={14} strokeWidth={2} />;
+      return <IconBulb color={color} size={14} strokeWidth={2} />;
     case "clock":
-      return <IconClock color="#d4d4d8" size={14} strokeWidth={2} />;
+      return <IconClock color={color} size={14} strokeWidth={2} />;
     case "tools":
-      return <IconTools color="#d4d4d8" size={14} strokeWidth={2} />;
+      return <IconTools color={color} size={14} strokeWidth={2} />;
     case "upload":
-      return <IconUpload color="#d4d4d8" size={14} strokeWidth={2} />;
+      return <IconUpload color={color} size={14} strokeWidth={2} />;
     default:
       return null;
   }
 }
 
-function MentionRowIcon({ refType }: { refType: string }) {
+function MentionRowIcon({
+  refType,
+  color,
+}: {
+  refType: string;
+  color: string;
+}) {
   if (refType === "agent" || refType === "custom-agent") {
-    return <IconRobot color="#a1a1aa" size={17} strokeWidth={1.8} />;
+    return <IconRobot color={color} size={17} strokeWidth={1.8} />;
   }
   if (refType === "file" || refType === "skill") {
-    return <IconFileText color="#a1a1aa" size={17} strokeWidth={1.8} />;
+    return <IconFileText color={color} size={17} strokeWidth={1.8} />;
   }
-  return <IconAt color="#a1a1aa" size={17} strokeWidth={1.8} />;
+  return <IconAt color={color} size={17} strokeWidth={1.8} />;
 }
 
-function settingsSummary(settings: AgentChatSettings): string {
-  if (!settings.model) return "Auto";
-  const raw = settings.model.replace(/-\d{8}$/, "");
-  let model = raw;
-  if (/sonnet/i.test(raw)) model = "Sonnet 5";
-  else if (/opus/i.test(raw)) model = "Opus 3.5";
-  else if (/haiku/i.test(raw)) model = "Haiku 3.5";
-  else if (/gpt-4o/i.test(raw)) model = "GPT-4o";
-  else if (/gemini/i.test(raw)) model = "Gemini 2.0";
-  else {
-    model = raw.charAt(0).toUpperCase() + raw.slice(1);
-  }
-  const effort = settings.effort
-    ? ` · ${settings.effort[0]!.toUpperCase()}${settings.effort.slice(1, 3)}`
-    : "";
-  return `${model}${effort}`;
+function ActionMenuRow({
+  label,
+  onPress,
+  icon,
+  trailing,
+}: {
+  label: string;
+  onPress: () => void;
+  icon: React.ReactNode;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      className="h-11 flex-row items-center gap-3 rounded-lg px-3 active:bg-accent"
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <View className="w-5 items-center justify-center">{icon}</View>
+      <Text className="flex-1 text-popover-foreground text-[14px] font-medium">
+        {label}
+      </Text>
+      {trailing}
+    </Pressable>
+  );
 }
 
 function detectMimeType(fileName: string, providedMime?: string): string {
@@ -297,6 +316,7 @@ export function Composer({
   onStop,
   onOpenSettings,
   onToggleMode,
+  onSelectMode,
 }: {
   isStreaming: boolean;
   settings: AgentChatSettings;
@@ -309,7 +329,10 @@ export function Composer({
   onStop: () => void;
   onOpenSettings: () => void;
   onToggleMode: () => void;
+  onSelectMode?: (mode: "plan" | undefined) => void;
 }) {
+  const { foreground, mutedForeground, primaryForeground, accentBlue, theme } =
+    useMobileThemeColors();
   const router = useRouter();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -318,6 +341,7 @@ export function Composer({
   const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [menuScreen, setMenuScreen] = useState<"main" | "skill">("main");
   const [actionTag, setActionTag] = useState<ActionTag | null>(null);
 
@@ -455,7 +479,7 @@ export function Composer({
   const closeMenuThen = (action: () => void) => {
     pendingActionRef.current = action;
     setPlusMenuOpen(false);
-    if (Platform.OS !== "ios") setTimeout(runPendingAction, 300);
+    setTimeout(runPendingAction, MOBILE_SHEET_CLOSE_DURATION_MS + 16);
   };
 
   const handleOpenPlusMenu = () => {
@@ -502,6 +526,15 @@ export function Composer({
     onOpenSettings();
   };
 
+  const selectMode = (mode: "plan" | undefined) => {
+    if (onSelectMode) {
+      onSelectMode(mode);
+    } else if (mode !== settings.mode) {
+      onToggleMode();
+    }
+    setModeMenuOpen(false);
+  };
+
   return (
     <View className="px-3 pt-2 pb-1">
       {attachments.length > 0 && (
@@ -527,7 +560,7 @@ export function Composer({
                   />
                 ) : (
                   <View className="w-10 h-10 rounded-lg bg-zinc-700 items-center justify-center">
-                    <IconFileText color="#d4d4d8" size={20} />
+                    <IconFileText color={foreground} size={20} />
                   </View>
                 )}
 
@@ -542,7 +575,7 @@ export function Composer({
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${attachment.name}`}
                 >
-                  <IconX color="#fafafa" size={11} strokeWidth={2.4} />
+                  <IconX color={foreground} size={11} strokeWidth={2.4} />
                 </Pressable>
               </View>
             );
@@ -564,10 +597,13 @@ export function Composer({
                 accessibilityRole="button"
                 accessibilityLabel={`Mention ${item.label}`}
               >
-                <MentionRowIcon refType={item.refType} />
+                <MentionRowIcon
+                  refType={item.refType}
+                  color={mutedForeground}
+                />
                 <View className="flex-1">
                   <Text
-                    className="text-white text-[14px] font-medium"
+                    className="text-foreground text-[14px] font-medium"
                     numberOfLines={1}
                   >
                     {item.label}
@@ -585,7 +621,7 @@ export function Composer({
             ))}
             {mentionLoading && mentionItems.length === 0 && (
               <View className="flex-row items-center gap-2 px-3.5 py-3">
-                <ActivityIndicator size="small" color="#71717a" />
+                <ActivityIndicator size="small" color={mutedForeground} />
                 <Text className="text-status-gray text-[13px]">Searching…</Text>
               </View>
             )}
@@ -596,8 +632,8 @@ export function Composer({
       <View className="rounded-[22px] bg-card-dark border border-border-dark px-3.5 pt-3 pb-2.5">
         {actionTag && (
           <View className="flex-row items-center gap-1.5 self-start px-2.5 py-1 rounded-lg bg-zinc-800/90 border border-zinc-700/80 mb-2">
-            {renderActionTagIcon(actionTag.icon)}
-            <Text className="text-white text-[13px] font-medium pl-0.5">
+            {renderActionTagIcon(actionTag.icon, foreground)}
+            <Text className="text-foreground text-[13px] font-medium pl-0.5">
               {actionTag.label}
             </Text>
             <Pressable
@@ -606,13 +642,13 @@ export function Composer({
               accessibilityRole="button"
               accessibilityLabel={`Remove ${actionTag.label} tag`}
             >
-              <IconX color="#a1a1aa" size={13} strokeWidth={2.2} />
+              <IconX color={mutedForeground} size={13} strokeWidth={2.2} />
             </Pressable>
           </View>
         )}
 
         <TextInput
-          className="text-white text-[15px] leading-5 min-h-[44px] max-h-32 py-1 mb-1.5"
+          className="text-foreground text-[15px] leading-5 min-h-[44px] max-h-32 py-1 mb-1.5"
           value={text}
           onChangeText={setText}
           selection={selection}
@@ -620,9 +656,9 @@ export function Composer({
             setSelection(event.nativeEvent.selection)
           }
           placeholder="Message the agent…  (@ to mention)"
-          placeholderTextColor="#71717a"
+          placeholderTextColor={mutedForeground}
           multiline
-          keyboardAppearance="dark"
+          keyboardAppearance={theme}
           accessibilityLabel="Message input"
           nativeID="chat-composer-input"
         />
@@ -635,44 +671,36 @@ export function Composer({
             accessibilityRole="button"
             accessibilityLabel="Actions menu"
           >
-            <IconPlus color="#a1a1aa" size={19} strokeWidth={2} />
+            <IconPlus color={mutedForeground} size={19} strokeWidth={2} />
           </Pressable>
 
           <View className="flex-row items-center gap-2.5">
             <Pressable
               className="flex-row items-center gap-1 py-1 px-1 rounded-lg active:opacity-75"
-              onPress={onOpenSettings}
+              onPress={() => setModeMenuOpen(true)}
               accessibilityRole="button"
-              accessibilityLabel="Model and effort settings"
-            >
-              <Text className="text-[13px] font-medium text-zinc-400">
-                {settingsSummary(settings)}
-              </Text>
-              <IconChevronDown color="#71717a" size={13} strokeWidth={2} />
-            </Pressable>
-
-            <Pressable
-              className="flex-row items-center gap-1 py-1 px-1 rounded-lg active:opacity-75"
-              onPress={onToggleMode}
-              accessibilityRole="button"
-              accessibilityLabel={`Mode ${settings.mode === "plan" ? "Plan" : "Act"} — tap to toggle`}
+              accessibilityLabel={`Choose mode, currently ${settings.mode === "plan" ? "Plan" : "Act"}`}
             >
               <Text
                 className={`text-[13px] font-medium ${
                   settings.mode === "plan"
                     ? "text-accent-blue"
-                    : "text-zinc-400"
+                    : "text-muted-foreground"
                 }`}
               >
                 {settings.mode === "plan" ? "Plan" : "Act"}
               </Text>
-              <IconChevronDown color="#71717a" size={13} strokeWidth={2} />
+              <IconChevronDown
+                color={mutedForeground}
+                size={13}
+                strokeWidth={2}
+              />
             </Pressable>
 
             {isStreaming && (
               <ActivityIndicator
                 size="small"
-                color="#38bdf8"
+                color={accentBlue}
                 className="px-0.5"
               />
             )}
@@ -684,22 +712,26 @@ export function Composer({
               accessibilityRole="button"
               accessibilityLabel="Voice dictation"
             >
-              <IconMicrophone color="#a1a1aa" size={19} strokeWidth={1.8} />
+              <IconMicrophone
+                color={mutedForeground}
+                size={19}
+                strokeWidth={1.8}
+              />
             </Pressable>
 
             {isStreaming ? (
               <Pressable
-                className="w-8 h-8 rounded-xl bg-white items-center justify-center active:opacity-75"
+                className="w-8 h-8 rounded-xl bg-primary items-center justify-center active:opacity-75"
                 onPress={onStop}
                 accessibilityRole="button"
                 accessibilityLabel="Stop generating"
               >
-                <IconPlayerStopFilled color="#0b0b0c" size={14} />
+                <IconPlayerStopFilled color={primaryForeground} size={14} />
               </Pressable>
             ) : (
               <Pressable
                 className={`w-8 h-8 rounded-xl items-center justify-center active:opacity-75 ${
-                  canSend ? "bg-white" : "bg-zinc-800/80"
+                  canSend ? "bg-primary" : "bg-zinc-800/80"
                 }`}
                 onPress={submit}
                 disabled={!canSend}
@@ -707,7 +739,7 @@ export function Composer({
                 accessibilityLabel="Send message"
               >
                 <IconArrowUp
-                  color={canSend ? "#0b0b0c" : "#52525b"}
+                  color={canSend ? primaryForeground : mutedForeground}
                   size={17}
                   strokeWidth={2.2}
                 />
@@ -717,282 +749,170 @@ export function Composer({
         </View>
       </View>
 
-      <Modal
-        visible={plusMenuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPlusMenuOpen(false)}
-        onDismiss={runPendingAction}
+      <MobilePopover
+        visible={modeMenuOpen}
+        title="Mode"
+        onClose={() => setModeMenuOpen(false)}
+        bottomClassName="mb-28"
+        accessibilityLabel="Dismiss mode picker"
       >
-        <Pressable
-          className="flex-1 bg-black/60 justify-end"
-          onPress={() => setPlusMenuOpen(false)}
-          accessibilityLabel="Dismiss actions menu"
-        >
-          <Pressable className="mx-3 mb-8 rounded-2xl bg-card-dark border border-border-dark overflow-hidden p-2 shadow-2xl">
-            {menuScreen === "main" ? (
-              <>
-                <View className="flex-row items-center justify-between px-3 py-2 border-b border-border-dark mb-1">
-                  <Text className="text-white text-[15px] font-semibold">
-                    Actions & Tools
-                  </Text>
-                  <Pressable
-                    onPress={() => setPlusMenuOpen(false)}
-                    className="p-1 active:opacity-75"
-                    accessibilityRole="button"
-                    accessibilityLabel="Close menu"
-                  >
-                    <IconX color="#a1a1aa" size={18} />
-                  </Pressable>
-                </View>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={handlePickPhoto}
-                  accessibilityRole="button"
-                  accessibilityLabel="Choose Photo"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconPhoto color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Choose Photo
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Select an image from photo library
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={handleUploadFile}
-                  accessibilityRole="button"
-                  accessibilityLabel="Upload File"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconUpload color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Upload File
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Images, PDFs, text/code, JSON, CSV
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={handleTakePhoto}
-                  accessibilityRole="button"
-                  accessibilityLabel="Take Photo"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconCamera color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Take Photo
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Capture a photo with your camera
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={() =>
-                    handleSelectActionTag({
-                      id: "schedule-task",
-                      label: "Schedule Task",
-                      icon: "clock",
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Schedule Task"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconClock color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Schedule Task
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Run something on a schedule
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={() =>
-                    handleSelectActionTag({
-                      id: "create-automation",
-                      label: "Create Automation",
-                      icon: "bolt",
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Create Automation"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconBolt color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Create Automation
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Set up a when-X-do-Y rule
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={() =>
-                    handleSelectActionTag({
-                      id: "create-extension",
-                      label: "Create Extension",
-                      icon: "tools",
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Create Extension"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconTools color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Create Extension
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Build a mini app extension
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={handleIntegrations}
-                  accessibilityRole="button"
-                  accessibilityLabel="Integrations"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconPlugConnected
-                      color="#d4d4d8"
-                      size={19}
-                      strokeWidth={1.8}
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Integrations
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Connect MCP tools to the agent
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-2.5 rounded-xl active:bg-white/10"
-                  onPress={() => setMenuScreen("skill")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Create Skill"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconBulb color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Create Skill
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Teach the agent a new ability
-                    </Text>
-                  </View>
-                  <IconChevronRight color="#71717a" size={18} />
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <View className="flex-row items-center justify-between px-2 py-2 border-b border-border-dark mb-1">
-                  <Pressable
-                    onPress={() => setMenuScreen("main")}
-                    className="flex-row items-center gap-1 p-1 active:opacity-75"
-                    accessibilityRole="button"
-                    accessibilityLabel="Back to main menu"
-                  >
-                    <IconChevronLeft color="#a1a1aa" size={18} />
-                    <Text className="text-white text-[15px] font-semibold">
-                      Create Skill
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setPlusMenuOpen(false)}
-                    className="p-1 active:opacity-75"
-                    accessibilityRole="button"
-                    accessibilityLabel="Close menu"
-                  >
-                    <IconX color="#a1a1aa" size={18} />
-                  </Pressable>
-                </View>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-3 rounded-xl active:bg-white/10"
-                  onPress={() =>
-                    handleSelectActionTag({
-                      id: "create-skill",
-                      label: "Create Skill",
-                      icon: "bulb",
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Create new skill"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconBulb color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Create new skill
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Describe a skill and let the agent draft it
-                    </Text>
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  className="flex-row items-center gap-3 px-3 py-3 rounded-xl active:bg-white/10"
-                  onPress={handleUploadSkillFile}
-                  accessibilityRole="button"
-                  accessibilityLabel="Upload skill file"
-                >
-                  <View className="w-8 h-8 rounded-lg bg-white/5 items-center justify-center">
-                    <IconUpload color="#d4d4d8" size={19} strokeWidth={1.8} />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-white text-[14px] font-medium">
-                      Upload skill file
-                    </Text>
-                    <Text className="text-zinc-400 text-[12px]">
-                      Import an existing SKILL.md file
-                    </Text>
-                  </View>
-                </Pressable>
-              </>
-            )}
+        {(
+          [
+            ["plan", "Plan mode"],
+            [undefined, "Act mode"],
+          ] as const
+        ).map(([mode, label]) => (
+          <Pressable
+            key={label}
+            className="flex-row items-center justify-between border-b border-border px-4 py-3.5 active:bg-accent"
+            onPress={() => selectMode(mode)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: settings.mode === mode }}
+            accessibilityLabel={label}
+          >
+            <Text
+              className={`text-[15px] ${
+                settings.mode === mode
+                  ? "font-semibold text-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {label}
+            </Text>
+            {settings.mode === mode ? (
+              <IconCheck color={foreground} size={17} strokeWidth={2.2} />
+            ) : null}
           </Pressable>
-        </Pressable>
-      </Modal>
+        ))}
+      </MobilePopover>
+
+      <MobilePopover
+        visible={plusMenuOpen}
+        title={menuScreen === "main" ? "Actions & Tools" : "Create Skill"}
+        onClose={() => setPlusMenuOpen(false)}
+        bottomClassName="mb-8"
+        overlayClassName="bg-overlay-dark"
+        accessibilityLabel="Dismiss actions menu"
+      >
+        <View className="p-2">
+          {menuScreen === "main" ? (
+            <>
+              <ActionMenuRow
+                label="Choose Photo"
+                onPress={handlePickPhoto}
+                icon={
+                  <IconPhoto color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <ActionMenuRow
+                label="Upload File"
+                onPress={handleUploadFile}
+                icon={
+                  <IconUpload color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <ActionMenuRow
+                label="Take Photo"
+                onPress={handleTakePhoto}
+                icon={
+                  <IconCamera color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <View className="my-1 h-px bg-border" />
+              <ActionMenuRow
+                label="Schedule Task"
+                onPress={() =>
+                  handleSelectActionTag({
+                    id: "schedule-task",
+                    label: "Schedule Task",
+                    icon: "clock",
+                  })
+                }
+                icon={
+                  <IconClock color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <ActionMenuRow
+                label="Create Automation"
+                onPress={() =>
+                  handleSelectActionTag({
+                    id: "create-automation",
+                    label: "Create Automation",
+                    icon: "bolt",
+                  })
+                }
+                icon={
+                  <IconBolt color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <ActionMenuRow
+                label="Create Extension"
+                onPress={() =>
+                  handleSelectActionTag({
+                    id: "create-extension",
+                    label: "Create Extension",
+                    icon: "tools",
+                  })
+                }
+                icon={
+                  <IconTools color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <View className="my-1 h-px bg-border" />
+              <ActionMenuRow
+                label="Integrations"
+                onPress={handleIntegrations}
+                icon={
+                  <IconPlugConnected
+                    color={foreground}
+                    size={18}
+                    strokeWidth={1.8}
+                  />
+                }
+              />
+              <ActionMenuRow
+                label="Create Skill"
+                onPress={() => setMenuScreen("skill")}
+                icon={
+                  <IconBulb color={foreground} size={18} strokeWidth={1.8} />
+                }
+                trailing={
+                  <IconChevronRight color={mutedForeground} size={17} />
+                }
+              />
+            </>
+          ) : (
+            <>
+              <ActionMenuRow
+                label="Back to actions"
+                onPress={() => setMenuScreen("main")}
+                icon={<IconChevronLeft color={mutedForeground} size={18} />}
+              />
+              <View className="my-1 h-px bg-border" />
+              <ActionMenuRow
+                label="Create new skill"
+                onPress={() =>
+                  handleSelectActionTag({
+                    id: "create-skill",
+                    label: "Create Skill",
+                    icon: "bulb",
+                  })
+                }
+                icon={
+                  <IconBulb color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+              <ActionMenuRow
+                label="Upload skill file"
+                onPress={handleUploadSkillFile}
+                icon={
+                  <IconUpload color={foreground} size={18} strokeWidth={1.8} />
+                }
+              />
+            </>
+          )}
+        </View>
+      </MobilePopover>
     </View>
   );
 }

@@ -258,12 +258,37 @@ const messages = {
     privateClip: "مقطع خاص",
     privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
     privateClipSignedOutMessage:
-      "هذا المقطع خاص. سجّل الدخول لطلب الوصول من المالك.",
+      "هذا المقطع خاص. سجّل الدخول أو أدخل بريدك الإلكتروني لطلب الوصول.",
     requestAccess: "طلب الوصول",
+    requestAccessDialogTitle: "طلب الوصول",
+    requestAccessDialogDescription:
+      "اختر الطريقة التي سيتعرّف بها المالك عليك عند مشاركة هذا المقطع.",
+    requestAccessSignIn: "تسجيل الدخول أو إنشاء حساب",
+    requestAccessOr: "أو",
+    requestAccessEmailLabel: "عنوان البريد الإلكتروني",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "بعد منح الوصول، سجّل الدخول بهذا البريد الإلكتروني لمشاهدة المقطع.",
+    requestAccessWithEmail: "طلب الوصول بالبريد الإلكتروني",
+    requestAccessEmailRequired: "أدخل عنوان بريد إلكتروني صالحًا.",
     requestingAccess: "جارٍ طلب الوصول...",
     accessRequested: "تم طلب الوصول",
     accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestSentWithEmail: "طُلب من مالك المقطع مشاركته مع {{email}}.",
     accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
+    accessApprovalTitle: "تم منح الوصول",
+    accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
+    accessApprovalMessage: "يمكن لـ {{email}} مشاهدة هذا المقطع الآن.",
+    accessApprovalAlreadyMessage:
+      "لدى {{email}} صلاحية الوصول إلى هذا المقطع بالفعل.",
+    accessApprovalErrorTitle: "تعذّر منح الوصول",
+    accessApprovalInvalid: "طلب الوصول هذا غير صالح أو منتهي الصلاحية.",
+    accessApprovalSignInTitle: "سجّل الدخول للسماح بالوصول",
+    accessApprovalSignInMessage:
+      "سجّل الدخول بصفتك مالك المقطع أو مسؤولاً للموافقة على هذا الطلب.",
+    accessApprovalOpenClip: "فتح المقطع",
+    accessApprovalSignIn: "تسجيل الدخول",
+    accessApprovalLoading: "جارٍ منح الوصول...",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",
@@ -353,7 +378,7 @@ const messages = {
     attendee_other: "الحضور {{count}}",
     joinCall: "الانضمام إلى المكالمة",
     myNotes: "ملاحظاتي",
-    aiNotes: "تلاحظ منظمة العفو الدولية",
+    aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
     working: "عمل…",
@@ -660,13 +685,13 @@ const messages = {
     collapse: "طي",
     changelogMarkdown: `# سجل التغييرات
 
-يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd K -> "ما الجديد") أو من الإعدادات.
+يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd+K -> "ما الجديد") أو من الإعدادات.
 
 ## 2026-06-23
 
 ### تمت الإضافة
 
-- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd K) وفي الإعدادات.`,
+- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -1019,8 +1044,13 @@ const messages = {
     pauseShortcut: "إيقاف مؤقت (⌥⇧P)",
     stop: "إيقاف التسجيل",
     elapsed: "الوقت المنقضي",
-    cancel: "إلغاء التسجيل",
-    cancelShortcut: "إلغاء (⌥⇧C)",
+    cancel: "حذف التسجيل",
+    cancelShortcut: "حذف (⌥⇧C)",
+    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmDescription:
+      "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
+    resume: "استئناف",
+    discardRecording: "حذف التسجيل",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",
@@ -1108,6 +1138,10 @@ const messages = {
     searchPrevMatch: "النتيجة السابقة",
     searchNextMatch: "النتيجة التالية",
     searchClose: "إغلاق البحث",
+  },
+  bulletLink: {
+    jumpToTranscript: "الانتقال إلى {{time}} في النص",
+    noMatchingMoment: "لم يتم العثور على لحظة مطابقة",
   },
   editorLayout: {
     trimmed: "تم القص",
@@ -1217,7 +1251,7 @@ const messages = {
     seekTo: "Seek to {{time}} (مترجم)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (مترجم)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (مترجم)",
     playPauseTooltip: "Play / Pause (Space) (مترجم)",
     sourceDuration: "({{duration}} src) (مترجم)",
     previewSpeed: "Preview speed (مترجم)",
@@ -1590,7 +1624,13 @@ const messages = {
     title: "Meetings (مترجم)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
-    searchPlaceholder: "Search meetings... (مترجم)",
+    searchPlaceholder: "Search meetings, attendees, and transcripts... (مترجم)",
+    agendaTab: "Agenda (مترجم)",
+    pastTab: "Past (مترجم)",
+    now: "Now (مترجم)",
+    noPastMeetings: "No past meetings yet (مترجم)",
+    loadOlder: "Load older (مترجم)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:

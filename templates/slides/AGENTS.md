@@ -89,16 +89,20 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 
 ## Export Behavior
 
-- Browser PowerPoint export uses the rendered slide DOM to generate native,
-  editable PPTX text/shapes/images. Do not replace it with full-slide images
-  unless the user explicitly asks for non-editable visual snapshots.
-- The server-side `export-pptx` action cannot measure browser-rendered
-  freeform geometry. It must fail clearly for positioned objects and direct the
-  user to the editor's Export > PowerPoint path instead of silently reflowing
-  them.
-- Google Slides export is a PPTX import workflow: generate the same editable
-  PPTX and have the user import it into Google Slides. Creating a native Google
-  Slides file directly requires a separate Google Slides API batchUpdate path.
+- PowerPoint and Google Slides export share two paths. Source-imported decks
+  with no browser-authored freeform objects export through the server
+  `export-pptx`, which writes their source geometry as real vector shapes; the
+  browser exporter can only rasterize it. Every other deck exports from the
+  rendered slide DOM, the one place editor-authored geometry is measurable. Do
+  not substitute full-slide images unless the user asks for non-editable
+  snapshots.
+- Browser-authored means `data-slide-object-id` without
+  `data-pptx-element-kind`, or `fmd-freeform-object`. `export-pptx` cannot
+  measure those and fails loudly; show that failure instead of quietly
+  re-exporting at lower fidelity.
+- Google Slides export is a PPTX import workflow: generate that PPTX and have
+  the user import it into Google Slides. Creating a native Google Slides file
+  directly requires a separate Google Slides API batchUpdate path.
 
 ## Source Changes
 

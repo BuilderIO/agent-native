@@ -1,6 +1,7 @@
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { readBody } from "../../server/h3-helpers.js";
@@ -30,7 +31,7 @@ let _telegramUnverifiedWarned = false;
  * messages (C2 in the webhook security audit).
  */
 function shouldRefuseWhenSecretMissing(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  if (getAppConfig().integrations.allowUnverifiedWebhooks) return false;
   return process.env.NODE_ENV === "production";
 }
 

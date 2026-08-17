@@ -293,6 +293,7 @@ const messages = {
     creatingLink: "लिंक बनाया जा रहा है...",
     createShareLink: "साझा लिंक बनाएं",
     copyLink: "लिंक कॉपी करें",
+    copied: "कॉपी किया गया",
     openSharedLink: "साझा लिंक खोलें",
     anyoneWithLink: "इस लिंक वाला कोई भी व्यक्ति इस प्रस्तुति को देख सकता है।",
   },

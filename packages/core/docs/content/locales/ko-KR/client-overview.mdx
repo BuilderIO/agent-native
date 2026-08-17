@@ -92,7 +92,7 @@ description: "app/ 및 public/ 디렉터리: 에이전트 네이티브 앱의 �
 
 ## 클라이언트가 맡는 역할 {#role}
 
-브라우저 요청, 에이전트 루프, 외부 API 클라이언트는 모두 동일한 actions와 동일한 SQL 데이터베이스로 귀결됩니다. 에이전트가 접근할 수 없는 별도의 "앱 백엔드"는 이 레이어가 대화할 상대로 존재하지 않습니다. 여기서 기능을 만든다는 것은 에이전트가 이미 가지고 있는 작업 위에 UI를 얹거나, 새로운 action을 정의하면서 동시에 그 UI도 얻는다는 뜻입니다. 이 계약의 작업(operation) 쪽은 [Actions](/docs/actions)를 참조하세요.
+브라우저 요청, 에이전트 루프, 외부 API 클라이언트는 모두 동일한 actions와 동일한 SQL 데이터베이스로 귀결됩니다. 에이전트가 접근할 수 없는 별도의 "앱 백엔드"는 이 레이어가 대화할 상대로 존재하지 않습니다. 여기서 기능을 만든다는 것은 에이전트가 이미 가지고 있는 작업 위에 UI를 얹거나, 새로운 action을 정의하면서 동시에 그 UI도 얻는다는 뜻입니다. 이 계약의 작업(operation) 쪽은 [Actions](/docs/actions-overview)를 참조하세요.
 
 이 페이지는 여러분이 작업하는 디렉터리와, 다른 곳에서 다루지 않는 브라우저 런타임의 부분들(`root.tsx`, `public/`)을 다룹니다. 컴포넌트를 actions 및 에이전트와 연결하는 React 후크는 각각 초점이 맞춰진 별도 페이지에 있습니다.
 
@@ -201,6 +201,6 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**동기화 내부**](/docs/client-sync-internals) — 원시 `useQuery`를 동기화하기 위한 `useChangeVersion`
 - [**엔트리 포인트**](/docs/client-entry-points) — SSR 부트스트랩 커스터마이징
 - [**Routing**](/docs/client-routing) — 파일 기반 페이지, 동적 매개변수, 내비게이션
-- [**Actions**](/docs/actions) — 모든 데이터 후크 뒤에 있는 `defineAction` 표면
+- [**Actions**](/docs/actions-overview) — 모든 데이터 후크 뒤에 있는 `defineAction` 표면
 - [**커스텀 디자인 시스템**](/docs/custom-design-system) — `app/design-system.ts`를 통해 나만의 컴포넌트 라이브러리로 교체하기
 - [**Authentication**](/docs/authentication) — `AppProviders`가 비공개 경로에서 수행하는 세션 검사

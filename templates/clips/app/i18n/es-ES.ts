@@ -269,12 +269,38 @@ const messages = {
     privateClipMessage:
       "Este clip es privado. Solicita acceso y se notificará al propietario.",
     privateClipSignedOutMessage:
-      "Este clip es privado. Inicia sesión para solicitar acceso al propietario.",
+      "Este clip es privado. Inicia sesión o introduce tu correo para solicitar acceso.",
     requestAccess: "Solicitar acceso",
+    requestAccessDialogTitle: "Solicitar acceso",
+    requestAccessDialogDescription:
+      "Elige cómo puede identificarte el propietario al compartir este clip.",
+    requestAccessSignIn: "Iniciar sesión o registrarse",
+    requestAccessOr: "o",
+    requestAccessEmailLabel: "Dirección de correo electrónico",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Cuando se conceda el acceso, inicia sesión con este correo para ver el clip.",
+    requestAccessWithEmail: "Solicitar con correo electrónico",
+    requestAccessEmailRequired: "Introduce una dirección de correo válida.",
     requestingAccess: "Solicitando acceso...",
     accessRequested: "Acceso solicitado",
     accessRequestSent: "Se notificó al propietario del clip.",
+    accessRequestSentWithEmail:
+      "Se pidió al propietario que compartiera este clip con {{email}}.",
     accessRequestFailed: "No se pudo solicitar el acceso. Inténtalo de nuevo.",
+    accessApprovalTitle: "Acceso concedido",
+    accessApprovalAlreadyTitle: "El acceso ya está concedido",
+    accessApprovalMessage: "{{email}} ya puede ver este clip.",
+    accessApprovalAlreadyMessage: "{{email}} ya tiene acceso a este clip.",
+    accessApprovalErrorTitle: "No se pudo conceder el acceso",
+    accessApprovalInvalid:
+      "Esta solicitud de acceso no es válida o ha caducado.",
+    accessApprovalSignInTitle: "Inicia sesión para permitir el acceso",
+    accessApprovalSignInMessage:
+      "Inicia sesión como propietario o administrador del clip para aprobar esta solicitud.",
+    accessApprovalOpenClip: "Abrir clip",
+    accessApprovalSignIn: "Iniciar sesión",
+    accessApprovalLoading: "Concediendo acceso...",
     clipUnavailable: "Clip no disponible",
     clipUnavailableMessage:
       "Esta grabación no es pública o el enlace no es válido. Si es tu clip, inicia sesión para verificar el acceso.",
@@ -676,13 +702,13 @@ const messages = {
     collapse: "Contraer",
     changelogMarkdown: `# Registro de cambios
 
-Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd K -> "Novedades") o desde Ajustes.
+Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd+K -> "Novedades") o desde Ajustes.
 
 ## 2026-06-23
 
 ### Añadido
 
-- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd K) y en Ajustes.`,
+- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:
@@ -1035,8 +1061,13 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     pauseShortcut: "Pausar (⌥⇧P)",
     stop: "Detener grabación",
     elapsed: "Tiempo transcurrido",
-    cancel: "Cancelar grabación",
-    cancelShortcut: "Cancelar (⌥⇧C)",
+    cancel: "Descartar grabación",
+    cancelShortcut: "Descartar (⌥⇧C)",
+    discardConfirmTitle: "¿Descartar esta grabación?",
+    discardConfirmDescription:
+      "Esta acción no se puede deshacer. Tu grabación hasta ahora se eliminará permanentemente.",
+    resume: "Reanudar",
+    discardRecording: "Descartar grabación",
   },
   countdownOverlay: {
     startsIn: "La grabación empieza en {{count}}",
@@ -1126,6 +1157,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     searchPrevMatch: "Coincidencia anterior",
     searchNextMatch: "Coincidencia siguiente",
     searchClose: "Cerrar búsqueda",
+  },
+  bulletLink: {
+    jumpToTranscript: "Ir a {{time}} en la transcripción",
+    noMatchingMoment: "No se encontró ningún momento coincidente",
   },
   editorLayout: {
     trimmed: "Recortado",
@@ -1235,7 +1270,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1604,7 +1639,14 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Buscar reuniones, asistentes y transcripciones...",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Ahora",
+    noPastMeetings: "Aún no hay reuniones anteriores",
+    loadOlder: "Cargar anteriores",
+    searchFailed:
+      "No se pudieron buscar las reuniones. Inténtalo de nuevo en un momento.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

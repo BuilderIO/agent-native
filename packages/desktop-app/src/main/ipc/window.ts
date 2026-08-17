@@ -22,6 +22,18 @@ export function registerWindowIpc(): void {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
+  ipcMain.on(
+    IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY,
+    (event: IpcMainEvent, visible: unknown) => {
+      if (process.platform !== "darwin" || typeof visible !== "boolean") {
+        return;
+      }
+      BrowserWindow.fromWebContents(event.sender)?.setWindowButtonVisibility(
+        visible,
+      );
+    },
+  );
+
   ipcMain.handle(
     IPC.WINDOW_IS_MAXIMIZED,
     (event: IpcMainInvokeEvent): boolean => {

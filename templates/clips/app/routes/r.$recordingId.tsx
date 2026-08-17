@@ -16,7 +16,7 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -277,7 +277,6 @@ export default function RecordingPage() {
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [pendingLinkCopied, setPendingLinkCopied] = useState(false);
   const browserTabId = useMemo(() => getBrowserTabId(), []);
   const recordingScope = useMemo(
     () =>
@@ -445,14 +444,6 @@ export default function RecordingPage() {
     if (!recordingId || typeof window === "undefined") return "";
     return recordingShareUrl(recordingId, shareViaId);
   }, [recordingId, shareViaId]);
-  const copyPendingShareLink = useCallback(async () => {
-    if (!pendingShareUrl) return;
-    // The full Share popover remains available when clipboard permission is
-    // unavailable, so a denied clipboard write does not block the page.
-    if (!(await writeClipboardText(pendingShareUrl))) return;
-    setPendingLinkCopied(true);
-    window.setTimeout(() => setPendingLinkCopied(false), 1400);
-  }, [pendingShareUrl]);
   useEffect(() => {
     if (!recording?.id) return;
     const now = Date.now();
@@ -1033,28 +1024,14 @@ export default function RecordingPage() {
                   />
                 </div>
               ) : null}
-              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 p-2 ps-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium text-muted-foreground">
-                    {t("shareDialog.shareLink")}
-                  </p>
-                  <p className="truncate text-sm text-foreground">
-                    {pendingShareUrl}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-1.5"
-                  onClick={() => void copyPendingShareLink()}
-                >
-                  <IconClipboardCopy className="size-4" />
-                  {pendingLinkCopied
-                    ? t("bugReportRoute.copied")
-                    : t("shareUi.copy")}
-                </Button>
-              </div>
+              <ShareCopyRow
+                value={pendingShareUrl}
+                label={t("shareDialog.shareLink")}
+                copyLabel={t("shareUi.copy")}
+                copiedLabel={t("bugReportRoute.copied")}
+                onCopy={writeClipboardText}
+                className="rounded-lg border border-border bg-muted/30 p-2 ps-3"
+              />
             </div>
           </main>
         </div>

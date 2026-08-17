@@ -30,7 +30,8 @@ session.
   never uses it.
 - `nativeMessaging`: connects the same engine to Agent Native Desktop.
 - `alarms`: retries Desktop and wakes the direct relay fallback.
-- `tabs`: follows the selected page and revalidates an assigned control origin.
+- `tabs`: follows the selected page, revalidates an assigned control origin,
+  and lets an approved control task open an inactive tab on that origin.
 
 There is no persistent content script and no install-time host access. The
 externally-connectable listener accepts only the configured Dispatch origin

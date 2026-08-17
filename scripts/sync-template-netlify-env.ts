@@ -68,6 +68,9 @@ const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
   ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
+  // Hosted harnesses are tools-only; app config still controls which
+  // deployments expose the runtime picker.
+  ["AGENT_NATIVE_HOSTED_HARNESS", "true"],
   [
     "VITE_AGENT_NATIVE_FEEDBACK_URL",
     "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
@@ -83,6 +86,7 @@ const AGENT_NATIVE_ANALYTICS_PUBLIC_ENV_KEYS = [
 ];
 const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   ...AGENT_NATIVE_ANALYTICS_PUBLIC_ENV_KEYS,
+  "AGENT_NATIVE_HOSTED_HARNESS",
   "APP_URL",
   "BETTER_AUTH_URL",
   "DATABASE_AUTH_TOKEN",

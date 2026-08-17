@@ -3,6 +3,7 @@ export {
   attachDebugger,
   detachDebugger,
   getTab,
+  isDebuggerNotAttachedError,
   sendDebuggerCommand,
   type DebuggerSource,
 } from "./chrome-debugger";

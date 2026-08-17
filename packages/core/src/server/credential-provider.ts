@@ -21,6 +21,7 @@
 import { createHash } from "node:crypto";
 
 import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE } from "../agent/engine/credential-errors.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   getDbExec,
   isLocalDatabase,
@@ -57,14 +58,12 @@ async function canReadDesignatedVaultFallback(
   // Manual mode is still usable across a Dispatch vault org and a separate
   // app org, but only for this app's explicit active grant. The app identity
   // comes from deployment configuration, never from request input.
-  const appId = [
-    process.env.AGENT_NATIVE_WORKSPACE_APP_ID,
-    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
-    process.env.AGENT_NATIVE_APP_ID,
-    process.env.APP_NAME,
-  ]
-    .find((value) => value?.trim())
-    ?.trim();
+  //
+  // `workspaceId` first is load-bearing: `vault_grants` rows are written with
+  // the id a workspace deploy assigns, so preferring the generic `id` would
+  // look grants up under a name nobody granted.
+  const app = getAppConfig().app;
+  const appId = app.workspaceId ?? app.id ?? app.name;
   if (!appId) {
     return { status: "denied", reason: "missing-app-id" };
   }

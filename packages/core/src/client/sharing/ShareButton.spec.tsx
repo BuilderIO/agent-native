@@ -544,6 +544,36 @@ describe("ShareButton", () => {
     ).toHaveLength(2);
   });
 
+  it("keeps agent-readable sharing collapsed until requested", async () => {
+    sharesData.current = {
+      ...sharesData.current,
+      agentReadable: true,
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Share with agents");
+    expect(container.textContent).not.toContain("Agent context link");
+
+    const disclosure = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Share with agents"),
+    );
+    if (!disclosure) throw new Error("Agent share disclosure not found");
+
+    act(() => disclosure.click());
+
+    expect(otherMutate).toHaveBeenCalledWith(
+      { resourceType: "deck", resourceId: "deck-1" },
+      expect.any(Object),
+    );
+  });
+
   it("can customize access labels and move the share URL to the top", async () => {
     await act(async () => {
       root.render(

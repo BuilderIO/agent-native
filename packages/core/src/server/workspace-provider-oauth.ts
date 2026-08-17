@@ -11,6 +11,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
@@ -107,10 +108,7 @@ export async function handleWorkspaceProviderOAuthStart(
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
   const appId = normalizeAppId(
-    text(query.appId) ??
-      process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
-      process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID ??
-      "creative-context",
+    text(query.appId) ?? getAppConfig().app.workspaceId ?? "creative-context",
   );
   const orgContext = await requireWorkspaceProviderOAuthAdmin(event, appId);
   if (!orgContext) {

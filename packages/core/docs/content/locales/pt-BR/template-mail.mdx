@@ -347,7 +347,7 @@ Rotas no UI:
 
 O correio é seu para alterar. Tudo o que é importante reside em alguns lugares. Comece por aí.
 
-**Adicionando um recurso de agente.** Adicione um novo arquivo em `templates/mail/actions/` usando `defineAction`. Sua ação se torna uma ferramenta de agente, um comando CLI (`pnpm action <name>`) e uma superfície de gancho de frontend digitada por meio de `useActionQuery`/`useActionMutation`. Veja `templates/mail/actions/star-email.ts` para um pequeno exemplo ou `templates/mail/actions/manage-automations.ts` para um com vários sub-actions. Consulte a documentação do [actions](/docs/actions) para ver o padrão completo.
+**Adicionando um recurso de agente.** Adicione um novo arquivo em `templates/mail/actions/` usando `defineAction`. Sua ação se torna uma ferramenta de agente, um comando CLI (`pnpm action <name>`) e uma superfície de gancho de frontend digitada por meio de `useActionQuery`/`useActionMutation`. Veja `templates/mail/actions/star-email.ts` para um pequeno exemplo ou `templates/mail/actions/manage-automations.ts` para um com vários sub-actions. Consulte a documentação do [actions](/docs/actions-overview) para ver o padrão completo.
 
 **Alterando o UI.** As rotas estão em `templates/mail/app/routes/` e os componentes em `templates/mail/app/components/email/` e `templates/mail/app/components/layout/`. O aplicativo usa primitivos shadcn/ui de `app/components/ui/` e Tabler Icons – atenha-se a eles.
 
@@ -367,4 +367,4 @@ Faça essas alterações no seu repositório e fluxo de desenvolvimento. O agent
 - [**Primeiros passos**](/docs/getting-started) — os fundamentos da estrutura: ações, estado do aplicativo e sincronização ao vivo
 - [**Calendário**](/docs/template-calendar) — um modelo de domínio relacionado para agendamento e reservas
 - [**Automações**](/docs/automations) — o mecanismo acionado por eventos sobre o qual as regras de triagem automática do Mail são criadas
-- [**Ações**](/docs/actions) — o sistema de ações que chat, atalhos e automações chamam
+- [**Ações**](/docs/actions-overview) — o sistema de ações que chat, atalhos e automações chamam

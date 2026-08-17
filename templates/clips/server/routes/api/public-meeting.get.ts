@@ -148,6 +148,15 @@ export default defineEventHandler(async (event) => {
       : [];
     const role = access.role;
 
+    // The owner's email is only safe to disclose here when it's already
+    // public via the attendee list — an unauthenticated viewer must never
+    // learn an account email that isn't otherwise visible on this page.
+    const ownerEmailIsPublic = participants.some(
+      (participant) =>
+        participant.email.trim().toLowerCase() ===
+        meeting.ownerEmail?.trim().toLowerCase(),
+    );
+
     return {
       meeting: {
         id: meeting.id,
@@ -160,6 +169,7 @@ export default defineEventHandler(async (event) => {
         bullets: parseBullets(meeting.bulletsJson),
         participants,
         actionItems,
+        ownerEmail: ownerEmailIsPublic ? meeting.ownerEmail : null,
         ...(meeting.shareTranscript
           ? {
               transcript: transcript

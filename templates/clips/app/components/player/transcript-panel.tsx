@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { msToClock } from "./scrubber";
+import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -299,9 +299,10 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               const isActive = displaySegments[activeIndex] === seg;
               return (
                 <li key={seg.startMs}>
-                  <div
-                    role="button"
-                    tabIndex={0}
+                  <TranscriptSegmentRow
+                    startMs={seg.startMs}
+                    active={isActive}
+                    gutter="panel"
                     onClick={(event) => {
                       if (hasSelectionWithin(event.currentTarget)) return;
                       onSeek(seg.startMs);
@@ -311,24 +312,17 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                       event.preventDefault();
                       onSeek(seg.startMs);
                     }}
-                    className={cn(
-                      "flex w-full cursor-pointer items-start gap-3 px-3 py-2 text-left hover:bg-accent/50",
-                      isActive && "bg-accent",
-                    )}
                   >
-                    <span className="shrink-0 pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {msToClock(seg.startMs)}
-                    </span>
                     <span
                       className={cn(
-                        "text-sm leading-relaxed",
+                        "text-sm leading-normal",
                         isActive ? "text-foreground" : "text-foreground/80",
                       )}
                       dangerouslySetInnerHTML={{
                         __html: highlight(seg.text, query),
                       }}
                     />
-                  </div>
+                  </TranscriptSegmentRow>
                 </li>
               );
             })}
