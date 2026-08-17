@@ -186,13 +186,16 @@ const messages = {
     uploadPausedSaved: "Hochladen angehalten; Clip lokal gespeichert.",
     savedLocallyHint:
       "Die lokale Datei liegt in der Clips-Menüleisten-App: Klicken Sie auf das Tray-Symbol und öffnen Sie sie über den Ordner-Button am gespeicherten Clip — oder laden Sie sie mit „Erneut versuchen“ hoch.",
+    uploadStalled:
+      "Dieser Upload wurde nicht abgeschlossen. Wenn Sie mit der Desktop-App aufgenommen haben, ist die lokale Kopie weiterhin sicher – wiederholen oder exportieren Sie sie über das Menüleisten-Symbol. Nehmen Sie andernfalls erneut auf.",
+    recordAgain: "Erneut aufnehmen",
     savingWentWrong: "Beim Speichern dieses Clips ist ein Fehler aufgetreten.",
     finishingClip: "Dein Clip wird fertiggestellt …",
     loomSourcePreserved:
       "Der Loom-Quelllink bleibt erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips versucht erneut, seine eigene Kopie zu speichern.",
     clipDataPreserved:
       "Ihre Clipdaten bleiben weiterhin erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips lädt ihn automatisch hoch.",
-    details: "Übersetzt: Details",
+    details: "Details",
     importingLoom: "Loom wird importiert...",
     uploadingSavedClip: "Gespeicherter Clip wird hochgeladen…",
     storageConnectedSavingLoom:
@@ -241,7 +244,7 @@ const messages = {
     share: "Teilen",
     fromMeeting: "Vom Treffen:",
     untitled: "Ohne Titel",
-    agent: "Übersetzt: Agent",
+    agent: "Agent",
     activity: "Aktivität",
     transcript: "Transkript",
     insights: "Einblicke",
@@ -297,7 +300,7 @@ const messages = {
       "Der Ersteller muss es möglicherweise noch einmal versuchen.",
     uploadingAssembling:
       "Hochladen und Zusammenstellen des Videos. Diese Seite wird automatisch aktualisiert.",
-    details: "Übersetzt: Details",
+    details: "Details",
     connectStorageFinishSaving:
       "Schließen Sie den Speicher an, um den Speichervorgang abzuschließen",
     chooseStorageCheck:
@@ -314,7 +317,7 @@ const messages = {
     downloading: "Herunterladen...",
     downloadMp4: "Laden Sie MP4 herunter",
     share: "Teilen",
-    agent: "Übersetzt: Agent",
+    agent: "Agent",
     comments: "Kommentare",
     transcript: "Transkript",
     insights: "Einblicke",
@@ -344,7 +347,7 @@ const messages = {
     transcriptCopied: "Transkript kopiert",
     couldNotCopyTranscript: "Das Transkript konnte nicht kopiert werden",
     allMeetings: "Alle Treffen",
-    live: "Übersetzt: Live",
+    live: "Live",
     generatingNotesInline: "Zusammenfassung wird erstellt…",
     regenerateNotes: "Zusammenfassung neu generieren",
     share: "Aktie",
@@ -446,7 +449,7 @@ const messages = {
     preview: "Vorschau",
     capturedFrame: "Aufgenommenes Bild",
     capturePreview: "Erfassen Sie ein Bild zur Vorschau",
-    start: "Übersetzt: Start: {{time}}",
+    start: "Start: {{time}}",
     duration: "Dauer: {{time}}",
     generateGif: "Generieren Sie GIF",
     animatedPreview: "Animierte Miniaturvorschau",
@@ -459,7 +462,7 @@ const messages = {
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
     shareTitle: "Teile „{{title}}“",
-    link: "Übersetzt: Link",
+    link: "Link",
     invite: "Einladen",
     embed: "Einbetten",
     shareLink: "Teillink",
@@ -488,7 +491,7 @@ const messages = {
     embedIframeTitle: "Clips-Video",
     width: "Breite",
     height: "Höhe",
-    autoplay: "Übersetzt: Autoplay",
+    autoplay: "Autoplay",
     startAt: "Beginnen bei (Sekunden)",
     embedCode: "Einbettungscode",
     sharePlainTitle: "Teilen {{title}}",
@@ -596,7 +599,7 @@ const messages = {
     heroDescription:
       "Ein Menüleisten-Recorder für Bildschirm, Kamera und Bildschirm + Kamera. Ein-Klick-Start, verschiebbare Kamerablase, Link zum sofortigen Teilen, wenn Sie anhalten.",
     versionReleased: "Version {{version}} – veröffentlicht {{date}}",
-    version: "Übersetzt: Version {{version}}",
+    version: "Version {{version}}",
     manifestError:
       "Das Release-Manifest konnte nicht geladen werden. Wählen Sie auf der Release-Seite ein Installationsprogramm aus.",
     loadingRelease: "Neueste Version wird geladen…",
@@ -728,7 +731,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     s3BucketLabel: "Eimer",
     s3AccessKeyLabel: "Zugriffsschlüssel-ID",
     s3SecretAccessKeyLabel: "Geheimer Zugriffsschlüssel",
-    s3RegionLabel: "Übersetzt: Region",
+    s3RegionLabel: "Region",
     s3PublicBaseUrlLabel: "Öffentliche Basis-URL",
     s3UrlInvalid:
       "Muss eine gültige URL sein (z. B. https://s3.us-east-1.amazonaws.com)",

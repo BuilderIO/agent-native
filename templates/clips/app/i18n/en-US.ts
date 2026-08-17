@@ -184,6 +184,9 @@ const messages = {
     uploadPausedSaved: "Upload paused; clip saved locally.",
     savedLocallyHint:
       "The local file lives in the Clips menu-bar app: click the tray icon and use the folder button on the saved clip to open it, or Retry to upload again.",
+    uploadStalled:
+      "This upload didn't finish. If you recorded with the desktop app, the local copy is still safe — retry or export it from the menu bar icon. Otherwise record again.",
+    recordAgain: "Record again",
     savingWentWrong: "Something went wrong while saving this clip.",
     finishingClip: "Finishing up your clip…",
     loomSourcePreserved:

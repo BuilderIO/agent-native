@@ -184,6 +184,9 @@ const messages = {
     uploadPausedSaved: "Carregamento pausado; clipe salvo localmente.",
     savedLocallyHint:
       "O arquivo local fica no app do Clips na barra de menus: clique no ícone e use o botão de pasta do clipe salvo para abri-lo, ou Tentar novamente para enviar de novo.",
+    uploadStalled:
+      "Este envio não foi concluído. Se você gravou com o app de desktop, a cópia local continua segura: tente de novo ou exporte pelo ícone da barra de menus. Caso contrário, grave novamente.",
+    recordAgain: "Gravar novamente",
     savingWentWrong: "Algo deu errado ao salvar este clipe.",
     finishingClip: "Finalizando seu clipe…",
     loomSourcePreserved:

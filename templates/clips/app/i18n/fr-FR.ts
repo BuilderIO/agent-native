@@ -184,6 +184,9 @@ const messages = {
       "Téléchargement interrompu ; clip enregistré localement.",
     savedLocallyHint:
       "Le fichier local se trouve dans l'app Clips de la barre de menus : cliquez sur l'icône, puis utilisez le bouton dossier du clip enregistré pour l'ouvrir, ou Réessayer pour relancer l'envoi.",
+    uploadStalled:
+      "Cet envoi ne s'est pas terminé. Si vous avez enregistré avec l'app de bureau, la copie locale est toujours intacte : relancez-la ou exportez-la depuis l'icône de la barre de menus. Sinon, réenregistrez.",
+    recordAgain: "Enregistrer à nouveau",
     savingWentWrong:
       "Une erreur s'est produite lors de l'enregistrement de ce clip.",
     finishingClip: "Je termine votre clip…",

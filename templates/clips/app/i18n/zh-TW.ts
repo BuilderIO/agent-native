@@ -175,6 +175,9 @@ const messages = {
     uploadPausedSaved: "上傳已暫停；剪輯儲存在本機。",
     savedLocallyHint:
       "本機檔案保存在選單列的 Clips 應用程式中：點擊工具列圖示，使用已儲存剪輯上的資料夾按鈕開啟，或按重試重新上傳。",
+    uploadStalled:
+      "此次上傳未完成。如果你是用桌面應用程式錄製的，本機副本仍然安全——可從選單列圖示重試或匯出。否則請重新錄製。",
+    recordAgain: "重新錄製",
     savingWentWrong: "儲存此剪輯時出現問題。",
     finishingClip: "正在完成您的剪輯...",
     loomSourcePreserved:

@@ -182,6 +182,9 @@ const messages = {
       "업로드가 일시중지되었습니다. 클립이 로컬에 저장되었습니다.",
     savedLocallyHint:
       "로컬 파일은 메뉴 막대의 Clips 앱에 있습니다. 트레이 아이콘을 클릭한 뒤 저장된 클립의 폴더 버튼으로 열거나, 재시도로 다시 업로드하세요.",
+    uploadStalled:
+      "이 업로드는 완료되지 않았습니다. 데스크톱 앱으로 녹화했다면 로컬 사본은 안전합니다. 메뉴 막대 아이콘에서 다시 시도하거나 내보내세요. 그렇지 않다면 다시 녹화하세요.",
+    recordAgain: "다시 녹화",
     savingWentWrong: "이 클립을 저장하는 중에 문제가 발생했습니다.",
     finishingClip: "클립을 마무리하는 중…",
     loomSourcePreserved:

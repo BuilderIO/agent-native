@@ -996,6 +996,11 @@ export default function RecordingPage() {
         : t("recordingPage.uploadingAssembling");
     const storageSetupFailure = waitingForStorage;
     const canRetryFinalize = storageSetupFailure || storedButUnservableFailure;
+    // Nothing on *this page* can move a failed upload forward — "check again"
+    // re-reads the same row. The media may still exist as a desktop backup,
+    // so point at the tray rather than declaring the clip lost.
+    const uploadStalled =
+      explicitFailure && !canRetryFinalize && !nativeSaveFailed;
     const label = storageSetupFailure
       ? loomStorageSetupFailure
         ? t("recordingPage.connectStorageImportLoom")
@@ -1130,6 +1135,11 @@ export default function RecordingPage() {
             {t("recordingPage.savedLocallyHint")}
           </p>
         ) : null}
+        {uploadStalled ? (
+          <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
+            {t("recordingPage.uploadStalled")}
+          </p>
+        ) : null}
         {isFailure &&
         !storageSetupFailure &&
         detail &&
@@ -1210,6 +1220,11 @@ export default function RecordingPage() {
                 : t("recordingPage.retryUpload")
               : t("recordingPage.checkAgain")}
           </Button>
+          {uploadStalled ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/record">{t("recordingPage.recordAgain")}</Link>
+            </Button>
+          ) : null}
           <Button asChild variant="ghost" size="sm">
             <Link to="/library" replace>
               {t("recordingPage.backToLibrary")}

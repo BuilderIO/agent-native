@@ -175,6 +175,9 @@ const messages = {
     uploadPausedSaved: "上传已暂停；剪辑保存在本地。",
     savedLocallyHint:
       "本地文件保存在菜单栏的 Clips 应用中：点击托盘图标，使用已保存剪辑上的文件夹按钮打开它，或点击重试重新上传。",
+    uploadStalled:
+      "本次上传未完成。如果你是用桌面应用录制的，本地副本仍然安全——可从菜单栏图标重试或导出。否则请重新录制。",
+    recordAgain: "重新录制",
     savingWentWrong: "保存此剪辑时出现问题。",
     finishingClip: "正在完成您的剪辑...",
     loomSourcePreserved:
