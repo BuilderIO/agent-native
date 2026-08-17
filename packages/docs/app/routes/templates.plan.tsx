@@ -141,7 +141,6 @@ export default function PlanTemplate() {
         }
         title={t("templateLanding.plan.s015")}
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}

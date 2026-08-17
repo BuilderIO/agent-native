@@ -104,7 +104,6 @@ export default function DesignTemplate() {
         }
         title={t("templateLanding.design.s006")}
         description={<p className="m-0">{t("templateLanding.design.s007")}</p>}
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65ec1b4c1fb0473ba571b5af2b6a56f0?format=webp&width=800&height=1200"

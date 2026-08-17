@@ -106,7 +106,6 @@ export default function FormsTemplate() {
         }
         title={t("templateLanding.forms.s006")}
         description={<p className="m-0">{t("templateLanding.forms.s007")}</p>}
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}

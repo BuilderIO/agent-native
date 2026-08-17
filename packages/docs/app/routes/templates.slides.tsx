@@ -146,7 +146,6 @@ export default function SlidesTemplate() {
         }
         title={t("templateLanding.slides.s006")}
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9124162c94584b5abceb95f662ac8704?format=webp&width=800&height=1200"

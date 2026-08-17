@@ -139,7 +139,6 @@ export default function GenericTemplatePage() {
         }
         title={t("templateDetail.title", { name: template.name })}
         description={<p className="m-0">{description}</p>}
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={<TemplateFallbackArt template={template} />}
       />
 

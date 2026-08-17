@@ -114,7 +114,6 @@ export default function DispatchTemplate() {
         description={
           <p className="m-0">{t("templateLanding.dispatch.s008")}</p>
         }
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}

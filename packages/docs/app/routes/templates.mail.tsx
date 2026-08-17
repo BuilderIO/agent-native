@@ -123,7 +123,6 @@ export default function MailTemplate() {
             fees, no vendor lock-in.
           </p>
         }
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}

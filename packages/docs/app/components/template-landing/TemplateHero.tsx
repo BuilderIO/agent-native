@@ -7,7 +7,6 @@ type TemplateHeroProps = {
   eyebrow: ReactNode;
   headerClassName?: string;
   media: ReactNode;
-  mediaClassName?: string;
   title: ReactNode;
 };
 
@@ -18,7 +17,6 @@ export function TemplateHero({
   eyebrow,
   headerClassName = "",
   media,
-  mediaClassName = "bg-[var(--bg)]",
   title,
 }: TemplateHeroProps) {
   return (
@@ -52,9 +50,7 @@ export function TemplateHero({
           </div>
         </div>
 
-        <div className={`relative py-3 sm:py-4 lg:py-5 ${mediaClassName}`}>
-          {media}
-        </div>
+        <div className="relative py-3 sm:py-4 lg:py-5">{media}</div>
       </div>
     </section>
   );

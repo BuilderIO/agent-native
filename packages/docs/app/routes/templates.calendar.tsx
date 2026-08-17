@@ -114,7 +114,6 @@ export default function CalendarTemplate() {
         description={
           <p className="m-0">{t("templateLanding.calendar.s007")}</p>
         }
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}

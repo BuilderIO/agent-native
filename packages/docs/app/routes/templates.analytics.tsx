@@ -149,7 +149,6 @@ export default function AnalyticsTemplate() {
         description={
           <p className="m-0">{t("templateLanding.analytics.s008")}</p>
         }
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}

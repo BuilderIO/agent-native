@@ -113,7 +113,6 @@ export default function ContentTemplate() {
         }
         title={t("templateLanding.content.s003")}
         description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
-        mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
             src={template.screenshot}
