@@ -5205,6 +5205,7 @@ export async function runAgentLoop(opts: {
                   upgradeUrl: event.upgradeUrl,
                   statusCode: event.statusCode,
                   providerRetryable: event.providerRetryable,
+                  requestId: event.requestId,
                 });
               }
             }

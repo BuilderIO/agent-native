@@ -28,6 +28,8 @@ export class EngineError extends Error {
   readonly statusCode?: number;
   /** Whether the provider explicitly marked this error as retryable. */
   readonly providerRetryable?: boolean;
+  /** Upstream request id, when the provider/gateway supplied one. */
+  readonly requestId?: string;
   constructor(
     message: string,
     opts?: {
@@ -35,6 +37,7 @@ export class EngineError extends Error {
       upgradeUrl?: string;
       statusCode?: number;
       providerRetryable?: boolean;
+      requestId?: string;
     },
   ) {
     super(message);
@@ -43,6 +46,7 @@ export class EngineError extends Error {
     this.upgradeUrl = opts?.upgradeUrl;
     this.statusCode = opts?.statusCode;
     this.providerRetryable = opts?.providerRetryable;
+    this.requestId = opts?.requestId;
   }
 }
 
@@ -216,6 +220,13 @@ export type EngineEvent =
        * should retry even if status code / message patterns don't match.
        */
       providerRetryable?: boolean;
+      /**
+       * Upstream request id, when the provider/gateway supplies one. This is
+       * the only key that ties a user-facing error back to the upstream log,
+       * so it must survive to the capture even when the error also carries a
+       * message — an opaque message is not a diagnostic.
+       */
+      requestId?: string;
     };
 
 // ---------------------------------------------------------------------------
