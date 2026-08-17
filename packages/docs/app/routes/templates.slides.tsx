@@ -149,7 +149,7 @@ export default function SlidesTemplate() {
         mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9124162c94584b5abceb95f662ac8704?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.slides.s001")}
             loading="lazy"
