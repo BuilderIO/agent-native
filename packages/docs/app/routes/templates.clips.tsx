@@ -221,7 +221,7 @@ export default function ClipsTemplate() {
         mediaClassName="bg-black"
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8adba09f551c4237a3b8e5780b46fc6f?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.clips.s001")}
             loading="lazy"
