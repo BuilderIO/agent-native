@@ -109,7 +109,7 @@ describe("createEmbedStartRouteHandler", () => {
 
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
       "ticket-123",
-      expect.objectContaining({ expectedOrgId: null }),
+      expect.objectContaining({ expectedOwnerEmail: null }),
     );
     expect(setEmbedSessionCookie).toHaveBeenCalledTimes(1);
     expect(signEmbedSessionToken).toHaveBeenCalledWith({
@@ -177,6 +177,8 @@ describe("createEmbedStartRouteHandler", () => {
           ticketRowFound: true,
           consumed: false,
           expired: false,
+          expectedOwnerKey: null,
+          ticketOwnerKey: null,
           expectedOrgKey: "expected-org",
           ticketOrgKey: "ticket-org",
         });
@@ -205,6 +207,8 @@ describe("createEmbedStartRouteHandler", () => {
         ticketRowFound: true,
         consumed: false,
         expired: false,
+        expectedOwnerKey: null,
+        ticketOwnerKey: null,
         expectedOrgKey: "expected-org",
         ticketOrgKey: "ticket-org",
         responseStatus: 401,
@@ -261,7 +265,7 @@ describe("createEmbedStartRouteHandler", () => {
     expect(getExistingSession).toHaveBeenCalledOnce();
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
       "signed-out-local-ticket",
-      expect.objectContaining({ expectedOrgId: null }),
+      expect.objectContaining({ expectedOwnerEmail: null }),
     );
     expect(signEmbedSessionToken).toHaveBeenCalledWith({
       ownerEmail: localWorkspacePrincipal,
@@ -274,6 +278,66 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Location")).toBe(
       "/visual-edit/design_1?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
     );
+  });
+
+  it("binds an existing target session by email, not its app-local org id", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "owner@example.com",
+      orgId: "parent-org",
+      targetPath: "/inbox",
+      scope: "minimal",
+      expiresAt: Date.now() + 60_000,
+    });
+    const getExistingSession = vi.fn(async () => ({
+      email: "owner@example.com",
+      orgId: "target-app-org",
+    }));
+    const handler = createEmbedStartRouteHandler({ getExistingSession });
+
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "ticket-123" }),
+    );
+
+    expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
+      "ticket-123",
+      expect.objectContaining({ expectedOwnerEmail: "owner@example.com" }),
+    );
+    expect(consumeEmbedSessionTicket.mock.calls[0][1]).not.toHaveProperty(
+      "expectedOrgId",
+    );
+    expect(res.status).toBe(302);
+  });
+
+  it("keeps a different existing identity from adopting the ticket", async () => {
+    consumeEmbedSessionTicket.mockImplementationOnce(
+      (_ticket: string, options: any) => {
+        options.onResult({
+          outcome: "identity-mismatch",
+          ticketKey: "ticket-key",
+          ticketRowFound: true,
+          consumed: false,
+          expired: false,
+          expectedOwnerKey: "existing-owner",
+          ticketOwnerKey: "ticket-owner",
+          expectedOrgKey: null,
+          ticketOrgKey: "ticket-org",
+        });
+        return null;
+      },
+    );
+    const handler = createEmbedStartRouteHandler({
+      getExistingSession: async () => ({
+        email: "existing@example.com",
+        orgId: "target-app-org",
+      }),
+    });
+
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "ticket-123" }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(signEmbedSessionToken).not.toHaveBeenCalled();
   });
 
   it("rejects a second redemption of the same one-time ticket", async () => {
