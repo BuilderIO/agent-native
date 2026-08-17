@@ -4,5 +4,10 @@
   "mainBinaryName": "RambleOn",
   "bundle": {
     "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "active": false
+    }
   }
 }

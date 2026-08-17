@@ -8,9 +8,24 @@ cd "$(dirname "$0")/.."
 
 # The clang compiler-rt link (for whisper.cpp's @available checks) lives in
 # src-tauri/build.rs so every build path gets it, not just this script.
+#
+# CLIPS_DESKTOP_LOCAL_BUILD also gates the renderer's update check. Without it
+# a locally-built RambleOn polls the public Clips update feed and can replace
+# itself with an official Clips build — the branded app silently becomes the
+# unbranded one. The config's `updater.active: false` covers the Rust side;
+# this covers the renderer.
+export CLIPS_DESKTOP_LOCAL_BUILD=1
+pnpm run check:prereqs
 pnpm tauri build --config src-tauri/tauri.rambleon.conf.json --bundles app
 
 APP=src-tauri/target/release/bundle/macos/RambleOn.app
+# Fail loudly rather than signing and shipping a stale Clips.app left over from
+# an unbranded build: a silently mis-branded install is the whole failure this
+# script exists to prevent.
+if [ ! -d "$APP" ]; then
+  echo "Branded build did not produce $APP — refusing to package." >&2
+  exit 1
+fi
 # The identity lives in a dedicated keychain with a known password so signing
 # works non-interactively (login-keychain keys hit errSecInternalComponent
 # when no GUI prompt can appear). Local self-signed key — low-value secret.
@@ -22,6 +37,8 @@ codesign --verify --deep --strict "$APP"
 # so drag-installs get the same stable code identity.
 VERSION=$(node -p "require('./package.json').version")
 DMG="src-tauri/target/release/bundle/dmg/RambleOn_${VERSION}_aarch64.dmg"
+# `--bundles app` skips tauri's DMG step, so this directory may not exist yet.
+mkdir -p "$(dirname "$DMG")"
 STAGE=$(mktemp -d)
 ditto "$APP" "$STAGE/RambleOn.app"
 ln -s /Applications "$STAGE/Applications"
