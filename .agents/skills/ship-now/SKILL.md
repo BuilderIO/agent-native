@@ -31,6 +31,11 @@ for each failed prep lane. Once that gate and review resolution pass, admin
 merge immediately. Do not wait for a full prep rerun, remote CI, release or
 deploy checks, or the normal `/ship` soak; monitor those after the merge.
 
+A worktree is a valid publishing checkout. When `/ship-now` is authorized from
+a worktree, keep validation, commit, push, PR lookup, and admin merge in that
+worktree's current branch and cwd. Do not copy changes into the shared
+checkout, and update the existing PR rather than creating a second one.
+
 ## Workflow
 
 1. Inspect the current branch before writing or moving it:
