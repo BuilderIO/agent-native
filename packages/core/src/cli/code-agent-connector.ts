@@ -29,6 +29,11 @@ import {
   type CodeAgentTranscriptEvent,
 } from "./code-agent-runs.js";
 import {
+  appendPortalTransferTranscript,
+  parsePortalTransferContext,
+  type PortalTransferContext,
+} from "./portal-transfer.js";
+import {
   loadPortalEnvironment,
   preparePortalWorkspace,
   parsePortalHandoff,
@@ -320,6 +325,15 @@ class RemoteCodeAgentConnector {
     const metadata = isObject(command.params.metadata)
       ? command.params.metadata
       : {};
+    let portalTransfer: PortalTransferContext | null = null;
+    try {
+      portalTransfer = parsePortalTransferContext(metadata.portalTransfer);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
     let cwd = resolveCommandCwd(
       command.params.cwd ?? this.config.workspacePath,
     );
@@ -346,6 +360,13 @@ class RemoteCodeAgentConnector {
     if (portalWorkspace && requestedRunId && !isSafeRunId(requestedRunId)) {
       return { ok: false, error: "Portal run id is invalid." };
     }
+    if (portalTransfer && (!portalWorkspace || !requestedRunId)) {
+      return {
+        ok: false,
+        error:
+          "Portal transfer context requires a Portal run id and workspace.",
+      };
+    }
     if (portalWorkspace && requestedRunId) {
       const existing = getCodeAgentRunRecord(requestedRunId);
       const existingRemote = isObject(existing?.metadata?.remote)
@@ -354,6 +375,27 @@ class RemoteCodeAgentConnector {
       if (
         existing &&
         firstStringValue(existingRemote.commandId) === command.id
+      ) {
+        this.remoteRunIds.add(existing.id);
+        this.transcriptCursors.set(existing.id, { offset: 0, seq: 0 });
+        if (!activeRunners.has(existing.id)) {
+          this.spawnRunner(
+            existing.id,
+            existing.cwd,
+            existing.permissionMode,
+            portalEnvironment?.values,
+          );
+        }
+        return { ok: true, runId: existing.id, run: existing, resumed: true };
+      }
+      const existingTransfer = isObject(existing?.metadata?.portalTransfer)
+        ? existing.metadata.portalTransfer
+        : undefined;
+      if (
+        portalTransfer &&
+        existing &&
+        firstStringValue(existingTransfer?.sourceRunId) ===
+          portalTransfer.sourceRunId
       ) {
         this.remoteRunIds.add(existing.id);
         this.transcriptCursors.set(existing.id, { offset: 0, seq: 0 });
@@ -377,6 +419,8 @@ class RemoteCodeAgentConnector {
       command.params.effort,
       command.params.reasoningEffort,
     );
+    const metadataWithoutTransfer = { ...metadata };
+    delete metadataWithoutTransfer.portalTransfer;
     const run = createCodeAgentRunRecord({
       ...(portalWorkspace && requestedRunId ? { id: requestedRunId } : {}),
       goalId,
@@ -398,6 +442,14 @@ class RemoteCodeAgentConnector {
         { label: "Prompt", value: truncateForDisplay(prompt, 160) },
         { label: "Agent", value: "Remote connector" },
         { label: "Mode", value: permissionMode },
+        ...(portalTransfer
+          ? [
+              {
+                label: "Context",
+                value: `Imported ${portalTransfer.events.length} transcript events`,
+              },
+            ]
+          : []),
         ...(portalWorkspace
           ? [
               {
@@ -414,7 +466,7 @@ class RemoteCodeAgentConnector {
           : []),
       ],
       metadata: {
-        ...metadata,
+        ...metadataWithoutTransfer,
         prompt,
         source: "remote-connector",
         engine,
@@ -444,15 +496,45 @@ class RemoteCodeAgentConnector {
               },
             }
           : {}),
+        ...(portalTransfer
+          ? {
+              portalTransfer: {
+                schemaVersion: 1,
+                sourceRunId: portalTransfer.sourceRunId,
+                ...(portalTransfer.sourceStatus
+                  ? { sourceStatus: portalTransfer.sourceStatus }
+                  : {}),
+                ...(portalTransfer.sourcePhase
+                  ? { sourcePhase: portalTransfer.sourcePhase }
+                  : {}),
+                eventCount: portalTransfer.events.length,
+                transferredAt: new Date().toISOString(),
+              },
+            }
+          : {}),
       },
     });
 
-    appendCodeAgentTranscriptEvent({
-      runId: run.id,
-      kind: "user",
-      message: prompt,
-      metadata: { source: "remote-initial-prompt", commandId: command.id },
-    });
+    if (portalTransfer) {
+      appendPortalTransferTranscript(portalTransfer, run.id);
+      appendCodeAgentTranscriptEvent({
+        runId: run.id,
+        kind: "user",
+        message: prompt,
+        metadata: {
+          source: "portal-transfer-continuation",
+          commandId: command.id,
+          sourceRunId: portalTransfer.sourceRunId,
+        },
+      });
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId: run.id,
+        kind: "user",
+        message: prompt,
+        metadata: { source: "remote-initial-prompt", commandId: command.id },
+      });
+    }
     appendCodeAgentTranscriptEvent({
       runId: run.id,
       kind: "status",
