@@ -98,6 +98,7 @@ function hasPriorFailedBigQueryCall(sql: string): boolean {
         content.error === "bigquery_query_timeout"
       );
     } catch {
+      // coercion-ok: malformed prior tool output is not evidence of a failed query.
       return false;
     }
   });

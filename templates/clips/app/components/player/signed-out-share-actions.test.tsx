@@ -9,10 +9,18 @@ import {
   SignedOutShareActions,
 } from "./signed-out-share-actions";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appPath: (path: string) => `/clips${path}`,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/ui", () => ({
+  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
+    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
 }));
 
 describe("SignedOutShareActions", () => {

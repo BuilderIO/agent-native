@@ -7,12 +7,7 @@ import { SlideThumbnailContextMenu } from "./SlideThumbnailContextMenu";
 
 afterEach(() => cleanup());
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...values: unknown[]) =>
-    values
-      .flat(Infinity)
-      .filter((value) => typeof value === "string" && value.length > 0)
-      .join(" "),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "editorSidebar.duplicateSlide": "Duplicate slide",

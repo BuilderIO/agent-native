@@ -1,4 +1,6 @@
-import { agentNativePath, appPath, useT } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { IconExternalLink, IconLogin2 } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -6,9 +8,7 @@ import { Button } from "@/components/ui/button";
 export type SignedOutShareCta = "signin" | "try_clips";
 
 export function buildShareSignInHref(recordingId: string): string {
-  return agentNativePath(
-    `/_agent-native/sign-in?return=${encodeURIComponent(`/share/${recordingId}`)}`,
-  );
+  return buildSignInReturnHref({ returnTo: `/share/${recordingId}` });
 }
 
 export function SignedOutShareActions({
