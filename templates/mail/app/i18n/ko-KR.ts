@@ -500,6 +500,8 @@ const messages = {
     importFromGmail: "Gmail에서 가져오기",
     signatureHelp:
       "새 초안에서 인용된 답장 기록 앞에 추가됩니다. Markdown 링크와 이미지를 지원합니다.",
+    addSignatureImage: "이미지 추가",
+    signatureImageUploadFailed: "서명 이미지를 업로드하지 못했습니다",
     writingStyle: "작성 스타일",
     writingStylePlaceholder:
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",

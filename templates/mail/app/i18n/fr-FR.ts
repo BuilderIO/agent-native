@@ -506,6 +506,8 @@ const messages = {
     importFromGmail: "Importer depuis Gmail",
     signatureHelp:
       "Ajoutée aux nouveaux brouillons avant l’historique de réponse cité. Les liens et images Markdown sont pris en charge.",
+    addSignatureImage: "Ajouter une image",
+    signatureImageUploadFailed: "Impossible de téléverser l’image de signature",
     writingStyle: "Style d’écriture",
     writingStylePlaceholder:
       "Court, précis, chaleureux. Évitez le remplissage formel.",

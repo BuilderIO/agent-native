@@ -199,7 +199,10 @@ Puedes verificar la preparación de la conexión en tu devolución de llamada `i
 
 ```ts
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
-import { getRequestOrgId, getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 // Inside registerOnboardingStep:
 isComplete: async () => {

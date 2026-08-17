@@ -505,6 +505,8 @@ const messages = {
     importFromGmail: "Importar desde Gmail",
     signatureHelp:
       "Se añade a los borradores nuevos antes del historial citado. Admite enlaces e imágenes Markdown.",
+    addSignatureImage: "Añadir imagen",
+    signatureImageUploadFailed: "No se pudo subir la imagen de la firma",
     writingStyle: "Estilo de escritura",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",

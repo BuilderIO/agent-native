@@ -76,9 +76,11 @@ When an action reads or writes app data, use Drizzle's query builder and portabl
 When an action calls an external service, never hardcode API keys, bearer
 tokens, webhook URLs, signing secrets, OAuth refresh tokens, private
 Builder/internal data, or customer data. Read user/org/workspace credentials
+from a granted workspace connection's vault-backed credential refs first, then
 from `readAppSecret`, `resolveCredential`, OAuth token helpers, or the provider
 API credential adapter. Use `process.env` only for explicitly deploy-level
-configuration, and keep examples to obvious placeholders.
+configuration - never for customer or workspace data access - and keep examples
+to obvious placeholders.
 
 Tips:
 - Use `.describe()` for parameter descriptions

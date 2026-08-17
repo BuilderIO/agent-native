@@ -506,6 +506,9 @@ const messages = {
     importFromGmail: "Aus Gmail importieren",
     signatureHelp:
       "Wird neuen Entwürfen vor dem zitierten Antwortverlauf hinzugefügt. Markdown-Links und Bilder werden unterstützt.",
+    addSignatureImage: "Bild hinzufügen",
+    signatureImageUploadFailed:
+      "Das Signaturbild konnte nicht hochgeladen werden",
     writingStyle: "Schreibstil",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",

@@ -199,7 +199,10 @@ You can check connection readiness in your `isComplete` callback using the conne
 
 ```ts filename="server/plugins/my-onboarding.ts"
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
-import { getRequestOrgId, getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 // Inside registerOnboardingStep:
 isComplete: async () => {

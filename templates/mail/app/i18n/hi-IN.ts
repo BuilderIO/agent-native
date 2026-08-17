@@ -500,6 +500,8 @@ const messages = {
     importFromGmail: "Gmail से import करें",
     signatureHelp:
       "नए drafts में quoted reply history से पहले जोड़ा जाता है। Markdown links और images समर्थित हैं।",
+    addSignatureImage: "इमेज जोड़ें",
+    signatureImageUploadFailed: "हस्ताक्षर इमेज अपलोड नहीं हो सकी",
     writingStyle: "लेखन शैली",
     writingStylePlaceholder: "छोटा, विशिष्ट, गर्मजोशी भरा। औपचारिक filler से बचें।",
     saveDraftingSettings: "Drafting settings सहेजें",

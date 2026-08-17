@@ -199,7 +199,10 @@ Vous pouvez vérifier l'état de préparation de la connexion dans votre rappel 
 
 ```ts
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
-import { getRequestOrgId, getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 // Inside registerOnboardingStep:
 isComplete: async () => {

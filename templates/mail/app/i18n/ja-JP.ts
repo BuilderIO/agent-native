@@ -500,6 +500,8 @@ const messages = {
     importFromGmail: "Gmail からインポート",
     signatureHelp:
       "新しい下書きの引用返信履歴の前に追加されます。Markdown リンクと画像に対応しています。",
+    addSignatureImage: "画像を追加",
+    signatureImageUploadFailed: "署名画像のアップロードに失敗しました",
     writingStyle: "文章スタイル",
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",
