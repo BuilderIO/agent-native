@@ -5,6 +5,7 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
@@ -28,6 +29,10 @@ async function ensureAgentToolApprovalTable(): Promise<void> {
           "idx_agent_tool_approvals_logical",
           AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
         );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_recovery",
+          AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
+        );
         return;
       }
       const client = getDbExec();
@@ -35,6 +40,9 @@ async function ensureAgentToolApprovalTable(): Promise<void> {
       await retryOnDdlRace(() => client.execute(AGENT_TOOL_APPROVAL_INDEX_SQL));
       await retryOnDdlRace(() =>
         client.execute(AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL),
       );
     })().catch((error) => {
       initPromise = undefined;

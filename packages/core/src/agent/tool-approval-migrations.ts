@@ -42,6 +42,9 @@ export const AGENT_TOOL_APPROVAL_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_age
 export const AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approvals_logical
   ON agent_tool_approvals(owner_email, org_id, thread_id, turn_id, tool_name, approval_key_hash, status)`;
 
+export const AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approvals_recovery
+  ON agent_tool_approvals(owner_email, org_id, thread_id, approval_key_hash, status, turn_id)`;
+
 /**
  * Durable approval grants are created and consumed on request paths, but their
  * schema belongs to the release migration boundary in production.
@@ -63,6 +66,14 @@ ${AGENT_TOOL_APPROVAL_INDEX_SQL}`,
     sql: {
       postgres: AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
       sqlite: AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+    },
+  },
+  {
+    version: 3,
+    name: "agent-tool-approvals-recovery-index",
+    sql: {
+      postgres: AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
+      sqlite: AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
     },
   },
 ];

@@ -49,7 +49,7 @@ describe("agent tool approval store", () => {
     await createAgentToolApproval(binding);
 
     expect(dbMocks.execute).toHaveBeenNthCalledWith(
-      4,
+      5,
       expect.objectContaining({
         sql: expect.stringContaining("INSERT INTO agent_tool_approvals"),
         args: expect.arrayContaining([
@@ -57,13 +57,14 @@ describe("agent tool approval store", () => {
         ]),
       }),
     );
-    expect(dbMocks.execute.mock.calls[3]?.[0].args).not.toContain(
+    expect(dbMocks.execute.mock.calls[4]?.[0].args).not.toContain(
       binding.approvalKey,
     );
   });
 
   it("recovers a unique pending turn when a continuation omits its turn id", async () => {
     dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
@@ -87,6 +88,7 @@ describe("agent tool approval store", () => {
 
   it("does not guess between pending approvals from different turns", async () => {
     dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
@@ -115,6 +117,7 @@ describe("agent tool approval store", () => {
     async ({ rowsAffected, expected }) => {
       dbMocks.execute
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected });
@@ -148,6 +151,7 @@ describe("agent tool approval store", () => {
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockRejectedValueOnce(new Error("consume unavailable"));
