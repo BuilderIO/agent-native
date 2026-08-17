@@ -328,6 +328,28 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 
+// Slides currently mid inline-edit (contentEditable open, keystrokes not yet
+// committed to a "patch-slide" op). `onInlineEditStart`/`onInlineEditEnd`
+// keep this current; a slide only reaches `pendingOpsQueue` when editing
+// ends, so this is the only signal that catches live, uncommitted typing.
+const activeInlineEditSlides = new Map<string, Set<string>>();
+
+/** Mark `slideId` as mid inline-edit so a concurrent agent write to the same
+ *  slide is not adopted over the user's uncommitted keystrokes. */
+export function markSlideEditingActive(deckId: string, slideId: string) {
+  const set = activeInlineEditSlides.get(deckId) ?? new Set<string>();
+  set.add(slideId);
+  activeInlineEditSlides.set(deckId, set);
+}
+
+/** Clear the mid-edit mark once inline editing ends (committed or discarded). */
+export function clearSlideEditingActive(deckId: string, slideId: string) {
+  const set = activeInlineEditSlides.get(deckId);
+  if (!set) return;
+  set.delete(slideId);
+  if (set.size === 0) activeInlineEditSlides.delete(deckId);
+}
+
 // Cached snapshot for useSyncExternalStore. MUST be stable when either value
 // is unchanged or React will infinite-loop (it compares snapshots with
 // Object.is — a fresh object literal every call schedules a new update,
@@ -1185,11 +1207,13 @@ export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
  * True when some queued-or-in-flight write for `deckId` could still touch
  * `slideId`, so adopting the server's copy of that slide would race a local
  * write instead of reflecting it. A deck-wide op (`full-replace` /
- * `reorder-slides`) or an in-flight save (its op list already left the
- * queue) counts as "could touch anything".
+ * `reorder-slides`), an in-flight save (its op list already left the
+ * queue), or the slide being mid inline-edit (typing not yet committed to
+ * any op) all count as "could touch anything".
  */
 function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
   if (inFlightSaves.has(deckId)) return true;
+  if (activeInlineEditSlides.get(deckId)?.has(slideId)) return true;
   const queue = pendingOpsQueue.get(deckId);
   if (!queue) return false;
   return queue.some(

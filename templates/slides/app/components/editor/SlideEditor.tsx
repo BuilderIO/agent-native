@@ -2636,10 +2636,21 @@ export default function SlideEditor({
     if (html !== null) onUpdateSlideRef.current({ content: html });
   }, [readCurrentSlideContentHtml]);
 
+  /** Row/column ops below index cells by position, which only holds for a
+   *  regular grid. `colspan`/`rowspan` are valid on imported tables
+   *  (sanitize-slide-html allows them), so every op bails here rather than
+   *  silently touching the wrong cell. */
+  const tableHasMergedCells = useCallback((table: HTMLTableElement) => {
+    return Array.from(table.rows).some((row) =>
+      Array.from(row.cells).some((c) => c.colSpan > 1 || c.rowSpan > 1),
+    );
+  }, []);
+
   const insertTableRow = useCallback(
     (cell: HTMLTableCellElement, position: "above" | "below") => {
       const row = cell.closest("tr");
-      if (!row) return;
+      const table = row?.closest("table");
+      if (!row || !table || tableHasMergedCells(table)) return;
       const newRow = row.cloneNode(true) as HTMLTableRowElement;
       Array.from(newRow.cells).forEach((c) => {
         c.innerHTML = "";
@@ -2650,23 +2661,27 @@ export default function SlideEditor({
       );
       commitTableMutation();
     },
-    [commitTableMutation],
+    [commitTableMutation, tableHasMergedCells],
   );
 
   const deleteTableRow = useCallback(
     (cell: HTMLTableCellElement) => {
       const row = cell.closest("tr");
       const table = row?.closest("table");
-      if (!row || !table || table.rows.length <= 1) return;
+      if (
+        !row ||
+        !table ||
+        table.rows.length <= 1 ||
+        tableHasMergedCells(table)
+      ) {
+        return;
+      }
       row.remove();
       commitTableMutation();
     },
-    [commitTableMutation],
+    [commitTableMutation, tableHasMergedCells],
   );
 
-  // Column ops assume a regular grid (no colspan/rowspan) and index columns
-  // by position within each row — the same simplification the AI-authored
-  // table markup this editor targets already relies on.
   const insertTableColumn = useCallback(
     (cell: HTMLTableCellElement, position: "left" | "right") => {
       const table = cell.closest("table");
@@ -2675,6 +2690,7 @@ export default function SlideEditor({
       Array.from(table.rows).forEach((row) => {
         const refCell = row.cells[columnIndex];
         if (!refCell) return;
+        if (tableHasMergedCells(table)) return;
         const newCell = document.createElement(
           refCell.tagName,
         ) as HTMLTableCellElement;
@@ -2688,7 +2704,7 @@ export default function SlideEditor({
       });
       commitTableMutation();
     },
-    [commitTableMutation],
+    [commitTableMutation, tableHasMergedCells],
   );
 
   const deleteTableColumn = useCallback(
@@ -2699,11 +2715,12 @@ export default function SlideEditor({
       const firstRow = table.rows[0];
       if (!firstRow || firstRow.cells.length <= 1) return;
       Array.from(table.rows).forEach((row) => {
+        if (tableHasMergedCells(table)) return;
         row.cells[columnIndex]?.remove();
       });
       commitTableMutation();
     },
-    [commitTableMutation],
+    [commitTableMutation, tableHasMergedCells],
   );
 
   // Delete/Backspace removes the selected slide content (single or
