@@ -1541,6 +1541,7 @@ export class BrowserControlService {
       const point = centerOfBox(box);
       await this.revalidate(taskId, expectedGeneration);
       await this.showCursor(session, point, true, expectedGeneration);
+      await this.revalidate(taskId, expectedGeneration);
       session.lastCursor = point;
       await this.sendCommand(
         taskId,
@@ -1617,6 +1618,7 @@ export class BrowserControlService {
       );
       if (point) {
         await this.showCursor(session, point, false, expectedGeneration);
+        await this.revalidate(taskId, expectedGeneration);
         session.lastCursor = point;
       }
       await this.sendCommand(
@@ -1724,6 +1726,7 @@ export class BrowserControlService {
           false,
           expectedGeneration,
         );
+        await this.revalidate(taskId, expectedGeneration);
       }
       const data = KEY_DATA[key];
       const params = {
@@ -1879,6 +1882,7 @@ export class BrowserControlService {
     try {
       const point = { x, y };
       await this.showCursor(session, point, false, expectedGeneration);
+      await this.revalidate(taskId, expectedGeneration);
       session.lastCursor = point;
       await this.sendCommand(
         taskId,
