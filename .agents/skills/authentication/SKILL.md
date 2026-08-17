@@ -195,8 +195,11 @@ origin is exact HTTPS, and Dispatch has an exact registration in
 `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the shared
 `A2A_SECRET`. Ordinary browsers and self-hosted apps still require the explicit
 hub configuration.
-Stable Desktop builds must not initialize the broker until a later release is
-separately approved.
+Every Desktop build may initialize the broker when the per-device
+`desktopSsoEnabled` preference is true (the default); an explicit persisted
+`false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
+be enabled. The Canary user-agent marker no longer gates broker initialization;
+it only identifies the update channel.
 Treat the Canary user-agent marker only as an availability hint, never as
 remote attestation or an authentication boundary. Bind supervised acceptance
 to exact signed-artifact provenance.
