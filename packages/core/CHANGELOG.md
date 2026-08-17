@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.158.1
+
+### Patch Changes
+
+- 223cf26: Format the Portal reference table in the shared core documentation.
+
 ## 0.158.0
 
 ### Minor Changes
