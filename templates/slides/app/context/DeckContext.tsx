@@ -112,6 +112,8 @@ export interface Slide {
   animations?: SlideAnimation[];
   /** @deprecated Use animations instead */
   splitByParagraph?: boolean;
+  /** Excluded from Present/Presenter mode playback, but stays in the deck. */
+  skipped?: boolean;
 }
 
 export type AnimationType = "appear" | "fade" | "slide-up" | "zoom";
@@ -237,6 +239,14 @@ interface DeckContextType {
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
   duplicateSlide: (deckId: string, slideId: string) => string | undefined;
+  /** Inserts a copy of arbitrary slide data after `afterSlideId`. Used for
+   *  slide cut/paste, where the original may already be deleted so there is
+   *  no live slide id left to duplicate from. */
+  pasteSlide: (
+    deckId: string,
+    afterSlideId: string,
+    slideFields: Omit<Slide, "id">,
+  ) => string | undefined;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -287,13 +297,52 @@ type DuplicateDeckActionResult = {
   url?: string;
 };
 
+/** Per-slide fields `get-deck` computes for the agent (slide position/hash
+ *  hints) that aren't part of the client's own `Slide` shape. Left on the
+ *  fetched deck, they make every server refetch look "changed" relative to
+ *  the client's slim optimistic copy — see `normalizeActionDeck`. */
+const GET_DECK_ONLY_SLIDE_FIELDS = [
+  "slideNumber",
+  "zeroBasedIndex",
+  "contentHash",
+] as const;
+
+/** Deck-level fields `get-deck` computes for the agent (counts, deep links,
+ *  the currently-selected slide) that aren't part of the client's own `Deck`
+ *  shape. See `normalizeActionDeck`. */
+const GET_DECK_ONLY_DECK_FIELDS = [
+  "slideCount",
+  "slideNumbering",
+  "deepLink",
+  "selectedSlideId",
+] as const;
+
 function normalizeActionDeck(value: unknown): Deck | null {
   if (!value || typeof value !== "object") return null;
   const deck = value as Partial<Deck>;
   if (typeof deck.id !== "string") return null;
 
+  const deckRecord = deck as unknown as Record<string, unknown>;
+  const cleanedDeck = { ...deckRecord };
+  for (const field of GET_DECK_ONLY_DECK_FIELDS) delete cleanedDeck[field];
+
+  // Strip the same decorative fields from every slide, so a deck fetched from
+  // `get-deck` is structurally identical to one built by local mutations —
+  // otherwise `deckContentSignature` sees a "change" on every refetch of the
+  // open deck and spams the undo stack with no-op `replace-deck` entries.
+  const slides = Array.isArray(deck.slides)
+    ? deck.slides.map((slide) => {
+        if (!slide || typeof slide !== "object") return slide;
+        const cleanedSlide = { ...(slide as Record<string, unknown>) };
+        for (const field of GET_DECK_ONLY_SLIDE_FIELDS) {
+          delete cleanedSlide[field];
+        }
+        return cleanedSlide as Slide;
+      })
+    : [];
+
   return {
-    ...deck,
+    ...cleanedDeck,
     id: deck.id,
     title: typeof deck.title === "string" ? deck.title : "Untitled",
     createdAt:
@@ -304,7 +353,7 @@ function normalizeActionDeck(value: unknown): Deck | null {
       typeof deck.updatedAt === "string"
         ? deck.updatedAt
         : deck.createdAt || "",
-    slides: Array.isArray(deck.slides) ? deck.slides : [],
+    slides,
   } as Deck;
 }
 
@@ -2335,6 +2384,38 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, setDecksLocal],
   );
 
+  const pasteSlide = useCallback(
+    (deckId: string, afterSlideId: string, slideFields: Omit<Slide, "id">) => {
+      const before = decksRef.current.find((d) => d.id === deckId);
+      if (!before) return undefined;
+
+      markDeckDirty(deckId);
+      const newSlide: Slide = { ...slideFields, id: nanoid(8) };
+      setDecksLocal((prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          const idx = d.slides.findIndex((s) => s.id === afterSlideId);
+          const insertAt = idx === -1 ? d.slides.length : idx + 1;
+          const slides = [...d.slides];
+          slides.splice(insertAt, 0, newSlide);
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+      // Granular add-slide op, same as duplicateSlide — inserts after
+      // afterSlideId regardless of whether that id is also the copy source.
+      const op: PatchDeckOp = {
+        op: "add-slide",
+        slideId: newSlide.id,
+        afterSlideId,
+        fields: addSlideFields(newSlide),
+      };
+      enqueueDeckOp(deckId, op);
+      recordUndo(before, op, { label: "Paste slide" });
+      return newSlide.id;
+    },
+    [markDeckDirty, recordUndo, setDecksLocal],
+  );
+
   const reorderSlides = useCallback(
     (deckId: string, oldIndex: number, newIndex: number) => {
       markDeckDirty(deckId);
@@ -2421,6 +2502,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         updateSlide,
         deleteSlide,
         duplicateSlide,
+        pasteSlide,
         reorderSlides,
         setDeckSlides,
         markDeckDirty,

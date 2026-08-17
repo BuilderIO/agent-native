@@ -508,6 +508,11 @@ const messages = {
     newSlide: "新增投影片",
     closeAddSlides: "關閉",
     describeThisSlide: "描述這張投影片",
+    cut: "剪下",
+    copy: "複製",
+    paste: "貼上",
+    skipSlide: "略過投影片",
+    unskipSlide: "取消略過投影片",
   },
   presentation: {
     loadFailed: "無法載入此簡報。",

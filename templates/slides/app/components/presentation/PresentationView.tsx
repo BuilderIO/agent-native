@@ -202,7 +202,7 @@ export default function PresentationView({
   const safeSlides = useMemo(
     () =>
       (Array.isArray(slides) ? slides : [])
-        .filter(Boolean)
+        .filter((slide): slide is Slide => Boolean(slide) && !slide.skipped)
         .map((slide, index) => ({
           ...slide,
           id: slide.id || `slide-${index}`,
@@ -212,6 +212,27 @@ export default function PresentationView({
         })),
     [slides],
   );
+  // `startIndex` is a raw index into the full (unfiltered) deck.slides array —
+  // e.g. from the editor's current slide or a `?slide=N` deep link. Skipped
+  // slides are absent from safeSlides, so translate it to the nearest visible
+  // slide's position within safeSlides rather than clamping the raw index
+  // directly, which would land on the wrong slide whenever a skip precedes it.
+  const initialIndex = useMemo(() => {
+    const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
+    if (rawSlides.length === 0) return 0;
+    const clampedRaw = Math.max(0, Math.min(startIndex, rawSlides.length - 1));
+    for (let i = clampedRaw; i < rawSlides.length; i++) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    for (let i = clampedRaw - 1; i >= 0; i--) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    return 0;
+  }, [slides, startIndex]);
   const clampIndex = useCallback(
     (index: number) => {
       if (safeSlides.length === 0) return 0;
@@ -221,7 +242,7 @@ export default function PresentationView({
     [safeSlides.length],
   );
   const [currentIndex, setCurrentIndex] = useState(() =>
-    clampIndex(startIndex),
+    clampIndex(initialIndex),
   );
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [direction, setDirection] = useState<"next" | "prev">("next");
@@ -269,11 +290,11 @@ export default function PresentationView({
   useEffect(() => {
     clearTransitionTimer();
     queuedNavigationRef.current = null;
-    setCurrentIndex(clampIndex(startIndex));
+    setCurrentIndex(clampIndex(initialIndex));
     setCurrentStep(0);
     setPrevIndex(null);
     setAnimating(false);
-  }, [clearTransitionTimer, clampIndex, startIndex]);
+  }, [clearTransitionTimer, clampIndex, initialIndex]);
 
   const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;

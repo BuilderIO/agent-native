@@ -17,6 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
+import { IconEyeOff } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +27,14 @@ import { AddSlidePopover } from "@/components/editor/AddSlidePopover";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -33,6 +42,7 @@ import {
 import { defaultSlideContent, type Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
+import { shortcutLabel } from "@/lib/utils";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { isSlideTextEditingTarget } from "./slide-text-targets";
@@ -78,6 +88,19 @@ interface EditorSidebarProps {
    *  this component's own useAgentGenerating() call) so the run stays
    *  correctly scoped and trackable across a sidebar remount. */
   addSlideAgentSubmit: (message: string, context: string) => void;
+  /** Whether a slide is currently on the cut/copy clipboard, so the rail's
+   *  right-click menu can disable Paste when there's nothing to paste. */
+  hasSlideClipboard?: boolean;
+  onCutSlide?: (slideId: string) => void;
+  onCopySlide?: (slideId: string) => void;
+  /** Pastes the clipboard slide directly after this slide. */
+  onPasteSlide?: (slideId: string) => void;
+  onDeleteSlide?: (slideId: string) => void;
+  /** Inserts a new blank slide directly after this slide. */
+  onNewSlideAfter?: (slideId: string) => void;
+  onDuplicateSlide?: (slideId: string) => void;
+  /** Toggles whether this slide is excluded from Present/Presenter mode. */
+  onToggleSkipSlide?: (slideId: string) => void;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -176,6 +199,15 @@ function SortableSlideThumb({
   onOverflowChange,
   readOnly = false,
   aiEditing = false,
+  canDelete = true,
+  hasSlideClipboard = false,
+  onCutSlide,
+  onCopySlide,
+  onPasteSlide,
+  onDeleteSlide,
+  onNewSlideAfter,
+  onDuplicateSlide,
+  onToggleSkipSlide,
 }: {
   slide: Slide;
   index: number;
@@ -188,6 +220,16 @@ function SortableSlideThumb({
   designSystem?: DesignSystemData;
   onOverflowChange: (info: SlideOverflowInfo) => void;
   aiEditing?: boolean;
+  /** False when this is the deck's last remaining slide — Cut/Delete stay enabled elsewhere but must not remove it. */
+  canDelete?: boolean;
+  hasSlideClipboard?: boolean;
+  onCutSlide?: (slideId: string) => void;
+  onCopySlide?: (slideId: string) => void;
+  onPasteSlide?: (slideId: string) => void;
+  onDeleteSlide?: (slideId: string) => void;
+  onNewSlideAfter?: (slideId: string) => void;
+  onDuplicateSlide?: (slideId: string) => void;
+  onToggleSkipSlide?: (slideId: string) => void;
 }) {
   const t = useT();
   const {
@@ -217,76 +259,136 @@ function SortableSlideThumb({
 
   return (
     <div ref={setNodeRef} style={style}>
-      <button
-        ref={(node) => registerButtonRef(slide.id, node)}
-        type="button"
-        {...(readOnly ? {} : attributes)}
-        {...(readOnly ? {} : listeners)}
-        onClick={(event) => {
-          // Safari does not focus a button on click, and the slide copy/paste
-          // and delete shortcuts are scoped to a focused thumbnail.
-          event.currentTarget.focus();
-          onSelect();
-        }}
-        onFocus={onSelect}
-        aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
-        aria-current={isActive ? "true" : undefined}
-        data-slide-thumbnail-id={slide.id}
-        className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
-          isActive ? "bg-accent" : ""
-        } ${
-          readOnly ? "" : "cursor-grab active:cursor-grabbing"
-        } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1`}
-      >
-        {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
-        <div className="relative flex-shrink-0 w-4 self-stretch">
-          <span className="block text-center text-[10px] font-medium leading-5 text-muted-foreground/70">
-            {index + 1}
-          </span>
-          {(showAiMarker || humanPresenceUsers.length > 0) && (
-            <div className="absolute left-1/2 top-5 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
-              {showAiMarker && (
-                <AiEditingMarker className="size-4 text-[8px]" />
-              )}
-              {humanPresenceUsers.slice(0, 4).map((u, i) => (
-                <PresenceAvatarTip key={i} user={u} size={14} />
-              ))}
-              {humanPresenceUsers.length > 4 && (
-                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
-                  +{humanPresenceUsers.length - 4}
-                </span>
+      <ContextMenu>
+        <ContextMenuTrigger asChild disabled={readOnly}>
+          <button
+            ref={(node) => registerButtonRef(slide.id, node)}
+            type="button"
+            {...(readOnly ? {} : attributes)}
+            {...(readOnly ? {} : listeners)}
+            onClick={(event) => {
+              // Safari does not focus a button on click, and the slide copy/paste
+              // and delete shortcuts are scoped to a focused thumbnail.
+              event.currentTarget.focus();
+              onSelect();
+            }}
+            onFocus={onSelect}
+            aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
+            aria-current={isActive ? "true" : undefined}
+            data-slide-thumbnail-id={slide.id}
+            className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
+              isActive ? "bg-accent" : ""
+            } ${
+              readOnly ? "" : "cursor-grab active:cursor-grabbing"
+            } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1`}
+          >
+            {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
+            <div className="relative flex-shrink-0 w-4 self-stretch">
+              <span className="block text-center text-[10px] font-medium leading-5 text-muted-foreground/70">
+                {index + 1}
+              </span>
+              {(showAiMarker || humanPresenceUsers.length > 0) && (
+                <div className="absolute left-1/2 top-5 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
+                  {showAiMarker && (
+                    <AiEditingMarker className="size-4 text-[8px]" />
+                  )}
+                  {humanPresenceUsers.slice(0, 4).map((u, i) => (
+                    <PresenceAvatarTip key={i} user={u} size={14} />
+                  ))}
+                  {humanPresenceUsers.length > 4 && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
+                      +{humanPresenceUsers.length - 4}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Thumbnail */}
-        <div className="flex-1 min-w-0">
-          {/* Each thumbnail paints a full-resolution slide canvas scaled down by
-           * transform, so a long rail keeps dozens of large layers live and the
-           * browser drops frames or paints stale tiles. `content-visibility`
-           * lets it skip everything below the fold; `aspect-ratio` keeps the row
-           * the right height while its contents are skipped. */}
-          <div
-            className="w-full overflow-hidden rounded border"
-            style={{
-              borderColor:
-                humanPresenceUsers.length > 0
-                  ? humanPresenceUsers[0].color + "66"
-                  : "rgba(255,255,255,0.06)",
-              aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
-              contentVisibility: "auto",
-            }}
+            {/* Thumbnail */}
+            <div className="flex-1 min-w-0">
+              {/* Each thumbnail paints a full-resolution slide canvas scaled down by
+               * transform, so a long rail keeps dozens of large layers live and the
+               * browser drops frames or paints stale tiles. `content-visibility`
+               * lets it skip everything below the fold; `aspect-ratio` keeps the row
+               * the right height while its contents are skipped. */}
+              <div
+                className={`relative w-full overflow-hidden rounded border ${
+                  slide.skipped ? "opacity-40" : ""
+                }`}
+                style={{
+                  borderColor:
+                    humanPresenceUsers.length > 0
+                      ? humanPresenceUsers[0].color + "66"
+                      : "rgba(255,255,255,0.06)",
+                  aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
+                  contentVisibility: "auto",
+                }}
+              >
+                <SlideRenderer
+                  slide={slide}
+                  aspectRatio={aspectRatio}
+                  designSystem={designSystem}
+                  onOverflowChange={onOverflowChange}
+                />
+                {slide.skipped && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+                    <IconEyeOff className="size-6 text-white/80" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            // Radix restores focus to the trigger (this slide's thumbnail
+            // button) when the menu closes. That button's onFocus reselects
+            // its own slide, which clobbers New/Duplicate/Paste's deliberate
+            // selection of the newly created slide. Our handlers already set
+            // the right active slide explicitly, so skip the auto-focus.
+            event.preventDefault();
+          }}
+        >
+          <ContextMenuItem
+            disabled={!canDelete}
+            onSelect={() => onCutSlide?.(slide.id)}
           >
-            <SlideRenderer
-              slide={slide}
-              aspectRatio={aspectRatio}
-              designSystem={designSystem}
-              onOverflowChange={onOverflowChange}
-            />
-          </div>
-        </div>
-      </button>
+            {t("editorSidebar.cut")}
+            <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => onCopySlide?.(slide.id)}>
+            {t("editorSidebar.copy")}
+            <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!hasSlideClipboard}
+            onSelect={() => onPasteSlide?.(slide.id)}
+          >
+            {t("editorSidebar.paste")}
+            <ContextMenuShortcut>{shortcutLabel("cmd+v")}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => onNewSlideAfter?.(slide.id)}>
+            {t("editorSidebar.newSlide")}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => onDuplicateSlide?.(slide.id)}>
+            {t("editorSidebar.duplicateSlide")}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => onToggleSkipSlide?.(slide.id)}>
+            {slide.skipped
+              ? t("editorSidebar.unskipSlide")
+              : t("editorSidebar.skipSlide")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={!canDelete}
+            onSelect={() => onDeleteSlide?.(slide.id)}
+            className="text-red-400 focus:text-red-400"
+          >
+            {t("editorSidebar.deleteSlide")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }
@@ -352,6 +454,14 @@ export default function EditorSidebar({
   onAwaitAddSlidePersisted,
   onRemoveFailedSlide,
   addSlideAgentSubmit,
+  hasSlideClipboard,
+  onCutSlide,
+  onCopySlide,
+  onPasteSlide,
+  onDeleteSlide,
+  onNewSlideAfter,
+  onDuplicateSlide,
+  onToggleSkipSlide,
 }: EditorSidebarProps) {
   const t = useT();
   const [describeAnchorEl, setDescribeAnchorEl] =
@@ -549,6 +659,15 @@ export default function EditorSidebar({
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
                 aiEditing={aiEditedSlideIds.has(slide.id)}
+                canDelete={slides.length > 1}
+                hasSlideClipboard={hasSlideClipboard}
+                onCutSlide={onCutSlide}
+                onCopySlide={onCopySlide}
+                onPasteSlide={onPasteSlide}
+                onDeleteSlide={onDeleteSlide}
+                onNewSlideAfter={onNewSlideAfter}
+                onDuplicateSlide={onDuplicateSlide}
+                onToggleSkipSlide={onToggleSkipSlide}
                 onOverflowChange={(info) =>
                   handleSlideOverflowChange(slide, info)
                 }

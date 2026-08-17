@@ -31,7 +31,28 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
-  const [index, setIndex] = useState(startIndex);
+  // `startIndex` is a raw index into the full (unfiltered) deck.slides array.
+  // Skipped slides are absent from safeSlides below, so translate it to the
+  // nearest visible slide's position within safeSlides — matching
+  // PresentationView, whose filtered currentIndex this view's `index` state
+  // otherwise mirrors via the BroadcastChannel.
+  const initialIndex = useMemo(() => {
+    const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
+    if (rawSlides.length === 0) return 0;
+    const clampedRaw = Math.max(0, Math.min(startIndex, rawSlides.length - 1));
+    for (let i = clampedRaw; i < rawSlides.length; i++) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    for (let i = clampedRaw - 1; i >= 0; i--) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    return 0;
+  }, [slides, startIndex]);
+  const [index, setIndex] = useState(initialIndex);
   const [elapsed, setElapsed] = useState(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
 
@@ -88,7 +109,12 @@ export default function PresenterView({
   }, [goNext, goPrev]);
 
   const safeSlides = useMemo(
-    () => (Array.isArray(slides) ? slides.filter(Boolean) : []),
+    () =>
+      Array.isArray(slides)
+        ? slides.filter(
+            (slide): slide is Slide => Boolean(slide) && !slide.skipped,
+          )
+        : [],
     [slides],
   );
   const current = safeSlides[index];
