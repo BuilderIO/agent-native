@@ -33,14 +33,37 @@ function formatDefault(value: unknown): string {
   return `\`${JSON.stringify(value)}\``;
 }
 
+/**
+ * Pad every cell to its column's widest, separator row included. oxfmt
+ * reformats markdown tables this way, so emitting anything narrower makes
+ * `guard:config-docs` and `oxfmt --check` disagree forever: the generator
+ * rewrites the padding out, the formatter puts it back.
+ */
+function renderRows(header: string[], body: string[][]): string[] {
+  const widths = header.map((_, column) =>
+    Math.max(
+      header[column].length,
+      ...body.map((cells) => cells[column].length),
+    ),
+  );
+  const line = (cells: string[]) =>
+    `| ${cells.map((cell, column) => cell.padEnd(widths[column])).join(" | ")} |`;
+  return [
+    line(header),
+    line(widths.map((width) => "-".repeat(width))),
+    ...body.map(line),
+  ];
+}
+
 function renderTable(): string {
   const fields = describeConfigFields();
-  const rows = fields.map((field) => {
-    const env = field.env.length
-      ? field.env.map((key) => `\`${key}\``).join(", ")
-      : "—";
-    return `| \`${field.path}\` | ${env} | ${field.type} | ${formatDefault(field.defaultValue)} | ${field.doc ?? ""} |`;
-  });
+  const rows = fields.map((field) => [
+    `\`${field.path}\``,
+    field.env.length ? field.env.map((key) => `\`${key}\``).join(", ") : "—",
+    field.type,
+    formatDefault(field.defaultValue),
+    field.doc ?? "",
+  ]);
 
   return [
     BEGIN,
@@ -54,9 +77,10 @@ function renderTable(): string {
     "order it is consulted; app configuration wins over any of them. Fields with",
     "no alias are settable only in code.",
     "",
-    "| Field | Environment aliases | Type | Default | Description |",
-    "| ----- | ------------------- | ---- | ------- | ----------- |",
-    ...rows,
+    ...renderRows(
+      ["Field", "Environment aliases", "Type", "Default", "Description"],
+      rows,
+    ),
     "",
     END,
   ].join("\n");
