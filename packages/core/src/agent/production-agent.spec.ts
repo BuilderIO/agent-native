@@ -3138,6 +3138,59 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(1);
   });
 
+  // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
+  // its unhandled-500 envelope in-stream, and the turn ended on the first
+  // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now
+  // carries a code and a retry verdict, so the same turn finishes.
+  it("recovers a turn from the Builder gateway internal-error envelope", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError(
+            "Sorry, we ran into an issue processing your request. " +
+              "ERROR ID: bebaeb5da13441539790834b63ff955a",
+            { errorCode: "builder_gateway_internal_error" },
+          );
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+    // The turn must not end on the envelope: no terminal error reaches the user.
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+  });
+
   it("resumes a resumable engine error in-process on the foreground while budget remains", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

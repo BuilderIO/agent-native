@@ -40,6 +40,7 @@ import {
 import {
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
@@ -478,6 +479,10 @@ function isTransientGatewayFailure(
   if (status !== undefined && RETRYABLE_GATEWAY_STATUSES.has(status)) {
     return true;
   }
+  // The gateway's unhandled-500 envelope, which reaches the in-stream error
+  // frame with no status at all. Without this it read as terminal there while
+  // the identical body read as retryable when it arrived as an HTTP 500.
+  if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 

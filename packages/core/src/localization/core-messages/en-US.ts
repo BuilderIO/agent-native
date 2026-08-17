@@ -275,6 +275,8 @@ const messages = {
   "errorMessages.builderModelUnauthorized":
     "The provider behind this model rejected the request. Pick a different model, then retry.",
   "errorMessages.errorPrefix": "Error: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
   "errorMessages.inactivityTimeout":

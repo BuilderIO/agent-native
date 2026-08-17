@@ -275,6 +275,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
   "errorMessages.inactivityTimeout":
