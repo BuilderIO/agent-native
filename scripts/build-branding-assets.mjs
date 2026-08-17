@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -97,6 +98,169 @@ function force8BitRgba(pngPath) {
     copyFileSync(join(tmpDir, pngPath.split("/").pop()), pngPath);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+function paethPredictor(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  return pa <= pb ? (pa <= pc ? a : c) : pb <= pc ? b : c;
+}
+
+function decodePngRgba(pngPath) {
+  const input = readFileSync(pngPath);
+  const pngSignature = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+  if (!input.subarray(0, 8).equals(pngSignature)) {
+    throw new Error(`Expected PNG input for Windows icon: ${pngPath}`);
+  }
+
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idat = [];
+  let offset = 8;
+
+  while (offset + 12 <= input.length) {
+    const length = input.readUInt32BE(offset);
+    const type = input.toString("ascii", offset + 4, offset + 8);
+    const start = offset + 8;
+    const end = start + length;
+    if (end + 4 > input.length)
+      throw new Error(`Invalid PNG chunk in ${pngPath}`);
+    const data = input.subarray(start, end);
+    offset = end + 4;
+
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+    } else if (type === "IDAT") {
+      idat.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+  }
+
+  if (!width || !height || bitDepth !== 8 || ![2, 6].includes(colorType)) {
+    throw new Error(`Unsupported PNG format for Windows icon: ${pngPath}`);
+  }
+
+  const bytesPerPixel = colorType === 6 ? 4 : 3;
+  const rowBytes = width * bytesPerPixel;
+  const scanlineBytes = rowBytes + 1;
+  const decoded = inflateSync(Buffer.concat(idat));
+  const rgba = Buffer.alloc(width * height * 4);
+  let previous = Buffer.alloc(rowBytes);
+
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * scanlineBytes;
+    const filter = decoded[rowStart];
+    const filtered = decoded.subarray(rowStart + 1, rowStart + scanlineBytes);
+    const row = Buffer.alloc(rowBytes);
+
+    for (let i = 0; i < rowBytes; i += 1) {
+      const left = i >= bytesPerPixel ? row[i - bytesPerPixel] : 0;
+      const above = previous[i];
+      const upperLeft = i >= bytesPerPixel ? previous[i - bytesPerPixel] : 0;
+      const value = filtered[i];
+      row[i] =
+        filter === 0
+          ? value
+          : filter === 1
+            ? (value + left) & 0xff
+            : filter === 2
+              ? (value + above) & 0xff
+              : filter === 3
+                ? (value + Math.floor((left + above) / 2)) & 0xff
+                : filter === 4
+                  ? (value + paethPredictor(left, above, upperLeft)) & 0xff
+                  : (() => {
+                      throw new Error(`Unsupported PNG filter ${filter}`);
+                    })();
+    }
+
+    for (let x = 0; x < width; x += 1) {
+      const source = x * bytesPerPixel;
+      const target = (y * width + x) * 4;
+      rgba[target] = row[source];
+      rgba[target + 1] = row[source + 1];
+      rgba[target + 2] = row[source + 2];
+      rgba[target + 3] = bytesPerPixel === 4 ? row[source + 3] : 255;
+    }
+    previous = row;
+  }
+
+  return { width, height, rgba };
+}
+
+function encodeIcoDib({ width, height, rgba }) {
+  const rowBytes = Math.ceil(width / 32) * 4;
+  const pixelBytes = width * height * 4;
+  const dib = Buffer.alloc(40 + pixelBytes + rowBytes * height);
+  dib.writeUInt32LE(40, 0);
+  dib.writeInt32LE(width, 4);
+  dib.writeInt32LE(height * 2, 8);
+  dib.writeUInt16LE(1, 12);
+  dib.writeUInt16LE(32, 14);
+
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = height - 1 - y;
+    for (let x = 0; x < width; x += 1) {
+      const source = (sourceY * width + x) * 4;
+      const target = 40 + (y * width + x) * 4;
+      dib[target] = rgba[source + 2];
+      dib[target + 1] = rgba[source + 1];
+      dib[target + 2] = rgba[source];
+      dib[target + 3] = rgba[source + 3];
+    }
+  }
+  return dib;
+}
+
+function writeWindowsIco(sourceSvg, outputPath) {
+  const scratch = join(dirname(outputPath), ".__windows-ico");
+  const sizes = [16, 24, 32, 48, 64, 128, 256];
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch, { recursive: true });
+
+  try {
+    const images = sizes.map((size) => {
+      const pngPath = join(scratch, `${size}.png`);
+      rasterize(sourceSvg, pngPath, size);
+      return decodePngRgba(pngPath);
+    });
+    const dibs = images.map(encodeIcoDib);
+    const output = Buffer.alloc(
+      6 + dibs.length * 16 + dibs.reduce((total, dib) => total + dib.length, 0),
+    );
+    output.writeUInt16LE(0, 0);
+    output.writeUInt16LE(1, 2);
+    output.writeUInt16LE(dibs.length, 4);
+
+    let directoryOffset = 6;
+    let dataOffset = 6 + dibs.length * 16;
+    for (let index = 0; index < images.length; index += 1) {
+      const { width, height } = images[index];
+      const dib = dibs[index];
+      output[directoryOffset] = width === 256 ? 0 : width;
+      output[directoryOffset + 1] = height === 256 ? 0 : height;
+      output.writeUInt16LE(1, directoryOffset + 4);
+      output.writeUInt16LE(32, directoryOffset + 6);
+      output.writeUInt32LE(dib.length, directoryOffset + 8);
+      output.writeUInt32LE(dataOffset, directoryOffset + 12);
+      dib.copy(output, dataOffset);
+      directoryOffset += 16;
+      dataOffset += dib.length;
+    }
+    writeFileSync(outputPath, output);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -307,8 +471,8 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
     rmSync(join(CLIPS_TAURI_DIR, "_actool.plist"), { force: true });
   }
 
-  // .ico — sips writes a PNG-renamed-to-.ico, which Windows tolerates.
-  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.ico"), 256);
+  // Windows rc.exe rejects PNG-compressed ICO entries; emit DIB-backed frames.
+  writeWindowsIco(tmpFav, join(CLIPS_TAURI_ICONS, "icon.ico"));
 
   rmSync(tmpFav);
 
