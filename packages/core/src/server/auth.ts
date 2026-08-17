@@ -2209,30 +2209,32 @@ function magicLinkStoredIdentifier(token: string): string {
 }
 
 function redactMagicLinkUrl(value: string, baseURL?: string): string {
-  try {
-    const url = new URL(value, baseURL);
+  const redactUrl = (url: URL, depth: number): void => {
     for (const key of ["token", "flow_id", "verifier", "state"]) {
       if (url.searchParams.has(key)) url.searchParams.set(key, "[redacted]");
     }
+    if (depth >= 4) return;
     for (const key of [
       "callbackURL",
       "newUserCallbackURL",
       "errorCallbackURL",
+      "return",
     ]) {
       const callback = url.searchParams.get(key);
       if (!callback) continue;
       try {
         const callbackURL = new URL(callback, url.origin);
-        for (const nestedKey of ["flow_id", "verifier", "state"]) {
-          if (callbackURL.searchParams.has(nestedKey)) {
-            callbackURL.searchParams.set(nestedKey, "[redacted]");
-          }
-        }
+        redactUrl(callbackURL, depth + 1);
         url.searchParams.set(key, callbackURL.toString());
       } catch {
         url.searchParams.set(key, "[invalid]");
       }
     }
+  };
+
+  try {
+    const url = new URL(value, baseURL);
+    redactUrl(url, 0);
     return `${url.pathname}${url.search}`;
   } catch {
     return "[invalid-url]";
