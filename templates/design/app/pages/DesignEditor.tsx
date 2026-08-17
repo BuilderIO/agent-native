@@ -53,7 +53,10 @@ import {
   normalizeDocumentTitle,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareTab,
+  readCreativeContextState,
+} from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
   RemoteSelectionRings,
@@ -580,7 +583,7 @@ import {
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import {
   designPrecedentDirectives,
-  probeCreativeContextPrecedent,
+  loadCreativeContextPrecedent,
 } from "./design-editor/creative-context-precedent";
 import {
   adaptAutoTextColorForCrossScreenNode,
@@ -6090,7 +6093,9 @@ function DesignEditor() {
       const precedent =
         pending.skipQuestions === true || shouldExploreVariants
           ? null
-          : await probeCreativeContextPrecedent(prompt);
+          : await loadCreativeContextPrecedent(
+              (await readCreativeContextState()).selectedContextId,
+            );
       if (cancelled) return;
       // A reference screenshot already answers the questions the intake flow
       // asks. Spending the one turn that can see the image on a questionnaire
@@ -6128,7 +6133,10 @@ function DesignEditor() {
               ? [
                   ...designGenerationDirectives(id, pendingDesignSystemId, images.length,),
                   ...(precedent?.status === "strong"
-                    ? designPrecedentDirectives(precedent.matches)
+                    ? designPrecedentDirectives(
+                        precedent.contextId,
+                        precedent.matches,
+                      )
                     : []),
                 ]
               : designIntakeQuestionDirectives(id, pendingDesignSystemId, images.length)),
@@ -32799,7 +32807,9 @@ function DesignEditor() {
             promptRequestsVariantExploration(prompt);
           const precedent = shouldExploreVariants
             ? null
-            : await probeCreativeContextPrecedent(prompt);
+            : await loadCreativeContextPrecedent(
+                (await readCreativeContextState()).selectedContextId,
+              );
           const shouldSkipQuestions =
             shouldExploreVariants || precedent?.status === "strong";
           const context = [
@@ -32815,7 +32825,10 @@ function DesignEditor() {
                 ? [
                     ...designGenerationDirectives(id, designSystemId),
                     ...(precedent?.status === "strong"
-                      ? designPrecedentDirectives(precedent.matches)
+                      ? designPrecedentDirectives(
+                          precedent.contextId,
+                          precedent.matches,
+                        )
                       : []),
                   ]
                 : designIntakeQuestionDirectives(id, designSystemId)),
