@@ -7,7 +7,8 @@ that gathers `args` and calls it.
 **To change what an editor action does, edit the module — not the call site.**
 
 Sibling directories: `../effects/` (subscriptions and autosave loops),
-`../derive/` (pure derivations), and the flat `../*.ts` helpers
+`../derive/` (pure derivations), `../domains/` (whole-domain hooks that own
+state + refs + effects + handlers together), and the flat `../*.ts` helpers
 (`../history.ts`, `../selection-state.ts`, `../pending-edits.ts`,
 `../editor-state.ts`, …).
 

@@ -30,6 +30,7 @@ exhaust your context before you find the code.
 | `design-editor/commands/` | 85 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md` |
 | `design-editor/effects/` | Subscription and autosave loops (collab text, motion autosave, agent selection mirroring) |
 | `design-editor/derive/` | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`) |
+| `design-editor/domains/` | Whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
 | `design-editor/*.ts` | Shared helpers: `history.ts`, `selection-state.ts`, `pending-edits.ts`, `editor-state.ts`, `editor-helpers.ts`, … |
 
 ## Common task → file
@@ -52,6 +53,13 @@ exhaust your context before you find the code.
 
 A `screen-` prefix means the command is addressed by an explicit `screenId`
 (overview canvas or board). The unprefixed twin acts on the focused screen.
+
+Before adding a `domains/` hook, count what it would expose. Past roughly 16
+returned values the hook stops hiding anything and just relocates the wiring —
+measured surfaces for share/export (20), generation (18), and motion (48) are
+all why those still live inline. Also check no input it needs is declared after
+the point where its own outputs are first consumed; responsive-interact fails
+that test and cannot be extracted without changing when values are read.
 
 ## Navigating DesignEditor.tsx when you must
 

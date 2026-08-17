@@ -26,11 +26,14 @@ import {
   journalDesignSaveOutboxEntry,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
-import { runPersistTweakSave } from "@/pages/design-editor/commands/persist-tweak-save";
+import {
+  runPersistTweakSave,
+  type PersistTweakSaveArgs,
+} from "@/pages/design-editor/commands/persist-tweak-save";
 import {
   areTweakSelectionsEqual,
   buildAuthoritativeTweakSelections,
-} from "@/pages/design-editor/editor-helpers";
+} from "@/pages/design-editor/design-data-geometry-utils";
 import {
   createQueuedTweakSave,
   sendJournaledTweakSaveKeepalive,
@@ -38,8 +41,8 @@ import {
 } from "@/pages/design-editor/tweak-save";
 
 interface UseTweaksArgs {
-  acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
-  applyTweaksAsync: (variables: any) => Promise<unknown>;
+  acknowledgeOutboxEntry: PersistTweakSaveArgs["acknowledgeOutboxEntry"];
+  applyTweaksAsync: PersistTweakSaveArgs["applyTweaksAsync"];
   canEditDesign: boolean;
   canEditDesignRef: RefObject<boolean>;
   design: { data?: string | null } | null;
@@ -47,7 +50,7 @@ interface UseTweaksArgs {
   designSaveOperationSourceRef: RefObject<string>;
   id: string | undefined;
   queryClient: QueryClient;
-  t: (key: string, values?: Record<string, unknown>) => string;
+  t: PersistTweakSaveArgs["t"];
   warnChangesWillRetry: () => void;
 }
 
@@ -98,9 +101,10 @@ export function useTweaks({
         await journalDesignSaveOutboxEntry(entry);
         return true;
       } catch {
-        // Do not claim an offline retry exists when IndexedDB itself failed.
-        // The mutation path below distinguishes durable retries from edits
-        // that must stay in this tab's memory.
+        // coercion-ok: `false` is the typed "not journaled" result, never
+        // mistakable for success. Do not claim an offline retry exists when
+        // IndexedDB itself failed — the mutation path uses this to tell
+        // durable retries from edits that must stay in this tab's memory.
         return false;
       }
     },
