@@ -1,6 +1,7 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { fetch as expoFetch } from "expo/fetch";
 
+import { getMobileAnalyticsHeaders } from "@/lib/analytics";
 import { getSessionToken } from "@/lib/session-token-store";
 
 import type { NavigateCommand } from "./navigate-command";
@@ -43,6 +44,7 @@ async function authHeaders(): Promise<Record<string, string>> {
     Authorization: `Bearer ${token}`,
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...(await getMobileAnalyticsHeaders()),
   };
 }
 
@@ -225,20 +227,42 @@ async function listTaggedThreads(
   }));
 }
 
+export interface AllThreadsResult {
+  threads: ChatThreadSummary[];
+  failedAppIds: string[];
+}
+
 /**
  * Cross-app thread history. Each workspace app is its own deployment with its
  * own thread store, so aggregation means fanning out to every app's `/threads`
- * endpoint and tagging each thread with its origin. Per-app failures (an app
- * that is down, or one the session token can't authenticate against) are
- * swallowed so the rest of the history still renders — never fail the whole
- * list because one app rejected. Results are newest-first across all apps.
+ * endpoint and tagging each thread with its origin. A per-app failure is
+ * reported separately from an empty result so the UI never presents a partial
+ * workspace history as complete.
  */
-export async function listAllThreads(): Promise<ChatThreadSummary[]> {
+export async function listAllThreadsWithStatus(): Promise<AllThreadsResult> {
   const apps = chatCapableApps();
   const perApp = await Promise.all(
-    apps.map((app) => listTaggedThreads(app).catch(() => [])),
+    apps.map(async (app) => {
+      try {
+        return { appId: app.id, threads: await listTaggedThreads(app) };
+      } catch {
+        return { appId: app.id, threads: null };
+      }
+    }),
   );
-  return perApp.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+  return {
+    threads: perApp
+      .flatMap((result) => result.threads ?? [])
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+    failedAppIds: perApp
+      .filter((result) => result.threads === null)
+      .map((result) => result.appId),
+  };
+}
+
+/** Backwards-compatible thread-only view for callers that do not need status. */
+export async function listAllThreads(): Promise<ChatThreadSummary[]> {
+  return (await listAllThreadsWithStatus()).threads;
 }
 
 /**
@@ -439,6 +463,24 @@ export async function callAppAction<T>(
   return jsonRequest<T>(
     `/_agent-native/actions/${encodeURIComponent(name)}`,
     { method: "POST", body: args },
+    baseUrl,
+  );
+}
+
+/** GET variant for actions whose declared HTTP surface is query-based. */
+export async function callAppActionGet<T>(
+  name: string,
+  args: Record<string, string | number | boolean> = {},
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<T> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(args)) {
+    query.set(key, String(value));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return jsonRequest<T>(
+    `/_agent-native/actions/${encodeURIComponent(name)}${suffix}`,
+    { method: "GET" },
     baseUrl,
   );
 }

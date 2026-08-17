@@ -129,4 +129,29 @@ describe("ChatFirstPrimaryNavigation", () => {
     expect(newChat?.getAttribute("aria-label")).toBe("New chat");
     expect(newChat?.getAttribute("title")).toBe("New chat");
   });
+
+  it("keeps every collapsed primary action icon-only and accessible", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          collapsed
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+        />,
+      );
+    });
+
+    for (const label of ["New chat", "Integrations", "Scheduled", "Search"]) {
+      const control = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+      expect(control).not.toBeNull();
+      expect(control?.getAttribute("title")).toBe(label);
+      expect(control?.className).toContain("justify-center");
+      expect(control?.className).toContain("px-0");
+      expect(control?.querySelector("span")?.className).toContain("sr-only");
+    }
+  });
 });

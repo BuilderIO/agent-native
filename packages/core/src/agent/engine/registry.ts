@@ -10,6 +10,7 @@
 
 import { createRequire } from "node:module";
 
+import { getAppConfig } from "../../app-config/index.js";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
@@ -392,9 +393,7 @@ function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
  * markers can skip rejected deploy keys.
  */
 export function detectEngineFromEnv(): AgentEngineEntry | null {
-  const preferByo = /^(1|true)$/i.test(
-    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
-  );
+  const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
   if (preferByo) {
     for (const entry of _registry.values()) {
@@ -485,9 +484,7 @@ async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
  * on `missing_credentials`.
  */
 export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
-  const preferByo = /^(1|true)$/i.test(
-    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
-  );
+  const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
   if (preferByo) {
     for (const entry of _registry.values()) {
@@ -582,9 +579,7 @@ export async function detectEngineFromUserSecrets(
     return true;
   };
 
-  const preferByo = /^(1|true)$/i.test(
-    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
-  );
+  const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
   if (preferByo) {
     for (const entry of _registry.values()) {
@@ -1112,7 +1107,7 @@ export async function resolveEngine(
   }
 
   // 4. Env var — explicit engine name override
-  const envEngine = process.env.AGENT_ENGINE;
+  const envEngine = getAppConfig().agent.engine;
   if (envEngine) {
     const entry = _registry.get(envEngine);
     if (entry) {

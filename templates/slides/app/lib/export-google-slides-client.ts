@@ -15,6 +15,40 @@ export type GoogleSlidesExportResult =
   /** The export action should send the user through Google OAuth first. */
   | { url: null; requiresConnection: true; reason: string };
 
+export interface DeckPptxFile {
+  blob: Blob;
+  filename: string;
+}
+
+/**
+ * Renders the deck through the vector-capable server exporter — the only path
+ * that emits the source file's shapes as real `custGeom` geometry. Its
+ * positioned-object guard is rethrown verbatim so the caller can show it
+ * instead of quietly handing Google the rasterized browser export.
+ */
+export async function fetchDeckPptxFromServer(
+  deckId: string,
+  fallbackError: string,
+): Promise<DeckPptxFile> {
+  const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deckId }),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+    } | null;
+    throw new Error(payload?.error || payload?.message || fallbackError);
+  }
+  const disposition = res.headers.get("content-disposition");
+  return {
+    blob: await res.blob(),
+    filename: disposition?.match(/filename="?([^"]+)"?/i)?.[1] ?? "deck.pptx",
+  };
+}
+
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -37,12 +71,17 @@ export async function exportDeckToGoogleSlides(
   deckTitle: string,
   slides: GoogleSlidesExportSlide[],
   aspectRatio?: AspectRatio,
+  /**
+   * Overrides the browser exporter. Source-imported decks pass
+   * `fetchDeckPptxFromServer`: dom-to-pptx ships no custGeom support, so the
+   * browser build would upload PNG rasterizations of the very shapes Google
+   * Slides can otherwise keep editable.
+   */
+  buildPptx?: () => Promise<DeckPptxFile>,
 ): Promise<GoogleSlidesExportResult> {
-  const { blob, filename } = await buildDeckPptxBlob(
-    deckTitle,
-    slides,
-    aspectRatio,
-  );
+  const { blob, filename } = await (buildPptx
+    ? buildPptx()
+    : buildDeckPptxBlob(deckTitle, slides, aspectRatio));
 
   const form = new FormData();
   form.append("file", blob, filename);

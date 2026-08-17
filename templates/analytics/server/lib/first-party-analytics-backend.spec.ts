@@ -26,6 +26,7 @@ import {
   backfillFirstPartyAnalyticsBatch,
   createFirstPartyAnalyticsInserter,
   getFirstPartyAnalyticsBackend,
+  getFirstPartyAnalyticsBigQueryMetrics,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   renderFirstPartyAnalyticsBigQuerySql,
@@ -126,6 +127,66 @@ describe("first-party BigQuery backend", () => {
     expect(sql).not.toMatch(/to_char|INTERVAL '30 days'/i);
   });
 
+  it("keeps event_date comparisons typed as BigQuery dates", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM (SELECT * FROM analytics_events WHERE event_date <= ?) AS analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
+      ["2026-08-14"],
+      table,
+    );
+
+    expect(scopedDate).toContain("event_date <= DATE '2026-08-14'");
+    expect(scopedDate).toContain(
+      "event_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+    );
+    expect(scopedDate).not.toContain("event_date <= '2026-08-14'");
+  });
+
+  it("keeps derived cohort_date comparisons typed as BigQuery dates", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
+      "WITH base AS (SELECT event_date AS cohort_date FROM analytics_events) SELECT * FROM base WHERE base.cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND base.cohort_date <= ?",
+      ["2026-08-14"],
+      table,
+    );
+
+    expect(scopedDate).toContain(
+      "base.cohort_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+    );
+    expect(scopedDate).toContain("base.cohort_date <= DATE '2026-08-14'");
+    expect(scopedDate).not.toContain("cohort_date >= FORMAT_DATE");
+  });
+
+  it("removes redundant COALESCE arguments from dashboard SQL", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT COALESCE(template, template, app) AS value FROM analytics_events",
+      [],
+      table,
+    );
+
+    expect(rendered).toContain("COALESCE(template, app)");
+    expect(rendered).not.toContain("COALESCE(template, template, app)");
+  });
+
   it("uses the Builder production project and isolated raw table by default", async () => {
     await expect(getFirstPartyAnalyticsTable()).resolves.toEqual({
       projectId: "builder-3b0a2",
@@ -134,6 +195,31 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("compares BigQuery retention metrics against the copied non-http scope", async () => {
+    runQuery.mockResolvedValue({
+      rows: [
+        {
+          event_count: "12",
+          daily_rollup_rows: "3",
+          first_event_date: "2026-07-01",
+          last_event_date: "2026-08-01",
+        },
+      ],
+    });
+
+    await expect(
+      getFirstPartyAnalyticsBigQueryMetrics(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        { includeLegacyOwnerRows: false, startDate: "2026-07-01" },
+      ),
+    ).resolves.toMatchObject({ eventCount: 12, dailyRollupRows: 3 });
+
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.stringContaining("event_name IS DISTINCT FROM 'http.response'"),
+    );
   });
 
   it("uses separate indexed tenant branches for the backfill cursor", async () => {

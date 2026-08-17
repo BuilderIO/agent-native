@@ -49,11 +49,14 @@ function warnA2AUnauthOnce(): void {
 /**
  * Result of verifying an inbound A2A JWT. `email` is the caller identity from
  * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
- * the verified `org_domain` claim when present.
+ * the verified `org_domain` claim when present, and `orgId` mirrors the
+ * optional verified `org_id` claim used when a sender knows its exact org but
+ * cannot resolve that org's domain.
  */
 export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
+  orgId?: string;
 }
 
 function addSecretCandidate(
@@ -236,9 +239,14 @@ export async function verifyA2AToken(
           new TextEncoder().encode(secret),
           verifyOptions,
         );
+        const orgId =
+          typeof payload.org_id === "string" && payload.org_id.trim()
+            ? payload.org_id.trim()
+            : undefined;
         return {
           email: (payload.sub as string) ?? null,
           orgDomain: (payload.org_domain as string) ?? null,
+          ...(orgId ? { orgId } : {}),
         };
       } catch {
         // Try the next candidate without leaking which secret failed.

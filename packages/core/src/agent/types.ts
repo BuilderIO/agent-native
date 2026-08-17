@@ -144,6 +144,11 @@ export interface AgentChatScope {
   label?: string;
 }
 
+export interface AgentChatHarnessRequest {
+  /** Hosted tools-only runtime selected in the production app picker. */
+  runtime: "claude-code" | "codex" | "pi" | "opencode";
+}
+
 export interface AgentChatRequest {
   message: string;
   /** Stable identity of a durable queued message, used to reject replayed delivery. */
@@ -239,6 +244,8 @@ export interface AgentChatRequest {
   browserTabId?: string;
   /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
   scope?: AgentChatScope | null;
+  /** Optional hosted tools-only harness selection. */
+  harness?: AgentChatHarnessRequest;
   /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
   /**

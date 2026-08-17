@@ -696,6 +696,7 @@ export function useBlockFieldEditor({
   content: string;
   editorResetVersion: number;
   onChange: (markdown: string) => void;
+  onSaveContent: (markdown: string) => Promise<boolean>;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -876,7 +877,16 @@ export function useBlockFieldEditor({
     controllerRef.current?.change(markdown);
   }
 
-  return { content, editorResetVersion, onChange };
+  async function onSaveContent(markdown: string) {
+    setContent(markdown);
+    const controller = controllerRef.current;
+    if (!controller) return false;
+    controller.change(markdown);
+    await controller.flush();
+    return controller.lastSaved === markdown;
+  }
+
+  return { content, editorResetVersion, onChange, onSaveContent };
 }
 
 /**
@@ -904,15 +914,16 @@ function AdditionalBlockEditor({
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
-  const { content, editorResetVersion, onChange } = useBlockFieldEditor({
-    documentId,
-    propertyId,
-    initialContent,
-    initialRevision: property.blocksField?.revision ?? 0,
-    save: setProperty.mutateAsync,
-    onRevisionConflict: () =>
-      toast.error(t("editor.blocksFieldRevisionConflict")),
-  });
+  const { content, editorResetVersion, onChange, onSaveContent } =
+    useBlockFieldEditor({
+      documentId,
+      propertyId,
+      initialContent,
+      initialRevision: property.blocksField?.revision ?? 0,
+      save: setProperty.mutateAsync,
+      onRevisionConflict: () =>
+        toast.error(t("editor.blocksFieldRevisionConflict")),
+    });
 
   return (
     <VisualEditor
@@ -920,6 +931,7 @@ function AdditionalBlockEditor({
       documentId={documentId}
       content={content}
       onChange={onChange}
+      onSaveContent={onSaveContent}
       editable={canEdit}
       localFileMode
     />

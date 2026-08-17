@@ -1,4 +1,12 @@
 export {
+  defineAppConfig,
+  getAppConfig,
+  resetAppConfigForTests,
+  appConfigSchema,
+  type AppConfig,
+  type AppConfigInput,
+} from "../app-config/index.js";
+export {
   createServer,
   type CreateServerOptions,
   type EnvKeyConfig,
@@ -63,6 +71,7 @@ export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
+  registerAuthPublicPaths,
   getSession,
   COOKIE_NAME,
   addSession,
@@ -89,6 +98,7 @@ export {
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
+export { hasGoogleAuthIdentity } from "./better-auth-instance.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,

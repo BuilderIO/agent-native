@@ -7,6 +7,10 @@ function lastErrorMessage(fallback: string): string {
   return chrome.runtime.lastError?.message || fallback;
 }
 
+export function isDebuggerNotAttachedError(message: string): boolean {
+  return /debugger\s+is\s+not\s+attached/i.test(message);
+}
+
 export function attachDebugger(source: DebuggerSource): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.debugger.attach(source, PROTOCOL_VERSION, () => {
@@ -18,8 +22,17 @@ export function attachDebugger(source: DebuggerSource): Promise<void> {
 }
 
 export function detachDebugger(source: DebuggerSource): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.debugger.detach(source, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.debugger.detach(source, () => {
+      const error = chrome.runtime.lastError;
+      if (!error) {
+        resolve();
+        return;
+      }
+      const message = error.message ?? "Could not detach from tab.";
+      if (isDebuggerNotAttachedError(message)) resolve();
+      else reject(new Error(message));
+    });
   });
 }
 
@@ -43,6 +56,30 @@ export function getTab(tabId: number): Promise<chrome.tabs.Tab> {
       if (chrome.runtime.lastError || !tab)
         reject(new Error(lastErrorMessage("Tab no longer exists.")));
       else resolve(tab);
+    });
+  });
+}
+
+export function createBackgroundTab(url: string): Promise<chrome.tabs.Tab> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create({ url, active: false }, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        reject(
+          new Error(lastErrorMessage("Could not create a background tab.")),
+        );
+      } else {
+        resolve(tab);
+      }
+    });
+  });
+}
+
+export function removeTab(tabId: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.remove(tabId, () => {
+      if (chrome.runtime.lastError)
+        reject(new Error(lastErrorMessage("Could not remove tab.")));
+      else resolve();
     });
   });
 }

@@ -115,9 +115,10 @@ export function ShareCopyRow({
   );
 }
 
-export interface ShareAgentsSectionProps {
+export interface ShareDisclosureSectionProps {
   children: ReactNode;
-  label?: ReactNode;
+  label: ReactNode;
+  fallbackLabel?: string;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -125,20 +126,20 @@ export interface ShareAgentsSectionProps {
   contentClassName?: string;
 }
 
-/** Shared expandable boundary for agent-readable sharing details. */
-export function ShareAgentsSection({
+/** Shared expandable boundary for optional share-access details. */
+export function ShareDisclosureSection({
   children,
-  label = "Share with agents",
+  label,
+  fallbackLabel = "Share details",
   defaultOpen = false,
   open,
   onOpenChange,
   className,
   contentClassName,
-}: ShareAgentsSectionProps) {
+}: ShareDisclosureSectionProps) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const isOpen = open ?? internalOpen;
-  const accessibleLabel =
-    typeof label === "string" ? label : "Share with agents";
+  const accessibleLabel = typeof label === "string" ? label : fallbackLabel;
   const handleOpenChange = (nextOpen: boolean) => {
     if (open === undefined) setInternalOpen(nextOpen);
     onOpenChange?.(nextOpen);
@@ -181,5 +182,43 @@ export function ShareAgentsSection({
         {children}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+export type ShareAgentsSectionProps = Omit<
+  ShareDisclosureSectionProps,
+  "label" | "fallbackLabel"
+> & { label?: ReactNode };
+
+/** Shared expandable boundary for agent-readable sharing details. */
+export function ShareAgentsSection({
+  label = "Share with agents",
+  ...props
+}: ShareAgentsSectionProps) {
+  return (
+    <ShareDisclosureSection
+      {...props}
+      label={label}
+      fallbackLabel="Share with agents"
+    />
+  );
+}
+
+export type SharePeopleSectionProps = Omit<
+  ShareDisclosureSectionProps,
+  "label" | "fallbackLabel"
+> & { label?: ReactNode };
+
+/** Shared expandable boundary for individual people access. */
+export function SharePeopleSection({
+  label = "People with access",
+  ...props
+}: SharePeopleSectionProps) {
+  return (
+    <ShareDisclosureSection
+      {...props}
+      label={label}
+      fallbackLabel="People with access"
+    />
   );
 }

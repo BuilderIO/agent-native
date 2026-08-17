@@ -102,9 +102,11 @@ describe("vault authorization", () => {
       execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
     });
 
-    await expect(assertCanManageVault()).rejects.toThrow(
-      "Only organization owners and admins can manage the workspace vault.",
-    );
+    await expect(assertCanManageVault()).rejects.toMatchObject({
+      message:
+        "Only organization owners and admins can manage the workspace vault.",
+      statusCode: 403,
+    });
   });
 
   it("rejects organization members before listing or reading grants", async () => {

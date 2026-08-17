@@ -253,7 +253,13 @@ export function CreateAppFlow({
         setStatusMessage("Sent to Builder chat.");
         onClose?.();
       } else if (isDevMode) {
-        sendToAgentChat({ message, submit: true, type: "code", newTab: true });
+        sendToAgentChat({
+          message,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
         setStatusMessage("Sent to the local agent.");
         onClose?.();
       } else {

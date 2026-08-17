@@ -1,0 +1,226 @@
+---
+title: "Access और Authorization"
+description: "कौन किसी action को कॉल कर सकता है: exposure flags (agentTool, toolCallable), ctx-आधारित scoping, accessFilter/assertAccess, और authorize गार्ड।"
+---
+
+# Access और Authorization
+
+पांच सेटिंग्स तय करती हैं कि किसी action को कौन कॉल कर सकता है: एजेंट, फ्रंटएंड, कोई extension, कोई बाहरी API कॉलर, या पहले किसी मानव के अनुमोदन के बिना कोई नहीं। अधिकतर actions को इनमें से किसी को छूने की कभी ज़रूरत नहीं पड़ती, क्योंकि defaults पहले से सामान्य UI-और-एजेंट उपयोग के अनुकूल हैं।
+
+### Exposure flags {#exposure-flags}
+
+सभी पांच flags डिफ़ॉल्ट रूप से permissive वैल्यू पर होते हैं, इसलिए आप किसी एक को तभी सेट करते हैं जब आपको किसी विशिष्ट सतह को टाइट करने की आवश्यकता हो। नीचे दी गई तालिका एक त्वरित सारांश है। इसके बाद के सेक्शन हर flag की एक ज़रूरी जानकारी जोड़ते हैं।
+
+| Flag            | डिफ़ॉल्ट      | प्रतिबंधात्मक वैल्यू → कौन अभी भी कॉल कर सकता है                                     | सामान्य उपयोग                                                          |
+| --------------- | ------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` → केवल UI, HTTP, और CLI (मॉडल, MCP, और A2A से छिपा हुआ)                      | UI-only या प्रोग्रामेटिक actions जिन्हें टूल स्लॉट नहीं लेना चाहिए     |
+| `toolCallable`  | `true`        | `false` → sandboxed extension iframe ब्रिज **को छोड़कर** सब कुछ (403)                | संवेदनशील account या org बदलाव (account delete करना, membership बदलना) |
+| `publicAgent`   | off (private) | `{ expose: true }` → action को **public** MCP/A2A/OpenAPI सतहों में जोड़ता है        | सुरक्षित read या ingest टूल जिन्हें authentication की आवश्यकता नहीं    |
+| `needsApproval` | `false`       | `true` → एजेंट **रुक जाता है**, और किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होगा | परिणामी side effects (email भेजना, कार्ड चार्ज करना, delete करना)      |
+| `authorize`     | none          | एक गार्ड फ़ंक्शन → **हर** सतह पर केवल वे कॉलर्स जिन्हें यह स्वीकार करता है           | किसी भूमिका तक प्रतिबंधित ऑपरेशंस (per-app RBAC, admin-only ऑप्स)      |
+
+ये flags स्वतंत्र हैं, इसलिए एक को सेट करने से बाकी नहीं बदलते। `agentTool` नियंत्रित करता है कि मॉडल क्या देखता है, नीचे [मॉडल से छिपाएं](#agent-tool) देखें। `toolCallable` केवल extension iframe को नियंत्रित करता है, नीचे [Extension iframes को ब्लॉक करें](#tool-callable) देखें। `publicAgent` एक opt-in public सतह जोड़ता है, और कोई public web route कभी public tool exposure का संकेत नहीं देता, नीचे [Public एजेंट्स के लिए एक्सपोज़ करें](#public-agent) देखें। `needsApproval` कॉल पहले से किए जाने के बाद execution को गेट करता है, नीचे [मानव अनुमोदन की आवश्यकता](#needs-approval) देखें। `authorize` तय करता है कि क्या यह कॉलर बिल्कुल भी action चला सकता है, हर dispatch पथ पर, `run()` में प्रवेश करने से पहले, नीचे [भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें](#authorize) देखें।
+
+## मॉडल से छिपाएं {#agent-tool}
+
+डिफ़ॉल्ट रूप से, हर action एक कॉल करने योग्य एजेंट टूल है। इसे हर एजेंट टूल लिस्ट से हटाने के लिए `agentTool: false` सेट करें, जबकि इसे फ्रेमवर्क के auth और action सतह के पीछे रखते हुए। यह UI (`useActionMutation()` या `callAction()`), CLI, और `/_agent-native/actions/<name>` से कॉल करने योग्य बना रहता है:
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+इसका उपयोग तब करें जब आप कोई UI-only या पूरी तरह प्रोग्रामेटिक action जोड़ते हैं, या जब UI किसी ऐसे action का उपयोग करना बंद कर देता है जो अन्यथा मॉडल के सामने एक्सपोज़्ड रहता।
+
+## Extension iframes को ब्लॉक करें {#tool-callable}
+
+Extensions ([sandboxed iframes में Alpine.js mini-apps](/docs/extensions)) `appAction(name, params)` के माध्यम से actions को कॉल करते हैं, viewer की अपनी permissions, secrets, और SQL scope के साथ चलते हुए। संवेदनशील ऑपरेशंस के लिए, डिफ़ॉल्ट रूप से यह बहुत अधिक trust है। extension ब्रिज को 403 लौटाने के लिए `toolCallable: false` सेट करें, जबकि action को UI, एजेंट, CLI, MCP, और A2A से कॉल करने योग्य बनाए रखते हुए:
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+इसका उपयोग उन actions के लिए करें जो किसी account या org को delete या transfer करते हैं, auth स्थिति बदलते हैं, org membership संशोधित करते हैं, या share access देते हैं। फ्रेमवर्क के built-in `share-resource`, `unshare-resource`, और `set-resource-visibility` actions पहले से ही opt out हैं। फ्रेमवर्क इसे एक header के साथ लागू करता है जिसे host iframe कॉल पर सेट करता है, जिसे कोई iframe नकली नहीं बना सकता। सामान्य UI, एजेंट, CLI, MCP, और A2A कॉल प्रभावित नहीं होते। विवरण के लिए [Security](/docs/security) देखें।
+
+## Public एजेंट्स के लिए एक्सपोज़ करें {#public-agent}
+
+हर action डिफ़ॉल्ट रूप से किसी भी public protocol सतह से बाहर रहता है, यहां तक कि वह भी जिसका web route public है। किसी page को crawlable बनाना कभी किसी tool को एक्सपोज़ नहीं करता। किसी एक सुरक्षित action को public MCP, A2A, और OpenAPI सतहों में opt करने के लिए `publicAgent: { expose: true, readOnly: true, ... }` सेट करें:
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+इसका उपयोग केवल सुरक्षित, read-only, या ingest-only actions के लिए करें, वो प्रकार जिसे आप किसी अजनबी को साइन-इन किए बिना कॉल करने देंगे। `requiresAuth: false` public सतह को बताता है कि यह action authentication से पहले लिस्ट करने के लिए सुरक्षित है। इसे `true` छोड़ें उस action के लिए जिसे अभी भी किसी connected कॉलर की पहचान चाहिए, जैसे per-account ingest टूल। इसमें opt होने वाले पूरे catalog और auth model के लिए [External Agents](/docs/external-agents) और [MCP Protocol](/docs/mcp-protocol) देखें।
+
+## मानव अनुमोदन की आवश्यकता {#needs-approval}
+
+मुट्ठी भर actions एजेंट को अपने आप चलाने देने के लिए बहुत परिणामी हैं, जैसे email भेजना, कार्ड चार्ज करना, या account delete करना। `defineAction()` पर `needsApproval: true` (या एक predicate `(args, ctx) => boolean | Promise<boolean>`) सेट करें, और लूप `run()` से पहले रुक जाता है, जिसके लिए किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होता है। डिफ़ॉल्ट **off** है, और लगभग हर action को वैसा ही रहना चाहिए।
+
+predicate API, `approval_required` इवेंट, और पूरे end-to-end flow के लिए [Human-in-the-Loop Approvals](/docs/human-approval) देखें।
+
+## भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें {#authorize}
+
+`authorize` एक विशिष्ट सवाल का जवाब देता है: **क्या यह कॉलर बिल्कुल भी यह ऑपरेशन चला सकता है?** इसे एक गार्ड फ़ंक्शन दें, और यह हर कॉलर पर `run()` से पहले चलता है: एजेंट टूल, HTTP, फ्रंटएंड, MCP, A2A, और CLI।
+
+`defineAppRoles()` के साथ एक बार भूमिका शब्दावली घोषित करें:
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+फिर स्वीकृत भूमिकाओं की एक स्पष्ट सूची के साथ action को गार्ड करें:
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+गार्ड `run()` को स्वयं wrap करता है, action के किसी अन्य हिस्से से जुड़ने के बजाय। ऐसा इसलिए है क्योंकि `run()` वह एक चीज़ है जिससे सभी छह dispatch साइट्स गुज़रती हैं, इसलिए किसी कॉलर के लिए जांच पास किए बिना बॉडी तक पहुंचने का कोई तरीका नहीं है। एक गार्ड जो throw करता है वह अपने खुद के error मैसेज के साथ कॉल को अस्वीकार करता है। एक गार्ड जो `false` लौटाता है वह एक सामान्य 403 के साथ कॉल को अस्वीकार करता है। कोई और चीज़, `undefined` सहित, कॉल की अनुमति देती है। क्योंकि जांच को एक कॉलर पहचान चाहिए, बिना user email वाला एक unattended CLI या cron invocation पास होने देने के बजाय अस्वीकृत कर दिया जाता है।
+
+Wrappers इस क्रम में compose होते हैं:
+
+```text
+इनपुट वैलिडेट करें -> authorize -> run -> आउटपुट वैलिडेट करें -> audit
+```
+
+Authorization input validation के _अंदर_ बैठता है, इसलिए `args` का निरीक्षण करने वाले गार्ड को वही parsed, type-checked वैल्यू मिलती है जो `run()` को मिलती है, न कि कॉलर द्वारा भेजा गया कोई भी raw shape। Auditing सबसे बाहरी है, इसलिए कोई denial भी दर्ज होता है।
+
+`requireAny()` definition समय पर विफल होता है, request समय पर नहीं। इसे बिना किसी भूमिका के, या घोषित सूची के बाहर किसी भूमिका के साथ कॉल करने पर, मॉड्यूल लोड होते ही throw हो जाता है। इस तरह कोई गलती, जैसे किसी छूटे हुए argument के साथ `authorize: coachAccess.requireAny()`, ठीक वहीं टूट जाती है जहां वह हुई, बजाय बाद में एक अस्पष्ट 403 के रूप में सामने आने के।
+
+### Actions में Access control {#access-control}
+
+`authorize` केवल यह जवाब देता है कि क्या कॉलर बिल्कुल भी ऑपरेशन चला सकता है। यह इस बारे में कुछ नहीं कहता कि वे किन rows को छू सकते हैं, वह एक अलग, row-level जांच है। `ownableColumns()` के साथ बनाई गई और `registerShareableResource()` के साथ रजिस्टर की गई एक टेबल (देखें [Sharing](/docs/sharing#building)) को इसके लिए दो हेल्पर मिलते हैं: `accessFilter()` किसी list या read query को उन rows तक स्कोप करता है जिन्हें कॉलर देख सकता है, और `assertAccess()` किसी write से पहले throw करता है अगर कॉलर के पास उस row पर आवश्यक भूमिका नहीं है।
+
+किसी list या read action की query के अंदर `accessFilter()` का उपयोग करें:
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+किसी update या delete से पहले `assertAccess()` का उपयोग करें, क्योंकि केवल एक `WHERE` clause उस row पर write को नहीं रोक सकता जिसे वह बाहर करता है:
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+एक create action किसी भी हेल्पर को कॉल नहीं करता। इसे केवल नई row insert करते समय request context से `ownerEmail` (और `orgId`) को stamp करना होता है, क्योंकि access जांचने के लिए अभी कोई मौजूदा row नहीं है। पूरे registration और create पैटर्न के लिए [Sharing](/docs/sharing#building) देखें, और ऊपर उपयोग किए गए `ctx` दूसरे argument की पूरी संरचना के लिए [Run Context](/docs/actions-run-context) देखें।
+
+तीनों mechanism आपस में बदले नहीं जा सकते:
+
+| Mechanism                         | यह किस सवाल का जवाब देता है                                    | किस पर लागू होता है                 |
+| --------------------------------- | -------------------------------------------------------------- | ----------------------------------- |
+| `authorize`                       | क्या यह कॉलर बिल्कुल भी ऑपरेशन कर सकता है?                     | सभी छह dispatch साइट्स              |
+| `needsApproval`                   | क्या किसी मानव को इस विशिष्ट अनुमत कॉल को अनुमोदित करना चाहिए? | केवल एजेंट लूप                      |
+| `accessFilter()`/`assertAccess()` | यह अनुमत कॉलर कौन-सी rows देख या लिख सकता है?                  | `run()` के अंदर, प्रति query या row |
+
+एक प्रतिबंधित write action को आमतौर पर `authorize` और `assertAccess()` दोनों चाहिए होते हैं। पहला non-coaches को ऑपरेशन से बाहर रखता है। दूसरा किसी coach को किसी दूसरे org के plan से बाहर रखता है। `needsApproval` एक अलग axis है। यह कभी प्रतिबंधित नहीं करता कि कौन कॉल कर सकता है, केवल यह कि क्या एजेंट बिना निगरानी के आगे बढ़ सकता है।
+
+ऊपर दिया गया `coachAccess` `defineAppRoles()` से आता है, org membership पर per-app भूमिका overlay। भूमिका मॉडल और इसकी गारंटियों के लिए [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) देखें।
+
+## Audit logging {#audit}
+
+हर mutating action अपने आप ऑडिट होता है। फ्रेमवर्क रिकॉर्ड करता है कि इसे किसने चलाया, कब, किस सतह से, और, जब यह एजेंट था, किस thread और turn से, credential-redacted इनपुट के साथ। Read-only (`GET`) actions को छोड़ दिया जाता है। इसके लिए आपको कोई कोड नहीं लिखना पड़ता। यह `defineAction()` के अंदर अपने आप होता है।
+
+capture को fine-tune करने के लिए ही एक `audit` block जोड़ें। सबसे सामान्य कारण उस resource को घोषित करना है जिसे action ने बदला, ताकि बदलाव उस resource owner के trail में दिखाई दे:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+कुछ अन्य विकल्प। `audit: { onRead: true }` किसी संवेदनशील read को ऑडिट करता है, जैसे कोई secret access या bulk export। `audit: { enabled: false }` किसी noisy write को बाहर करता है। `audit: { recordInputs: false }` arguments को capture करना छोड़ देता है। built-in `list-audit-events` और `get-audit-event` actions के साथ trail को वापस पढ़ें। पूरे विवरण के लिए [Audit Log](/docs/audit-log) देखें।
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/actions-overview) — action क्या है और hello-world वॉकथ्रू
+- [**Actions परिभाषित करना**](/docs/actions-defining) — `defineAction()` की संरचना, schema, और HTTP config
+- [**Run Context**](/docs/actions-run-context) — `ctx` argument जिसे ये जांचें पढ़ती हैं
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — `needsApproval` गेट विस्तार से
+- [**Audit Log**](/docs/audit-log) — अपने आप बनने वाला who-changed-what trail
+- [**Security**](/docs/security) — `accessFilter`/`assertAccess` और extension iframe trust boundary
+- [**Sharing**](/docs/sharing) — फ्रेमवर्क sharing सिस्टम जो इन हेल्पर्स को समर्थन देता है

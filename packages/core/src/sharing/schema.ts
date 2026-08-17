@@ -76,7 +76,10 @@ export function createSharesTable(tableName: string) {
     })
       .notNull()
       .default("viewer"),
-    createdBy: text("created_by").notNull(),
+    // Older app databases may already contain share rows from before this
+    // audit field existed. A literal default lets additive schema repair add
+    // the column without inventing an actor for those historical rows.
+    createdBy: text("created_by").notNull().default(""),
     createdAt: text("created_at").notNull().default(now()),
   });
 }

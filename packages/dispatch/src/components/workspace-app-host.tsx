@@ -12,11 +12,13 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { IconArrowLeft, IconClockHour4 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
+  mergeChatFirstWorkspaceApps,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
@@ -37,6 +39,25 @@ interface EmbedSessionInput {
   path?: string;
   url?: string;
   chrome: "minimal";
+}
+
+interface GrantedWorkspaceAppSummary {
+  id: string;
+  name: string;
+  url?: string | null;
+}
+
+interface GrantedWorkspaceAppsResult {
+  apps: GrantedWorkspaceAppSummary[];
+}
+
+type WorkspaceAppTheme = "light" | "dark";
+function buildWorkspaceAppThemeUpdate(theme: WorkspaceAppTheme) {
+  return {
+    type: "agent-native-theme-update" as const,
+    theme,
+    isDark: theme === "dark",
+  };
 }
 
 export function buildChatFirstEmbedSessionInput(
@@ -68,10 +89,29 @@ export function WorkspaceAppFrame({
   chatSidebar = false,
   copy = defaultChatFirstCopy,
 }: WorkspaceAppFrameProps) {
+  const { resolvedTheme } = useTheme();
+  const theme: WorkspaceAppTheme =
+    resolvedTheme === "dark" || resolvedTheme === "light"
+      ? resolvedTheme
+      : typeof document !== "undefined" &&
+          document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light";
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
+  const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
+  const postThemeToFrame = useCallback(() => {
+    embedFrameRef.current?.contentWindow?.postMessage(
+      buildWorkspaceAppThemeUpdate(theme),
+      "*",
+    );
+  }, [theme]);
+  const handleFrameLoad = useCallback(() => {
+    postThemeToFrame();
+    if (isDirectFallback) setEmbedError(null);
+  }, [isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
@@ -108,6 +148,7 @@ export function WorkspaceAppFrame({
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
+    setIsDirectFallback(false);
     const createSession = workspaceSsoEnabled
       ? createWorkspaceSsoEmbedSession
       : createEmbedSession;
@@ -118,15 +159,25 @@ export function WorkspaceAppFrame({
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        if (workspaceSsoEnabled) {
+          // An SSO-enabled pane must never fall back to the child app's
+          // unauthenticated shell. Keep the parent-owned retry surface in
+          // place so a transient exchange failure cannot expose another
+          // login form.
+          setIsDirectFallback(false);
+          setEmbedUrl(null);
+          setEmbedError(error);
+          return;
+        }
+        setIsDirectFallback(true);
         setEmbedUrl(
           workspaceAppDirectHref(
             { path: app.path ?? "", url: app.url },
             embedPath ?? "/",
           ),
         );
-        setEmbedError(
-          cause instanceof Error ? cause : new Error(String(cause)),
-        );
+        setEmbedError(error);
       });
     return () => {
       cancelled = true;
@@ -158,6 +209,10 @@ export function WorkspaceAppFrame({
       window.removeEventListener("message", handleEmbedSessionExpired);
   }, [embedUrl]);
 
+  useEffect(() => {
+    postThemeToFrame();
+  }, [embedUrl, postThemeToFrame]);
+
   const appPane = (
     <ChatFirstAppPane
       app={app}
@@ -182,6 +237,7 @@ export function WorkspaceAppFrame({
           src={url}
           title={title ?? app.name}
           ref={embedFrameRef}
+          onLoad={handleFrameLoad}
           referrerPolicy="no-referrer"
           allow="clipboard-read; clipboard-write"
           className="h-full w-full border-0 bg-background"
@@ -219,23 +275,58 @@ export function WorkspaceAppFrame({
 
 export function WorkspaceAppHost({ appId }: { appId?: string }) {
   const t = useT();
-  const appsQuery = useActionQuery("list-workspace-apps", {
-    includeAgentCards: false,
-  });
-  const { data: apps = [], isLoading } = appsQuery;
+  const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false },
+  );
+  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
+    "list_apps",
+    {},
+  );
+  const apps = useMemo(() => {
+    const merged = new Map<string, WorkspaceAppSummary>();
+
+    for (const app of mergeChatFirstWorkspaceApps(workspaceAppsQuery.data)) {
+      merged.set(app.id.trim().toLowerCase(), app);
+    }
+    for (const app of grantedAppsQuery.data?.apps ?? []) {
+      const id = app.id.trim();
+      if (!id || merged.has(id.toLowerCase())) continue;
+      merged.set(id.toLowerCase(), {
+        id,
+        name: app.name.trim() || id,
+        path: "",
+        url: app.url?.trim() || null,
+        status: "ready",
+      });
+    }
+
+    return [...merged.values()];
+  }, [grantedAppsQuery.data?.apps, workspaceAppsQuery.data]);
   const app = useMemo(
     () =>
-      (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
+      apps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
     [appId, apps],
   );
+  const isLoading = workspaceAppsQuery.isLoading || grantedAppsQuery.isLoading;
+  const queryError = workspaceAppsQuery.isError
+    ? workspaceAppsQuery.error
+    : grantedAppsQuery.isError
+      ? grantedAppsQuery.error
+      : null;
 
-  if (appsQuery.isError) {
+  if (queryError && !app) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center p-6">
         <div className="w-full max-w-2xl">
           <ActionQueryError
-            error={appsQuery.error}
-            onRetry={() => void appsQuery.refetch()}
+            error={queryError}
+            onRetry={() => {
+              void workspaceAppsQuery.refetch();
+              void grantedAppsQuery.refetch();
+            }}
           />
         </div>
       </div>

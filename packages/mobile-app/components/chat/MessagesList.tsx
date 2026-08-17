@@ -1,20 +1,22 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { IconArrowDown } from "@tabler/icons-react-native";
 import { useCallback, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { KeyboardGestureArea } from "react-native-keyboard-controller";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
+import { shouldShowActivityRow } from "@/lib/agent-chat/presentation";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import type { AgentChatController } from "@/lib/agent-chat/use-agent-chat";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 import {
   ActivityRow,
   AssistantMessage,
   ErrorRow,
-  PulsingText,
   UserMessage,
 } from "./MessageBubbles";
+import { ShineText } from "./ShineText";
 
 type Row =
   | { kind: "message"; message: ChatMessage }
@@ -27,7 +29,11 @@ function buildRows(chat: AgentChatController): Row[] {
     kind: "message",
     message,
   }));
-  if (chat.isStreaming && chat.activity) {
+  if (
+    chat.isStreaming &&
+    chat.activity &&
+    shouldShowActivityRow(chat.activity, chat.messages)
+  ) {
     rows.push({ kind: "activity", label: chat.activity });
   } else if (chat.isStreaming) {
     // No assistant output and no activity yet — mirror the web's pulsing
@@ -56,9 +62,11 @@ export function MessagesList({
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
 }) {
+  const { foreground } = useMobileThemeColors();
   const listRef = useRef<LegendListRef>(null);
   const [awayFromEnd, setAwayFromEnd] = useState(false);
   const rows = buildRows(chat);
+  const lastMessageId = chat.messages.at(-1)?.id;
   // Streaming turns animate in; opening an existing thread must not replay
   // entry animations for the whole transcript.
   const animateFromIndex = useRef(chat.messages.length);
@@ -72,7 +80,7 @@ export function MessagesList({
       if (item.kind === "thinking") {
         return (
           <View className="px-4 py-1.5">
-            <PulsingText>Thinking</PulsingText>
+            <ShineText>Thinking</ShineText>
           </View>
         );
       }
@@ -89,13 +97,13 @@ export function MessagesList({
       if (item.message.role === "user") {
         return <UserMessage message={item.message} animateIn={animateIn} />;
       }
-      const isLast = index === rows.length - 1;
+      const isLastMessage = item.message.id === lastMessageId;
       return (
         <AssistantMessage
           message={item.message}
           animateIn={animateIn}
-          showFooter={!chat.isStreaming || !isLast}
-          isStreamingMessage={chat.isStreaming && isLast}
+          showFooter={!chat.isStreaming || !isLastMessage}
+          isStreamingMessage={chat.isStreaming && isLastMessage}
           onApprove={chat.approve}
           onDeny={chat.deny}
           onActions={onMessageActions}
@@ -107,6 +115,7 @@ export function MessagesList({
       chat.deny,
       chat.retry,
       chat.isStreaming,
+      lastMessageId,
       rows.length,
       onMessageActions,
     ],
@@ -129,8 +138,6 @@ export function MessagesList({
           maintainScrollAtEndThreshold={0.15}
           alignItemsAtEnd
           initialScrollIndex={rows.length > 0 ? rows.length - 1 : undefined}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingTop: 12, paddingBottom: bottomInset }}
           onScroll={(event) => {
             const { contentOffset, contentSize, layoutMeasurement } =
@@ -141,6 +148,12 @@ export function MessagesList({
           }}
           scrollEventThrottle={32}
           showsVerticalScrollIndicator={false}
+          {...(Platform.OS === "web"
+            ? {}
+            : {
+                keyboardDismissMode: "interactive" as const,
+                keyboardShouldPersistTaps: "handled" as const,
+              })}
         />
       </KeyboardGestureArea>
 
@@ -157,19 +170,24 @@ export function MessagesList({
             accessibilityRole="button"
             accessibilityLabel="Scroll to latest message"
           >
-            <IconArrowDown color="#fafafa" size={18} strokeWidth={2} />
+            <IconArrowDown color={foreground} size={18} strokeWidth={2} />
           </Pressable>
         </Animated.View>
       )}
 
       {rows.length === 0 && !chat.historyLoading && (
         <View
-          className="absolute inset-0 items-center justify-center px-8"
-          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center px-5"
+          pointerEvents="box-none"
         >
-          <Text className="text-white text-lg font-semibold text-center">
-            What can I help with?
-          </Text>
+          <View className="items-center">
+            <Text className="text-white text-[22px] font-bold text-center">
+              Start a chat
+            </Text>
+            <Text className="mt-2 text-center text-[14px] text-text-muted">
+              Ask across your workspace.
+            </Text>
+          </View>
         </View>
       )}
     </View>

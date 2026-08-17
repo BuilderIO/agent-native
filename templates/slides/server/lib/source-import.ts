@@ -17,6 +17,8 @@ export interface SourceImportMetadata {
   slideIds: string[];
   slides: SourceImportSlideSnapshot[];
   imagesSkipped?: number;
+  /** Count of PPTX `graphicFrame` shapes (tables, or the charts/SmartArt/OLE objects that have no shape structure to reconstruct) that could not be fully converted — same fidelity-signal contract as `imagesSkipped`. */
+  tablesDegraded?: number;
 }
 
 export function buildSourceImportMetadata(args: {
@@ -24,18 +26,22 @@ export function buildSourceImportMetadata(args: {
   importedAt?: string;
   slides: SourceImportSlideSnapshot[];
   imagesSkipped?: number;
+  tablesDegraded?: number;
 }): SourceImportMetadata {
   const importedAt = args.importedAt ?? new Date().toISOString();
   const imagesSkipped = args.imagesSkipped ?? 0;
+  const tablesDegraded = args.tablesDegraded ?? 0;
   return {
     mode: "source-preserving",
     format: args.format,
-    fidelity: imagesSkipped > 0 ? "partial" : "source-faithful",
+    fidelity:
+      imagesSkipped > 0 || tablesDegraded > 0 ? "partial" : "source-faithful",
     importedAt,
     slideCount: args.slides.length,
     slideIds: args.slides.map((slide) => slide.id),
     slides: args.slides,
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
   };
 }
 
@@ -56,6 +62,8 @@ export function mergeSourceImportMetadata(
   const slides = [...slidesById.values()];
   const imagesSkipped =
     (existing.imagesSkipped ?? 0) + (incoming.imagesSkipped ?? 0);
+  const tablesDegraded =
+    (existing.tablesDegraded ?? 0) + (incoming.tablesDegraded ?? 0);
 
   return {
     ...incoming,
@@ -67,6 +75,7 @@ export function mergeSourceImportMetadata(
     slideIds: slides.map((slide) => slide.id),
     slides,
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
   };
 }
 

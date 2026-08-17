@@ -33,6 +33,7 @@ import {
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { AgentShareSection } from "./AgentShareSection.js";
 import {
   useShareButtonController,
   type ShareButtonController,
@@ -656,6 +657,12 @@ function SharePanel(
           {shareError}
         </div>
       ) : null}
+
+      <AgentShareSection
+        enabled={data?.agentReadable === true}
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
 
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">

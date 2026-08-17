@@ -33,4 +33,9 @@ describe("meeting share popover", () => {
     );
     expect(source).not.toContain("!isPublic ? (");
   });
+
+  it("keeps individual access in the primary share surface", () => {
+    expect(source).toContain("<SharePeopleTab");
+    expect(source).not.toContain('value="invite"');
+  });
 });
