@@ -90,12 +90,34 @@ export function transcriptDistinguishesSpeakers(
   if (countPossibleSpeakers(participants, ownerEmail) < 2) return true;
   const signals = new Set<string>();
   for (const segment of segments) {
-    const speaker = segment.speaker?.trim();
-    if (speaker) signals.add(`speaker:${normalizeSpeaker(speaker)}`);
-    else if (segment.source) signals.add(`source:${segment.source}`);
+    const signal = speakerSignal(segment);
+    if (signal) signals.add(signal);
     if (signals.size > 1) return true;
   }
   return false;
+}
+
+/**
+ * What one segment claims about who was speaking, as a comparable key.
+ *
+ * A generic placeholder is not an identity — it names a side of the
+ * conversation, which is what `source` already says. Counting `speaker: "Me"`
+ * and a plain `source: "mic"` as two different speakers would mark a mic-only
+ * transcript distinguishable and hand the remote side's bleed back to the
+ * owner's name, so placeholders resolve to the side they mean instead. A real
+ * name wins over `source`, since a diarizing provider knows more than the
+ * stream split does; a placeholder yields to it.
+ */
+function speakerSignal(segment: TranscriptSegment): string | null {
+  const speaker = segment.speaker?.trim();
+  if (speaker && !isGenericSpeakerLabel(speaker)) {
+    return `speaker:${normalizeSpeaker(speaker)}`;
+  }
+  if (segment.source) return `source:${segment.source}`;
+  if (speaker) {
+    return GENERIC_MIC_SPEAKER.test(speaker) ? "source:mic" : "source:system";
+  }
+  return null;
 }
 
 /**
@@ -143,6 +165,17 @@ const OWNER_ACCENT = "bg-highlight/10 text-primary";
 
 function normalizeSpeaker(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Some providers (and our own seed fixture) tag unresolved segments with a
+// literal placeholder word instead of leaving `speaker` blank. These name a
+// side of the conversation rather than a person, so neither the label nor the
+// attribution check may treat one as an identity.
+const GENERIC_MIC_SPEAKER = /^(me|self|you)$/i;
+const GENERIC_SYSTEM_SPEAKER = /^them$/i;
+
+function isGenericSpeakerLabel(label: string): boolean {
+  return GENERIC_MIC_SPEAKER.test(label) || GENERIC_SYSTEM_SPEAKER.test(label);
 }
 
 // Exported for regression testing — see transcript-bubbles.test.ts. These
@@ -216,15 +249,16 @@ export function resolveSpeaker(
     resolveParticipantForSpeaker(source, participants, ownerEmail);
   const participantName = participant?.name?.trim();
   const resolvedLabel = participantName || rawSpeaker;
-  // Some providers (and our own seed fixture) tag unresolved segments with a
-  // literal placeholder word instead of leaving speaker blank. Treat those the
-  // same as "no label" on both sides so the UI falls back to the translated
-  // Me/Them string instead of rendering the raw English placeholder verbatim.
+  // Treat a placeholder as "no label" so the UI falls back to the translated
+  // Me/Them string instead of rendering the raw English word verbatim. Only
+  // the placeholder matching this segment's own side counts: "Them" on a mic
+  // segment is a contradiction, not a placeholder, and keeping it visible is
+  // better than silently dropping it.
   const isGenericPlaceholderLabel =
     !!resolvedLabel &&
     (source === "mic"
-      ? /^(me|self|you)$/i.test(resolvedLabel)
-      : /^them$/i.test(resolvedLabel));
+      ? GENERIC_MIC_SPEAKER.test(resolvedLabel)
+      : GENERIC_SYSTEM_SPEAKER.test(resolvedLabel));
   const label = isGenericPlaceholderLabel
     ? null
     : participantName || rawSpeaker || null;

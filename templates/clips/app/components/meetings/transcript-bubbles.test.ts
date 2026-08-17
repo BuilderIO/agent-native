@@ -185,6 +185,64 @@ describe("transcriptDistinguishesSpeakers", () => {
     ).toBe(false);
   });
 
+  // `resolveSpeaker` treats Me/Self/You/Them as placeholders rather than
+  // identities. Counting `speaker: "Me"` as its own signal alongside a plain
+  // `source: "mic"` segment marked a mic-only transcript distinguishable and
+  // handed the remote side's bleed back to the owner's name.
+  it("does not count a generic placeholder as a speaker distinct from its own side", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [
+          seg("hello", { speaker: "Me", source: "mic" }),
+          seg("there", { source: "mic" }),
+        ],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["Me", "Self", "You", "me", "  YOU  "])(
+    "treats %j as a placeholder rather than an identity",
+    (placeholder) => {
+      expect(
+        transcriptDistinguishesSpeakers(
+          [
+            seg("hello", { speaker: placeholder, source: "mic" }),
+            seg("there", { source: "mic" }),
+          ],
+          [bob, alice],
+          bob.email,
+        ),
+      ).toBe(false);
+    },
+  );
+
+  // Placeholders still carry which side spoke, so a transcript labelled only
+  // with them stays distinguishable when both sides appear.
+  it("reconciles placeholders to their side when no source is present", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { speaker: "Me" }), seg("there", { speaker: "Them" })],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a real name as a signal even next to a placeholder", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [
+          seg("hello", { speaker: "Me", source: "mic" }),
+          seg("there", { speaker: "Alice", source: "mic" }),
+        ],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(true);
+  });
+
   it("does not double-count an owner already on the roster", () => {
     expect(
       transcriptDistinguishesSpeakers(
