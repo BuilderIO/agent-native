@@ -68,4 +68,15 @@ describe("buildMobileWebViewAuthUrl", () => {
       }),
     ).toBe("https://clips.example/library");
   });
+
+  it("removes a legacy reusable session from fallback URLs", () => {
+    const url = buildMobileWebViewAuthUrl({
+      url: "https://mail.example/app?_session=parent-token&tab=inbox",
+      workspaceAppId: "mail",
+      workspaceEmbedState: "disabled",
+    });
+
+    expect(url).toBe("https://mail.example/app?tab=inbox");
+    expect(url).not.toContain("parent-token");
+  });
 });
