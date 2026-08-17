@@ -1355,7 +1355,6 @@ export async function updateWorkspaceAppMetadata(input: {
   name?: string | null;
   description?: string | null;
 }): Promise<WorkspaceAppSummary> {
-  await assertCanManageAppCreationSettings();
   const appId = input.appId.trim();
   assertValidWorkspaceAppId(appId);
 

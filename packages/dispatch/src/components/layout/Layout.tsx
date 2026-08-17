@@ -125,6 +125,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
+  WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
@@ -2349,28 +2350,14 @@ export function Layout({
     "Workspace app";
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
-      <AgentSidebar
-        position="left"
-        defaultOpen
-        openStorageKey="dispatch-app-chat"
-        storageKey={`dispatch-app-chat:${workspaceAppId}`}
-        scope={{
-          type: "workspace-app",
-          id: workspaceAppId,
-          label: workspaceAppChatName,
-          contextKey: `workspace-app:${workspaceAppId}`,
-        }}
-        agentChatSurface="app"
-        showTabBar
-        suppressInlineOpenApp
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={`Ask about ${workspaceAppChatName}`}
+      <WorkspaceAppChatRail
+        appId={workspaceAppId}
+        appName={workspaceAppChatName}
         agentPageHref={agentPageHref}
         onFullscreenRequest={openAskAgentFullscreen}
       >
         <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
-      </AgentSidebar>
+      </WorkspaceAppChatRail>
     ) : (
       <WorkspaceAppKeepAlive
         activeAppId={workspaceAppRouteActive ? workspaceAppId : null}
