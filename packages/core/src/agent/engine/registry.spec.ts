@@ -1356,7 +1356,7 @@ describe("AgentEngine registry", () => {
     it("does not report the builder engine usable on half a gateway pair", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
-      delete process.env.BUILDER_GATEWAY_SPACE_ID;
+      delete process.env.BUILDER_GATEWAY_SPACE_ID; // guard:allow-env-credential — fixture: half a pair is the condition under test
 
       const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
         await import("./registry.js");
