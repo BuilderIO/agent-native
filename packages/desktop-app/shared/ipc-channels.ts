@@ -40,6 +40,7 @@ export const IPC = {
   IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
   IDENTITY_SIGN_IN: "identity:sign-in",
   IDENTITY_AUTHENTICATE: "identity:authenticate",
+  IDENTITY_MAGIC_LINK_REQUEST: "identity:magic-link:request",
   IDENTITY_SIGN_OUT: "identity:sign-out",
 
   /** App config management (renderer ↔ main) */
@@ -227,6 +228,17 @@ export interface DesktopIdentityAuthRequest {
 export interface DesktopIdentityAuthResult {
   ok: boolean;
   email?: string;
+  error?: string;
+}
+
+export interface DesktopIdentityMagicLinkRequest {
+  email: string;
+}
+
+export interface DesktopIdentityMagicLinkResult {
+  ok: boolean;
+  email?: string;
+  pending?: boolean;
   error?: string;
 }
 

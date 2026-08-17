@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@bacons/apple-targets": "5.0.0",
     "@expo/dom-webview": "57.0.1",
