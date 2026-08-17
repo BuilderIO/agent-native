@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.158.7
+
+### Patch Changes
+
+- d0de8bc: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+
 ## 0.158.6
 
 ### Patch Changes
