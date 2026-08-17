@@ -396,7 +396,11 @@ export function TemplateCard({ template }: { template: Template }) {
       >
         {template.screenshot ? (
           <img
-            src={template.screenshot}
+            src={
+              template.slug === "clips"
+                ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
+                : template.screenshot
+            }
             crossOrigin="anonymous"
             alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"
