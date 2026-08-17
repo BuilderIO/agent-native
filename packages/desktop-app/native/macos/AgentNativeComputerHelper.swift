@@ -73,7 +73,9 @@ private final class PhantomCursorView: NSView {
         let labelSize = label.size(withAttributes: labelAttributes)
         let labelRect = NSRect(
             x: labelOnLeft ? max(0, pointerOriginX - labelSize.width - 14) : 17,
-            y: labelAbove ? 24 : 5,
+            y: labelAbove
+                ? min(max(pointerTipY + 2, 0), PhantomCursorView.panelHeight - 20)
+                : 5,
             width: labelSize.width + 12,
             height: 20
         )
@@ -137,7 +139,6 @@ private final class PhantomCursorOverlay {
 
             let labelGap: CGFloat = 2
             let pointerWidth: CGFloat = 17
-            let pointerMaxX = PhantomCursorView.panelWidth - 19
             view.labelOnLeft = placement.appKitPoint.x + pointerWidth + labelGap + view.preferredLabelWidth > placement.screen.frame.maxX
             view.labelAbove = placement.appKitPoint.y - 44 < placement.screen.frame.minY
             _ = click
@@ -148,10 +149,9 @@ private final class PhantomCursorOverlay {
                 max(desiredOriginX, placement.screen.frame.minX),
                 placement.screen.frame.maxX - PhantomCursorView.panelWidth
             )
-            view.pointerOriginX = min(
-                max(placement.appKitPoint.x - originX, 1),
-                pointerMaxX
-            )
+            // Keep the arrow tip on the action point. The display clips only
+            // the artwork that naturally extends past a physical edge.
+            view.pointerOriginX = max(placement.appKitPoint.x - originX, 1)
 
             let desiredOriginY = view.labelAbove
                 ? placement.appKitPoint.y - 22
@@ -160,9 +160,7 @@ private final class PhantomCursorOverlay {
                 max(desiredOriginY, placement.screen.frame.minY),
                 placement.screen.frame.maxY - PhantomCursorView.panelHeight
             )
-            view.pointerTipY = view.labelAbove
-                ? 22
-                : min(max(placement.appKitPoint.y - originY, 0), 44)
+            view.pointerTipY = min(max(placement.appKitPoint.y - originY, 0), 44)
             panel?.alphaValue = 1
             panel?.setFrameOrigin(NSPoint(
                 x: originX,
@@ -221,8 +219,11 @@ private final class PhantomCursorOverlay {
 
         // Accessibility and NSScreen frames are both logical points. Derive a
         // shared top-left space instead of mixing them with display pixels.
-        let globalTop = screens.map(\.frame.maxY).max() ?? 0
-        let appKitPoint = NSPoint(x: quartzPoint.x, y: globalTop - quartzPoint.y)
+        let referenceScreen = screens.first(where: {
+            $0.frame.minX == 0 && $0.frame.minY == 0
+        }) ?? screens[0]
+        let referenceTop = referenceScreen.frame.maxY
+        let appKitPoint = NSPoint(x: quartzPoint.x, y: referenceTop - quartzPoint.y)
         guard let screen = screens.first(where: {
             $0.frame.insetBy(dx: -0.5, dy: -0.5).contains(appKitPoint)
         }) else { return nil }

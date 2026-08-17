@@ -136,8 +136,6 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
   const overlayHeight = 44;
   const pointerWidth = 17;
   const pointerHeight = 21;
-  const pointerOutlineWidth = 19;
-  const pointerOutlineHeight = 23;
   const labelWidth = 48;
   const labelHeight = 20;
   const labelGap = 2;
@@ -154,14 +152,10 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
     0,
     Math.min(desiredOriginY, window.innerHeight - overlayHeight),
   );
-  const pointerX = Math.max(
-    0,
-    Math.min(x - originX, overlayWidth - pointerOutlineWidth),
-  );
-  const pointerY = Math.max(
-    0,
-    Math.min(y - originY, overlayHeight - pointerOutlineHeight),
-  );
+  // Keep the arrow tip anchored to the action point. The viewport clips only
+  // the artwork that naturally extends beyond a physical page edge.
+  const pointerX = x - originX;
+  const pointerY = y - originY;
   const labelX = labelOnLeft ? Math.max(0, pointerX - labelWidth - labelGap) : 16;
   const labelY = labelAbove ? Math.max(0, pointerY - labelHeight - labelGap) : 20;
   host.style.setProperty("--agent-native-x", originX + "px");
