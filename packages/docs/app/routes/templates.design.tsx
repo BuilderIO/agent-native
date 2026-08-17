@@ -107,7 +107,7 @@ export default function DesignTemplate() {
         mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65ec1b4c1fb0473ba571b5af2b6a56f0?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"
