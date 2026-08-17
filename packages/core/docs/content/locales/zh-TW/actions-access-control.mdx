@@ -83,6 +83,143 @@ export default defineAction({
 
 少數 action 的後果太過重大，不能放任代理自行執行，例如傳送電子郵件、刷卡扣款，或刪除帳號。在 `defineAction()` 上設定 `needsApproval: true`（或一個判斷式 `(args, ctx) => boolean | Promise<boolean>`），迴圈就會在 `run()` 之前暫停，要求人工核准那次特定的呼叫。預設值是**關閉**，幾乎所有 action 都應該維持這個狀態。
 
+<Callout tone="warning">
+  核准的使用應該保持稀少。每一個設有關卡的 action，都會是代理迴圈中的一次硬性停止。
+  它會中斷這次執行，並要求人工介入往返。請只將 `needsApproval` 用在真正具有重大後
+  果、難以復原、且面向外部的操作上。如果您發現自己正在為讀取或例行寫入設下關卡，就
+  代表用法不對。預設值是**關閉**，幾乎每個 action 都應該維持關閉。
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="為唯一具有重大後果的操作設下關卡"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "整個關卡",
+      note: "僅僅一個旗標。當它為真值，且該次呼叫尚未獲得核准時，迴圈就會在 `run` 之前停止。模型永遠不會自行觸及該副作用。",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` 維持不變",
+      note: "處理函式維持不變。核准是由包覆在外層的迴圈強制執行，而不是由 `run` 內部的任何程式碼強制執行。",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** 永遠需要核准。
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** 只有在判斷式回傳 `true` 時才需要核准。可以用它來做條件式的關卡設定，例如只針對外部收件者，或只在超過某個金額門檻時：
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  請讓判斷式保持單純且快速執行。如果判斷式拋出例外，框架會將該次呼叫視為判斷式回傳了 `true` 一樣處理，因此該 action 會暫停以等待核准，而不會直接執行。這代表即使判斷式本身出錯，也絕不會讓一個具有重大後果的 action 在沒有人工事先核准的情況下悄悄執行。
+
+當省略 `needsApproval` 時，行為完全不受影響，一般路徑上也不會產生任何額外成本。
+
+無論是舊式的 `parameters` 風格 action，還是以架構為基礎的 action，運作方式都相同。這對應用程式內的代理、子代理、A2A 與 MCP 呼叫者來說也同樣適用，因為每一種代理介面都會經過同一個迴圈。
+
+### 迴圈如何暫停 {#loop}
+
+當代理呼叫一個設有關卡的 action，而這次特定的呼叫**尚未**獲得核准時，迴圈就**不會**執行 `run()`。取而代之，它會：
+
+1. 解析這道關卡。若是判斷式，迴圈會呼叫 `needsApproval(input, ctx)`。如果這次呼叫拋出例外，迴圈會將它視為回傳了 `true` 一樣處理，因此該 action 需要核准。
+2. 發出一個 `tool_start` 事件（讓 UI 顯示此次呼叫），緊接著立刻發出一個**`approval_required`**事件，然後停止這一回合。該 action 的副作用永遠不會發生。
+
+`approval_required` 事件會攜帶客戶端呈現操作介面所需的一切資訊：
+
+| 欄位          | 型別     | 說明                                                                  |
+| ------------- | -------- | --------------------------------------------------------------------- |
+| `tool`        | `string` | 代理嘗試呼叫的 action 名稱。                                          |
+| `input`       | object   | 代理傳入的引數。                                                      |
+| `approvalKey` | `string` | **穩定的金鑰**，客戶端會將它原樣回傳，以核准 _這次確切的呼叫_。       |
+| `toolCallId`  | `string` | 模型端的工具呼叫 id，如果有提供的話。                                 |
+
+`approvalKey` 是由工具名稱加上其輸入值以確定性方式推導而成，因此同一個邏輯上的呼叫，永遠會產生相同的金鑰。模型永遠不會看到或設定這個值。它的存在純粹是框架與人工核准操作介面之間的一種握手機制。
+
+這個被暫停的工具會回傳一個結果，告訴模型這一回合已經暫停，且不應該重試。這樣一來，模型就不會不斷空轉重複嘗試。
+
+### 人工如何核准 {#approve}
+
+當收到 `approval_required` 時，聊天 UI 會在被暫停的工具呼叫上，顯示一個**核准／拒絕**的操作介面。這在 `AssistantChat` 中已經自動接好線路，您不需要在每個範本中自行建置。
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **核准**會以一般的延續訊息重新發出這一回合，並在 `approvedToolCalls: [approvalKey]` 中攜帶該次呼叫的金鑰。在重新發出的這一回合中，關卡會在已核准的集合中看到這把金鑰，並讓那次特定的呼叫正常執行。
+- **拒絕**只會在本機端關閉這個操作介面。不會重新發出任何內容，因此該 action 永遠不會執行。
+
+`approvedToolCalls` 是聊天請求上的一個欄位（`AgentChatRequest.approvedToolCalls`）。不在其中的金鑰會維持暫停狀態。核准一次呼叫，永遠不會核准任何其他呼叫。由於這把金鑰是以內容定址的方式產生，一次核准只會授權那一次確切的呼叫與那些確切的引數。如果模型之後提議一次不同的傳送，那會產生一把新的金鑰，需要重新獲得一次核准。
+
+### 端對端流程 {#flow}
+
+<Diagram id="doc-block-2nor1g" title="核准中斷" summary={"一次設有關卡的呼叫，會在 run() 執行之前暫停這一回合。核准會重新發出這一回合，並攜帶該次呼叫的金鑰。唯有到那時候，副作用才會發生。"}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>代理呼叫 send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>關卡為真值，呼叫尚未核准</strong
+    ><small class="diagram-muted"
+      >迴圈發出 tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn"
+      >run() 尚未執行</span
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    人工在聊天中點擊核准<br /><small class="diagram-muted"
+      >客戶端會以 approvedToolCalls: [approvalKey] 重新發出這一回合</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >關卡看到這把金鑰 &rarr; run() 執行 &rarr; 電子郵件送出</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail 範本的 `send-email` action，是框架中這道關卡的標準用例，而且它刻意保持稀少。它設定了 `needsApproval: true`，讓代理可以自由地草擬與排入佇列電子郵件。但在沒有人工核准那次特定傳送的情況下，它永遠無法真正傳送出去。
+
 ## 依角色限制呼叫者 {#authorize}
 
 `authorize` 回答一個特定的問題：**這位呼叫者到底是否可以執行此操作？** 提供一個守衛函式給它，它就會在每一種呼叫者（代理工具、HTTP、前端、MCP、A2A 與 CLI）呼叫 `run()` 之前先執行。
@@ -218,6 +355,7 @@ export default defineAction({
 - [**總覽**](/docs/actions-overview) — action 是什麼，以及 hello-world 示範
 - [**定義 Actions**](/docs/actions-defining) — `defineAction()` 的結構、架構與 HTTP 設定
 - [**執行情境**](/docs/actions-run-context) — 這些檢查所讀取的 `ctx` 引數
+- [**郵件範本**](/docs/template-mail) — `send-email` 是 `needsApproval` 的參考範例
 - [**稽核記錄**](/docs/audit-log) — 自動記錄誰變更了什麼的紀錄
 - [**安全性**](/docs/security) — `accessFilter`/`assertAccess`，以及擴充功能 iframe 的信任邊界
 - [**分享**](/docs/sharing) — 這些輔助函式所支援的框架分享系統

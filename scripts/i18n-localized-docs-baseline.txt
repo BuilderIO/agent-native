@@ -1,6 +1,8 @@
 # Existing localized docs strings that still match English source.
 # Keep this file sorted. Remove entries as translated docs improve.
 # Format: relative/localized/path.md|English source string
+packages/core/docs/content/locales/ar-SA/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/ar-SA/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ar-SA/messaging.mdx|Microsoft Teams
@@ -15,6 +17,8 @@ packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creativ
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/ar-SA/what-is-agent-native.mdx|Agent Surfaces
+packages/core/docs/content/locales/de-DE/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/de-DE/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Agent-Native routes
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Native Chat UI
@@ -31,6 +35,8 @@ packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question
 packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/de-DE/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/es-ES/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/es-ES/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/es-ES/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/es-ES/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's signups"
@@ -46,6 +52,8 @@ packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/es-ES/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/es-ES/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/es-ES/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/fr-FR/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/fr-FR/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/fr-FR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/fr-FR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's signups"
@@ -62,6 +70,8 @@ packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creativ
 packages/core/docs/content/locales/fr-FR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/fr-FR/what-is-agent-native.mdx|Agent Surfaces
+packages/core/docs/content/locales/hi-IN/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/hi-IN/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|A2A Protocol
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|Agent-Native routes
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|Automation-First Apps
@@ -103,6 +113,8 @@ packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Team-wide rule
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Tool surface
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Typed contract
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|`/slash` commands
+packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's signups"
@@ -118,6 +130,8 @@ packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ja-JP/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ja-JP/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ja-JP/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/ko-KR/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/ko-KR/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ko-KR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/ko-KR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's signups"
@@ -134,6 +148,8 @@ packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ko-KR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ko-KR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/pt-BR/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/pt-BR/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Context awareness
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Deep links
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Generative UI
@@ -151,6 +167,8 @@ packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/pt-BR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/pt-BR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/zh-CN/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/zh-CN/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|A2A Protocol
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|Automation-First Apps
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|External Agents
@@ -170,6 +188,8 @@ packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-CN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-CN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/zh-TW/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/zh-TW/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|A2A Protocol
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Automation-First Apps
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Context awareness
