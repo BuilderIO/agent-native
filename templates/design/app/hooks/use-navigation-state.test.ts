@@ -20,11 +20,12 @@ describe("design navigation state", () => {
     const path = editorPathFromCommand(command);
 
     expect(path).toBe(
-      "/design/design_123?view=single&screen=empty-state.html&zoom=100",
+      "/design/design_123?view=single&mode=interact&screen=empty-state.html&zoom=100",
     );
     expect(editorCommandFromNavigate(command, path!)).toMatchObject({
       designId: "design_123",
       editorView: "single",
+      mode: "interact",
       filename: "empty-state.html",
       zoom: 100,
       path,

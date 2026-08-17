@@ -441,10 +441,10 @@ const messages = {
       "Crie um widget personalizado para minha caixa de entrada",
   },
   settings: {
-    openAgentSettings: "Abrir configurações do agente",
+    openAgentSettings: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    agentTitle: "Configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Gerenciar agente",
     aliasName: "Nome do alias",
     aliasNamePlaceholder: "ex.: Equipe de design",
     recipientsOnePerLine: "Destinatários (um email por linha)",
@@ -484,6 +484,12 @@ const messages = {
     lastRun: "Última execução:",
     automationsDescription:
       "Regras que processam automaticamente novos emails da caixa de entrada usando IA.",
+    allowAutomationSends:
+      "Permitir que as automações enviem emails automaticamente",
+    allowAutomationSendsDescription:
+      "Desativado por padrão. Ative quando quiser que as automações enviem emails sem pedir aprovação todas as vezes.",
+    automationSendSettingSaveFailed:
+      "Não foi possível salvar a configuração de envio automático de emails.",
     loadingModels: "Carregando modelos",
     newRule: "Nova regra",
     noAutomationRules: "Ainda não há regras de automação.",

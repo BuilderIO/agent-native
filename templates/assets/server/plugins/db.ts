@@ -29,7 +29,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the analytics template's v75-v83 incident
 // for the exact failure mode this guards against.
-const runAssetsMigrations = runMigrations(
+export const runAssetsMigrations = runMigrations(
   [
     {
       version: 1,

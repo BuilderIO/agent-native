@@ -26,8 +26,10 @@ on:
       # npm-published packages — any source change reaches here via the
       # Version Packages PR merge bumping their package.json.
       - "packages/core/**"
+      - "packages/creative-context/**"
       - "packages/dispatch/**"
       - "packages/pinpoint/**"
+      - "packages/recap-cli/**"
       - "packages/scheduling/**"
       - "packages/skills/**"
       - "packages/toolkit/**"
@@ -42,6 +44,8 @@ on:
       # Release workflow plumbing changes should exercise the npm release job.
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
+      - "scripts/guard-public-packages.ts"
+      - "scripts/prebuild-workspace-packages.ts"
       # desktop-app stays version-triggered (not changesets-managed).
       - "packages/desktop-app/package.json"
   workflow_dispatch:
@@ -70,24 +74,24 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       # Node 24 ships with npm 11.6+ — required for Trusted Publishing OIDC
       # (>= 11.5.1). Node 22 ships npm 10.x; the in-place self-upgrade
       # (`npm install -g npm@latest`) is broken on the current runner image
       # (actions/runner-images#13883), so we just use a Node version that
       # already has the right npm baked in.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: "pnpm"
@@ -106,7 +110,7 @@ jobs:
 
       - name: Create Release PR or publish to npm
         id: changesets
-        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           # When changesets/action finds no pending changesets, it runs
           # `publish`. @changesets/cli publishes packages concurrently, which
@@ -135,26 +139,27 @@ jobs:
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: builder-downstream-token
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
           owner: BuilderIO
-          # List every downstream repo this job dispatches to; workspace and
-          # starter each keep their own consumer workflow in their own repo.
+          # Consumer workflow lives in the workspace repo. The starter mirror is
+          # dispatched to this repo's own workflow (see below), not from here.
           repositories: |
             builder-agent-native-workspace
-            builder-agent-native-starter
 
       - name: Trigger Builder workspace package update
         if: |
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
@@ -169,23 +174,29 @@ jobs:
             -f "client_payload[sourceRepository]=${{ github.repository }}" \
             -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-      - name: Trigger Builder starter package update
+      # The starter mirror runs in THIS repo (push-chat-template-to-starter needs
+      # the monorepo source to materialize), so dispatch to ourselves rather than
+      # to the starter. Must use the agent-native-scoped app token, not
+      # GITHUB_TOKEN: repository_dispatch events created with GITHUB_TOKEN don't
+      # trigger workflow runs. Carries the published commit sha so the mirror
+      # materializes exactly what was just published to npm.
+      - name: Trigger starter template mirror
         if: |
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
         env:
-          GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
         run: |
-          gh api repos/BuilderIO/builder-agent-native-starter/dispatches \
+          gh api repos/${{ github.repository }}/dispatches \
             --method POST \
             -f event_type=agent-native-packages-published \
-            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES" \
-            -f "client_payload[sourceRepository]=${{ github.repository }}" \
-            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f "client_payload[sha]=${{ github.sha }}" \
+            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES"
 
   publish-desktop:
     name: Publish desktop app
@@ -208,11 +219,11 @@ jobs:
             platform: linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -234,6 +245,16 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
           rm certificate.p12
 
+      - name: Build macOS assets
+        if: matrix.platform == 'mac'
+        working-directory: packages/desktop-app
+        run: pnpm build:mac-assets
+
+      - name: Build Chrome extension assets
+        if: matrix.platform != 'mac'
+        working-directory: packages/desktop-app
+        run: pnpm build:chrome-extension
+
       - name: Build and publish
         working-directory: packages/desktop-app
         env:
@@ -246,7 +267,9 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --${{ matrix.platform }} --config --publish always
+        run: |
+          pnpm build
+          npx electron-builder --${{ matrix.platform }} --config --publish always
 
   publish-desktop-release:
     name: Publish desktop release
@@ -260,7 +283,7 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Get version
         id: version

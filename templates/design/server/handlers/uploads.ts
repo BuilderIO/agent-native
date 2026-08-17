@@ -12,6 +12,12 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
+  TOTAL_BODY_LIMIT,
+} from "../lib/request-body-limits.js";
+
 function isServerlessRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(
     env.NETLIFY ||
@@ -176,12 +182,8 @@ export const uploadFiles = defineEventHandler(async (event) => {
   }
 
   const MAX_FILES = 20;
-  const MAX_FILE_SIZE = 50 * 1024 * 1024;
-  // Total-body pre-flight: reject before buffering if Content-Length is clearly
-  // over the theoretical max (MAX_FILES × MAX_FILE_SIZE each, plus overhead).
-  // Content-Length can be spoofed but cheaply eliminates accidental oversized
-  // uploads without allocating any memory for the body first.
-  const TOTAL_BODY_LIMIT = MAX_FILES * MAX_FILE_SIZE;
+  // Content-Length can be spoofed, so the parsed-byte check below is the real
+  // limit; this only avoids buffering an obviously oversized body first.
   const contentLength = Number(
     getRequestHeader(event, "content-length") ?? "0",
   );
@@ -203,10 +205,12 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: `Too many files (max ${MAX_FILES})` };
   }
 
-  const oversized = fileParts.find((p) => p.data.length > MAX_FILE_SIZE);
-  if (oversized) {
+  const totalBytes = fileParts.reduce((sum, p) => sum + p.data.length, 0);
+  if (totalBytes > MAX_UPLOAD_BYTES) {
     setResponseStatus(event, 413);
-    return { error: "File too large (max 50 MB per file)" };
+    return {
+      error: `Attachments are too large (max ${MAX_UPLOAD_MB} MB total)`,
+    };
   }
 
   const results = await Promise.allSettled<InternalUploadedFileResult>(

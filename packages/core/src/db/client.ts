@@ -10,6 +10,11 @@
  */
 import path from "path";
 
+import {
+  beginDatabaseOperation,
+  recordDatabaseRetry,
+} from "./request-telemetry.js";
+
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
@@ -19,11 +24,29 @@ const loggedNeonPools = new WeakSet<object>();
 
 export type Dialect = "sqlite" | "postgres" | "d1";
 
+export interface DbExecQuery {
+  sql: string;
+  args?: unknown[];
+  /**
+   * Client-side wall-clock budget for this statement. Use only for idempotent
+   * reads unless the caller can safely tolerate a late write completing.
+   */
+  timeoutMs?: number;
+  /** Maximum connection-level attempts for this statement, including the first. */
+  maxAttempts?: number;
+}
+
+export type DbExecStatement = string | DbExecQuery;
+
 export interface DbExec {
-  execute(
-    sql: string | { sql: string; args?: unknown[] },
-  ): Promise<{ rows: any[]; rowsAffected: number }>;
+  execute(sql: DbExecStatement): Promise<{
+    rows: any[];
+    rowsAffected: number;
+  }>;
   transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+  atomicBatch?(
+    statements: readonly DbExecStatement[],
+  ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
   /**
    * Release the underlying connection/pool held by this exec.
    * Only non-singleton execs created via `createDbExec()` (e.g. the migration
@@ -42,11 +65,11 @@ export interface DbExecConfig {
 /** Read the request-scoped Cloudflare binding without requiring every
  * consuming app's TypeScript program to include core's ambient Worker globals. */
 export function getCloudflareD1Binding(): unknown {
-  return (
-    globalThis as typeof globalThis & {
-      __cf_env?: { DB?: unknown };
-    }
-  ).__cf_env?.DB;
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: { DB?: unknown };
+    __env__?: { DB?: unknown };
+  };
+  return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +335,20 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
  * Used during WAL initialization and migrations where a stale WAL from a
  * previous crash or HMR restart can briefly lock the database.
  */
+export function isSqliteBusyError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = typeof candidate?.code === "string" ? candidate.code : "";
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : String(error ?? "");
+  return (
+    code === "SQLITE_BUSY" ||
+    code.startsWith("SQLITE_BUSY_") ||
+    /database is locked|SQLITE_BUSY/i.test(message)
+  );
+}
+
 export async function retrySqliteBusy<T>(
   fn: () => Promise<T>,
   opts: { maxAttempts?: number; baseDelayMs?: number; rethrow?: boolean } = {},
@@ -321,10 +358,9 @@ export async function retrySqliteBusy<T>(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await fn();
-    } catch (e: any) {
+    } catch (e) {
       last = e;
-      const msg = String(e?.message || e);
-      if (msg.includes("SQLITE_BUSY") && attempt < maxAttempts - 1) {
+      if (isSqliteBusyError(e) && attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
       } else {
         break;
@@ -428,7 +464,8 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env) aren't
+  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env/__env__)
+  // aren't
   // available at import time. If we cache "sqlite" here, D1 will never be
   // detected once the bindings are set in the fetch handler.
   return "sqlite";
@@ -605,13 +642,56 @@ export function sqliteToPostgresParams(sql: string): string {
   return out;
 }
 
-function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {
+function sqlAndArgs(sql: DbExecStatement): {
   rawSql: string;
   args: unknown[];
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
     : { rawSql: sql.sql, args: sql.args || [] };
+}
+
+const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
+const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
+const POSTGRES_MAX_INT = 2_147_483_647;
+
+function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
+  if (typeof statement === "string") return false;
+  const timeoutMs = Number(statement.timeoutMs);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0;
+}
+
+function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
+  const safeTimeoutMs = Math.max(
+    1,
+    Math.min(POSTGRES_MAX_INT, Math.floor(clientTimeoutMs)),
+  );
+  const headroomMs = Math.min(
+    POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS,
+    Math.max(1, Math.floor(safeTimeoutMs * 0.1)),
+  );
+  return Math.max(1, safeTimeoutMs - headroomMs);
+}
+
+export function dbExecQueryBudget(statement: DbExecStatement): {
+  timeoutMs: number;
+  maxAttempts: number;
+} {
+  if (typeof statement === "string") {
+    return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
+  }
+  const timeoutMs = Number(statement.timeoutMs);
+  const maxAttempts = Number(statement.maxAttempts);
+  return {
+    timeoutMs:
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.floor(timeoutMs)
+        : dbOpTimeoutMs(),
+    maxAttempts:
+      Number.isFinite(maxAttempts) && maxAttempts > 0
+        ? Math.floor(maxAttempts)
+        : 3,
+  };
 }
 
 function explicitTransaction(
@@ -641,6 +721,8 @@ const CONNECTION_ERROR_CODES = new Set([
   "ETIMEDOUT",
   "EPIPE",
   "ENOTFOUND",
+  "EMAXCONN",
+  "53300",
   "CONNECT_TIMEOUT",
   "CONNECTION_ENDED",
   "CONNECTION_DESTROYED",
@@ -664,8 +746,67 @@ export function isConnectionError(err: any): boolean {
     return true;
   }
   const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
+  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
     msg,
+  );
+}
+
+/**
+ * Classify database failures that should temporarily shed request load.
+ * Statement timeouts are not included in isConnectionError() because retrying
+ * every timed-out mutation would not be safe, but request handlers can still
+ * return a retryable service-unavailable response for them.
+ */
+export function isTransientDatabaseError(err: unknown): boolean {
+  const error = err as {
+    code?: unknown;
+    name?: unknown;
+    message?: unknown;
+    stack?: unknown;
+    cause?: {
+      code?: unknown;
+      name?: unknown;
+      message?: unknown;
+      stack?: unknown;
+    };
+  };
+  const code = String(error?.code ?? error?.cause?.code ?? "");
+  if (
+    code === "ECHECKOUTTIMEOUT" ||
+    // Shed load during a connect cooldown is transient by construction — the
+    // endpoint refused, we chose not to re-ask yet. Surfaces as 503, not 500.
+    code === "DB_CONNECT_COOLDOWN" ||
+    code === "EMAXCONN" ||
+    code === "53300" ||
+    code === "57014" ||
+    /^08/.test(code) ||
+    /^57P0[123]$/.test(code)
+  ) {
+    return true;
+  }
+
+  const message = [error?.message, error?.cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  if (
+    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
+  ) {
+    return true;
+  }
+
+  const databaseSurface = [
+    error?.name,
+    error?.cause?.name,
+    error?.stack,
+    error?.cause?.stack,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return (
+    isConnectionError(error) &&
+    /@neondatabase|@libsql|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+      databaseSurface,
+    )
   );
 }
 
@@ -680,6 +821,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
   }
@@ -735,6 +877,9 @@ export async function withDbTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
+  const finishTelemetry = beginDatabaseOperation(
+    op === "connect" ? "connect" : "query",
+  );
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -756,12 +901,14 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("success");
       complete(value);
     };
     const fail = (err: unknown) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("error");
       reject(err);
     };
 
@@ -770,6 +917,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -801,6 +949,7 @@ export async function withDbTimeout<T>(
 export function isServerlessRuntime(): boolean {
   return (
     !!process.env.NETLIFY ||
+    !!process.env.NETLIFY_FUNCTION_NAME ||
     !!process.env.VERCEL ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.LAMBDA_TASK_ROOT ||
@@ -809,22 +958,110 @@ export function isServerlessRuntime(): boolean {
 }
 
 /**
- * postgres.js pool options tuned per runtime. A serverless instance handles
- * one request at a time, so a tiny pool is enough — but we cap at 2 (not 1)
- * so a single slow query or open transaction can't serialize every other
- * query in the same request. Total connections stay bounded to ≈ 2×
- * concurrent-instance count instead of 10×. idle_timeout is shortened on
- * serverless so a thawed-but-idle instance releases its connections quickly.
- * Long-lived Node servers keep the normal pool for throughput.
+ * True for production serverless execution contexts. Netlify also exposes
+ * `NETLIFY=true` in its build environment, so build-time code that owns
+ * migrations must use `withMigrationRuntime()` explicitly.
  */
+export function isProductionServerlessFunctionRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
+    return false;
+  }
+
+  return Boolean(
+    env.NETLIFY === "true" ||
+    env.NETLIFY_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_VERSION ||
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    env.VERCEL_FUNCTION_ID ||
+    env.VERCEL_REGION ||
+    env.VERCEL === "1",
+  );
+}
+
+const SCHEMA_MUTATION_STATEMENT =
+  /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|REINDEX|GRANT|REVOKE)\b/i;
+
+function rawSql(statement: DbExecStatement): string {
+  return typeof statement === "string" ? statement : statement.sql;
+}
+
+/** True for statements that change database schema or database privileges. */
+export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
+  return SCHEMA_MUTATION_STATEMENT.test(rawSql(statement));
+}
+
+/**
+ * Request functions must never be able to prepare or mutate schema. Throwing
+ * here makes an unconverted ensureTable path fail loudly instead of silently
+ * reporting success against a missing table. The release migration wrapper
+ * is the only supported production opt-in.
+ */
+export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+  const migrationRuntime =
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_MIGRATION_RUNTIME__ === true;
+  if (
+    isProductionServerlessFunctionRuntime() &&
+    !migrationRuntime &&
+    isSchemaMutationStatement(statement)
+  ) {
+    throw new Error(
+      "Schema mutation attempted in a production serverless request. Run migrations in the release job instead.",
+    );
+  }
+}
+
+/**
+ * postgres.js pool options tuned per runtime. idle_timeout is shortened on
+ * serverless so a thawed-but-idle instance releases its connections quickly.
+ * Long-lived Node servers keep the larger pool for throughput.
+ *
+ * The cap assumes {@link sharedDbPool}: one pool per URL for the whole
+ * process, not one per consumer. See {@link neonPoolMax} for why the cap must
+ * leave room for concurrency.
+ */
+/**
+ * Identifies the connection in `pg_stat_activity.application_name`.
+ *
+ * Without it every backend reports `pgbouncer` and a runaway query is
+ * anonymous. A 58 MB `SELECT id, config FROM dashboards` ran 20-wide against
+ * production and could not be traced to a caller: it appears nowhere in the
+ * repo or any built bundle, and `pg_stat_statements` is not installed. This is
+ * the cheapest thing that would have named it.
+ */
+function poolApplicationName(): string {
+  const site =
+    process.env.SITE_NAME ??
+    process.env.NETLIFY_SITE_NAME ??
+    process.env.AGENT_NATIVE_APP_NAME ??
+    "app";
+  return `agent-native:${site}`.slice(0, 63);
+}
+
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 2 : 10,
+    connection: { application_name: poolApplicationName() },
+    max: serverless ? serverlessPoolMax() : 20,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
+    ...(serverless
+      ? {
+          connection: {
+            application_name: poolApplicationName(),
+            idle_in_transaction_session_timeout: 30_000,
+          },
+        }
+      : {}),
     // Supabase's connection pooler (Transaction mode) requires prepare:false.
     // Only disable for Supabase URLs to avoid degrading other deployments.
     ...(url.includes("supabase") ? { prepare: false } : {}),
@@ -832,26 +1069,61 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 }
 
 /**
- * Connection cap for the @neondatabase/serverless `Pool`. Same instance
- * accumulation risk as postgres.js — a small pool (2) is enough on serverless
- * and keeps total connections bounded while still letting a second query
- * proceed when one connection is busy.
+ * Shared options for every Neon serverless pool. The startup parameter is
+ * applied by Postgres before the first transaction, so a killed function
+ * cannot return a connection that remains idle in transaction indefinitely.
+ */
+export function neonPoolOptions(): {
+  max: number;
+  idle_in_transaction_session_timeout?: number;
+} {
+  return {
+    max: neonPoolMax(),
+    ...(isServerlessRuntime()
+      ? { idle_in_transaction_session_timeout: 30_000 }
+      : {}),
+  };
+}
+
+/**
+ * Connection cap for the @neondatabase/serverless `Pool`.
+ *
+ * TRAP: this number is the ceiling on how many statements one request can have
+ * in flight at once. It used to be 1 on serverless, which made every
+ * `Promise.all([...reads])` in a request serialize behind the single slot —
+ * against a remote endpoint that is ~83ms of pure wait per query, so ten
+ * "concurrent" reads took ~880ms instead of ~86ms. The cap was 1 only because
+ * every consumer built its OWN pool (the DbExec singleton, Better Auth, and one
+ * per `createGetDb()` schema module), so the real per-instance connection count
+ * was that number multiplied by ~6. {@link sharedDbPool} collapses those into
+ * one pool per URL, so the same aggregate budget buys in-request concurrency.
+ * Keep pools shared if you raise this.
  */
 export function neonPoolMax(): number {
-  if (!isServerlessRuntime()) return 10;
-  // The durable background-function worker is a SINGLE process per run (unlike
-  // the many warm request-instances the foreground serverless has), so it can
-  // safely hold a larger pool without risking Neon's connection cap. The agent's
-  // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
-  // connections that burst exhausts the pool and a single stalled connection
-  // freezes the worker before it can claim — observed on analytics' heavier
-  // action surface, where the worker froze right after `model_done` and never
-  // recorded `env_config`/`presend`, while the foreground (10-connection pool)
-  // ran the identical code in ~2s. Give the bg worker enough connections for the
-  // burst; keep the foreground serverless pool tiny to avoid "Max client
-  // connections reached" across many warm instances.
-  if (isBackgroundFunctionPoolContext()) return 8;
+  if (!isServerlessRuntime()) return 20;
+  return serverlessPoolMax();
+}
+
+function serverlessPoolMax(): number {
+  // Scheduled Analytics workers run independently and may overlap across
+  // invocations. They process work sequentially, so one connection prevents
+  // a slow sweep from multiplying Neon connections while foreground requests
+  // retain two slots for their concurrent reads.
+  if (isLowConnectionBackgroundRuntime()) return 1;
+  // Netlify can run several background workers concurrently. Keep their four
+  // slots: the agent pre-send setup fires ~6 concurrent DB reads, and two
+  // connections previously froze the worker before it could claim. Foreground
+  // requests use two slots instead, leaving more headroom across warm
+  // instances where the user-facing routes are the pressure source.
+  if (isBackgroundFunctionPoolContext()) return 4;
   return 2;
+}
+
+function isLowConnectionBackgroundRuntime(): boolean {
+  return (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ === true
+  );
 }
 
 /**
@@ -917,8 +1189,99 @@ export function describeDbError(err: unknown): string {
   return String(err);
 }
 
-export function attachNeonPoolErrorLogger(
+/**
+ * How long one endpoint stops ATTEMPTING to connect after an attempt failed.
+ * Jittered so concurrent function instances do not re-probe in lockstep.
+ */
+function connectCooldownMs(): number {
+  const raw = Number(process.env.DB_CONNECT_COOLDOWN_MS);
+  const base = Number.isFinite(raw) && raw > 0 ? raw : 2_000;
+  return Math.round(base * (0.5 + Math.random()));
+}
+
+/**
+ * Thrown INSTEAD of attempting, while an endpoint is in cooldown.
+ *
+ * The refused attempt's error is described in the message and deliberately NOT
+ * attached as `cause`: isConnectionError() walks `cause.code`/`cause.message`,
+ * so a cause would reclassify this as retryable and retryOnConnectionError
+ * would drive the storm straight back.
+ */
+export class DbConnectCooldownError extends Error {
+  code = "DB_CONNECT_COOLDOWN";
+  constructor(remainingMs: number, refusedBy: string) {
+    super(
+      `Database is refusing connection attempts; not attempting again for ${remainingMs}ms. Last failure: ${refusedBy}`,
+    );
+    this.name = "DbConnectCooldownError";
+  }
+}
+
+const connectCooldowns = new Map<
+  string,
+  { until: number; refusedBy: string }
+>();
+
+/**
+ * Neon rejects a connection ATTEMPT, not a connection: "Failed to acquire
+ * permit to connect to the database. Too many database connection attempts are
+ * currently ongoing." A failed acquire leaves the pool with zero idle clients,
+ * so the next execute() calls connect() again — and retryOnConnectionError
+ * backs off only 100ms. The process answers a refusal by manufacturing the next
+ * attempt, which is what keeps the refusal true. Production sat in this loop
+ * until the compute was restarted by hand.
+ *
+ * Hold a short cooldown per endpoint so a refused attempt cannot produce the
+ * next one. Checking out an ALREADY-IDLE client is not an attempt and passes
+ * through, so a cooldown degrades throughput instead of taking the process
+ * offline.
+ */
+function gateNeonConnect(
+  pool: Record<string, any>,
+  url: string,
+  label: string,
+): void {
+  const connect = pool.connect;
+  if (typeof connect !== "function") return;
+  const gated = function gatedConnect(this: unknown, ...args: unknown[]) {
+    const idle = typeof pool.idleCount === "number" ? pool.idleCount : 0;
+    const gate = connectCooldowns.get(url);
+    if (idle === 0 && gate && Date.now() < gate.until) {
+      return Promise.reject(
+        new DbConnectCooldownError(gate.until - Date.now(), gate.refusedBy),
+      );
+    }
+    return Promise.resolve(connect.apply(this, args)).then(
+      (client: unknown) => {
+        connectCooldowns.delete(url);
+        return client;
+      },
+      (err: unknown) => {
+        const refusedBy = describeDbError(err);
+        const ms = connectCooldownMs();
+        // One line per cooldown window, not per shed request.
+        if (!gate || Date.now() >= gate.until) {
+          console.warn(
+            `[${label}] connection attempt refused; pausing attempts ${ms}ms:`,
+            refusedBy,
+          );
+        }
+        connectCooldowns.set(url, { until: Date.now() + ms, refusedBy });
+        throw err;
+      },
+    );
+  };
+  // Carry the wrapped function's own properties onto the wrapper. A pool's
+  // `connect` may be instrumented — metrics, tracing, a test spy — and
+  // replacing it with a bare closure would silently drop that instrumentation
+  // along with any assertions built on it.
+  Object.assign(gated, connect);
+  pool.connect = gated;
+}
+
+export function guardNeonPool(
   pool: unknown,
+  url: string,
   label = "db/neon",
 ): void {
   if (!pool || typeof pool !== "object") return;
@@ -929,6 +1292,7 @@ export function attachNeonPoolErrorLogger(
   if (typeof withEvents.on !== "function") return;
 
   loggedNeonPools.add(pool);
+  gateNeonConnect(pool as Record<string, any>, url, label);
   withEvents.on("error", (err: unknown) => {
     console.warn(
       `[${label}] pool error (will reconnect on next query):`,
@@ -965,6 +1329,113 @@ export function attachNeonPoolErrorLogger(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Shared connection pools
+// ---------------------------------------------------------------------------
+
+interface ClosablePool {
+  end(): Promise<unknown>;
+}
+
+const _sharedDbPools = new Map<string, ClosablePool>();
+const _sharedDbPoolCloseHooks = new Set<() => void>();
+const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
+
+/**
+ * One connection pool per (driver, URL) for the whole process.
+ *
+ * Opening a connection to a remote database costs a full TCP + TLS + auth
+ * round-trip chain (~300-800ms measured against Neon in-region), and it used
+ * to be paid once per CONSUMER: the `getDbExec` singleton, Better Auth, and one
+ * more for every `createGetDb()` schema module (four in core alone, plus each
+ * app's). Their `max` values also multiplied against the provider's connection
+ * cap, which forced each pool down to a size too small to run a request's reads
+ * concurrently.
+ *
+ * TRAP: only consumers that live as long as the process may share. Anything
+ * handed a `close()` — `createDbExec()`, the migration exec on the direct
+ * endpoint — must keep a private pool, or closing it takes the whole process's
+ * database access down with it.
+ */
+export function sharedDbPool<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  create: () => T,
+): T {
+  const key = `${driver}\u0000${url}`;
+  const existing = _sharedDbPools.get(key);
+  if (existing) return existing as T;
+  const created = create();
+  _sharedDbPools.set(key, created);
+  return created;
+}
+
+/**
+ * Swap the pool registered for a key, for the postgres.js recycle path that
+ * replaces a pool whose query timed out. Without this the registry would keep
+ * handing out the discarded pool.
+ */
+export function replaceSharedDbPool<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  previous: T,
+  next: T,
+): void {
+  const key = `${driver}\u0000${url}`;
+  if (_sharedDbPools.get(key) !== previous) return;
+  _sharedDbPools.set(key, next);
+  for (const hook of _sharedDbPoolReplacementHooks.get(key) ?? []) {
+    try {
+      hook();
+    } catch {
+      // A consumer's reset must not block the replacement from being used.
+    }
+  }
+}
+
+/**
+ * Run `hook` when one shared pool is replaced, so derived consumers rebuild
+ * their handles instead of continuing to use the timed-out pool.
+ */
+export function onSharedDbPoolReplaced(
+  driver: string,
+  url: string,
+  hook: () => void,
+): void {
+  const key = `${driver}${String.fromCharCode(0)}${url}`;
+  const hooks = _sharedDbPoolReplacementHooks.get(key) ?? new Set();
+  hooks.add(hook);
+  _sharedDbPoolReplacementHooks.set(key, hooks);
+}
+
+/**
+ * Run `hook` when the shared pools are closed, so consumers holding a derived
+ * handle (a Drizzle instance bound to the pool, the Better Auth adapter) drop
+ * it instead of issuing queries on a closed pool.
+ */
+export function onSharedDbPoolsClosed(hook: () => void): void {
+  _sharedDbPoolCloseHooks.add(hook);
+}
+
+export async function closeSharedDbPools(): Promise<void> {
+  const pools = [..._sharedDbPools.values()];
+  _sharedDbPools.clear();
+  for (const hook of _sharedDbPoolCloseHooks) {
+    try {
+      hook();
+    } catch {
+      // A consumer's reset must not block the rest from being released.
+    }
+  }
+  await Promise.all(
+    pools.map((pool) =>
+      Promise.resolve(pool.end()).catch(() => {
+        // Already closed (process exiting, provider hung up) — nothing to do.
+      }),
+    ),
+  );
+}
+
 function disposePostgresPoolEventually(
   pool: { end: () => Promise<unknown> },
   label: string,
@@ -985,8 +1456,6 @@ function disposePostgresPoolEventually(
 // ---------------------------------------------------------------------------
 
 let _exec: DbExec | undefined;
-let _pgPool: any;
-let _neonPool: any;
 let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
@@ -1033,7 +1502,17 @@ async function createDbExecInternal(
     };
     return {
       execute,
-      transaction: explicitTransaction(execute),
+      async atomicBatch(statements) {
+        const prepared = statements.map((statement) => {
+          if (typeof statement === "string") return d1.prepare(statement);
+          return d1.prepare(statement.sql).bind(...(statement.args ?? []));
+        });
+        const results = await d1.batch(prepared);
+        return results.map((result: any) => ({
+          rows: result.results || [],
+          rowsAffected: result.meta?.changes ?? 0,
+        }));
+      },
     };
   }
 
@@ -1071,27 +1550,27 @@ async function createDbExecInternal(
     // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
-      const { Pool, neonConfig } = await import("@neondatabase/serverless");
-      // In the durable background-function worker, route pool queries over Neon's
-      // stateless HTTP transport instead of a long-lived WebSocket. A frozen/thawed
-      // bg-fn instance can leave the pool's WebSocket connections half-dead, so
-      // queries after the first burst stall on connect()/query() — observed: the
-      // analytics worker stalls right after model resolution and never claims.
-      // HTTP-per-query (poolQueryViaFetch) has no persistent socket to die; the
-      // foreground keeps the WebSocket pool. See the bg-fn execute branch below.
+      const { Pool, neon } = await import("@neondatabase/serverless");
+      // A frozen/thawed background function can retain half-dead WebSocket
+      // connections, so its direct executions use stateless Neon HTTP instead.
+      // The foreground and transaction surface keep the WebSocket pool.
       const bgHttp = isBackgroundFunctionPoolContext();
-      if (bgHttp) {
-        (neonConfig as { poolQueryViaFetch?: boolean }).poolQueryViaFetch =
-          true;
-      }
-      const pool = new Pool({ connectionString: url, max: neonPoolMax() });
-      attachNeonPoolErrorLogger(pool);
-      if (trackSingletonResources) _neonPool = pool;
+      const makePool = () =>
+        new Pool({ connectionString: url, ...neonPoolOptions() });
+      // The singleton exec shares the process pool; `createDbExec()` callers own
+      // a `close()` and so must not be handed it.
+      const pool = trackSingletonResources
+        ? sharedDbPool("neon", url, makePool)
+        : makePool();
+      guardNeonPool(pool, url);
+      const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
+        timeoutOverrideMs?: number,
       ) {
         const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
         const pgSql = sqliteToPostgresParams(rawSql);
         const result = await withDbTimeout(
           "query",
@@ -1100,7 +1579,81 @@ async function createDbExecInternal(
               rows: unknown[];
               rowCount?: number;
             }>,
-          dbOpTimeoutMs(),
+          timeoutOverrideMs ?? timeoutMs,
+        );
+        return {
+          rows: result.rows,
+          rowsAffected: result.rowCount ?? 0,
+        };
+      }
+      async function queryNeonClientWithStatementTimeout(
+        client: any,
+        sql: Parameters<DbExec["execute"]>[0],
+        remainingMs: () => number,
+        markClientForDiscard: () => void,
+      ) {
+        const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
+        await queryNeonClient(
+          client,
+          `SET statement_timeout = ${statementTimeoutMs}`,
+          remainingMs(),
+        );
+        try {
+          return await queryNeonClient(client, sql, remainingMs());
+        } finally {
+          try {
+            await queryNeonClient(
+              client,
+              "RESET statement_timeout",
+              Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
+            );
+          } catch (err) {
+            markClientForDiscard();
+            console.warn(
+              "[db/neon] statement timeout reset failed; discarding connection:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+      }
+      async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
+        if (!httpSql) {
+          throw new Error("Neon HTTP query used outside a background function");
+        }
+        const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
+        const pgSql = sqliteToPostgresParams(rawSql);
+        const controller = new AbortController();
+        const run = async () => {
+          if (!hasExplicitDbTimeout(sql)) {
+            return httpSql.query(pgSql, args as any[], {
+              fetchOptions: { signal: controller.signal },
+            });
+          }
+          const statementDeadlineMs =
+            Date.now() + postgresStatementTimeoutMs(timeoutMs);
+          const results = await httpSql.transaction(
+            [
+              httpSql.query(
+                `SELECT set_config(
+                  'statement_timeout',
+                  GREATEST(
+                    1,
+                    $1::bigint -
+                      FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                  )::text,
+                  true
+                )`,
+                [statementDeadlineMs],
+              ),
+              httpSql.query(pgSql, args as any[]),
+            ],
+            { fetchOptions: { signal: controller.signal } },
+          );
+          return results[1];
+        };
+        const result = await withDbTimeout("query", run, timeoutMs, () =>
+          controller.abort(),
         );
         return {
           rows: result.rows,
@@ -1109,25 +1662,25 @@ async function createDbExecInternal(
       }
       return {
         async execute(sql) {
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
-            // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
-            // persistent socket to stall. queryNeonClient calls pool.query(),
-            // which the driver routes over HTTP when poolQueryViaFetch is set.
+            // HTTP-per-query path: no pool.connect() and no persistent socket
+            // to survive a background-function freeze. Explicitly budgeted
+            // statements run with SET LOCAL inside the same HTTP transaction,
+            // so the server cancels the SQL before the fetch deadline without
+            // leaking session state into Neon's pooled backends.
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() =>
-              withDbTimeout(
-                "http-query",
-                () => queryNeonClient(pool, sql),
-                dbOpTimeoutMs(),
-              ),
-            );
+            }>(() => queryNeonHttp(sql), maxAttempts);
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];
             rowsAffected: number;
           }>(async () => {
+            const attemptStartedAt = Date.now();
+            const remainingAttemptMs = () =>
+              Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
             // Bound the pooled-connection ACQUIRE, not just the query below.
             // Neon's pooler can stall on `connect()` when cold or exhausted,
             // and that happens BEFORE `client.query`, so the query-level
@@ -1145,7 +1698,7 @@ async function createDbExecInternal(
                   if (acquireTimedOut) c.release();
                   return c;
                 }),
-              dbOpTimeoutMs(),
+              remainingAttemptMs(),
               () => {
                 acquireTimedOut = true;
               },
@@ -1156,16 +1709,28 @@ async function createDbExecInternal(
               released = true;
               client.release(err);
             };
+            let discardClient = false;
 
             try {
-              const result = await queryNeonClient(client, sql);
-              releaseClient();
+              const result = hasExplicitDbTimeout(sql)
+                ? await queryNeonClientWithStatementTimeout(
+                    client,
+                    sql,
+                    remainingAttemptMs,
+                    () => {
+                      discardClient = true;
+                    },
+                  )
+                : await queryNeonClient(client, sql, remainingAttemptMs());
+              releaseClient(discardClient ? true : undefined);
               return result;
             } catch (err) {
-              releaseClient(isConnectionError(err) ? true : undefined);
+              releaseClient(
+                discardClient || isConnectionError(err) ? true : undefined,
+              );
               throw err;
             }
-          });
+          }, maxAttempts);
           return {
             rows: result.rows,
             rowsAffected: result.rowsAffected,
@@ -1193,7 +1758,23 @@ async function createDbExecInternal(
               client.release(err);
             };
             const tx: DbExec = {
-              execute: (sql) => queryNeonClient(client, sql),
+              execute: async (sql) => {
+                if (!hasExplicitDbTimeout(sql)) {
+                  return queryNeonClient(client, sql);
+                }
+                const { timeoutMs } = dbExecQueryBudget(sql);
+                const startedAt = Date.now();
+                const remainingMs = () =>
+                  Math.max(1, timeoutMs - (Date.now() - startedAt));
+                const statementTimeoutMs =
+                  postgresStatementTimeoutMs(remainingMs());
+                await queryNeonClient(
+                  client,
+                  `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
+                  remainingMs(),
+                );
+                return queryNeonClient(client, sql, remainingMs());
+              },
             };
             try {
               await queryNeonClient(client, "BEGIN");
@@ -1202,13 +1783,23 @@ async function createDbExecInternal(
               releaseClient();
               return result;
             } catch (err) {
-              await queryNeonClient(client, "ROLLBACK").catch(() => {});
-              releaseClient(isConnectionError(err) ? true : undefined);
+              let rollbackFailed = false;
+              try {
+                await queryNeonClient(client, "ROLLBACK");
+              } catch {
+                rollbackFailed = true;
+              }
+              // A failed rollback can leave the backend inside the transaction.
+              // Do not return that client to PgBouncer as if it were clean.
+              releaseClient(
+                isConnectionError(err) || rollbackFailed ? true : undefined,
+              );
               throw err;
             }
           }, 1);
         },
         async close() {
+          if (trackSingletonResources) return closeSharedDbPools();
           await pool.end();
         },
       };
@@ -1233,6 +1824,7 @@ async function createDbExecInternal(
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
+            const { timeoutMs } = dbExecQueryBudget(sql);
             const pgSql = sqliteToPostgresParams(rawSql);
             const result = await withDbTimeout<
               ArrayLike<unknown> & { count?: number }
@@ -1242,7 +1834,7 @@ async function createDbExecInternal(
                 conn.unsafe(pgSql, args as any[]) as Promise<
                   ArrayLike<unknown> & { count?: number }
                 >,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => {
                 timedOut = true;
                 disposePostgresPoolEventually(conn, "timed-out worker query");
@@ -1274,6 +1866,7 @@ async function createDbExecInternal(
               const tx: DbExec = {
                 async execute(sql) {
                   const { rawSql, args } = sqlAndArgs(sql);
+                  const { timeoutMs } = dbExecQueryBudget(sql);
                   const pgSql = sqliteToPostgresParams(rawSql);
                   const result = await withDbTimeout<
                     ArrayLike<unknown> & { count?: number }
@@ -1283,7 +1876,7 @@ async function createDbExecInternal(
                       txSql.unsafe(pgSql, args as any[]) as Promise<
                         ArrayLike<unknown> & { count?: number }
                       >,
-                    dbOpTimeoutMs(),
+                    timeoutMs,
                   );
                   return {
                     rows: Array.from(result),
@@ -1312,12 +1905,17 @@ async function createDbExecInternal(
       // server-side timeout, avoiding ECONNRESET when the server hangs up.
       const createPool = () => postgres(url, pgPoolOptions(url));
       type PostgresPool = ReturnType<typeof createPool>;
-      let pool = createPool();
-      if (trackSingletonResources) _pgPool = pool;
+      // Same rule as the Neon path: the singleton exec shares the process pool,
+      // `createDbExec()` callers own a `close()` and get a private one.
+      let pool = trackSingletonResources
+        ? sharedDbPool("postgres-js", url, createPool)
+        : createPool();
       const recyclePool = (timedOutPool: PostgresPool) => {
         if (pool === timedOutPool) {
           pool = createPool();
-          if (trackSingletonResources) _pgPool = pool;
+          if (trackSingletonResources) {
+            replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
+          }
         }
         disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
       };
@@ -1325,6 +1923,7 @@ async function createDbExecInternal(
       return {
         async execute(sql) {
           const { rawSql, args } = sqlAndArgs(sql);
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
@@ -1334,10 +1933,10 @@ async function createDbExecInternal(
             return withDbTimeout(
               "query",
               () => query,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => recyclePool(queryPool),
             );
-          });
+          }, maxAttempts);
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
@@ -1348,6 +1947,7 @@ async function createDbExecInternal(
             const tx: DbExec = {
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
+                const { timeoutMs } = dbExecQueryBudget(sql);
                 const pgSql = sqliteToPostgresParams(rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
@@ -1357,7 +1957,7 @@ async function createDbExecInternal(
                     txSql.unsafe(pgSql, args as any[]) as Promise<
                       ArrayLike<unknown> & { count?: number }
                     >,
-                  dbOpTimeoutMs(),
+                  timeoutMs,
                 );
                 return {
                   rows: Array.from(result),
@@ -1370,6 +1970,7 @@ async function createDbExecInternal(
           return result as T;
         },
         async close() {
+          if (trackSingletonResources) return closeSharedDbPools();
           await pool.end();
         },
       };
@@ -1385,7 +1986,18 @@ async function createDbExecInternal(
     const { default: Database } = await import("better-sqlite3");
     const sqlite = new Database(sqliteFilenameFromUrl(url));
     sqlite.pragma("busy_timeout = 10000");
-    sqlite.pragma("journal_mode = WAL");
+    try {
+      // Vite can start a replacement Nitro runtime while the previous instance
+      // is still releasing app.db. The 10s busy_timeout can expire during that
+      // handoff, so retry the idempotent WAL negotiation before declaring the
+      // whole auth/database bootstrap failed.
+      await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+        rethrow: true,
+      });
+    } catch (error) {
+      sqlite.close();
+      throw error;
+    }
     if (trackSingletonResources) _sqlite = sqlite;
     const execute: DbExec["execute"] = async (sql) => {
       const { rawSql, args } = sqlAndArgs(sql);
@@ -1445,7 +2057,39 @@ async function createDbExecInternal(
 }
 
 export async function createDbExec(config: DbExecConfig = {}): Promise<DbExec> {
-  return createDbExecInternal(config, false);
+  const exec = await createDbExecInternal(config, false);
+  return guardSchemaMutations(exec);
+}
+
+function guardSchemaMutations(exec: DbExec): DbExec {
+  const guarded: DbExec = {
+    async execute(statement) {
+      assertSchemaMutationAllowed(statement);
+      return exec.execute(statement);
+    },
+  };
+  if (exec.atomicBatch) {
+    guarded.atomicBatch = async (statements) => {
+      for (const statement of statements) {
+        assertSchemaMutationAllowed(statement);
+      }
+      return exec.atomicBatch!(statements);
+    };
+  }
+  if (exec.transaction) {
+    guarded.transaction = (fn) =>
+      exec.transaction!((tx) =>
+        fn({
+          ...tx,
+          execute: async (statement) => {
+            assertSchemaMutationAllowed(statement);
+            return tx.execute(statement);
+          },
+        }),
+      );
+  }
+  if (exec.close) guarded.close = () => exec.close!();
+  return guarded;
 }
 
 async function initClient(): Promise<void> {
@@ -1467,6 +2111,35 @@ async function initClient(): Promise<void> {
  * Get the singleton database client. Returns a `DbExec` whose first
  * `execute()` call lazily initializes the underlying driver.
  */
+/**
+ * Point a missing-table failure at the cause instead of the symptom.
+ *
+ * The driver reports `no such table: x` / `relation "x" does not exist` from
+ * whichever query happened to touch it first, so the stack lands in an action
+ * and reads as a bug in that action. The actual cause is almost always that no
+ * migration ever created the table — a template with no `server/plugins/db.ts`
+ * creates none, and core's own tables self-heal, so app tables are the only
+ * ones that fail this way. Appends rather than replaces: `isDuplicateColumnError`
+ * and friends match substrings of the driver's original text.
+ */
+export function annotateMissingTable(err: unknown, sql: unknown): unknown {
+  if (!(err instanceof Error)) return err;
+  const match =
+    /no such table:?\s*["'`]?([\w.]+)/i.exec(err.message) ??
+    /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(err.message);
+  if (!match) return err;
+  if (err.message.includes("server/plugins/db.ts")) return err;
+  const statement =
+    typeof sql === "string" ? sql : (sql as { sql?: string })?.sql;
+  err.message =
+    `${err.message}\n` +
+    `  [agent-native] Table "${match[1]}" does not exist. App tables are created by migrations in ` +
+    `server/plugins/db.ts — check that the plugin exists and declares a migration for this table, ` +
+    `then restart the dev server so it runs.` +
+    (statement ? `\n  Statement: ${statement.slice(0, 200)}` : "");
+  return err;
+}
+
 export function getDbExec(): DbExec {
   if (_exec) return _exec;
 
@@ -1480,9 +2153,21 @@ export function getDbExec(): DbExec {
     return sql;
   }
 
+  async function execAnnotated(
+    s: string | { sql: string; args?: unknown[] },
+  ): ReturnType<DbExec["execute"]> {
+    assertSchemaMutationAllowed(s);
+    try {
+      return await _exec!.execute(sanitize(s));
+    } catch (err) {
+      throw annotateMissingTable(err, s);
+    }
+  }
+
   // Return a proxy that lazy-inits on first call
   const proxy: DbExec = {
     async execute(sql) {
+      assertSchemaMutationAllowed(sql);
       if (!_initPromise) _initPromise = initClient();
       try {
         await _initPromise;
@@ -1496,19 +2181,30 @@ export function getDbExec(): DbExec {
       }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
-        execute: (s) => _exec!.execute(sanitize(s)),
+        execute: (s) => execAnnotated(s),
+        atomicBatch: _exec!.atomicBatch
+          ? async (statements) => {
+              for (const statement of statements) {
+                assertSchemaMutationAllowed(statement);
+              }
+              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
+            }
+          : undefined,
         transaction: _exec!.transaction
           ? (fn) =>
               _exec!.transaction!((tx) =>
                 fn({
-                  execute: (s) => tx.execute(sanitize(s)),
+                  execute: (s) => {
+                    assertSchemaMutationAllowed(s);
+                    return tx.execute(sanitize(s));
+                  },
                   transaction: tx.transaction,
                 }),
               )
           : undefined,
       };
       Object.assign(proxy, wrapper);
-      return _exec!.execute(sanitize(sql));
+      return execAnnotated(sql);
     },
     async transaction(fn) {
       if (!_initPromise) _initPromise = initClient();
@@ -1520,12 +2216,23 @@ export function getDbExec(): DbExec {
         throw err;
       }
       const wrapper: DbExec = {
-        execute: (s) => _exec!.execute(sanitize(s)),
+        execute: (s) => execAnnotated(s),
+        atomicBatch: _exec!.atomicBatch
+          ? async (statements) => {
+              for (const statement of statements) {
+                assertSchemaMutationAllowed(statement);
+              }
+              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
+            }
+          : undefined,
         transaction: _exec!.transaction
           ? (innerFn) =>
               _exec!.transaction!((tx) =>
                 innerFn({
-                  execute: (s) => tx.execute(sanitize(s)),
+                  execute: (s) => {
+                    assertSchemaMutationAllowed(s);
+                    return tx.execute(sanitize(s));
+                  },
                   transaction: tx.transaction,
                 }),
               )
@@ -1535,12 +2242,44 @@ export function getDbExec(): DbExec {
       if (_exec!.transaction) {
         return _exec!.transaction((tx) =>
           fn({
-            execute: (s) => tx.execute(sanitize(s)),
+            execute: (s) => {
+              assertSchemaMutationAllowed(s);
+              return tx.execute(sanitize(s));
+            },
             transaction: tx.transaction,
           }),
         );
       }
+      if (_exec!.atomicBatch) {
+        throw new Error(
+          "This database supports atomic batches, not interactive transactions.",
+        );
+      }
       return explicitTransaction(wrapper.execute)(fn);
+    },
+    async atomicBatch(statements) {
+      for (const statement of statements) {
+        assertSchemaMutationAllowed(statement);
+      }
+      if (!_initPromise) _initPromise = initClient();
+      try {
+        await _initPromise;
+      } catch (err) {
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
+      if (!_exec!.atomicBatch) {
+        throw new Error("This database does not support atomic batches.");
+      }
+      const batch = async (items: typeof statements) => {
+        for (const item of items) {
+          assertSchemaMutationAllowed(item);
+        }
+        return _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      };
+      Object.assign(proxy, { atomicBatch: batch });
+      return batch(statements);
     },
   };
   return proxy;
@@ -1548,14 +2287,9 @@ export function getDbExec(): DbExec {
 
 /** Close the database connection (for scripts that need cleanup). */
 export async function closeDbExec(): Promise<void> {
-  if (_pgPool) {
-    await _pgPool.end();
-    _pgPool = undefined;
-  }
-  if (_neonPool) {
-    await _neonPool.end();
-    _neonPool = undefined;
-  }
+  // Both Postgres pools live in the shared registry, which also notifies the
+  // Drizzle / Better Auth consumers bound to them.
+  await closeSharedDbPools();
   if (_sqlite) {
     _sqlite.close();
     _sqlite = undefined;

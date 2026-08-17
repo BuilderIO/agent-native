@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "작업",
     commandSearch: "검색",
+    openAgent: "에이전트 열기",
     commandAppearance: "화면 표시",
     toggleTheme: "테마 전환",
     extensionSignedInTitle: "로그인됨",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "받아쓰기",
     archive: "보관함",
     trash: "휴지통",
+    agent: "에이전트",
     settings: "설정",
     notifications: "알림",
     insights: "인사이트",
@@ -169,7 +171,7 @@ const messages = {
       "데스크톱 레코더가 완료되고 로컬 복사본을 저장했지만 Clips가 이를 업로드할 수 없습니다. 다시 녹음하지 않고 Clips 메뉴에서 다시 시도할 수 있습니다.",
     retryLibrary: "라이브러리에서 다시 시도할 수 있습니다.",
     processingStuck:
-      "30초 후에도 처리가 완료되지 않았습니다(상태={{status}}). 클립 업로드가 완료되지 않았을 수 있습니다. 서버 로그에서 청크/완결 메시지를 확인하세요.",
+      "저장하는 데 예상보다 오래 걸리고 있습니다(상태={{status}}). 데스크톱 앱에서 녹화했다면 메뉴 막대에서 Clips를 열어 업로드를 다시 시도하거나 저장된 로컬 사본을 다운로드한 다음 다시 확인하세요.",
     uploadingAssembling:
       "비디오 업로드 및 취합 – 일반적으로 몇 초 밖에 걸리지 않습니다.",
     connectStorageImportLoom: "이 Loom를 가져오려면 저장소를 연결하세요.",
@@ -216,6 +218,9 @@ const messages = {
     autoChapters: "자동 챕터",
     removeFillerWords: "필러 단어 제거",
     removeSilences: "무음 제거(>1.2초)",
+    silenceWorking: "무음 구간을 제거하는 중…",
+    silenceCompleted: "무음 구간 제거 완료",
+    silenceFailed: "무음 구간 제거 실패",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:
@@ -253,6 +258,42 @@ const messages = {
     passwordProtected: "이 클립은 비밀번호로 보호되어 있습니다",
     linkExpired: "링크가 만료되었습니다",
     linkExpiredMessage: "작성자는 이 공유 링크에 만료를 설정했습니다.",
+    privateClip: "비공개 클립",
+    privateClipMessage:
+      "이 클립은 비공개입니다. 액세스를 요청하면 소유자에게 알림이 전송됩니다.",
+    privateClipSignedOutMessage:
+      "이 클립은 비공개입니다. 로그인하거나 이메일을 입력해 액세스를 요청하세요.",
+    requestAccess: "액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "이 클립을 공유할 때 소유자가 나를 확인할 방법을 선택하세요.",
+    requestAccessSignIn: "로그인 또는 가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인해 클립을 볼 수 있습니다.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
+    requestingAccess: "액세스 요청 중...",
+    accessRequested: "액세스 요청됨",
+    accessRequestSent: "클립 소유자에게 알림을 보냈습니다.",
+    accessRequestSentWithEmail:
+      "소유자에게 이 클립을 {{email}} 님과 공유해 달라고 요청했습니다.",
+    accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 클립을 볼 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 클립에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 클립 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenClip: "클립 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
     clipUnavailable: "클립을 사용할 수 없음",
     clipUnavailableMessage:
       "이 녹음 파일은 공개되지 않았거나 링크가 유효하지 않습니다. 귀하의 클립인 경우 로그인하여 액세스 권한을 확인하세요.",
@@ -286,7 +327,6 @@ const messages = {
       "저장소가 연결되었습니다. 이 클립을 확인하는 중...",
     signInToFinish: "완료하려면 로그인하세요.",
     signInIfYours: "본인의 계정인 경우 로그인하세요.",
-    openDashboard: "대시보드 열기",
     checkAgain: "다시 확인",
     backToHome: "집으로 돌아가기",
     generatingTitle: "제목 생성 중",
@@ -440,6 +480,7 @@ const messages = {
     invite: "초대",
     embed: "임베드",
     shareLink: "공유 링크",
+    shareWithHumans: "사람과 공유",
     shareWithAgents: "상담원과 공유",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
@@ -449,7 +490,12 @@ const messages = {
     agentLinkUnavailable: "에이전트 링크를 만들 수 없습니다.",
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
+    copyEmailPreview: "이메일 미리보기 복사",
+    emailPreviewCopied: "이메일 미리보기가 복사되었습니다",
+    emailPreviewCopyFailed: "이메일 미리보기를 복사할 수 없습니다",
     openPlayer: "플레이어 열기",
+    chooseFile: "파일 선택",
+    remove: "제거",
     downloadMp4: "MP4 다운로드",
     embedsNeedPublic: "퍼가기에는 공개 클립이 필요합니다",
     embedPublicDescription:
@@ -476,6 +522,7 @@ const messages = {
     makePublicAndCopy: "공개로 전환하고 복사",
     copy: "복사",
     addPeopleByEmail: "이메일로 사람 추가",
+    invite: "초대",
     notifyPeople: "사람들에게 알림",
     peopleWithAccess: "액세스 권한이 있는 사람",
     ownerRole: "소유자",
@@ -497,8 +544,13 @@ const messages = {
     },
     roles: {
       viewer: "뷰어",
+      commenter: "댓글 작성자",
       editor: "편집자",
       admin: "관리자",
+    },
+    recordingCommenter: {
+      label: "댓글 작성자",
+      description: "보고 댓글을 달고 반응할 수 있습니다",
     },
   },
   quickAsk: {
@@ -534,11 +586,16 @@ const messages = {
     brandingUpdated: "브랜딩이 업데이트됨",
     saveFailed: "저장 실패",
     organizationName: "조직 이름",
+    defaultVisibility: "새 녹화의 기본 공개 범위",
+    defaultVisibilityDescription:
+      "다른 공개 범위를 선택하지 않으면 새 녹화에 적용됩니다.",
     brandColor: "브랜드 색상",
     brandColorPicker: "브랜드 색상 선택기",
     useColor: "{{color}} 사용",
     logo: "로고",
     logoPreview: "로고 미리보기",
+    logoUsage: "공유 이메일과 공개 클립 페이지에서 수신자에게 표시됩니다.",
+    emailHeaderPreview: "공유 이메일 헤더",
     dropReplace: "교체할 새 이미지를 놓으세요",
     dropHere: "여기에 PNG / JPG / SVG를 놓으세요",
     uploading: "업로드 중…",
@@ -601,17 +658,28 @@ const messages = {
     pageTitle: "팀 참여 · Clips",
   },
   settings: {
-    openAgentSettings: "에이전트 설정 열기",
+    openAgentSettings: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    agentTitle: "에이전트 설정",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 관리",
     title: "설정",
     pageTitle: "설정 · Clips",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
+    preferencesTitle: "환경설정",
     languageTitle: "언어",
     languageDescription:
       "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",
     languageLabel: "인터페이스 언어",
+    uploadWorkspaceTitle: "활성 워크스페이스",
+    uploadWorkspaceDescription:
+      "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",
+    uploadWorkspaceLabel: "현재 워크스페이스",
+    uploadWorkspacePlaceholder: "워크스페이스 선택",
+    uploadWorkspaceHint:
+      "변경하면 워크스페이스와 관련된 Clips 화면도 업데이트됩니다.",
+    uploadWorkspaceSaving: "워크스페이스 저장 중…",
+    uploadWorkspaceSaved: "활성 워크스페이스가 업데이트됨",
+    uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
     viewAllUpdates: "모든 업데이트 보기",
@@ -626,10 +694,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
 ### 추가됨
 
 - 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
-    profile: "프로필",
-    email: "이메일",
-    displayName: "표시 이름",
-    displayNamePlaceholder: "이름",
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -638,9 +702,16 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptCleanupDescription:
       "기본 대본을 즉시 표시하고, 사용 가능해지면 백그라운드에서 정리합니다.",
     notifications: "알림",
+    sharing: "공유",
+    defaultVisibility: "새 녹화의 기본 공개 범위",
+    defaultVisibilityDescription:
+      "생성하는 모든 녹화에 적용됩니다. 녹화별로 공개 범위를 변경할 수 있습니다.",
+    visibilityPrivate: "비공개 - 나만",
+    visibilityOrg: "조직 - 워크스페이스의 모든 사람",
+    visibilityPublic: "공개 - 링크가 있는 모든 사람",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:
-      "누군가 댓글을 달거나 반응하거나 녹화를 공유하면 이메일을 받습니다.",
+      "누군가 내 녹화에 댓글을 달거나 반응하면 이메일을 받습니다.",
     saved: "설정이 저장됨",
     saveFailed: "저장 실패",
     builderConnectedToast: "Builder.io 연결됨",
@@ -649,11 +720,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
     checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
-    connectBuilder: "Builder.io 사용 (무료)",
+    connectBuilder: "Builder.io 사용",
     builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
     builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
-      "새 클립을 위한 객체 저장소, 업로드, 관리형 전사를 포함합니다.",
+      "Builder.io 무료 요금제에는 새 클립을 위한 객체 저장소, 업로드, 관리형 전사가 포함됩니다.",
     s3Title: "S3 호환 저장소",
     secondary: "보조",
     active: "활성",
@@ -679,8 +750,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
     s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
     apiSetup: "AI 설정",
-    apiSetupDescription:
-      "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
+    apiSetupDescription: "Clips의 AI 연결 방식을 선택하세요.",
     builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
       "포함된 AI 크레딧과 관리형 전사를 Clips에서 사용할 수 있습니다.",
@@ -688,8 +758,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "포함된 AI 크레딧, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
     providerKeyTitle: "자체 제공자 키 사용",
     providerKeyDescription:
-      "제공자 과금 사용을 위해 Anthropic, OpenAI, Gemini, Groq 또는 OpenRouter 키를 추가하세요.",
+      "제공자 과금 사용을 위해 Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere 또는 Ollama를 선택하세요.",
     providerKeysSet: "{{count}}개 설정됨",
+    providerActionTitle: "AI 제공업체",
+    providerActionDescription:
+      "Builder.io에는 무료 요금제가 있으며, 사용자 지정 키도 사용할 수 있습니다.",
+    providerManage: "관리",
+    providerCustomKeys: "사용자 지정 키",
     checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
     keyCleared: "스토리지 자격 증명이 삭제되었습니다",
@@ -767,6 +842,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "아직 조직이 없습니다. 시작하려면 조직 전환기에서 하나를 만드세요.",
     description: "조직 관리: 브랜딩, 멤버, 초대.",
     adminsOnlyBranding: "관리자만 브랜딩을 편집할 수 있습니다.",
+    brandingLoadFailed: "조직 브랜딩을 불러오지 못했습니다.",
     members: "멤버",
     pendingInvites: "대기 중인 초대",
     noPendingInvites: "대기 중인 초대가 없습니다.",
@@ -787,11 +863,24 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     recentViewers: "최근 시청자",
     noViewers: "아직 시청자가 없습니다.",
     anonymous: "익명",
-    anon: "익명",
     moreViewers: "+{{count}}명 더",
     viewedBy: "시청자",
     someone: "누군가",
     noViewsYet: "아직 조회 기록이 없습니다.",
+    viewsCount_one: "조회수 {{count}}회",
+    viewsCount_other: "조회수 {{count}}회",
+    agentViewsCount_one: "AI 에이전트 조회수 {{count}}회",
+    agentViewsCount_other: "AI 에이전트 조회수 {{count}}회",
+    totalViewsSummary: "총 조회수 {{total}}회, 고유 시청자 {{unique}}명",
+    viewsTab: "조회",
+    insightsTab: "인사이트",
+    humanViews: "사람 조회수",
+    agentViews: "AI 에이전트 조회수",
+    noAgentViewsYet: "아직 AI 에이전트 조회 기록이 없습니다.",
+    unknownAgent: "알 수 없는 에이전트",
+    totalVideoViews: "총 동영상 조회수",
+    averageCompletionRate: "평균 완료율",
+    moreInsights: "인사이트 더 보기",
   },
   libraryGrid: {
     spaceRoot: "스페이스 루트",
@@ -814,6 +903,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     loadFailedBody:
       "목록을 불러오는 중 문제가 발생했습니다. 녹화는 안전하게 보관되어 있으니 다시 시도해 보세요.",
     retry: "다시 시도",
+    paginationRange: "{{total}}개 중 {{start}}–{{end}}",
+    paginationPrevious: "이전",
+    paginationNext: "다음",
+    paginationPage: "{{page}} / {{totalPages}} 페이지",
   },
   notificationsRoute: {
     pageTitle: "알림 · Clips",
@@ -881,15 +974,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "{{email}}은 이 조직에 대한 액세스 권한을 잃습니다. 언제든 다시 초대할 수 있습니다.",
     remove: "제거",
   },
-  slackShareHint: {
-    playsInline: "Slack에서 인라인 재생",
-    connectedDescription:
-      "이 링크를 연결된 워크스페이스에 붙여넣으면 인라인으로 재생됩니다.",
-    makeInline: "Slack에서 인라인 재생하기",
-    connectDescription:
-      "워크스페이스를 연결하면 이 링크가 동영상으로 펼쳐집니다.",
-    connect: "연결",
-  },
   commentsPanel: {
     disabled: "이 녹화에서는 댓글이 비활성화되어 있습니다.",
     beFirst: "첫 댓글을 남겨보세요",
@@ -901,6 +985,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     replyingTo: "답글 대상",
     commentAt: "댓글 위치",
     writeReply: "답글 쓰기...",
+    editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
     mentionSomeone: "멘션하기",
@@ -916,6 +1001,19 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     summary: "요약",
     keyPoints: "핵심 포인트",
     actionItems: "작업 항목",
+    sharedContent: "공유 콘텐츠",
+    summaryIncluded: "요약, 핵심 포인트 및 작업 항목",
+    includeTranscript: "전체 스크립트 포함",
+    includeTranscriptDescription:
+      "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
+    transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    agentLinkDescription:
+      "이 임시 링크를 사용하면 회의 메모를 공개하지 않고 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
+    transcript: "스크립트",
+    copyTranscript: "스크립트 복사",
+    transcriptCopied: "스크립트가 복사되었습니다",
+    copyTranscriptFailed: "스크립트를 복사하지 못했습니다",
+    updateTranscriptSharingFailed: "스크립트 공유를 업데이트하지 못했습니다",
   },
   deleteRecordingMenu: {
     movedToTrash: "클립이 휴지통으로 이동됨",
@@ -936,8 +1034,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pauseShortcut: "일시정지 (⌥⇧P)",
     stop: "녹화 중지",
     elapsed: "경과 시간",
-    cancel: "녹화 취소",
-    cancelShortcut: "취소 (⌥⇧C)",
+    cancel: "녹화 삭제",
+    cancelShortcut: "삭제 (⌥⇧C)",
+    discardConfirmTitle: "이 녹화를 삭제할까요?",
+    discardConfirmDescription:
+      "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
+    resume: "재개",
+    discardRecording: "녹화 삭제",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",
@@ -1027,6 +1130,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     searchNextMatch: "다음 일치 항목",
     searchClose: "검색 닫기",
   },
+  bulletLink: {
+    jumpToTranscript: "기록에서 {{time}}(으)로 이동",
+    noMatchingMoment: "일치하는 순간을 찾을 수 없음",
+  },
   editorLayout: {
     trimmed: "잘라냈습니다",
     trimFailed: "자르기 실패",
@@ -1053,6 +1160,19 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     useColor: "{{color}} 색상 사용",
     spaceCreated: "공간이 생성되었습니다",
     createFailed: "공간을 만들 수 없습니다",
+  },
+  spaceDialog: {
+    deleteSpace: "스페이스 삭제",
+    renameSpace: "스페이스 이름 변경",
+    deleteTitle: "“{{name}}”을(를) 삭제할까요?",
+    deleteDescription:
+      "스페이스가 삭제되고 모든 녹화에서 제거됩니다. 이 작업은 취소할 수 없습니다.",
+    renamed: "스페이스 이름이 변경됨",
+    deleted: "“{{name}}” 삭제됨",
+    renameFailed: "스페이스 이름 변경 실패",
+    deleteFailed: "스페이스 삭제 실패",
+    renaming: "이름 변경 중...",
+    deleting: "삭제 중...",
   },
   signInPrompt: {
     title: "{{intent}}하려면 로그인",
@@ -1082,7 +1202,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 사용 (무료)",
+    connectBuilder: "Builder.io 사용",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",
@@ -1101,6 +1221,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     desktopTitle: "Desktop app (현지화됨)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (현지화됨)",
+    openDesktopApp: "Open desktop app (현지화됨)",
   },
   editableTitle: {
     untitled: "Untitled Clip (현지화됨)",
@@ -1215,10 +1336,15 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     cameraOff: "Camera off (현지화됨)",
     includeCameraAria: "Include camera in this recording (현지화됨)",
     startRecording: "Start recording (현지화됨)",
+    micOffConfirmTitle: "Record without a microphone? (현지화됨)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (현지화됨)",
+    startWithoutMic: "Start anyway (현지화됨)",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",
     import: "Import (현지화됨)",
+    recordNew: "새로 녹화",
   },
   playerSettings: {
     title: "Settings (현지화됨)",
@@ -1228,9 +1354,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     visibilityOrg: "Organization (현지화됨)",
     visibilityPublic: "Public (현지화됨)",
     passwordProtection: "Password protection (현지화됨)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (현지화됨)",
+    passwordSetPlaceholder: "Password is set — type to replace (현지화됨)",
     noPasswordPlaceholder: "No password (현지화됨)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (현지화됨)",
+    removePassword: "Remove (현지화됨)",
     expiry: "Expiry (현지화됨)",
     viewerOptions: "Viewer options (현지화됨)",
     comments: "Comments (현지화됨)",
@@ -1266,6 +1393,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     couldNotImportLoom: "Could not import that Loom. (현지화됨)",
     recordingReadyToUpload: "Recording is ready to upload (현지화됨)",
     recordingSaved: "Recording saved (현지화됨)",
+    linkCopied: "링크가 복사되었습니다",
+    copyLinkAction: "링크 복사",
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
@@ -1287,12 +1416,31 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     downloadDesktopApp: "Download desktop app (현지화됨)",
     technicalDetails: "Technical details (현지화됨)",
     whatToCheck: "What to check (현지화됨)",
-    downloadRecording: "Download recording (현지화됨)",
+    downloadRecording: "Download (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     connectStorageToFinish:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
+  },
+  importRoute: {
+    pageTitle: "Loom 가져오기 — Clips",
+    title: "Loom 가져오기",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "가져오기",
+    helperText:
+      "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
+    stageFetching: "동영상을 가져오는 중…",
+    stageUploading: "원본 영상을 업로드하는 중…",
+    stageTranscript:
+      "음성과 화면의 시각 정보를 에이전트가 읽을 수 있게 만드는 중…",
+    stageFinalizing: "Agent-Native로 만드는 중…",
+    importingSubtitle: "밋밋한 녹화를 Agent-Native 프리미티브로 바꾸는 중.",
+    doneHeading: "완료됐어요! 이제 동영상은:",
+    benefitTranscript: "음성과 화면의 시각 정보, 완전히 검색 가능",
+    benefitQueryable: "에이전트가 이해하고 질의 가능",
+    benefitSummaries: "필요할 때 즉시 요약과 클립 생성",
+    benefitPrimitive: "일급 Agent-Native 프리미티브",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",
@@ -1353,6 +1501,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
   clipsFinalRaw: {
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
+    selectAll: "모두 선택",
+    deselectAll: "모두 선택 해제",
     move: "이동",
     moveSelected: "선택한 {{count}}개 이동",
     current: "현재",
@@ -1362,7 +1512,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     uploadFailed: "업로드 실패",
     connectStorageToFinish: "열어서 저장소를 연결하고 저장을 완료하세요.",
     retryFromClipsMenu:
-      "Clips 메뉴에서 다시 시도하세요. 다시 녹화할 필요는 없습니다.",
+      "메뉴 막대에서 Clips를 열어 저장된 업로드를 다시 시도하세요. 다시 녹화할 필요가 없습니다.",
     removeFailedClip: "실패한 클립 제거.",
     remove: "제거",
     viewsCount: "조회수 {{count}}회",
@@ -1440,6 +1590,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptPending: "Transcript pending (현지화됨)",
     notesPending: "Notes pending (현지화됨)",
     pastRecordings: "Past recordings (현지화됨)",
+    loadOlder: "이전 항목 불러오기",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
@@ -1451,6 +1602,16 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarConnected: "Calendar connected (현지화됨)",
     calendarDisconnected: "Calendar disconnected (현지화됨)",
     calendarSettings: "Calendar settings (현지화됨)",
+    calendarAccountsButton: "캘린더",
+    connectedAccounts: "연결된 계정",
+    calendarConnectedLabel: "연결됨",
+    calendarNeedsReconnectLabel: "다시 연결 필요",
+    calendarDisconnectedLabel: "연결 해제됨",
+    calendarStatusUnavailable: "상태를 확인할 수 없음",
+    reconnectCalendar: "캘린더 다시 연결",
+    addAnotherCalendarAccount: "계정 추가",
+    connectCalendar: "캘린더 연결",
+    disconnectCalendarAccount: "계정 연결 해제",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (현지화됨)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",
@@ -1477,6 +1638,22 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
+  rewindExtension: {
+    title: "이전에 있었던 내용 추가",
+    description:
+      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
+    progressLabel: "Rewind 기록 처리 진행률",
+    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
+    privateFirstDescription:
+      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
+    makePrivateContinue: "비공개로 설정하고 계속",
+    add30Seconds: "이전 30초 추가",
+    add5Minutes: "이전 5분 추가",
+    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
+    privateReady:
+      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
+  },
+  timeline: { clipStartedHere: "클립이 여기서 시작됨" },
 };
 
 export default messages;

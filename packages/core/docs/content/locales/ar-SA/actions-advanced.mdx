@@ -1,0 +1,152 @@
+---
+title: "متقدم وقديم"
+description: "التحكم بأعلام الميزات لـ actions ما زالت قيد الطرح التدريجي، وأسلوب action القديم الخاص بـ CLI فقط (export default async function(args) مع parseArgs) المُبقى عليه للنصوص البرمجية التطويرية لمرة واحدة."
+---
+
+# متقدم وقديم
+
+## حماية الميزات المرحلية {#feature-flags}
+
+توجد أعلام الميزات لموقف محدد واحد: يكون action آمنًا للنشر، لكنك تريد تفعيله لعدد قليل من الحسابات قبل أن يحصل عليه الجميع. الوصول إلى ذلك يتطلب ثلاث خطوات إلزامية، بالإضافة إلى خطوة رابعة اختيارية لواجهة المستخدم.
+
+<Steps>
+
+### أعلن العلم
+
+أعلن عن العلم في وحدة يمكن لكل من الخادم والعميل استيرادها، لأن مفتاح العلم نفسه يجب أن يصل إلى الجانبين:
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key` هو الحقل الوحيد الذي سيشير إليه كل جزء آخر من الكود، لذا يجب أن يكون ثابتًا. لا يظهر `displayName` و`description` إلا لاحقًا، في واجهة مستخدم المشغِّل حيث يقوم شخص ما بتفعيل العلم فعليًا. الإعلان عن العلم هنا لا يفعّل أي شيء. يبدأ كل علم معطَّلاً لكل حساب.
+
+### سجّله عند بدء التشغيل
+
+سجّل العلم باستخدام برنامج مساعد Nitro بحيث يعرف الخادم قيد التشغيل أنه موجود:
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+يُقيَّم العلم غير المسجَّل دائمًا إلى `false`، بغض النظر عمّا يضبطه المشغِّل لاحقًا. هذه الخطوة هي ما يجعل العلم حقيقيًا بالنسبة إلى الخادم. لكنها لا تزال لا تفعّل العلم لأي أحد. يحدث ذلك من خلال actions المشغِّل الموصوفة في نهاية هذا القسم.
+
+### احمِ الـ action
+
+هذا هو الفحص المهم فعليًا، لأن كل مستدعٍ، سواء كان الوكيل، أو الواجهة الأمامية، أو نصًا برمجيًا، يجب أن يمر عبره:
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+تقرأ `isFeatureFlagEnabled()` هوية المستدعي من `ctx` (راجع [وسيطة ctx](/docs/actions-run-context#ctx)) وتُقيّم العلم لذلك المستخدم والمؤسسة المحددَين. إذا لم يكن العلم مفعَّلًا لهما، يطرح الـ action خطأً قبل فعل أي شيء آخر. يجب أن يعيش هذا الفحص داخل `run()`، لأن `run()` هي المكان الوحيد الذي يُضمَن أن يمر عبره كل مسار إرسال.
+
+### أخفِه في واجهة المستخدم (اختياري)
+
+استخدم العلم نفسه على العميل لإخفاء الميزة عن الأشخاص الذين لا يمكنهم استدعاءها على أي حال:
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+تُرجع `useFeatureFlag()` قيمة منطقية بسيطة، تُقيَّم للمستخدم المسجَّل دخوله بالطريقة نفسها التي يُقيَّم بها الفحص من جانب الخادم. إخفاء الزر عندما تكون القيمة `false` يمنع شخصًا ما من النقر على ميزة لا يمكنه استخدامها بعد، لكنه عرض فقط. لا شيء فيه يوقف استدعاءً مباشرًا لـ action. هذا بالضبط سبب وجوب بقاء الفحص في `run()` من الخطوة السابقة، بغض النظر عمّا تعرضه واجهة المستخدم.
+
+</Steps>
+
+بمجرد الإعلان عن علم وتسجيله، يمر تفعيله للحسابات الحقيقية عبر ثلاثة actions مثبَّتة. `get-feature-flags` هو الذي تستدعيه `useFeatureFlag()` نفسها: وهو مفتوح لأي مستدعٍ مسجَّل الدخول، لأن كل مستخدم يحتاج إلى التحقق من أعلامه الخاصة. `list-feature-flags` و`set-feature-flag` هما action الإدارة. كلاهما مقيَّد بمالكي المؤسسة ومسؤوليها (أو المسؤول بلا مؤسسة)، وكلاهما مُدقَّق.
+
+`set-feature-flag` هو كيف يغيّر المشغِّل فعليًا من الذي يكون العلم مفعَّلًا له:
+
+| العملية                                          | ما تفعله                                | أمثلة على الوسائط                                                                                               |
+| ------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                        | يفعّل العلم لحسابك الخاص فقط.           | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                            | يعطّل العلم للجميع، ويعيد ضبط أي قواعد. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`، الوضع `"on"`                    | يفعّل العلم للجميع.                     | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`، الوضع `"rules"` مع `emails`     | يفعّله لقائمة محددة من الحسابات.        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`، الوضع `"rules"` مع `orgIds`     | يفعّله لمؤسسات محددة.                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`، الوضع `"rules"` مع `percentage` | يفعّله لطرح تدريجي بنسبة مئوية.         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+تستدعي واجهات مستخدم مشغِّلي الأسطول (fleet) هذه actions نفسها عبر تفويض A2A ضيق النطاق بدلاً من تسجيل دخول مشترك، وAnalytics هي واجهة المستخدم الوحيدة للمشغِّل الخاصة بها. لا ينبغي للتطبيقات بناء لوحة إعدادات أعلام خاصة بها، ولا ينبغي أبدًا أن تمر كتابات الأعلام عبر نقاط نهاية إعدادات عامة أو SQL خام.
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+لا تضع أبدًا سلوك المصادقة، أو التخويل، أو التدقيق، أو الأسرار، أو تخزين SSR المؤقت خلف علم وقت تشغيل. يجب أن تكون هذه صحيحة دون شروط، لا أن تُبدَّل.
+
+</Callout>
+
+## Actions قديمة بأسلوب CLI {#legacy-cli-actions}
+
+لا يزال إطار العمل يدعم actions القديمة بصيغة `export default async function(args)` التي لا تُغلَّف في `defineAction()`. هذه مفيدة للنصوص البرمجية التطويرية لمرة واحدة التي لا تحتاج إلى تعريض للوكيل أو HTTP. وهي خاصة بـ CLI فقط: لا تظهر كأدوات وكيل، ولا تركّب نقاط نهاية HTTP، ولا تحصل على خطافات واجهة أمامية آمنة الأنواع.
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+ينبغي أن يفضّل الكود الجديد `defineAction()`. الجأ إلى هذا النمط فقط عندما تريد عمدًا ألا يكون الـ action مكشوفًا للوكلاء أو واجهة المستخدم.
+
+### `parseArgs(args)` {#parseargs}
+
+مساعد لـ actions بالأسلوب القديم. يحلّل وسائط CLI بصيغة `--key value` أو `--key=value`:
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## دوال مساعدة {#utility-functions}
+
+هذه مساعدات صغيرة لكتابة النصوص البرمجية، من الاستيراد نفسه `@agent-native/core` الذي يأتي منه `parseArgs()` أعلاه. وهي ليست مرتبطة بأسلوب action القديم الخاص بـ CLI تحديدًا. الجأ إليها في أي نص برمجي تطويري لمرة واحدة: تحميل متغيرات البيئة، أو التحقق من صحة وسيطة مسار، أو الإجهاض بخطأ واضح.
+
+| الدالة                  | تُرجع                    | الوصف                                                                                                                                           |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | يحمّل `.env` (و`.env.local`) من جذر المشروع أو مسار مخصص. يرجع إلى `.env` الخاص بجذر مساحة العمل في مساحة عمل مؤسسية.                           |
+| `camelCaseArgs(args)`   | `Record<string, string>` | يحوّل مفاتيح kebab-case إلى camelCase.                                                                                                          |
+| `isValidPath(p)`        | `boolean`                | يتحقق من صحة مسار نسبي (بلا اجتياز، بلا مسار مطلق).                                                                                             |
+| `isValidProjectPath(p)` | `boolean`                | يتحقق من صحة معرّف مشروع مختصر (slug) (مثل `my-project` أو `group/my-project`).                                                                 |
+| `ensureDir(dir)`        | `void`                   | مساعد `mkdir -p`.                                                                                                                               |
+| `fail(message)`         | `never`                  | يطرح خطأً لإجهاض نص برمجي. يلتقطه مُشغِّل CLI ويخرج برمز 1. يحصل عليه المستدعون داخل الخادم (أدوات الوكيل، A2A) كخطأ استدعاء أداة بدلاً من ذلك. |
+
+## ما هي الخطوة التالية
+
+- [**تعريف Actions**](/docs/actions-defining) — نمط `defineAction()` الذي يسبقه هذا الأسلوب القديم
+- [**نظرة عامة**](/docs/actions-overview) — ما هو action وجولة hello-world
+- [**أسطح أخرى**](/docs/actions-other-surfaces) — مُشغِّل CLI الذي تدعمه هذه الأدوات المساعدة وactions القديمة
+- [**أعلام الميزات**](/docs/feature-flags) — دورة حياة العلم الكاملة بما يتجاوز التحكم بـ action واحد

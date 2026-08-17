@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +9,7 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
+import { restoreDocumentSubtree } from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
@@ -47,16 +48,52 @@ export default defineAction({
       ownerBlockId: ownership.database.ownerBlockId,
     });
 
-    await db
-      .update(schema.contentDatabases)
-      .set({
-        deletedAt: null,
-        updatedAt: now,
-        ...(clearInlineOwnership
-          ? { ownerDocumentId: null, ownerBlockId: null }
-          : {}),
-      })
-      .where(eq(schema.contentDatabases.id, databaseId));
+    await db.transaction(async (tx) => {
+      const [backingDocument] = await tx
+        .select({
+          trashedAt: schema.documents.trashedAt,
+          trashRootId: schema.documents.trashRootId,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, ownership.database.documentId))
+        .limit(1);
+      if (!backingDocument) {
+        throw new Error(`Database "${databaseId}" not found`);
+      }
+      if (
+        backingDocument.trashedAt &&
+        backingDocument.trashRootId !== ownership.database.documentId
+      ) {
+        throw new Error("Restore the parent Trash item instead");
+      }
+
+      const restoredDocumentIds = await restoreDocumentSubtree(
+        tx as unknown as ReturnType<typeof getDb>,
+        ownership.database.documentId,
+        ownership.database.ownerEmail,
+      );
+      if (
+        backingDocument.trashedAt &&
+        !restoredDocumentIds.includes(ownership.database.documentId)
+      ) {
+        throw new Error("Database backing page was not restored");
+      }
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          deletedAt: null,
+          updatedAt: now,
+          ...(clearInlineOwnership
+            ? { ownerDocumentId: null, ownerBlockId: null }
+            : {}),
+        })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, databaseId),
+            isNotNull(schema.contentDatabases.deletedAt),
+          ),
+        );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

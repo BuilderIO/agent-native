@@ -7,7 +7,7 @@ description: "에이전트 채팅 작성기의 음성 받아쓰기 — Builder G
 
 모든 에이전트 기반 앱에는 채팅 작성기에 마이크가 있습니다. 클릭하고 말하면 단어가 프롬프트에 기록됩니다. 모바일에서 유용하고, 긴 프롬프트에 유용하며, 손이 다른 것에 있을 때 유용합니다.
 
-프레임워크는 이 모든 것을 자동으로 처리합니다. Builder에 연결된 사용자는 기본적으로 Builder에서 호스팅되는 Gemini Flash-Lite를 얻습니다. 그렇지 않으면 사용자가 자신의 공급자 키를 가져오거나 브라우저 음성 인식으로 돌아갈 수 있습니다.
+프레임워크는 이 모든 것을 자동으로 처리합니다. Builder에 연결된 사용자(무료 요금제 제공)는 기본적으로 Builder에서 호스팅되는 Gemini Flash-Lite를 얻습니다. 그렇지 않으면 사용자가 자신의 공급자 키를 가져오거나 브라우저 음성 인식으로 돌아갈 수 있습니다.
 
 ## 실시간 음성 모드 {#realtime-speech-mode}
 
@@ -19,7 +19,7 @@ description: "에이전트 채팅 작성기의 음성 받아쓰기 — Builder G
 
 작곡가의 음성 버튼은 브라우저에서 오디오를 녹음한 다음 제공자를 선택합니다.
 
-1. **Builder Gemini Flash-Lite(Builder가 연결된 경우 기본값).** 브라우저는 Gemini Flash-Lite를 사용하여 Builder.io를 통해 프록시되는 `/_agent-native/transcribe-voice`에 오디오를 게시합니다. Google API 키가 필요하지 않습니다.
+1. **Builder Gemini Flash-Lite(Builder가 연결된 경우 기본값).** 브라우저는 Gemini Flash-Lite를 사용하여 Builder.io(무료 요금제 제공)를 통해 프록시되는 `/_agent-native/transcribe-voice`에 오디오를 게시합니다. Google API 키가 필요하지 않습니다.
 2. **BYOK 클라우드 제공업체.** 사용자는 설정에서 Google Gemini, Groq Whisper 또는 OpenAI Whisper를 선택할 수 있습니다. 경로는 공유 배포 자격 증명보다 먼저 사용자 범위의 암호화된 비밀을 확인합니다.
 3. **브라우저 웹 음성 API(대체).** 사용 가능한 서버 공급자가 없는 경우 작곡가는 브라우저에 내장된 음성 인식을 사용할 수 있습니다. Chromium 기반 브라우저(Chrome, Edge, Arc) 및 Safari에서 작동합니다. 정확도가 떨어집니다. 실시간 스트리밍.
 
@@ -75,7 +75,7 @@ description: "에이전트 채팅 작성기의 음성 받아쓰기 — Builder G
 
 ## 공급자 활성화 {#enabling-providers}
 
-Builder는 가장 쉬운 경로입니다. 설정에서 Builder.io를 연결하면 기본 공급자가 Builder Gemini Flash-Lite가 됩니다. BYOK 공급자의 경우 설정 → API 키에 일치하는 키를 추가하세요.
+Builder는 가장 쉬운 경로입니다. 설정에서 Builder.io(무료 요금제 제공)를 연결하면 기본 공급자가 Builder Gemini Flash-Lite가 됩니다. BYOK 공급자의 경우 설정 → API 키에 일치하는 키를 추가하세요.
 
 ### 사용자별(SaaS에 권장)
 

@@ -77,6 +77,11 @@ export function createNotificationToolEntries(
           required: ["action"],
         },
       },
+      planMode: {
+        effect: (args) => (args.action === "list" ? "read" : "write"),
+        allowedValues: { action: ["list"] },
+        description: "Plan mode allows listing notifications.",
+      },
       run: async (args: Record<string, unknown>) => {
         const owner = getCurrentUser();
         const action = args.action as string;

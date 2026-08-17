@@ -38,7 +38,8 @@ export { APP_SECRETS_CREATE_SQL, appSecrets } from "./schema.js";
 
 // AES-256-GCM helpers for column-level encryption of per-row secret values
 // (e.g. a per-record share password) that don't fit the keyed app_secrets /
-// credentials stores. Same key story as the vault.
+// credentials stores. These use the app-local key, unlike the workspace-shared
+// app_secrets storage layer.
 export {
   encryptSecretValue,
   decryptSecretValue,

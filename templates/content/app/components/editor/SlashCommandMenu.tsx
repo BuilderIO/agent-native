@@ -1,13 +1,19 @@
-import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
+  IconCheck,
   IconTypography,
   IconH1,
   IconH2,
   IconH3,
   IconH4,
+  IconH5,
+  IconH6,
   IconList,
   IconListNumbers,
   IconSquareCheck,
@@ -15,14 +21,15 @@ import {
   IconCode,
   IconMinus,
   IconTable as TableIcon,
-  IconWand,
-  IconArrowUp,
+  IconHierarchy2,
   IconInfoCircle,
   IconMusic,
   IconPhoto,
   IconFileText,
   IconDatabase,
   IconVideo,
+  IconMathFunction,
+  IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -30,6 +37,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -41,13 +49,15 @@ import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
+import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
+import { MathRenderer } from "./MathRenderer";
 import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
-  onDraftCommitted?: () => void | Promise<void>;
+  onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
    * The open document's linked Notion page id, when it has one. When set, the
@@ -60,11 +70,84 @@ interface SlashCommandMenuProps {
 }
 
 interface EditorMenuPosition {
-  top: number;
+  top?: number;
+  bottom?: number;
   left: number;
 }
 
-interface CommandItem {
+const SLASH_MENU_PREFERRED_HEIGHT = 360;
+const SLASH_MENU_GAP = 4;
+
+export function getSlashMenuVerticalPosition(
+  anchor: { top: number; bottom: number },
+  container: { top: number; bottom: number },
+  viewportHeight: number,
+): Pick<EditorMenuPosition, "top" | "bottom"> {
+  const spaceBelow = viewportHeight - anchor.bottom;
+  const spaceAbove = anchor.top;
+  if (spaceBelow < SLASH_MENU_PREFERRED_HEIGHT && spaceAbove > spaceBelow) {
+    return {
+      bottom: container.bottom - anchor.top + SLASH_MENU_GAP,
+    };
+  }
+  return {
+    top: anchor.bottom - container.top + SLASH_MENU_GAP,
+  };
+}
+
+export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
+  const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
+  const containerRect = (
+    wrapper instanceof HTMLElement ? wrapper : editor.view.dom
+  ).getBoundingClientRect();
+
+  try {
+    const coords = editor.view.coordsAtPos(editor.state.selection.from);
+    return {
+      ...getSlashMenuVerticalPosition(
+        coords,
+        containerRect,
+        window.innerHeight,
+      ),
+      left: coords.left - containerRect.left,
+    };
+  } catch {
+    // Collaborative reconciliation can briefly leave ProseMirror's DOM mapping
+    // behind the document selection. The slash transaction is still valid; use
+    // its nearest DOM node (or the editor origin) so the command menu remains
+    // available instead of turning the user's slash into inert text.
+    try {
+      const domAtSelection = editor.view.domAtPos(editor.state.selection.from);
+      const element =
+        domAtSelection.node instanceof Element
+          ? domAtSelection.node
+          : domAtSelection.node.parentElement;
+      const rect = element?.getBoundingClientRect();
+      if (rect) {
+        return {
+          ...getSlashMenuVerticalPosition(
+            rect,
+            containerRect,
+            window.innerHeight,
+          ),
+          left: rect.left - containerRect.left,
+        };
+      }
+    } catch {
+      // The editor origin below is a safe, visible final fallback.
+    }
+    return { top: 4, left: 0 };
+  }
+}
+
+interface EquationDraft {
+  displayMode: boolean;
+  insertionRange: { from: number; to: number };
+  slashRange: { from: number; to: number };
+  position: EditorMenuPosition;
+}
+
+export interface CommandItem {
   title: string;
   description: string;
   searchText?: string;
@@ -75,6 +158,33 @@ interface CommandItem {
     editor: Editor,
     context: { slashRange: { from: number; to: number } | null },
   ) => void | boolean | Promise<void>;
+}
+
+export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
+  primaryCommands: readonly T[],
+  candidateCommands: readonly T[],
+): T[] {
+  const primaryTitles = new Set(
+    primaryCommands.map((command) => command.title.trim().toLocaleLowerCase()),
+  );
+  return candidateCommands.filter(
+    (command) => !primaryTitles.has(command.title.trim().toLocaleLowerCase()),
+  );
+}
+
+export type MediaPlaceholderType = "image" | "video" | "audio";
+
+export function insertMediaPlaceholder(
+  editor: Editor,
+  type: MediaPlaceholderType,
+) {
+  const attrs =
+    type === "image"
+      ? { src: null, alt: "", uploadId: createImagePickerId() }
+      : type === "video"
+        ? { src: null, sourcePanelOpen: true }
+        : { src: null };
+  return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 
 function getActiveSlashCommandRange(editor: Editor) {
@@ -101,9 +211,79 @@ function waitForEditorUpdateFrame() {
   });
 }
 
-interface CommandTemplate extends Omit<CommandItem, "title" | "description"> {
+export interface CommandTemplate extends Omit<
+  CommandItem,
+  "title" | "description"
+> {
   titleKey: string;
   descriptionKey: string;
+}
+
+export const CONTENT_HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
+
+const headingCommandMetadata = [
+  {
+    level: 1,
+    titleKey: "editor.heading1",
+    descriptionKey: "editor.slash.heading1Description",
+    shortcut: "#",
+    icon: IconH1,
+  },
+  {
+    level: 2,
+    titleKey: "editor.heading2",
+    descriptionKey: "editor.slash.heading2Description",
+    shortcut: "##",
+    icon: IconH2,
+  },
+  {
+    level: 3,
+    titleKey: "editor.heading3",
+    descriptionKey: "editor.slash.heading3Description",
+    shortcut: "###",
+    icon: IconH3,
+  },
+  {
+    level: 4,
+    titleKey: "editor.heading4",
+    descriptionKey: "editor.slash.heading4Description",
+    shortcut: "####",
+    icon: IconH4,
+  },
+  {
+    level: 5,
+    titleKey: "editor.heading5",
+    descriptionKey: "editor.slash.heading5Description",
+    shortcut: "#####",
+    icon: IconH5,
+  },
+  {
+    level: 6,
+    titleKey: "editor.heading6",
+    descriptionKey: "editor.slash.heading6Description",
+    shortcut: "######",
+    icon: IconH6,
+  },
+] as const satisfies ReadonlyArray<{
+  level: (typeof CONTENT_HEADING_LEVELS)[number];
+  titleKey: string;
+  descriptionKey: string;
+  shortcut: string;
+  icon: React.ElementType;
+}>;
+
+export function buildHeadingCommands(
+  behavior: "toggle" | "set",
+): CommandTemplate[] {
+  return headingCommandMetadata.map((heading) => ({
+    ...heading,
+    action: (editor) => {
+      const chain = editor.chain().focus();
+      return behavior === "toggle"
+        ? chain.toggleHeading({ level: heading.level }).run()
+        : chain.setHeading({ level: heading.level }).run();
+    },
+  }));
 }
 
 export function setPlainTextBlock(editor: Editor) {
@@ -132,20 +312,17 @@ export function parseInlineGeneratePrompt(textBeforeCursor: string) {
   return prompt || null;
 }
 
-export function shouldOpenGenerateOnSpace(editor: Editor) {
-  const { selection } = editor.state;
-  if (!selection.empty) return false;
-
-  const { $from } = selection;
-  if (!$from.parent.isTextblock) return false;
-  if ($from.parent.type.name !== "paragraph") return false;
-  if ($from.parentOffset !== 0) return false;
-
-  return $from.parent.textContent.trim().length === 0;
-}
-
 export function parseSlashCommandQuery(textBeforeCursor: string) {
-  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+  const match = textBeforeCursor.match(
+    /^\s*\/([a-zA-Z0-9][a-zA-Z0-9 _-]*|)\s*$/,
+  );
+  if (!match) return null;
+  const rawQuery = match[1] ?? "";
+  // `/generate <prompt>` intentionally leaves the menu so Enter can submit the
+  // inline prompt. Other multi-word labels (for example `/heading 2`) remain
+  // searchable instead of turning into literal editor text at the first space.
+  if (/^generate\s+/i.test(rawQuery)) return null;
+  return rawQuery.trim();
 }
 
 export function inlineDatabaseBlockContent(
@@ -178,6 +355,56 @@ export function insertInlineDatabaseBlock(
     : chain.insertContent(content).run();
 }
 
+export function equationNodeContent(latex: string, displayMode: boolean) {
+  return displayMode
+    ? {
+        type: "notionBlockAtom",
+        attrs: { tagName: "equation", attrsJson: "{}", label: latex },
+      }
+    : {
+        type: "notionInlineAtom",
+        attrs: { tagName: "math", attrsJson: "{}", label: latex },
+      };
+}
+
+export function insertEquation(
+  editor: Editor,
+  latex: string,
+  displayMode: boolean,
+  range: { from: number; to: number },
+) {
+  const content = equationNodeContent(latex, displayMode);
+  return editor
+    .chain()
+    .focus()
+    .insertContentAt(
+      range,
+      displayMode ? [content, { type: "paragraph" }] : content,
+    )
+    .run();
+}
+
+export function getEquationInsertionRange(
+  editor: Editor,
+  slashRange: { from: number; to: number },
+  displayMode: boolean,
+) {
+  if (!displayMode) return slashRange;
+  const resolved = editor.state.doc.resolve(slashRange.from);
+  return resolved.parent.isTextblock
+    ? { from: resolved.before(), to: resolved.after() }
+    : slashRange;
+}
+
+export function setCodeBlockFromSlashCommand(
+  editor: Editor,
+  slashRange: { from: number; to: number } | null,
+) {
+  const chain = editor.chain().focus();
+  if (slashRange) chain.deleteRange(slashRange);
+  return chain.setCodeBlock().run();
+}
+
 const commands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
@@ -185,38 +412,7 @@ const commands: CommandTemplate[] = [
     icon: IconTypography,
     action: setPlainTextBlock,
   },
-  {
-    titleKey: "editor.heading1",
-    descriptionKey: "editor.slash.heading1Description",
-    shortcut: "#",
-    icon: IconH1,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 1 }).run(),
-  },
-  {
-    titleKey: "editor.heading2",
-    descriptionKey: "editor.slash.heading2Description",
-    shortcut: "##",
-    icon: IconH2,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 2 }).run(),
-  },
-  {
-    titleKey: "editor.heading3",
-    descriptionKey: "editor.slash.heading3Description",
-    shortcut: "###",
-    icon: IconH3,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 3 }).run(),
-  },
-  {
-    titleKey: "editor.heading4",
-    descriptionKey: "editor.slash.heading4Description",
-    shortcut: "####",
-    icon: IconH4,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 4 }).run(),
-  },
+  ...buildHeadingCommands("toggle"),
   {
     titleKey: "editor.slash.bulletedList",
     descriptionKey: "editor.slash.bulletedListDescription",
@@ -261,7 +457,9 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(editor, slashRange),
   },
   {
     titleKey: "editor.slash.quote",
@@ -313,34 +511,7 @@ const turnIntoCommands: CommandTemplate[] = [
     icon: IconTypography,
     action: setPlainTextBlock,
   },
-  {
-    titleKey: "editor.heading1",
-    descriptionKey: "editor.slash.heading1Description",
-    shortcut: "#",
-    icon: IconH1,
-    action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
-  },
-  {
-    titleKey: "editor.heading2",
-    descriptionKey: "editor.slash.heading2Description",
-    shortcut: "##",
-    icon: IconH2,
-    action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
-  },
-  {
-    titleKey: "editor.heading3",
-    descriptionKey: "editor.slash.heading3Description",
-    shortcut: "###",
-    icon: IconH3,
-    action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
-  },
-  {
-    titleKey: "editor.heading4",
-    descriptionKey: "editor.slash.heading4Description",
-    shortcut: "####",
-    icon: IconH4,
-    action: (editor) => editor.chain().focus().setHeading({ level: 4 }).run(),
-  },
+  ...buildHeadingCommands("set"),
   {
     titleKey: "editor.slash.bulletedList",
     descriptionKey: "editor.slash.bulletedListDescription",
@@ -393,7 +564,9 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(editor, slashRange),
   },
   {
     titleKey: "editor.slash.quote",
@@ -436,7 +609,7 @@ export function SlashCommandMenu({
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
-  const { send } = useSendToAgentChat();
+  const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
   const createInlineDatabase = useCreateInlineContentDatabase(
@@ -454,11 +627,19 @@ export function SlashCommandMenu({
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [generatePrompt, setGeneratePrompt] = useState("");
   const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
     null,
   );
-  const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(
+    null,
+  );
+  const [equationLatex, setEquationLatex] = useState("");
+  const equationInputRef = useRef<HTMLTextAreaElement>(null);
+  const equationResult = useMemo(
+    () => renderMathToHtml(equationLatex, equationDraft?.displayMode ?? false),
+    [equationDraft?.displayMode, equationLatex],
+  );
 
   const submitGeneratePrompt = useCallback(
     (prompt: string) => {
@@ -473,22 +654,14 @@ export function SlashCommandMenu({
       send({
         message: trimmed,
         context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+        submit: true,
       });
     },
     [documentId, editor, send, t],
   );
 
   const getSelectionMenuPosition = useCallback(() => {
-    const coords = editor.view.coordsAtPos(editor.state.selection.from);
-    const editorRect = editor.view.dom
-      .closest(".visual-editor-wrapper")
-      ?.getBoundingClientRect();
-    if (!editorRect) return null;
-
-    return {
-      top: coords.bottom - editorRect.top + 4,
-      left: coords.left - editorRect.left,
-    };
+    return getSlashMenuPosition(editor);
   }, [editor]);
 
   const openGeneratePopover = useCallback(
@@ -497,9 +670,7 @@ export function SlashCommandMenu({
       if (!nextPosition) return false;
 
       setGeneratePos(nextPosition);
-      setGeneratePrompt("");
       setGenerateOpen(true);
-      setTimeout(() => generateTextareaRef.current?.focus(), 0);
       return true;
     },
     [getSelectionMenuPosition],
@@ -523,7 +694,7 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: t("editor.slash.generate"),
     description: t("editor.slash.generateDescription"),
-    icon: IconWand,
+    icon: IconHierarchy2,
     action: () => {
       openGeneratePopover(position);
     },
@@ -534,11 +705,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.imageDescription"),
     icon: IconPhoto,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "image", attrs: { src: null, alt: "" } })
-        .run();
+      insertMediaPlaceholder(editor, "image");
     },
   };
 
@@ -547,11 +714,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.videoDescription"),
     icon: IconVideo,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "video", attrs: { src: null } })
-        .run();
+      insertMediaPlaceholder(editor, "video");
     },
   };
 
@@ -560,11 +723,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.audioDescription"),
     icon: IconMusic,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "audio", attrs: { src: null } })
-        .run();
+      insertMediaPlaceholder(editor, "audio");
     },
   };
 
@@ -684,6 +843,80 @@ export function SlashCommandMenu({
     },
   };
 
+  const openEquationComposer = useCallback(
+    (displayMode: boolean, slashRange: { from: number; to: number } | null) => {
+      const menuPosition = position ?? getSelectionMenuPosition();
+      if (!slashRange || !menuPosition) return false;
+      setEquationLatex("");
+      setEquationDraft({
+        displayMode,
+        slashRange,
+        insertionRange: getEquationInsertionRange(
+          editor,
+          slashRange,
+          displayMode,
+        ),
+        position: menuPosition,
+      });
+      setTimeout(() => equationInputRef.current?.focus(), 0);
+      return true;
+    },
+    [editor, getSelectionMenuPosition, position],
+  );
+
+  const cancelEquation = useCallback(() => {
+    const draft = equationDraft;
+    setEquationDraft(null);
+    setEquationLatex("");
+    if (draft) {
+      editor.chain().focus().deleteRange(draft.slashRange).run();
+    }
+  }, [editor, equationDraft]);
+
+  const submitEquation = useCallback(() => {
+    if (!equationDraft || !equationResult.ok) return;
+    const latex = equationLatex.trim();
+    const { displayMode, insertionRange } = equationDraft;
+    setEquationDraft(null);
+    setEquationLatex("");
+    const inserted = insertEquation(editor, latex, displayMode, insertionRange);
+    if (!inserted) {
+      toast.error(t("editor.slash.equationInsertFailed"));
+      return;
+    }
+    void onDraftCommitted?.();
+  }, [
+    editor,
+    equationDraft,
+    equationLatex,
+    equationResult.ok,
+    onDraftCommitted,
+    t,
+  ]);
+
+  const equationCommands: CommandItem[] = isTurnInto
+    ? []
+    : [
+        {
+          title: t("editor.slash.blockEquation"),
+          description: t("editor.slash.blockEquationDescription"),
+          searchText: "latex katex math formula",
+          icon: IconMathFunction,
+          preserveSlashRange: true,
+          action: (_editor, { slashRange }) =>
+            openEquationComposer(true, slashRange),
+        },
+        {
+          title: t("editor.slash.inlineEquation"),
+          description: t("editor.slash.inlineEquationDescription"),
+          searchText: "latex katex math formula",
+          icon: IconSquareRoot2,
+          preserveSlashRange: true,
+          action: (_editor, { slashRange }) =>
+            openEquationComposer(false, slashRange),
+        },
+      ];
+
   // Registry-derived block items (the shared dev-doc / OpenAPI / structured
   // library). Filtered to Notion-compatible specs when the document is linked to
   // a Notion page. "Turn into" only converts the current text block, so these
@@ -713,8 +946,13 @@ export function SlashCommandMenu({
     title: t(cmd.titleKey),
     description: t(cmd.descriptionKey),
   });
-  const blockCommands = (isTurnInto ? turnIntoCommands : commands).map(
-    localizeCommand,
+  const blockCommands = [
+    ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
+    ...equationCommands,
+  ];
+  const uniqueRegistryCommands = excludeCommandsWithDuplicateTitles(
+    blockCommands,
+    registryCommands,
   );
   const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
   const mediaCommands = isTurnInto
@@ -727,11 +965,20 @@ export function SlashCommandMenu({
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
-  const filteredRegistryCommands = registryCommands.filter(commandMatchesQuery);
+  const filteredRegistryCommands =
+    uniqueRegistryCommands.filter(commandMatchesQuery);
   const filteredLocalComponentCommands =
     localComponentCommands.filter(commandMatchesQuery);
   const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+  const allCommands = [
+    ...aiCommands,
+    ...blockCommands,
+    ...uniqueRegistryCommands,
+    ...localComponentCommands,
+    ...mediaCommands,
+    ...pageCommands,
+  ];
   const filteredCommands = [
     ...filteredAiCommands,
     ...filteredBlockCommands,
@@ -758,12 +1005,10 @@ export function SlashCommandMenu({
     );
   };
 
-  function handleGenerateSubmit() {
-    submitGeneratePrompt(generatePrompt);
-  }
-
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
+      if (editor.isDestroyed) return;
+      const beforeDoc = editor.state.doc;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
         (slashPosRef.current !== null
@@ -777,34 +1022,53 @@ export function SlashCommandMenu({
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
+      // Structural slash commands (especially an empty table) can be followed
+      // immediately by another modal command or navigation before the normal
+      // debounced onUpdate save settles. Persist the completed command now so
+      // the durable snapshot cannot omit the block. Media placeholders are
+      // still held by VisualEditor's pending-media guard until they have a src.
+      if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
+        const persisted = await onDraftCommitted?.();
+        if (persisted === false) {
+          toast.error(t("empty.genericError"));
+        }
+      }
     },
-    [editor],
+    [editor, onDraftCommitted, t],
   );
 
   useEffect(() => {
     if (!editor) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) {
-        if (
-          (e.key === " " || e.code === "Space") &&
-          !e.shiftKey &&
-          !e.metaKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          editor.isFocused &&
-          shouldOpenGenerateOnSpace(editor)
-        ) {
+      if (
+        e.key === "Enter" &&
+        !e.shiftKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const slashRange = getActiveSlashCommandRange(editor);
+        const liveQuery = slashRange
+          ? editor.state.doc
+              .textBetween(slashRange.from + 1, slashRange.to, "\n")
+              .trim()
+              .toLowerCase()
+          : "";
+        const exactCommand = liveQuery
+          ? allCommands.find(
+              (command) => command.title.toLowerCase() === liveQuery,
+            )
+          : undefined;
+        if (exactCommand) {
           e.preventDefault();
           e.stopPropagation();
-          setIsOpen(false);
-          setIsTurnInto(false);
-          setQuery("");
-          slashPosRef.current = null;
-          openGeneratePopover();
+          void executeCommand(exactCommand);
           return;
         }
+      }
 
+      if (!isOpen) {
         if (
           e.key === "Enter" &&
           !e.shiftKey &&
@@ -870,6 +1134,7 @@ export function SlashCommandMenu({
     openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,
+    allCommands,
   ]);
 
   useEffect(() => {
@@ -927,16 +1192,7 @@ export function SlashCommandMenu({
         const slashAtBlockStart = offsetInParent === 0;
         setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
 
-        const coords = editor.view.coordsAtPos(from);
-        const editorRect = editor.view.dom
-          .closest(".visual-editor-wrapper")
-          ?.getBoundingClientRect();
-        if (editorRect) {
-          setPosition({
-            top: coords.bottom - editorRect.top + 4,
-            left: coords.left - editorRect.left,
-          });
-        }
+        setPosition(getSlashMenuPosition(editor));
         setIsOpen(true);
       } else {
         if (isOpen) {
@@ -954,6 +1210,36 @@ export function SlashCommandMenu({
     };
   }, [editor, isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || editor.isDestroyed) return;
+
+    let frame = 0;
+    const updatePosition = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!editor.isDestroyed) {
+          setPosition(getSlashMenuPosition(editor));
+        }
+      });
+    };
+
+    // ProseMirror can scroll any ancestor after the slash transaction to reveal
+    // the caret. Recalculate after layout and capture those non-bubbling scroll
+    // events so a menu near the viewport edge flips using current geometry.
+    updatePosition();
+    document.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("scroll", updatePosition);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("scroll", updatePosition);
+    };
+  }, [editor, isOpen]);
+
   return (
     <>
       {/* Slash command menu */}
@@ -964,8 +1250,11 @@ export function SlashCommandMenu({
           style={{
             position: "absolute",
             top: position.top,
+            bottom: position.bottom,
             left: 0,
             right: 0,
+            maxHeight: "min(360px, calc(100vh - 2rem))",
+            overflowY: "auto",
             maxWidth: "min(330px, calc(100vw - 2rem))",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,
@@ -1041,47 +1330,134 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] max-w-80 rounded-xl p-0"
-            onOpenAutoFocus={(e) => {
-              e.preventDefault();
-              generateTextareaRef.current?.focus();
+            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+          >
+            <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+              {t("editor.generateWithAi")}
+            </p>
+            <PromptComposer
+              autoFocus
+              disabled={isGenerating}
+              placeholder={t("editor.describeWhatToGenerate")}
+              draftScope={`content:generate:${documentId ?? "document"}`}
+              onSubmit={submitGeneratePrompt}
+            />
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {equationDraft && (
+        <Popover
+          open
+          onOpenChange={(open: boolean) => {
+            if (!open) cancelEquation();
+          }}
+        >
+          <PopoverTrigger asChild>
+            <span
+              className="pointer-events-none absolute size-0"
+              style={{
+                top: equationDraft.position.top,
+                left: Math.min(equationDraft.position.left, 16),
+              }}
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            className="w-[calc(100vw-2rem)] max-w-md rounded-xl p-0"
+            onOpenAutoFocus={(event: Event) => {
+              event.preventDefault();
+              equationInputRef.current?.focus();
             }}
           >
-            <div className="p-4 pb-3">
-              <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconWand size={14} className="text-muted-foreground" />
-                {t("editor.generateWithAi")}
-              </p>
+            <div className="p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                {equationDraft.displayMode ? (
+                  <IconMathFunction
+                    className="text-muted-foreground"
+                    size={16}
+                  />
+                ) : (
+                  <IconSquareRoot2
+                    className="text-muted-foreground"
+                    size={16}
+                  />
+                )}
+                {equationDraft.displayMode
+                  ? t("editor.slash.blockEquation")
+                  : t("editor.slash.inlineEquation")}
+              </div>
               <textarea
-                ref={generateTextareaRef}
-                value={generatePrompt}
-                onChange={(e) => setGeneratePrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    handleGenerateSubmit();
+                ref={equationInputRef}
+                value={equationLatex}
+                onChange={(event) => setEquationLatex(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    equationResult.ok
+                  ) {
+                    event.preventDefault();
+                    submitEquation();
                   }
-                  if (e.key === "Escape") {
-                    setGenerateOpen(false);
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelEquation();
                   }
                 }}
-                placeholder={t("editor.describeWhatToGenerate")}
-                className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-                rows={3}
+                rows={equationDraft.displayMode ? 3 : 2}
+                placeholder={t("editor.slash.equationPlaceholder")}
+                aria-label={t("editor.slash.equationInputLabel")}
+                aria-invalid={equationLatex.length > 0 && !equationResult.ok}
+                aria-describedby="equation-preview-status"
+                className="mt-3 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-            </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
-              <span className="text-[11px] text-muted-foreground/70">
-                {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                {t("editor.enterToSubmit")}
-              </span>
-              <button
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
-                onClick={handleGenerateSubmit}
-                disabled={!generatePrompt.trim()}
+              <div className="mt-3 min-h-20 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {t("editor.slash.equationPreview")}
+                </div>
+                <div className="flex min-h-9 items-center justify-center overflow-x-auto text-foreground">
+                  {equationResult.ok ? (
+                    <MathRenderer
+                      latex={equationLatex}
+                      displayMode={equationDraft.displayMode}
+                    />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {equationLatex
+                        ? t("editor.slash.equationNeedsRepair")
+                        : t("editor.slash.equationPreviewEmpty")}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p
+                id="equation-preview-status"
+                className={cn(
+                  "mt-2 min-h-5 text-xs",
+                  equationLatex && !equationResult.ok
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
               >
-                <IconArrowUp size={14} />
-              </button>
+                {equationLatex && !equationResult.ok
+                  ? equationResult.error
+                  : t("editor.slash.equationSubmitHint")}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+              <Button variant="ghost" size="sm" onClick={cancelEquation}>
+                {t("editor.slash.cancelEquation")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={submitEquation}
+                disabled={!equationResult.ok}
+              >
+                <IconCheck />
+                {t("editor.slash.insertEquation")}
+              </Button>
             </div>
           </PopoverContent>
         </Popover>
@@ -1090,7 +1466,7 @@ export function SlashCommandMenu({
   );
 }
 
-function CommandButton({
+export function CommandButton({
   cmd,
   isSelected,
   buttonRef,
@@ -1103,13 +1479,31 @@ function CommandButton({
   onExecute: () => void;
   onHover: () => void;
 }) {
+  const pendingExecutionRef = useRef(false);
+  const onExecuteRef = useRef(onExecute);
+  onExecuteRef.current = onExecute;
+
+  const executeOnce = () => {
+    if (pendingExecutionRef.current) return;
+    pendingExecutionRef.current = true;
+    // Pointer selection can close and unmount the menu before the browser
+    // dispatches `click`. Start the command during mouse down, while the
+    // editor selection and button are both still alive. Keep `onClick` as the
+    // keyboard-generated click fallback and dedupe the normal pointer click.
+    onExecuteRef.current();
+    queueMicrotask(() => {
+      pendingExecutionRef.current = false;
+    });
+  };
+
   return (
     <button
       ref={buttonRef}
       onMouseDown={(event) => {
         event.preventDefault();
-        onExecute();
+        if (event.button === 0) executeOnce();
       }}
+      onClick={executeOnce}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",

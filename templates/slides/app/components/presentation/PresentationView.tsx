@@ -1,8 +1,9 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconMaximize,
+  IconNotes,
   IconX,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -17,14 +18,19 @@ import type {
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
   findLegacyAnimationContainer,
-  resolveSlideAnimationElement,
+  getElementPath,
+  resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
+
+import type { DesignSystemData } from "../../../shared/api";
+import { openPresentChannel, type PresentMessage } from "./present-channel";
 
 interface PresentationViewProps {
   slides: Slide[];
   deckId: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -34,12 +40,47 @@ interface PresentationViewProps {
  * Uses slide.animations if defined, falls back to splitByParagraph auto-detection.
  */
 function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
-  if (slide.animations && slide.animations.length > 0) return slide.animations;
+  if (slide.animations && slide.animations.length > 0) {
+    const doc = new DOMParser().parseFromString(slide.content, "text/html");
+    const root = doc.querySelector(".fmd-slide");
+    // Explicit metadata is authoritative only when every target still points
+    // at a unique element in the final HTML. Otherwise disable the reveal
+    // layer for this slide instead of counting invisible phantom steps while
+    // leaving the rest of the content visible.
+    return root && resolveSlideAnimationTargets(root, slide.animations)
+      ? slide.animations
+      : null;
+  }
   // Legacy splitByParagraph: auto-detect and create steps
   if (slide.splitByParagraph) {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
     const root = doc.querySelector(".fmd-slide");
     if (!root) return null;
+
+    const paragraphs = Array.from(
+      root.querySelectorAll(".fmd-pptx-text p[data-pptx-paragraph]"),
+    ).filter((paragraph) => {
+      const textBox = paragraph.closest(".fmd-pptx-text");
+      return (
+        (textBox?.querySelectorAll("p[data-pptx-paragraph]").length ?? 0) > 1
+      );
+    });
+    if (paragraphs.length > 1) {
+      return paragraphs.flatMap((paragraph, index) => {
+        const elementPath = getElementPath(root, paragraph);
+        return elementPath
+          ? [
+              {
+                id: `auto-paragraph-${index}`,
+                elementIndex: index,
+                elementPath,
+                type: "slide-up" as AnimationType,
+              },
+            ]
+          : [];
+      });
+    }
+
     const container = findLegacyAnimationContainer(root);
     if (!container) return null;
     return Array.from(container.children).map((_, i) => ({
@@ -80,14 +121,16 @@ function annotateStepsForPresentation(
   const root = doc.querySelector(".fmd-slide");
   if (!root) return html;
 
-  // Annotate each step element with data-pstep
-  steps.forEach((anim, stepIdx) => {
-    const el = resolveSlideAnimationElement(root, anim);
-    if (el) el.setAttribute("data-pstep", String(stepIdx));
+  const resolvedSteps = resolveSlideAnimationTargets(root, steps);
+  if (!resolvedSteps) return html;
+
+  // Annotate each resolved step element with data-pstep.
+  resolvedSteps.forEach(({ element }, stepIdx) => {
+    element.setAttribute("data-pstep", String(stepIdx));
   });
 
-  const styleLines = steps
-    .map((anim, stepIdx) => {
+  const styleLines = resolvedSteps
+    .map(({ target }, stepIdx) => {
       if (stepIdx >= currentStep) {
         return `[data-pstep="${stepIdx}"] { opacity: 0; pointer-events: none; }`;
       } else if (stepIdx < currentStep - 1) {
@@ -95,12 +138,12 @@ function annotateStepsForPresentation(
         return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; animation: elem-appear 1ms both; }`;
       } else {
         // Newly revealed — animate with its type
-        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; ${getElemAnimCss(anim.type)} }`;
+        return `[data-pstep="${stepIdx}"] { opacity: 1; pointer-events: auto; ${getElemAnimCss(target.type)} }`;
       }
     })
     .join("\n");
 
-  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; }\n${styleLines}</style>`;
+  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; visibility: visible !important; }\n${styleLines}</style>`;
   return styleTag + doc.body.innerHTML;
 }
 
@@ -153,6 +196,7 @@ export default function PresentationView({
   deckId,
   startIndex = 0,
   aspectRatio,
+  designSystem,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -187,9 +231,24 @@ export default function PresentationView({
   const [cursorVisible, setCursorVisible] = useState(true);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
   const enteredFullscreenRef = useRef(false);
+  const transitionTimerRef = useRef<number | null>(null);
+  const queuedNavigationRef = useRef<"next" | "prev" | null>(null);
+  const goNextRef = useRef<() => void>(() => {});
+  const goPrevRef = useRef<() => void>(() => {});
   const navigate = useNavigate();
 
   const isShared = deckId.startsWith("__shared__/");
+
+  // Exit handlers read these instead of closing over `currentIndex`/`deckId`/
+  // `isShared` so the mount-only fullscreenchange listener still lands on the
+  // right deck and slide even if this component is reused for a different
+  // deck without remounting (e.g. an agent-driven navigation).
+  const currentIndexRef = useRef(currentIndex);
+  currentIndexRef.current = currentIndex;
+  const deckIdRef = useRef(deckId);
+  deckIdRef.current = deckId;
+  const isSharedRef = useRef(isShared);
+  isSharedRef.current = isShared;
 
   useEffect(() => {
     setCurrentIndex((prev) => clampIndex(prev));
@@ -198,9 +257,23 @@ export default function PresentationView({
     );
   }, [clampIndex, safeSlides.length]);
 
+  const clearTransitionTimer = useCallback(() => {
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearTransitionTimer, [clearTransitionTimer]);
+
   useEffect(() => {
+    clearTransitionTimer();
+    queuedNavigationRef.current = null;
     setCurrentIndex(clampIndex(startIndex));
-  }, [clampIndex, startIndex]);
+    setCurrentStep(0);
+    setPrevIndex(null);
+    setAnimating(false);
+  }, [clearTransitionTimer, clampIndex, startIndex]);
 
   const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
@@ -215,7 +288,11 @@ export default function PresentationView({
       const initialStep =
         dir === "prev" ? (incomingSteps ? incomingSteps.length : 0) : 0;
 
+      clearTransitionTimer();
+      queuedNavigationRef.current = null;
       if (isInstant(t)) {
+        setPrevIndex(null);
+        setAnimating(false);
         setCurrentIndex(newIndex);
         setCurrentStep(initialStep);
         return;
@@ -227,16 +304,28 @@ export default function PresentationView({
       setCurrentIndex(newIndex);
       setCurrentStep(initialStep);
 
-      setTimeout(() => {
+      transitionTimerRef.current = window.setTimeout(() => {
+        transitionTimerRef.current = null;
         setPrevIndex(null);
         setAnimating(false);
+        const queued = queuedNavigationRef.current;
+        queuedNavigationRef.current = null;
+        if (queued) {
+          window.setTimeout(() => {
+            if (queued === "next") goNextRef.current();
+            else goPrevRef.current();
+          }, 0);
+        }
       }, 400);
     },
-    [currentIndex, safeSlides],
+    [clearTransitionTimer, currentIndex, safeSlides],
   );
 
   const goNext = useCallback(() => {
-    if (animating) return;
+    if (animating) {
+      queuedNavigationRef.current = "next";
+      return;
+    }
     // Reveal next paragraph step if enabled
     if (maxSteps > 0 && currentStep < maxSteps /* i18n-ignore */) {
       setCurrentStep((prev) => prev + 1);
@@ -254,7 +343,10 @@ export default function PresentationView({
   ]);
 
   const goPrev = useCallback(() => {
-    if (animating) return;
+    if (animating) {
+      queuedNavigationRef.current = "prev";
+      return;
+    }
     if (currentIndex <= 0) return;
     startTransition(currentIndex - 1, "prev");
   }, [animating, currentIndex, startTransition]);
@@ -267,9 +359,59 @@ export default function PresentationView({
       const token = deckId.replace("__shared__/", "");
       navigate(`/share/${token}`);
     } else {
-      navigate(`/deck/${deckId}`);
+      navigate(`/deck/${deckId}?slide=${currentIndexRef.current + 1}`);
     }
   }, [navigate, deckId, isShared]);
+
+  // Presenter window: it owns no navigation state of its own, it just sends
+  // commands and mirrors whatever we echo back — so build steps stay
+  // authoritative here.
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  goNextRef.current = goNext;
+  goPrevRef.current = goPrev;
+
+  const broadcastState = useCallback(() => {
+    channelRef.current?.postMessage({
+      type: "state",
+      index: currentIndex,
+    } satisfies PresentMessage);
+  }, [currentIndex]);
+  const broadcastStateRef = useRef(broadcastState);
+  broadcastStateRef.current = broadcastState;
+
+  useEffect(() => {
+    const channel = openPresentChannel(deckId);
+    channelRef.current = channel;
+    if (!channel) return;
+    channel.onmessage = (event: MessageEvent<PresentMessage>) => {
+      const message = event.data;
+      if (message?.type === "hello") {
+        broadcastStateRef.current();
+      } else if (message?.type === "command") {
+        if (message.command === "next") goNextRef.current();
+        else goPrevRef.current();
+      }
+    };
+    return () => {
+      channel.close();
+      channelRef.current = null;
+    };
+  }, [deckId]);
+
+  useEffect(() => {
+    broadcastState();
+  }, [broadcastState]);
+
+  const openPresenterWindow = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("presenter", "1");
+    url.searchParams.set("slide", String(currentIndex + 1));
+    window.open(
+      url.toString(),
+      `slides-presenter-${deckId}`,
+      "width=1200,height=760",
+    );
+  }, [currentIndex, deckId]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -294,6 +436,11 @@ export default function PresentationView({
             document.exitFullscreen().catch(() => {});
           }
           break;
+        case "s":
+        case "S":
+          e.preventDefault();
+          openPresenterWindow();
+          break;
         case "Escape":
           exit();
           break;
@@ -301,7 +448,7 @@ export default function PresentationView({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev, exit]);
+  }, [goNext, goPrev, exit, openPresenterWindow]);
 
   // Try to enter fullscreen. Browsers require a user gesture; the click that
   // navigated to /present often counts, but Safari/Firefox sometimes block
@@ -329,11 +476,13 @@ export default function PresentationView({
       // fullscreen first — otherwise the gesture-fallback overlay handles it.
       if (enteredFullscreenRef.current && !document.fullscreenElement) {
         enteredFullscreenRef.current = false;
-        if (isShared) {
-          const token = deckId.replace("__shared__/", "");
+        if (isSharedRef.current) {
+          const token = deckIdRef.current.replace("__shared__/", "");
           navigate(`/share/${token}`);
         } else {
-          navigate(`/deck/${deckId}`);
+          navigate(
+            `/deck/${deckIdRef.current}?slide=${currentIndexRef.current + 1}`,
+          );
         }
       }
     };
@@ -448,6 +597,7 @@ export default function PresentationView({
             slide={safeSlides[prevIndex]}
             thumbnail={false}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
           />
         </div>
       )}
@@ -462,6 +612,7 @@ export default function PresentationView({
           slide={displaySlide}
           thumbnail={false}
           aspectRatio={aspectRatio}
+          designSystem={designSystem}
         />
       </div>
 
@@ -501,13 +652,23 @@ export default function PresentationView({
             </button>
           </div>
 
-          <button
-            onClick={exit}
-            className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            aria-label={t("presentation.exitPresentation")}
-          >
-            <IconX className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openPresenterWindow}
+              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+              aria-label={t("presentation.presenterView")}
+              title={t("presentation.presenterView")}
+            >
+              <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+            </button>
+            <button
+              onClick={exit}
+              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              aria-label={t("presentation.exitPresentation")}
+            >
+              <IconX className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+            </button>
+          </div>
         </div>
 
         {/* Progress bar */}

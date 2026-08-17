@@ -20,6 +20,12 @@ Embedded bug-report recordings are the exception and default to organization
 visibility. Callers can still explicitly create a private or organization-only
 recording, and owners/admins can change visibility from the Share dialog.
 
+Organization admins can use `set-organization-branding` with
+`defaultVisibility=public|org|private` to choose the visibility applied when new
+recordings omit an explicit visibility. The default remains `public`, and an
+explicit visibility always wins — which is why bug-report recordings still land
+on `org`.
+
 Clips **adds two things** on top of the framework system:
 
 1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
@@ -46,6 +52,7 @@ Read this skill before:
 - **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
 - **`recording_viewers`** + **`recording_events`** — view counting.
 - **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
+- **`recording_agent_views`** — outside agents reading a clip through its public agent APIs, counted separately from humans. See "Agent views" below.
 
 ## Dropping in the share UI
 
@@ -83,7 +90,17 @@ Use `list-recordings --view=shared` to list recordings the current user can
 access but does not own. The filter composes with `accessFilter`, so it includes
 direct user/org grants and organization-visible recordings while excluding
 public-link-only clips. The UI exposes the same collection at `/shared`; use
-`navigate --view=shared` to open it.
+`navigate --view=shared` to open it. `view-screen` returns the recordings
+currently visible in that collection.
+
+## Discovery boundary for public clips
+
+Public recordings are unlisted-by-link for agent purposes: an agent may discover
+only recordings the current user owns or has already viewed. Do not use
+`list-recordings` or `search-recordings` to discover another user's public clips,
+to answer a time/date question about the clip already in context, or to recover
+from a failed direct lookup. If the user supplies another clip's share URL or id,
+use that explicit reference; otherwise stop and report the lookup failure.
 
 ## Access resolution
 
@@ -195,15 +212,36 @@ temporary agent-link path:
 - Password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
   copied into downstream agent prompts, browser history, or logs.
+- If a discovery, context, or transcript payload reports `agentReadiness.state`
+  as `"preparing"` (the clip is `"uploading"` or `"processing"`), wait 15 seconds
+  and retry `agentContextUrl`. Do not open the share page, fetch frames, or draw
+  conclusions until the recording status is `"ready"`.
 - If the context or transcript response reports `transcript.status` as
   `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
   times before falling back to frames or telling the user no transcript exists.
+  Long recordings are the common case here.
 - If transcription failed because Builder transcription credits are exhausted,
   tell the user to upgrade or connect Builder.io credits, or configure a Groq
   key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not
   transcribe Clips recordings.
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
+
+Public agent context also exposes the recording's redacted browser diagnostics:
+the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
+fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
+with query values redacted, status, duration), plus `consoleIssues` and
+`failedNetworkRequests` highlights. All of it is bounded, and page URL, headers,
+bodies, and cookies stay omitted.
+
+Password-protected clips require the password once to mint a short-lived token,
+which is returned inside the agent-context links.
+
+Use the `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+helpers for scoped token mint/verify and bot-visible URL construction. Keep
+Clips-specific visibility, password, transcript, frame, and player behavior in
+Clips. New URLs should use `agent_access`; existing agent API routes should keep
+accepting legacy `t` tokens so already-copied links do not break.
 
 The share popover's "Share with agents" field should copy an agent context URL
 or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"
@@ -212,6 +250,11 @@ browser diagnostics, but it should still point agents at the context response so
 they can fetch only the visual context they need.
 
 ## View counting
+
+Clips counts **human views** and **agent views** separately. The two live in
+different tables and never mix — see "Agent views" below before touching either.
+
+### Human views
 
 A view counts when **any** of these is true:
 
@@ -236,6 +279,43 @@ if (
 ```
 
 Events feeding this live in `recording_events`. The `/api/view-event` route receives `view-start`, `watch-progress` (every 5s), `seek`, `pause`, `resume`, `cta-click`, `reaction`. Aggregate into `recording_viewers` on write to keep `get-insights` fast.
+
+### Agent views
+
+An **agent view** is an outside agent reading a clip through its public agent
+APIs — `/api/agent-context.json`, `/api/agent-transcript.json`,
+`/api/agent-frame.jpg`. Those routes are agent-only surfaces (a human watching a
+clip never hits them), so a request on one is the signal.
+
+- **Table:** `recording_agent_views` — one row per `(recordingId, agentKey, viewSessionId)`.
+  `agentKey` is a sha256 of user-agent + request IP, so an agent is countable
+  across polls without ever storing its IP. `agentLabel` resolves in that order:
+  the label the agent link was minted with (a signed `agentLabel` claim on the
+  `agent_access` token, set via `create-recording-agent-link --agentLabel`), then
+  the product name parsed from the user-agent (Claude, ChatGPT, Perplexity, …),
+  then NULL. NULL means unnamed, not a name — render it as "Unknown agent" and
+  never write a placeholder string, or an agent we could not identify becomes
+  indistinguishable from one that identified itself. `userAgent` keeps the raw
+  (truncated) string so unnamed agents stay identifiable and new `AGENT_LABELS`
+  patterns come from real traffic.
+- **Where it's written:** `recordAgentView` in `server/lib/agent-views.ts`,
+  called from `loadPublicAgentAccess` — the one choke point all three agent
+  routes share. Owner requests are skipped (they're previews, not views), and the
+  write is best-effort so view accounting can never fail an agent's read.
+- **Dedup:** one agent's burst of context + transcript + frame polls collapses
+  into a single view via a 30-minute window (`AGENT_VIEW_SESSION_MS`), with
+  `requestCount` recording how many polls that view covered.
+- **Reads:** `countRecordingAgentViews` and `listRecordingAgentViewers`. Surfaced
+  as `agentViews` / `agentViewers` on `get-recording-insights`, `agentViewCount`
+  on `get-recording-player-data`, `list-recordings`, and the public
+  `/api/public-recording` payload. The count renders inline — on the views pill
+  itself (`RecordingViewsBadge`, watch and share headers) and on library cards —
+  so agent reads are visible without opening the popover. It is always a
+  separate icon-prefixed number, never summed into the human view total.
+
+Keeping this in its own table is deliberate: no human-view query can pick agents
+up by forgetting a filter. Do not add agent rows to `recording_viewers` or
+`recording_views`.
 
 ### Per-viewer view records ("Viewed by")
 

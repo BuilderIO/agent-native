@@ -1,0 +1,153 @@
+---
+title: "Plugins"
+description: "Startup plugins in server/plugins/ — what they are, the two plugins every app ships, the optional database plugin, and how to write your own."
+---
+
+# Plugins
+
+Plugins are startup hooks. Nitro loads each file in `server/plugins/` once when the server initializes. They are the right place for one-time setup: configuring auth, mounting the agent loop, running database migrations, or registering other initialization code. Framework helpers coordinate their async setup; custom plugin work may still be in flight when the first request arrives.
+
+Nitro discovers plugins automatically from the filesystem. No registration or imports are required. Files run in alphabetical order, so execution order is controlled by filename prefix.
+
+Every agent-native app ships two plugins by default:
+
+```text
+server/plugins/
+  auth.ts        -> configure auth provider and public paths
+  agent-chat.ts  -> mount the agent loop with your actions and system prompt
+```
+
+Apps that need custom database tables add a third:
+
+```text
+server/plugins/
+  db.ts          -> register app-owned migrations for local startup
+```
+
+## Auth Plugin {#auth-plugin}
+
+`server/plugins/auth.ts` configures how users sign in. `createAuthPlugin` from `@agent-native/core/server` wires up the auth provider and sets the sign-in page branding:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+To open specific routes to unauthenticated users, pass `publicPaths`:
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+The auth plugin configures the guard. The middleware in `server/middleware/auth.ts` enforces it on every request. See [Middleware](/docs/server-middleware).
+
+## Agent-Chat Plugin {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` mounts the agent loop with your app's actions, system prompt, and initial tool set. This is the plugin that makes your app an agent-native app.
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` picks up every action exported from `actions/` through the generated registry. `initialToolNames` controls which actions the agent has access to at the start of a conversation. It can still call others as needed.
+
+## Database Plugin {#database-plugin}
+
+If your app defines custom database tables, add `server/plugins/db.ts` to register schema migrations for local startup. It uses `runMigrations` from `@agent-native/core/db`:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "projects-table",
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+Each entry needs a `version` number and a `sql` string. Give it a stable `name` too — `runMigrations` tracks named entries independently of `version`, so it still applies exactly once even if another branch reuses the same version number for unrelated DDL. The `table` option names the migration tracking table. Use a name unique to your app so it does not collide with framework migrations. See [Database](/docs/server-database#migrations) for the full schema authoring guide and the name-based tracking rationale.
+
+<Callout tone="warning">
+  Migrations must be additive. Never put destructive SQL (`DROP TABLE`, `ALTER
+  TABLE ... DROP COLUMN`, `DELETE FROM`) in startup plugins.
+</Callout>
+
+<Callout tone="warning">
+  For production or serverless deployments, run migrations in a release or
+  deploy step instead of on the first request. The Chat template provides `pnpm
+  migrate:production` for this.
+</Callout>
+
+## Writing Custom Plugins {#custom-plugins}
+
+The framework helpers (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) each return a Nitro plugin function. For anything outside those helpers, write a plugin using `defineNitroPlugin`:
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // runs on every request
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // runs when the server shuts down
+  });
+});
+```
+
+Plugins can use any of Nitro's lifecycle hooks: `request`, `beforeResponse`, `close`, and others. The [Nitro plugin docs](https://nitro.build/guide/plugins) cover the full hook API and the plugin contract in detail.
+
+## Startup Order {#startup-order}
+
+Nitro discovers plugins in lexical filename order, so with the default names it invokes `agent-chat.ts`, then `auth.ts`, then `db.ts` — not the dependency order you might expect.
+
+File order controls only when each plugin _starts_, not when it _finishes_. Nitro does not await one plugin's async default export before invoking the next, so a later plugin's synchronous setup — and the first incoming request — can run while an earlier plugin's async work (like migrations) is still in flight. `createAuthPlugin` and `createAgentChatPlugin` coordinate internally so framework routes wait for both to finish initializing before serving requests. `runMigrations` has no equivalent coordination: nothing blocks an action or route from querying the database before `db.ts` finishes running its migrations.
+
+If you add custom plugins, prefix their filenames to control invocation order, but don't rely on filename order alone to sequence async work across plugins.
+
+## What's next {#whats-next}
+
+- [**Database**](/docs/server-database): schema helpers and the `getDb` pattern used inside plugins
+- [**Middleware**](/docs/server-middleware): the auth guard that enforces what the auth plugin configures
+- [**Routes**](/docs/server-routes): custom file routes and when to use them
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions): how to craft the `systemPrompt` in the agent-chat plugin
+- [**Nitro plugin docs**](https://nitro.build/guide/plugins): the full plugin API and lifecycle hooks

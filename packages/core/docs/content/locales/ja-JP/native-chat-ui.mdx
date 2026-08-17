@@ -247,6 +247,13 @@ export default defineAction({
 これをファーストパーティ アプリ UI に使用します。クロスホスト iframe UI を `mcpApp` に保持し、
 チャット内の生の SQL ではなく、入力された読み取り actions の背後での任意のクエリの実行。
 
+renderer のサイズは割合ではなく絶対単位で指定してください。トランスクリプトは
+メッセージに合わせて伸びるため、renderer のコンテナには割合を解決するための確定した
+高さがありません。チャートバーの `height: 40%` はエラーにならず 0 に潰れるので、
+renderer が描画に失敗したように見えます。チャートなど高さに依存するビジュアルには
+ピクセル（または `rem`）を基準として与えてください。トランスクリプトの列は確定した
+幅を持つため、幅は割合でも問題ありません。
+
 ## BYO エージェント ランタイム {#byo-agent-runtimes}
 
 `AgentChatRuntime` は、チャット シェルの持ち込みエージェント コントラクトです。
@@ -408,7 +415,7 @@ OpenAI、AG-UI、Claude エージェント SDK、および Vercel AI SDK スト�
 
 ## 関連ドキュメント {#related-docs}
 
-- [Actions](/docs/actions) — ネイティブ ウィジェット データを返す操作を定義します。
+- [Actions](/docs/actions-overview) — ネイティブ ウィジェット データを返す操作を定義します。
 - [Agent Surfaces](/docs/agent-surfaces) — ヘッドレス、チャット、サイドカー、または完全なアプリが必要かどうかを決定します。
 - [Drop-in Agent](/docs/drop-in-agent) — 標準チャット ランタイムをマウントするためのチュートリアル。
 - [Component API](/docs/components) — チャット レイヤー、ランタイム、ツール レンダラーのエクスポートごとの API マップ。

@@ -544,14 +544,16 @@ Slack, ग्रेनोला, और GitHub स्रोत एक के स
   एजेंट के लिए मार्ग, फ़िल्टर और चयनित आईडी `application_state` में प्रतिबिंबित होते हैं
   संदर्भ.
 
-एजेंट से आपके लिए परिवर्तन करने के लिए कहें - वह अपने स्वयं के स्रोत को संपादित कर सकता है। देखें
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+ये बदलाव repository development workflow में करें। Embedded agent source edits
+में केवल तभी मदद कर सकता है जब host जानबूझकर repository/workspace write tooling
+दे; अन्यथा वह actions और data के माध्यम से काम करता है। देखें
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## आगे क्या है
 
 - [**Dispatch**](/docs/dispatch) - कार्यक्षेत्र नियंत्रण विमान
 - [**Dispatch template**](/docs/template-dispatch) - मचान समन्वय ऐप
-- [**Workspace**](/docs/workspace) - सभी ऐप्स में साझा संसाधन
+- [**एजेंट संसाधन**](/docs/agent-resources) - सभी ऐप्स में साझा संसाधन
 - [**A2A Protocol**](/docs/a2a-protocol) - क्रॉस-ऐप डेलिगेशन
 - [**टेम्पलेट**](/docs/cloneable-saas) — क्लोन-एंड-ओन मॉडल और शुरुआत के लिए हर अन्य डोमेन टेम्पलेट
 - [**शुरू करना**](/docs/getting-started) — फ़्रेमवर्क की मूल बातें: actions, application state और live sync

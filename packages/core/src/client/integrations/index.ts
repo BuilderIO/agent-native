@@ -1,4 +1,13 @@
 export { IntegrationsPanel } from "./IntegrationsPanel.js";
+export {
+  IntegrationGrid,
+  type IntegrationGridItem,
+  type IntegrationGridProps,
+} from "./IntegrationGrid.js";
+export {
+  IntegrationConnectionChoice,
+  type IntegrationConnectionChoiceProps,
+} from "./IntegrationConnectionChoice.js";
 export { useIntegrationStatus } from "./useIntegrationStatus.js";
 export type { IntegrationStatus } from "./useIntegrationStatus.js";
 export {

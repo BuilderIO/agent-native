@@ -3,9 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TweaksPanelContent } from "./TweaksPanel";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  VisualTweakControl: () => null,
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -21,6 +20,6 @@ describe("TweaksPanelContent", () => {
     expect(html).toContain("data-tweaks-help");
     expect(html).toContain("designEditor.tweaksHelp");
     expect(html).toContain("designEditor.tweaksDocs");
-    expect(html).toContain("/docs/template-design#tweaks");
+    expect(html).toContain("https://www.agent-native.com/docs/template-design");
   });
 });

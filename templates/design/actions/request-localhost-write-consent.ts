@@ -3,15 +3,12 @@ import {
   readAppStateForCurrentTab,
   writeAppState,
 } from "@agent-native/core/application-state";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 
 /**
  * Surface the LocalhostWriteConsentDialog so the user can approve local file
@@ -41,9 +38,7 @@ export default defineAction({
   run: async ({ designId, connectionId, files }) => {
     await assertAccess("design", designId, "editor");
 
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
     const db = getDb();
     const [connection] = await db

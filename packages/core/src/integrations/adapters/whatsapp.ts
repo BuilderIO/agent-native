@@ -1,6 +1,7 @@
 import type { H3Event } from "h3";
 import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
 
+import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import type {
@@ -8,6 +9,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
+  PlatformDeliveryReceipt,
 } from "../types.js";
 
 /** WhatsApp's max message length */
@@ -27,7 +29,7 @@ let _whatsappUnverifiedWarned = false;
  * be verified (C2 in the webhook security audit).
  */
 function shouldRefuseWhenSecretMissing(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  if (getAppConfig().integrations.allowUnverifiedWebhooks) return false;
   return process.env.NODE_ENV === "production";
 }
 
@@ -240,7 +242,7 @@ export function whatsappAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const accessToken = await resolveSecret("WHATSAPP_ACCESS_TOKEN");
       const phoneNumberId = await resolveSecret("WHATSAPP_PHONE_NUMBER_ID");
       if (!accessToken || !phoneNumberId) {
@@ -279,11 +281,14 @@ export function whatsappAdapter(): PlatformAdapter {
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
             console.error("[whatsapp] sendMessage error:", data);
+            throw new Error(`WhatsApp sendMessage failed (HTTP ${res.status})`);
           }
         } catch (err) {
           console.error("[whatsapp] Failed to send message:", err);
+          throw err;
         }
       }
+      return { status: "delivered" };
     },
 
     formatAgentResponse(text: string): OutgoingMessage {

@@ -98,8 +98,6 @@ description: "エージェントを利用した電子メール クライアン�
 
 ライブデモ: [mail.agent-native.com](https://mail.agent-native.com)。
 
-> **Google は警告を表示する場合があります:** ホストされたデモでは、Gmail アクセスに Agent-Native の共有 Google アプリを使用するため、続行する前に Google が確認を求める場合があります。ローカルで実行して、独自の Google OAuth クライアントを使用します。
-
 初めてアプリを開いたとき:
 
 1. サイドバーの [**設定**] をクリックします。
@@ -351,7 +349,7 @@ UI のルート:
 
 メールはあなたが変更できます。重要なものはすべて、いくつかの場所に保存されています。そこから始めましょう。
 
-**エージェント機能の追加。** `defineAction` を使用して、`templates/mail/actions/` の下に新しいファイルを追加します。アクションは、エージェント ツール、CLI コマンド (`pnpm action <name>`)、および `useActionQuery` / `useActionMutation` を介した型付きフロントエンド フック サーフェスになります。短い例については `templates/mail/actions/star-email.ts` を、複数のサブ actions を持つものについては `templates/mail/actions/manage-automations.ts` をご覧ください。完全なパターンについては、[actions](/docs/actions) のドキュメントを参照してください。
+**エージェント機能の追加。** `defineAction` を使用して、`templates/mail/actions/` の下に新しいファイルを追加します。アクションは、エージェント ツール、CLI コマンド (`pnpm action <name>`)、および `useActionQuery` / `useActionMutation` を介した型付きフロントエンド フック サーフェスになります。短い例については `templates/mail/actions/star-email.ts` を、複数のサブ actions を持つものについては `templates/mail/actions/manage-automations.ts` をご覧ください。完全なパターンについては、[actions](/docs/actions-overview) のドキュメントを参照してください。
 
 **UI の変更。** ルートは `templates/mail/app/routes/` にあり、コンポーネントは `templates/mail/app/components/email/` および `templates/mail/app/components/layout/` にあります。このアプリは、`app/components/ui/` の shadcn/ui プリミティブと Tabler アイコンを使用しています。これらを使用してください。
 
@@ -363,7 +361,7 @@ UI のルート:
 
 **キーボード ショートカットの変更。** キーバインド ハンドラーは `templates/mail/app/components/email/` にあります — `useHotkeys` または `addEventListener("keydown"` を検索して、各キーが接続されている場所を見つけます。
 
-これらの変更をエージェントに依頼してください。エージェントは独自のソースを編集できます。[Self-Modifying Code](/docs/key-concepts#agent-modifies-code) を参照してください。
+これらの変更は、独自のリポジトリと開発ワークフローで行います。埋め込みエージェントがソース編集を支援できるのは、ホストが repository/workspace の書き込みツールを意図的に付与した場合だけです。それ以外では actions とデータを通じて動作します。[Key Concepts](/docs/key-concepts#agent-modifies-code) を参照してください。
 
 ## 次のステップ
 
@@ -371,4 +369,4 @@ UI のルート:
 - [**はじめに**](/docs/getting-started) — actions、application state、ライブ同期というフレームワークの基礎
 - [**カレンダー**](/docs/template-calendar) — スケジュールと予約を扱う関連ドメインテンプレート
 - [**自動化**](/docs/automations) — Mail の自動振り分けルールが基盤とするイベント駆動エンジン
-- [**Actions**](/docs/actions) — チャット、ショートカット、自動化が呼び出す action システム
+- [**Actions**](/docs/actions-overview) — チャット、ショートカット、自動化が呼び出す action システム

@@ -30,7 +30,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // this list independently — see the analytics template's v75-v83 incident
 // documented in templates/analytics/server/plugins/db.ts for the failure
 // class this guards against.
-const runDesignMigrations = runMigrations(
+export const runDesignMigrations = runMigrations(
   [
     {
       version: 1,

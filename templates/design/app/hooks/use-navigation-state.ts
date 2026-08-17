@@ -1,8 +1,8 @@
 import {
-  useAgentRouteState,
   getBrowserTabId,
   setClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useEffect } from "react";
 import { useLocation, useParams } from "react-router";
 
@@ -12,8 +12,8 @@ export interface NavigationState {
   designSystemId?: string;
   templateId?: string;
   editorView?: "single" | "overview";
-  inspectorTab?: "design" | "tweaks" | "extensions";
-  inspector?: "design" | "tweaks" | "extensions";
+  inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
+  inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
@@ -54,8 +54,9 @@ export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
-  inspectorTab?: "design" | "tweaks" | "extensions";
-  inspector?: "design" | "tweaks" | "extensions";
+  mode?: "edit" | "annotate" | "interact";
+  inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
+  inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
@@ -118,8 +119,12 @@ function normalizeEditorView(
 
 function normalizeInspectorTab(
   value: unknown,
-): "design" | "tweaks" | "extensions" | undefined {
-  return value === "design" || value === "tweaks" || value === "extensions"
+): "design" | "comments" | "tweaks" | "code" | "extensions" | undefined {
+  return value === "design" ||
+    value === "comments" ||
+    value === "tweaks" ||
+    value === "code" ||
+    value === "extensions"
     ? value
     : undefined;
 }
@@ -161,6 +166,7 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   const params = new URLSearchParams();
   const editorView = normalizeEditorView(cmd.editorView);
   if (editorView) params.set("view", editorView);
+  if (editorView === "single") params.set("mode", "interact");
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
   if (inspectorTab) params.set("inspector", inspectorTab);
   const leftPanel = normalizeLeftPanel(cmd.leftPanel ?? cmd.panel);
@@ -196,6 +202,7 @@ export function editorCommandFromNavigate(
     path,
   };
   if (editorView) command.editorView = editorView;
+  if (editorView === "single") command.mode = "interact";
   if (inspectorTab) command.inspectorTab = inspectorTab;
   if (leftPanel) command.leftPanel = leftPanel;
   if (cmd.fileId) command.fileId = cmd.fileId;
@@ -264,14 +271,15 @@ export function useNavigationState(enabled = true) {
         if (designSystemId) state.designSystemId = designSystemId;
       } else if (pathname.startsWith("/templates")) {
         state.view = "templates";
-        const templateId = searchParams.get("templateId");
-        if (templateId) state.templateId = templateId;
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
       } else if (pathname.startsWith("/settings")) {
         state.view = "settings";
       }
+
+      const templateId = searchParams.get("templateId");
+      if (templateId) state.templateId = templateId;
 
       return state;
     },

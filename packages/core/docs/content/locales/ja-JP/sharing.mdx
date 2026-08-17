@@ -80,6 +80,7 @@ description: "使い慣れた一貫性のある共有機能をフレームワー
 特定のユーザーまたは組織と共有する場合は、役割を選択します。
 
 - **ビューア** — 読み取り専用。
+- **コメント投稿者** — 読み取りとコメントの追加ができますが、リソースの編集や共有の管理はできません。
 - **エディタ** — 読み取り + 書き込み。
 - **管理者** — 読み取り + 書き込み + 共有の管理 (他のユーザーの追加/削除が可能)。
 
@@ -122,8 +123,7 @@ description: "使い慣れた一貫性のある共有機能をフレームワー
 共有ボタンは単一のインポートです:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -245,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "ビューア |編集者 |管理者",
+          note: "ビューア |コメント投稿者 |編集者 |管理者",
         },
         {
           name: "created_by",

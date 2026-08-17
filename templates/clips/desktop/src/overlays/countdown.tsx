@@ -15,16 +15,17 @@ export function Countdown() {
   const closingRef = useRef(false);
 
   const closeWithEvent = useCallback(
-    (eventName: "clips:countdown-done" | "clips:countdown-cancel") => {
+    (
+      eventName: "clips:countdown-done" | "clips:countdown-cancel",
+      cause: "escape" | "return" | "button" | "timer",
+    ) => {
       if (closingRef.current) return;
       closingRef.current = true;
-      emit(eventName)
-        .finally(() => emit("clips:countdown-shortcuts-active", false))
-        .finally(() => {
-          getCurrentWindow()
-            .close()
-            .catch(() => {});
-        });
+      emit(eventName, { cause }).finally(() => {
+        getCurrentWindow()
+          .close()
+          .catch(() => {});
+      });
     },
     [],
   );
@@ -33,22 +34,21 @@ export function Countdown() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        closeWithEvent("clips:countdown-cancel");
+        closeWithEvent("clips:countdown-cancel", "escape");
       } else if (event.key === "Enter") {
         event.preventDefault();
-        closeWithEvent("clips:countdown-done");
+        closeWithEvent("clips:countdown-done", "return");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      emit("clips:countdown-shortcuts-active", false).catch(() => {});
     };
   }, [closeWithEvent]);
 
   useEffect(() => {
     if (n <= 0) {
-      closeWithEvent("clips:countdown-done");
+      closeWithEvent("clips:countdown-done", "timer");
       return;
     }
     const t = setTimeout(() => setN((v) => v - 1), COUNTDOWN_STEP_MS);
@@ -62,7 +62,7 @@ export function Countdown() {
           type="button"
           className="countdown-control countdown-control-cancel"
           aria-label="Cancel recording"
-          onClick={() => closeWithEvent("clips:countdown-cancel")}
+          onClick={() => closeWithEvent("clips:countdown-cancel", "button")}
         >
           <IconX size={30} stroke={2.4} />
         </button>
@@ -75,7 +75,7 @@ export function Countdown() {
           type="button"
           className="countdown-control countdown-control-skip"
           aria-label="Skip countdown and start recording now"
-          onClick={() => closeWithEvent("clips:countdown-done")}
+          onClick={() => closeWithEvent("clips:countdown-done", "button")}
         >
           <IconPlayerSkipForwardFilled size={28} />
         </button>

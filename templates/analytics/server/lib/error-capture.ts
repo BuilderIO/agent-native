@@ -20,11 +20,13 @@ import { fileURLToPath } from "node:url";
  */
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   desc,
   eq,
+  exists,
   inArray,
   isNull,
   notInArray,
@@ -32,6 +34,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
 import { getDb, schema } from "../db/index.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
@@ -372,20 +375,34 @@ export function normalizeFrameFile(file: string | null): string {
   // Strip bundler content hashes in the basename: main.4f3a2b1c.js -> main.js
   out = out.replace(/([._-])[0-9a-fA-F]{8,}(?=\.[a-z0-9]+$)/i, "");
   out = out.replace(/([._-])[0-9a-fA-F]{8,}$/i, "");
+  // Vite also emits eight-character base64url hashes, e.g. entry-CVi_y2nS.js.
+  out = out.replace(
+    /([._-])(?=[A-Za-z0-9_-]{8}\.[a-z0-9]+$)(?=[A-Za-z0-9_-]*[A-Z0-9_])[A-Za-z0-9_-]{8}(?=\.[a-z0-9]+$)/,
+    "",
+  );
   return out;
 }
 
 function normalizeMessageForFingerprint(message: string): string {
-  return message
-    .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
-      "<uuid>",
-    )
-    .replace(/0x[0-9a-f]+/gi, "<hex>")
-    .replace(/\b\d+\b/g, "<n>")
-    .trim()
-    .slice(0, 200);
+  return (
+    message
+      .replace(/https?:\/\/\S+/gi, "<url>")
+      .replace(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+        "<uuid>",
+      )
+      // Only quoted runs without whitespace: a lone apostrophe in "Can't" must
+      // never swallow the rest of the message as if it opened a quote.
+      .replace(/(['"`])[^\s'"`]*\1/g, "<str>")
+      .replace(/(?:\/[\w.@%+-]+){2,}\/?/g, "<path>")
+      .replace(/0x[0-9a-f]+/gi, "<hex>")
+      // Not \b\d+\b: a unit suffix ("8000ms") keeps the digits word-adjacent, so
+      // a bounded rule leaves every timeout value in its own group.
+      .replace(/\d+/g, "<n>")
+      .replace(/\([^()]*,[^()]*\)/g, "(<list>)")
+      .trim()
+      .slice(0, 200)
+  );
 }
 
 function hashHex(input: string): string {
@@ -402,20 +419,28 @@ function topFrame(frames: ParsedStackFrame[]): ParsedStackFrame | null {
 }
 
 /**
- * Stable grouping key. Prefers error type + top in-app frame
+ * Stable grouping key: error type + normalized message + top in-app frame
  * (function + normalized file, ignoring line/col so small edits don't split a
- * group). Falls back to a normalized message when there is no usable stack.
+ * group). The message is always part of the key — dropping it funnels every
+ * error thrown through a shared frame (an action dispatcher, a minified
+ * bundler helper) into one issue whose title describes only whichever error
+ * happened to land there first.
  */
 export function fingerprint(
   type: string,
   frames: ParsedStackFrame[],
   message: string,
 ): string {
+  // The client uses this synthetic type for bare Error rejections. Keep it
+  // in the same group as window errors while retaining the original event
+  // type in the stored occurrence.
+  const groupingType = type === "UnhandledRejection" ? "Error" : type;
   const frame = topFrame(frames);
+  const normalizedMessage = normalizeMessageForFingerprint(message);
   const key =
     frame && (frame.file || frame.function)
-      ? `${type}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}`
-      : `${type}|${normalizeMessageForFingerprint(message)}`;
+      ? `${groupingType}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}|${normalizedMessage}`
+      : `${groupingType}|${normalizedMessage}`;
   return hashHex(key);
 }
 
@@ -543,6 +568,27 @@ export interface RawExceptionInput {
   tags: Record<string, string>;
   extra: Record<string, unknown>;
   breadcrumbs: unknown[];
+}
+
+/**
+ * Browser request cancellation is expected during navigation and query
+ * invalidation. Keep the first-party issue store aligned with the client
+ * Sentry filter, while preserving other AbortError failures for triage.
+ */
+export function isBenignBrowserAbortException(
+  input: Pick<RawExceptionInput, "type" | "message">,
+): boolean {
+  const exceptionType = input.type.trim().toLowerCase();
+  const exceptionValue = input.message.trim().toLowerCase();
+  return (
+    exceptionValue === "the user aborted a request." ||
+    exceptionValue === "signal is aborted without reason" ||
+    exceptionValue === "aborterror: the user aborted a request." ||
+    exceptionValue === "aborterror: signal is aborted without reason" ||
+    (exceptionType === "aborterror" &&
+      (exceptionValue.includes("the user aborted a request") ||
+        exceptionValue.includes("signal is aborted without reason")))
+  );
 }
 
 function nowIso(): string {
@@ -689,9 +735,13 @@ async function pruneAndCountUsers(
         ),
       );
   }
+  // Count real identities only. Falling back to the per-event id made every
+  // identity-less occurrence its own "user", so an anonymous server-side flood
+  // reported broad user impact. Occurrences without an identity stay in
+  // `eventCount` and contribute nothing here.
   const [row] = await db
     .select({
-      users: sql<number>`count(distinct coalesce(${schema.errorEvents.userKey}, ${schema.errorEvents.anonymousId}, ${schema.errorEvents.id}))`,
+      users: sql<number>`count(distinct coalesce(nullif(${schema.errorEvents.userKey}, ''), nullif(${schema.errorEvents.anonymousId}, ''), nullif(${schema.errorEvents.sessionId}, '')))`,
     })
     .from(schema.errorEvents)
     .where(
@@ -904,11 +954,14 @@ export async function ingestException(
   });
 
   if (isNewIssue) {
-    await notifyNewIssue(scope, { issueId, title, level: raw.level }).catch(
-      () => {
-        // New-issue alerts are best-effort; never fail ingest on delivery.
-      },
-    );
+    const emailEnabled = await errorEmailNotificationsEnabled(scope);
+    await notifyNewIssue(
+      scope,
+      { issueId, title, level: raw.level },
+      emailEnabled,
+    ).catch(() => {
+      // New-issue alerts are best-effort; never fail ingest on delivery.
+    });
   }
 
   return { issueId, eventId, isNewIssue, sessionRecordingId };
@@ -928,11 +981,9 @@ export async function ingestAnalyticsExceptionEvents(
   let ingested = 0;
   for (const item of events) {
     try {
-      await ingestException(
-        scope,
-        extractExceptionInput(item.properties),
-        item.derived,
-      );
+      const raw = extractExceptionInput(item.properties);
+      if (isBenignBrowserAbortException(raw)) continue;
+      await ingestException(scope, raw, item.derived);
       ingested += 1;
     } catch (error) {
       console.warn("[error-capture] Failed to ingest exception event:", error);
@@ -944,18 +995,25 @@ export async function ingestAnalyticsExceptionEvents(
 async function notifyNewIssue(
   scope: IngestScope,
   issue: { issueId: string; title: string; level: ExceptionLevel },
+  emailEnabled: boolean,
 ): Promise<void> {
   await notifyWithDelivery(
     {
       severity: issue.level === "fatal" ? "critical" : "warning",
       title: `New error: ${issue.title}`,
       body: "A new JavaScript error was captured in your app.",
-      channels: ["inbox"],
+      channels: emailEnabled ? ["inbox", "email"] : ["inbox"],
       metadata: {
         kind: "error_issue",
         issueId: issue.issueId,
         level: issue.level,
         path: `/monitoring?view=errors&issue=${issue.issueId}`,
+        ...(emailEnabled
+          ? {
+              emailRecipients: [scope.ownerEmail],
+              emailSubject: `New error in your app: ${issue.title}`,
+            }
+          : {}),
       },
     },
     // The notification inbox is owner-scoped; the issue's owner is the analytics
@@ -963,6 +1021,26 @@ async function notifyNewIssue(
     // `accessFilter`).
     { owner: scope.ownerEmail },
   );
+}
+
+async function errorEmailNotificationsEnabled(
+  scope: IngestScope,
+): Promise<boolean> {
+  try {
+    const prefs = await getUserSetting(
+      scope.ownerEmail,
+      ANALYTICS_USER_PREFS_KEY,
+    );
+    return prefs?.errorEmailNotifications === true;
+  } catch (error) {
+    // Error email delivery must fail closed when the owner preference cannot be
+    // read; the in-app issue notification still remains available.
+    console.warn(
+      "[error-capture] Could not read error email preference; skipping email delivery:",
+      error,
+    );
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1072,6 +1150,8 @@ export interface ListErrorIssuesFilters {
   status?: IssueStatus | "all";
   query?: string;
   app?: string;
+  sessionRecordingId?: string;
+  userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
 }
@@ -1099,6 +1179,28 @@ export interface ErrorIssueSummary {
 
 function recordingPath(recordingId: string | null): string | null {
   return recordingId ? `/sessions/${recordingId}` : null;
+}
+
+async function accessibleClientRecordingId(
+  scope: ErrorReadScope,
+  recordingId: string,
+): Promise<string | null> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select({ clientRecordingId: schema.sessionRecordings.clientRecordingId })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        accessFilter(
+          schema.sessionRecordings,
+          schema.sessionRecordingShares,
+          accessCtx(scope),
+        ),
+      ),
+    )
+    .limit(1);
+  return row?.clientRecordingId ?? null;
 }
 
 async function sparklinesForIssues(
@@ -1158,6 +1260,51 @@ export async function listErrorIssues(
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
   if (filters.app) conditions.push(eq(schema.errorIssues.app, filters.app));
+  const sessionRecordingId = filters.sessionRecordingId?.trim();
+  const userId = filters.userId?.trim();
+  if (sessionRecordingId || userId) {
+    const occurrenceConditions: any[] = [
+      eq(schema.errorEvents.issueId, schema.errorIssues.id),
+      // Keep the child occurrence in the same tenant as its parent issue even
+      // when the issue is visible through an org share.
+      eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
+      or(
+        eq(schema.errorEvents.orgId, schema.errorIssues.orgId),
+        and(isNull(schema.errorEvents.orgId), isNull(schema.errorIssues.orgId)),
+      ),
+    ];
+    if (sessionRecordingId) {
+      const clientRecordingId = await accessibleClientRecordingId(
+        scope,
+        sessionRecordingId,
+      );
+      const recordingConditions: any[] = [
+        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      ];
+      if (clientRecordingId) {
+        recordingConditions.push(
+          eq(schema.errorEvents.clientRecordingId, clientRecordingId),
+        );
+      }
+      occurrenceConditions.push(or(...recordingConditions));
+    }
+    if (userId) {
+      occurrenceConditions.push(
+        or(
+          eq(schema.errorEvents.userId, userId),
+          eq(schema.errorEvents.userKey, userId),
+        ),
+      );
+    }
+    conditions.push(
+      exists(
+        db
+          .select({ id: schema.errorEvents.id })
+          .from(schema.errorEvents)
+          .where(and(...occurrenceConditions)),
+      ),
+    );
+  }
   const query = filters.query?.trim();
   if (query) {
     conditions.push(
@@ -1184,7 +1331,14 @@ export async function listErrorIssues(
     .limit(limit);
 
   const sparklines = await sparklinesForIssues(rows.map((row: any) => row.id));
-  return rows.map((row: any) => ({
+  const { byId: accessibleLastRecordings } = await resolveAccessibleRecordings(
+    scope,
+    rows
+      .map((row: any) => row.lastSessionRecordingId)
+      .filter((value: unknown): value is string => Boolean(value)),
+    [],
+  );
+  const issues = rows.map((row: any) => ({
     id: row.id,
     fingerprint: row.fingerprint,
     type: row.type,
@@ -1196,13 +1350,23 @@ export async function listErrorIssues(
     lastSeenAt: row.lastSeenAt,
     eventCount: Number(row.eventCount ?? 0),
     usersAffected: Number(row.usersAffected ?? 0),
-    lastSessionRecordingId: row.lastSessionRecordingId ?? null,
-    lastSessionRecordingPath: recordingPath(row.lastSessionRecordingId ?? null),
+    lastSessionRecordingId:
+      row.lastSessionRecordingId &&
+      accessibleLastRecordings.has(row.lastSessionRecordingId)
+        ? row.lastSessionRecordingId
+        : null,
+    lastSessionRecordingPath: recordingPath(
+      row.lastSessionRecordingId &&
+        accessibleLastRecordings.has(row.lastSessionRecordingId)
+        ? row.lastSessionRecordingId
+        : null,
+    ),
     assignee: row.assignee ?? null,
     app: row.app ?? null,
     template: row.template ?? null,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
+  return issues;
 }
 
 export interface ErrorEventDetail {
@@ -1332,6 +1496,9 @@ export async function getErrorIssue(
         .filter((value: unknown): value is string => Boolean(value)),
     ),
   ) as string[];
+  if (issueRow.lastSessionRecordingId) {
+    srIds.push(issueRow.lastSessionRecordingId);
+  }
   const clientIds = Array.from(
     new Set(
       eventRows
@@ -1409,9 +1576,16 @@ export async function getErrorIssue(
     lastSeenAt: issueRow.lastSeenAt,
     eventCount: Number(issueRow.eventCount ?? 0),
     usersAffected: Number(issueRow.usersAffected ?? 0),
-    lastSessionRecordingId: issueRow.lastSessionRecordingId ?? null,
+    lastSessionRecordingId:
+      issueRow.lastSessionRecordingId &&
+      byId.has(issueRow.lastSessionRecordingId)
+        ? issueRow.lastSessionRecordingId
+        : null,
     lastSessionRecordingPath: recordingPath(
-      issueRow.lastSessionRecordingId ?? null,
+      issueRow.lastSessionRecordingId &&
+        byId.has(issueRow.lastSessionRecordingId)
+        ? issueRow.lastSessionRecordingId
+        : null,
     ),
     assignee: issueRow.assignee ?? null,
     app: issueRow.app ?? null,
@@ -1419,7 +1593,11 @@ export async function getErrorIssue(
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
-  return { issue, events, sessions: Array.from(sessions.values()) };
+  return {
+    issue,
+    events,
+    sessions: Array.from(sessions.values()),
+  };
 }
 
 export interface UpdateErrorIssueInput {

@@ -5,8 +5,9 @@ export const PRIVATE_SHARE_RESPONSE_HEADERS = {
   "Referrer-Policy": "no-referrer",
 };
 
-export function privateShareLoaderData<T>(payload: T) {
+export function privateShareLoaderData<T>(payload: T, status = 200) {
   return data(payload, {
+    status,
     headers: PRIVATE_SHARE_RESPONSE_HEADERS,
   });
 }

@@ -10,9 +10,11 @@ import {
   deleteLocalWorkspaceResource,
   findAgentNativeManifest,
   getLocalArtifactApp,
+  listConfiguredLocalArtifactFiles,
   listLocalWorkspaceResources,
   listLocalArtifactFiles,
   readLocalArtifactFile,
+  readConfiguredLocalArtifactFile,
   readLocalWorkspaceResource,
   resolveAgentNativeDataMode,
   writeLocalArtifactFile,
@@ -167,6 +169,51 @@ describe("local artifact helpers", () => {
     });
 
     expect(files).toEqual([]);
+  });
+
+  it("reads a declared local-folder source without changing the app data mode", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      apps: {
+        content: {
+          roots: [
+            {
+              path: "docs",
+              extensions: [".md"],
+              source: {
+                type: "local-folder",
+                connectionId: "local-folder:opaque",
+                truthPolicy: "source_primary",
+              },
+            },
+          ],
+        },
+      },
+    });
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(root, "docs", "intro.md"), "# Intro", "utf8");
+
+    const app = await getLocalArtifactApp({ appId: "content", manifestPath });
+    expect(app.mode).toBe("database");
+    expect(app.roots[0]?.source).toEqual({
+      type: "local-folder",
+      connectionId: "local-folder:opaque",
+      truthPolicy: "source_primary",
+    });
+    await expect(
+      listLocalArtifactFiles({ appId: "content", manifestPath }),
+    ).resolves.toEqual([]);
+    await expect(
+      listConfiguredLocalArtifactFiles({ appId: "content", manifestPath }),
+    ).resolves.toEqual([expect.objectContaining({ path: "docs/intro.md" })]);
+    await expect(
+      readConfiguredLocalArtifactFile({
+        appId: "content",
+        manifestPath,
+        path: "docs/intro.md",
+      }),
+    ).resolves.toEqual(expect.objectContaining({ content: "# Intro" }));
   });
 
   it("loads configured local component and extension roots", async () => {

@@ -1,23 +1,5 @@
-/**
- * Cmd+J "Ask about this meeting" sidebar.
- *
- * Granola's signature pattern (from `granola-ux.md` §6):
- *
- *   "During recording, empty state on right pane: literally blank — the point
- *    is to NOT fill the canvas with AI noise mid-meeting. Mid-meeting AI is
- *    accessed only via Cmd+J chat sidebar."
- *
- * Implementation:
- *   - 320px slide-in panel on the right (shadcn `Sheet`).
- *   - Header + 3 quick-prompt buttons + free-form composer.
- *   - All AI work delegates to the agent chat via `sendToAgentChat` (per the
- *     `delegate-to-agent` skill). Never inline LLM calls.
- *   - The keyboard handler is mounted ONCE per page-mount (single
- *     `keydown` listener with cleanup) so toggling open/close doesn't leak
- *     listeners. Esc and Cmd+J both close the sheet.
- */
-
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCommand,
   IconNotes,
@@ -96,6 +78,7 @@ export function QuickAskSidebar({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<ChatTurn[]>([]);
+  const [pendingAsk, setPendingAsk] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Single global keydown listener; toggles on Cmd/Ctrl+J. Esc is handled
@@ -110,6 +93,25 @@ export function QuickAskSidebar({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // The desktop pill's "Ask anything" bar hands its question over as `?ask=`
+  // alongside `?chat=1`, so the question the user typed on the overlay lands
+  // in the agent chat here instead of being retyped.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const askParam = params.get("ask")?.trim();
+    if (params.get("chat") !== "1" && !askParam) return;
+    setOpen(true);
+    if (askParam) setPendingAsk(askParam);
+    params.delete("chat");
+    params.delete("ask");
+    const nextQuery = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`,
+    );
   }, []);
 
   // Focus the composer whenever the sheet opens.
@@ -159,6 +161,12 @@ export function QuickAskSidebar({
     },
     [meetingId, meetingTitle, segments, t],
   );
+
+  useEffect(() => {
+    if (!pendingAsk) return;
+    setPendingAsk(null);
+    send(pendingAsk);
+  }, [pendingAsk, send]);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>

@@ -10,6 +10,8 @@ const mockDeleteSetting = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
+const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
+const mockGetDbExec = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -21,8 +23,15 @@ vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => mockGetRequestUserEmail(),
   getRequestOrgId: () => mockGetRequestOrgId(),
 }));
-vi.mock("../db/client.js", () => ({
+vi.mock("../org/context.js", () => ({
+  resolveOrgIdForEmail: (...args: any[]) => mockResolveOrgIdForEmail(...args),
+}));
+vi.mock("../db/client.js", async (importOriginal) => ({
+  // Real isTransientDatabaseError: "unreadable vs absent" is the behavior
+  // under test here, so the classifier must not be stubbed.
+  ...(await importOriginal<typeof import("../db/client.js")>()),
   isLocalDatabase: () => mockIsLocalDatabase(),
+  getDbExec: () => mockGetDbExec(),
 }));
 vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
@@ -30,9 +39,12 @@ vi.mock("../settings/store.js", () => ({
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
 }));
 
+import { isLlmCredentialError } from "../agent/engine/credential-errors.js";
 import {
+  BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
+  CredentialStoreUnavailableError,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
   providerCredentialFingerprint,
@@ -43,9 +55,11 @@ import {
   deleteBuilderCredentials,
   resolveBuilderCredential,
   resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
   resolveBuilderCredentialSource,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
+  resolveSecretDetailed,
 } from "./credential-provider.js";
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
@@ -75,7 +89,10 @@ beforeEach(() => {
   delete process.env.AGENT_ENGINE;
   delete process.env.AGENT_NATIVE_WORKSPACE;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
   delete process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV;
+  delete process.env.AGENT_VAULT_ORG_ID;
   delete process.env.FUSION_ENVIRONMENT;
   delete process.env.FUSION_ENV_ORIGIN;
   delete process.env.VITE_FUSION_ENV_ORIGIN;
@@ -102,6 +119,11 @@ beforeEach(() => {
   delete process.env.OPENAI_BASE_URL;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.GROQ_API_KEY;
+  delete process.env.EMAIL_AGENT_ADDRESS;
+  delete process.env.EMAIL_FROM;
+  delete process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
+  delete process.env.RESEND_API_KEY;
+  delete process.env.SENDGRID_API_KEY;
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
@@ -124,6 +146,10 @@ beforeEach(() => {
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
   mockIsLocalDatabase.mockReturnValue(true);
+  mockResolveOrgIdForEmail.mockResolvedValue(null);
+  mockGetDbExec.mockReturnValue({
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+  });
 });
 
 describe("resolveCredentialWriteScope", () => {
@@ -374,11 +400,12 @@ describe("Builder credential auth failure markers", () => {
   });
 
   it("reads an auth-failure marker for the same effective key pair", async () => {
+    const at = Date.now();
     mockGetSetting.mockResolvedValue({
       message: "Invalid key",
       status: 401,
       code: "unauthorized",
-      at: 123,
+      at,
     });
 
     const failure = await getBuilderCredentialAuthFailure({
@@ -391,9 +418,28 @@ describe("Builder credential auth failure markers", () => {
       message: "Invalid key",
       status: 401,
       code: "unauthorized",
-      at: 123,
+      at,
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    );
+  });
+
+  it("expires a stale marker instead of pinning the user to 'not connected'", async () => {
+    mockGetSetting.mockResolvedValue({
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      at: Date.now() - BUILDER_AUTH_FAILURE_TTL_MS - 1,
+    });
+
+    const failure = await getBuilderCredentialAuthFailure({
+      privateKey: "bpk-secret",
+      publicKey: "pub-secret",
+    });
+
+    expect(failure).toBeNull();
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
       `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
     );
   });
@@ -539,7 +585,8 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "deploy-key",
     );
-    expect(mockReadAppSecret).toHaveBeenCalledTimes(3);
+    // user, org, workspace/orgId, and the always-on workspace/solo fallback.
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(4);
   });
 
   it("does not use deploy-level Builder keys for signed-in users on production shared databases", async () => {
@@ -620,6 +667,23 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
     );
+  });
+
+  it("uses app-provided email env keys for signed-in production shared-database users", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SENDGRID_API_KEY = "sendgrid-deploy-key";
+    process.env.EMAIL_FROM = "Clips <clips@example.com>";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("SENDGRID_API_KEY")).toBe("sendgrid-deploy-key");
+    expect(await resolveSecret("EMAIL_FROM")).toBe("Clips <clips@example.com>");
+    expect(canUseDeployCredentialFallbackForRequest("SENDGRID_API_KEY")).toBe(
+      true,
+    );
+    expect(canUseDeployCredentialFallbackForRequest("EMAIL_FROM")).toBe(true);
   });
 
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {
@@ -867,6 +931,211 @@ describe("resolveBuilderCredential", () => {
   });
 });
 
+describe("Builder org fallback (transient org-context dropout)", () => {
+  it("finds org-scoped credentials when getRequestOrgId() is null but resolveOrgIdForEmail resolves an org", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockResolvedValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      scope === "org" && scopeId === "builder_io"
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "org-BUILDER_PRIVATE_KEY",
+    );
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("member@b.com");
+  });
+
+  it("does not pick up org credentials for an explicit Personal selection (resolveOrgIdForEmail resolves null)", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockReadAppSecret.mockImplementation(async ({ scope }) =>
+      scope === "org"
+        ? { value: "should-not-be-used", last4: "used", updatedAt: 1 }
+        : null,
+    );
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    const scopesQueried = mockReadAppSecret.mock.calls.map((c) => c[0].scope);
+    expect(scopesQueried).not.toContain("org");
+  });
+
+  it("finds solo-workspace credentials even when an orgId is present but has no credentials", async () => {
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:a@b.com"
+        ? { value: "solo-key", last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "solo-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      { key: "BUILDER_PRIVATE_KEY", scope: "user", scopeId: "a@b.com" },
+      { key: "BUILDER_PRIVATE_KEY", scope: "org", scopeId: "builder_io" },
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "workspace",
+        scopeId: "builder_io",
+      },
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "workspace",
+        scopeId: "solo:a@b.com",
+      },
+    ]);
+  });
+});
+
+describe("resolveBuilderCredentialsDetailed", () => {
+  it("sets lookupFailed=true when the secrets store read throws a db error", async () => {
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecrets.mockRejectedValue(
+      new Error("connection terminated unexpectedly"),
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result.lookupFailed).toBe(true);
+    expect(result.privateKey).toBeNull();
+    expect(result.source).toBeNull();
+  });
+
+  it("sets lookupFailed=false when the row is simply absent", async () => {
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecrets.mockResolvedValue(new Map());
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result.lookupFailed).toBe(false);
+    expect(result.privateKey).toBeNull();
+    expect(result.source).toBeNull();
+  });
+
+  it("reports source=org and lookupFailed=false for a healthy org-scoped connection", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) =>
+      scope === "org" &&
+      (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result.source).toBe("org");
+    expect(result.lookupFailed).toBe(false);
+  });
+
+  it("skips a user-scoped credential the gateway already rejected and falls through to a working org-scoped one", async () => {
+    // Root-cause regression: once a Builder credential is marked bad, every
+    // subsequent resolution must skip it instead of resending it forever.
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) => {
+      if (
+        scope === "user" &&
+        (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+      ) {
+        return { value: `user-${key}`, last4: "-key", updatedAt: 1 };
+      }
+      if (
+        scope === "org" &&
+        (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+      ) {
+        return { value: `org-${key}`, last4: "-key", updatedAt: 1 };
+      }
+      return null;
+    });
+    const rejectedFingerprint = builderCredentialFingerprint(
+      "user-BUILDER_PRIVATE_KEY",
+      "user-BUILDER_PUBLIC_KEY",
+    );
+    mockGetSetting.mockImplementation(async (settingKey: string) =>
+      settingKey === `builder-auth-failure:${rejectedFingerprint}`
+        ? {
+            message: "Invalid key",
+            status: 401,
+            code: "unauthorized",
+            at: Date.now(),
+          }
+        : null,
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result.source).toBe("org");
+    expect(result.privateKey).toBe("org-BUILDER_PRIVATE_KEY");
+  });
+
+  it("does not use a solo row when the org membership lookup fails", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockRejectedValue(new Error("membership timeout"));
+    mockReadAppSecrets.mockImplementation(async ({ scopeId }) =>
+      scopeId === "solo:member@b.com"
+        ? new Map([
+            ["BUILDER_PRIVATE_KEY", { value: "solo-private-key" }],
+            ["BUILDER_PUBLIC_KEY", { value: "solo-public-key" }],
+          ])
+        : new Map(),
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result).toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      lookupFailed: true,
+    });
+  });
+});
+
+describe("resolveBuilderCredentials (original shape)", () => {
+  it("still returns only the original fields, without source or lookupFailed", async () => {
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    const result = await resolveBuilderCredentials();
+    expect(Object.keys(result).sort()).toEqual(
+      [
+        "isEnterprise",
+        "isFreeAccount",
+        "orgKind",
+        "orgName",
+        "privateKey",
+        "publicKey",
+        "subscription",
+        "subscriptionLevel",
+        "subscriptionName",
+        "userId",
+      ].sort(),
+    );
+    expect(result).not.toHaveProperty("source");
+    expect(result).not.toHaveProperty("lookupFailed");
+  });
+
+  it("still returns null fields when nothing resolves (behavior unchanged)", async () => {
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+
+    await expect(resolveBuilderCredentials()).resolves.toEqual({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+    });
+  });
+});
+
 describe("resolveSecret (generic)", () => {
   it("falls back to org scope for arbitrary keys (e.g. OPENAI_API_KEY)", async () => {
     mockGetRequestUserEmail.mockReturnValue("teammate@b.com");
@@ -969,6 +1238,114 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
+  it("falls back to the designated Dispatch vault organization", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    mockGetRequestUserEmail.mockReturnValue("builder@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "org" && scopeId === "dispatch-vault"
+        ? { value: "workspace-vault-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    expect(await resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).toBe(
+      "workspace-vault-secret",
+    );
+    expect(
+      mockReadAppSecret.mock.calls.some(
+        ([call]) => call.scope === "org" && call.scopeId === "dispatch-vault",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not bypass manual vault grants through the designated fallback", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    mockGetRequestUserEmail.mockReturnValue("builder@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === "o:dispatch-vault:dispatch-vault-access-settings"
+        ? { mode: "manual" }
+        : null,
+    );
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).toBeNull();
+    expect(
+      mockReadAppSecret.mock.calls.some(
+        ([call]) => call.scopeId === "dispatch-vault",
+      ),
+    ).toBe(false);
+  });
+
+  it("uses an active app grant for a manual vault in another organization", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "factory";
+    mockGetRequestUserEmail.mockReturnValue("builder@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === "o:dispatch-vault:dispatch-vault-access-settings"
+        ? { mode: "manual" }
+        : null,
+    );
+    mockGetDbExec.mockReturnValue({
+      execute: vi.fn().mockResolvedValue({ rows: [{ 1: 1 }] }),
+    });
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "org" && scopeId === "dispatch-vault"
+        ? { value: "granted-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).resolves.toBe(
+      "granted-secret",
+    );
+    expect(mockGetDbExec().execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ["dispatch-vault", "factory", "HUBSPOT_MCP_CLIENT_SECRET"],
+      }),
+    );
+  });
+
+  it("recovers the org-scoped row when request org context is transiently missing", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockResolvedValue("builder_io");
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "https://academy.example.test",
+      last4: "test",
+      updatedAt: 1,
+    });
+
+    expect(await resolveSecret("ACADEMY_CONVEX_SITE_URL")).toBe(
+      "https://academy.example.test",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      { key: "ACADEMY_CONVEX_SITE_URL", scope: "user", scopeId: "tim@b.com" },
+      { key: "ACADEMY_CONVEX_SITE_URL", scope: "org", scopeId: "builder_io" },
+      {
+        key: "ACADEMY_CONVEX_SITE_URL",
+        scope: "workspace",
+        scopeId: "builder_io",
+      },
+    ]);
+  });
+
+  it("reads the store on every call rather than caching the first resolution", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue({
+      value: "https://academy.example.test",
+      last4: "test",
+      updatedAt: 1,
+    });
+
+    await resolveSecret("ACADEMY_CONVEX_SITE_URL");
+    const callsAfterFirst = mockReadAppSecret.mock.calls.length;
+    await resolveSecret("ACADEMY_CONVEX_SITE_URL");
+
+    expect(mockReadAppSecret.mock.calls.length).toBe(callsAfterFirst * 2);
+  });
+
   it("uses app-provided Google OAuth client env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
     process.env.GOOGLE_CLIENT_ID = "deploy-client-id";
@@ -1016,5 +1393,181 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
     expect(await resolveSecret("SOME_KEY")).toBe("v");
     delete process.env.SOME_KEY;
+  });
+});
+
+describe("pre-org solo workspace fallback (generic secrets)", () => {
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("owner@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+  });
+
+  it("finds a pre-org solo workspace row when the org has none", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:owner@b.com"
+        ? { value: "pre-org-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({
+      value: "pre-org-secret",
+      lookupFailed: false,
+    });
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      { key: "GOOGLE_CLIENT_SECRET", scope: "user", scopeId: "owner@b.com" },
+      { key: "GOOGLE_CLIENT_SECRET", scope: "org", scopeId: "builder_io" },
+      {
+        key: "GOOGLE_CLIENT_SECRET",
+        scope: "workspace",
+        scopeId: "builder_io",
+      },
+      {
+        key: "GOOGLE_CLIENT_SECRET",
+        scope: "workspace",
+        scopeId: "solo:owner@b.com",
+      },
+    ]);
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe("pre-org-secret");
+  });
+
+  it("prefers the current org-scoped row over a stale pre-org solo row", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) => {
+      if (scope === "org" && scopeId === "builder_io") {
+        return { value: "current-org-secret", last4: "cret", updatedAt: 2 };
+      }
+      if (scope === "workspace" && scopeId === "solo:owner@b.com") {
+        return { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 };
+      }
+      return null;
+    });
+
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "current-org-secret",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scopeId)).not.toContain(
+      "solo:owner@b.com",
+    );
+  });
+
+  it("prefers the org's workspace row over a stale pre-org solo row", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) => {
+      if (scope === "workspace" && scopeId === "builder_io") {
+        return { value: "org-workspace-secret", last4: "cret", updatedAt: 2 };
+      }
+      if (scope === "workspace" && scopeId === "solo:owner@b.com") {
+        return { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 };
+      }
+      return null;
+    });
+
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "org-workspace-secret",
+    );
+  });
+
+  it("still reports a failed org-scoped read as retryable instead of answering from the solo row", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) => {
+      if (scope === "org") throw new Error("db query timed out after 12000ms");
+      if (scope === "workspace" && scopeId === "solo:owner@b.com") {
+        return { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 };
+      }
+      return null;
+    });
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    await expect(resolveSecret("GOOGLE_CLIENT_SECRET")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+
+  it("does not answer from the solo row when org membership lookup fails", async () => {
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockRejectedValue(
+      Object.assign(new Error("membership query timed out"), { code: "57014" }),
+    );
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:owner@b.com"
+        ? { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    expect(
+      mockReadAppSecret.mock.calls.map((call) => call[0].scopeId),
+    ).not.toContain("solo:owner@b.com");
+  });
+});
+
+describe("unreadable credential store is not 'not configured'", () => {
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+  });
+
+  it("throws a retryable error when the secrets read fails and nothing else answers", async () => {
+    mockReadAppSecret.mockRejectedValue(
+      new Error("db query timed out after 12000ms"),
+    );
+
+    await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+    const detailed = await resolveSecretDetailed("OPENAI_API_KEY");
+    expect(detailed).toMatchObject({ value: null, lookupFailed: true });
+  });
+
+  it("throws when the org lookup fails, because org-scoped rows were never searched", async () => {
+    mockResolveOrgIdForEmail.mockRejectedValue(
+      Object.assign(new Error("db query timed out"), { code: "57014" }),
+    );
+    mockReadAppSecret.mockResolvedValue(null);
+
+    await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+
+  it("still returns null (definitively absent) when the store answers with no row", async () => {
+    mockReadAppSecret.mockResolvedValue(null);
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecretDetailed("OPENAI_API_KEY")).toMatchObject({
+      value: null,
+      lookupFailed: false,
+    });
+  });
+
+  it("prefers a working env fallback over throwing", async () => {
+    process.env.OPENAI_API_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
+    try {
+      expect(await resolveSecret("OPENAI_API_KEY")).toBe("deploy-key");
+      await expect(
+        resolveSecretDetailed("OPENAI_API_KEY"),
+      ).resolves.toMatchObject({ value: "deploy-key", lookupFailed: true });
+    } finally {
+      delete process.env.OPENAI_API_KEY;
+    }
+  });
+
+  it("throws instead of reporting Builder as not connected", async () => {
+    mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
+
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+  });
+
+  it("does not report the retryable error as a missing-LLM-credential error", () => {
+    expect(isLlmCredentialError(new CredentialStoreUnavailableError())).toBe(
+      false,
+    );
   });
 });

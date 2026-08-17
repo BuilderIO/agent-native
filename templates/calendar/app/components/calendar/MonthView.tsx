@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
+import { getWeekdayOrder } from "@shared/calendar-week";
 import {
   startOfMonth,
   endOfMonth,
@@ -17,6 +18,7 @@ import { memo, useState, useMemo } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getFullDayOutOfOfficeDateRange } from "@/lib/out-of-office";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +50,7 @@ interface MonthViewProps {
   ) => void;
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
+  weekStartsOn?: 0 | 1;
 }
 
 // Skeleton pill widths per day-of-week (Sun–Sat), empty = no skeletons
@@ -84,6 +87,7 @@ export const MonthView = memo(function MonthView({
   onDraftCreate,
   onDraftDiscard,
   isLoading = false,
+  weekStartsOn = 0,
 }: MonthViewProps) {
   const isMobile = useIsMobile();
   const { prefs } = useViewPreferences();
@@ -92,8 +96,8 @@ export const MonthView = memo(function MonthView({
 
   const monthStart = startOfMonth(selectedDate);
   const monthEnd = endOfMonth(selectedDate);
-  const calendarStart = startOfWeek(monthStart);
-  const calendarEnd = endOfWeek(monthEnd);
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn });
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn });
   const allDays = eachDayOfInterval({
     start: calendarStart,
     end: calendarEnd,
@@ -102,19 +106,39 @@ export const MonthView = memo(function MonthView({
     ? allDays.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
     : allDays;
   const colCount = prefs.hideWeekends ? 5 : 7;
-  const headers = prefs.hideWeekends
-    ? (isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS).filter(
-        (_, i) => i !== 0 && i !== 6,
-      )
-    : isMobile
-      ? WEEKDAY_HEADERS_SHORT
-      : WEEKDAY_HEADERS;
+  const headerLabels = isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS;
+  const headers = getWeekdayOrder(weekStartsOn)
+    .filter((day) => !prefs.hideWeekends || (day !== 0 && day !== 6))
+    .map((day) => headerLabels[day]);
 
   // Pre-group events by every day they overlap (not just their start day) so
   // multi-day events keep appearing as the grid moves past their start date.
   const eventsByDay = useMemo(() => {
     const map = new Map<string, DayOccurrence[]>();
     for (const e of events) {
+      const fullDayOutOfOfficeRange = getFullDayOutOfOfficeDateRange(e);
+      if (fullDayOutOfOfficeRange) {
+        for (const day of days) {
+          const key = format(day, "yyyy-MM-dd");
+          if (
+            key < fullDayOutOfOfficeRange.startDate ||
+            key >= fullDayOutOfOfficeRange.endDateExclusive
+          ) {
+            continue;
+          }
+          const occurrence: DayOccurrence = {
+            event: e,
+            isStart: key === fullDayOutOfOfficeRange.startDate,
+            continuesNext:
+              format(addDays(day, 1), "yyyy-MM-dd") <
+              fullDayOutOfOfficeRange.endDateExclusive,
+          };
+          const list = map.get(key);
+          if (list) list.push(occurrence);
+          else map.set(key, [occurrence]);
+        }
+        continue;
+      }
       const evStart = parseISO(e.start);
       const evEnd = e.end ? parseISO(e.end) : addDays(evStart, 1);
       for (const day of days) {

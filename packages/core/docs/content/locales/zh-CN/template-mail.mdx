@@ -96,8 +96,6 @@ description: "代理驱动的电子邮件客户端。连接您的 Gmail，客服
 
 现场演示：[mail.agent-native.com](https://mail.agent-native.com)。
 
-> **Google 可能会显示警告：** 托管演示使用 Agent-Native 的共享 Google 应用程序进行 Gmail 访问，因此 Google 可能会要求您确认后再继续。在本地运行以使用您自己的 Google OAuth 客户端。
-
 首次打开应用程序时：
 
 1. 点击侧边栏中的“**设置**”。
@@ -349,7 +347,7 @@ UI 中的路由：
 
 邮件由您更改。所有重要的事情都存在于少数几个地方——从那里开始。
 
-**添加代理功能。**使用 `defineAction` 在 `templates/mail/actions/` 下添加新文件。您的操作将成为代理工具、CLI 命令 (`pnpm action <name>`) 以及通过 `useActionQuery` / `useActionMutation` 键入的前端钩子表面。查看 `templates/mail/actions/star-email.ts` 作为一个简短示例，或者查看 `templates/mail/actions/manage-automations.ts` 作为具有多个子 actions 的示例。有关完整模式，请参阅 [actions](/docs/actions) 文档。
+**添加代理功能。**使用 `defineAction` 在 `templates/mail/actions/` 下添加新文件。您的操作将成为代理工具、CLI 命令 (`pnpm action <name>`) 以及通过 `useActionQuery` / `useActionMutation` 键入的前端钩子表面。查看 `templates/mail/actions/star-email.ts` 作为一个简短示例，或者查看 `templates/mail/actions/manage-automations.ts` 作为具有多个子 actions 的示例。有关完整模式，请参阅 [actions](/docs/actions-overview) 文档。
 
 **更改 UI。** 路由位于 `templates/mail/app/routes/` 中，组件位于 `templates/mail/app/components/email/` 和 `templates/mail/app/components/layout/` 中。该应用程序使用 `app/components/ui/` 和 Tabler 图标中的 shadcn/ui 原语 - 坚持这些。
 
@@ -361,7 +359,7 @@ UI 中的路由：
 
 **更改键盘快捷键。** `templates/mail/app/components/email/` 中存在按键绑定处理程序 - 搜索 `useHotkeys` 或 `addEventListener("keydown"` 以查找每个按键的接线位置。
 
-要求代理为您进行任何这些更改。代理可以编辑自己的源代码 - 请参阅 [Self-Modifying Code](/docs/key-concepts#agent-modifies-code)。
+请在自己的代码库和开发流程中完成这些更改。只有当主机有意授予 repository/workspace 写入工具时，嵌入式代理才能协助编辑源代码；否则，它通过 actions 和数据工作。请参阅 [Key Concepts](/docs/key-concepts#agent-modifies-code)。
 
 ## 后续内容
 
@@ -369,4 +367,4 @@ UI 中的路由：
 - [**开始使用**](/docs/getting-started) — 框架基础：actions、application state 和实时同步
 - [**日历**](/docs/template-calendar) — 涵盖日程安排和预订的相关领域模板
 - [**自动化**](/docs/automations) — Mail 自动分类规则所基于的事件触发引擎
-- [**Actions**](/docs/actions) — 聊天、快捷键和自动化共同调用的 action 系统
+- [**Actions**](/docs/actions-overview) — 聊天、快捷键和自动化共同调用的 action 系统

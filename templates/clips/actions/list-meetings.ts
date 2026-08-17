@@ -14,6 +14,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -25,13 +26,17 @@ import {
   lt,
   gte,
   lte,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isPersonalSoloCalendarEvent } from "../server/lib/calendar-event-classification.js";
+import {
+  isDeclinedCalendarEvent,
+  isSoloCalendarEvent,
+} from "../server/lib/calendar-event-classification.js";
 import {
   calendarEventToMeetingView,
   eventEndIso,
@@ -44,8 +49,22 @@ import {
 } from "../server/lib/calendar-event-meetings.js";
 import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
+import { meetingRowHasContent } from "./lib/meeting-content.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** SQL mirror of `meetingRowHasContent`. Keep history filtering consistent. */
+function meetingHasContentFilter() {
+  return or(
+    isNotNull(schema.meetings.recordingId),
+    isNotNull(schema.meetings.actualStart),
+    isNotNull(schema.meetings.actualEnd),
+    sql`trim(${schema.meetings.summaryMd}) <> ''`,
+    sql`trim(${schema.meetings.userNotesMd}) <> ''`,
+    ne(schema.meetings.bulletsJson, "[]"),
+    ne(schema.meetings.actionItemsJson, "[]"),
+  )!;
+}
 
 export default defineAction({
   description:
@@ -60,6 +79,11 @@ export default defineAction({
     recordedOnly: booleanParam
       .default(false)
       .describe("Only return persisted meetings that have a linked recording."),
+    hasContent: booleanParam
+      .default(false)
+      .describe(
+        "Only return persisted meetings that contain a recording, completed capture, notes, a summary, bullets, or action items.",
+      ),
     includeLiveCalendar: booleanParam
       .default(true)
       .describe(
@@ -86,12 +110,18 @@ export default defineAction({
     excludePersonalSoloEvents: booleanParam
       .default(false)
       .describe(
-        "Exclude obvious solo personal calendar blocks such as Gym or Dinner. Used by desktop meeting reminders.",
+        "Exclude calendar events with no active attendee besides the current user. Used by desktop meeting reminders.",
+      ),
+    excludeDeclinedEvents: booleanParam
+      .default(false)
+      .describe(
+        "Exclude calendar events where the current user has declined. Used by desktop meeting reminders.",
       ),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    const currentUserEmail = getRequestUserEmail();
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -99,8 +129,9 @@ export default defineAction({
     // slice(offset, offset + limit) at the end. To make that final slice
     // correct we must fetch enough rows from BOTH sources to cover the whole
     // offset + limit window before merging — fetching only `limit` would drop
-    // events once offset > 0 or the calendar is large. Keep the hard caps
-    // (500 persisted, 250 live) so a huge calendar can't blow up the request.
+    // events once offset > 0 or the calendar is large. Keep the live-event cap
+    // so a huge calendar can't blow up the request. Persisted history needs
+    // the full sentinel window so pages remain available after 500 rows.
     const windowCount = args.offset + args.limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
@@ -150,6 +181,9 @@ export default defineAction({
     if (args.recordedOnly) {
       whereClauses.push(isNotNull(schema.meetings.recordingId));
     }
+    if (args.hasContent) {
+      whereClauses.push(meetingHasContentFilter());
+    }
 
     const orderBy =
       args.view === "upcoming"
@@ -165,7 +199,7 @@ export default defineAction({
       .from(schema.meetings)
       .where(and(...whereClauses))
       .orderBy(...orderBy)
-      .limit(Math.min(500, windowCount))
+      .limit(windowCount + 1)
       .offset(0);
 
     // Add a derived `summaryPreview` (first ~100 chars of summaryMd) so the
@@ -188,6 +222,11 @@ export default defineAction({
     // event was emitted here — not merely because some other account returned
     // data or errored.
     const emittedLiveEventKeys = new Set<string>();
+    // Calendar events excluded from desktop reminders because they are solo or
+    // declined by the current user. Keep the correlated persisted meeting ids
+    // here too, so materialized events cannot re-enter the reminder list
+    // through the fallback persisted-row merge.
+    const excludedLiveEventKeys = new Set<string>();
     // Map a persisted meeting's `calendarEventId` (calendar_events.id) to the
     // Google event externalId so we can match it against the emitted set.
     const calendarEventIdToExternalId = new Map<string, string>();
@@ -269,10 +308,25 @@ export default defineAction({
           for (const event of items) {
             if (!event.id || event.status === "cancelled") continue;
             if (!isTimedCalendarEvent(event)) continue;
+            const cached = cachedByExternalId.get(event.id);
+            if (
+              args.excludeDeclinedEvents &&
+              isDeclinedCalendarEvent({ account, event, currentUserEmail })
+            ) {
+              excludedLiveEventKeys.add(event.id);
+              if (cached?.meetingId) {
+                excludedLiveEventKeys.add(cached.meetingId);
+              }
+              continue;
+            }
             if (
               args.excludePersonalSoloEvents &&
-              isPersonalSoloCalendarEvent({ account, event })
+              isSoloCalendarEvent({ account, event, currentUserEmail })
             ) {
+              excludedLiveEventKeys.add(event.id);
+              if (cached?.meetingId) {
+                excludedLiveEventKeys.add(cached.meetingId);
+              }
               continue;
             }
             const startIso = eventStartIso(event);
@@ -301,7 +355,6 @@ export default defineAction({
               continue;
             }
 
-            const cached = cachedByExternalId.get(event.id);
             const persisted = cached?.meetingId
               ? persistedById.get(cached.meetingId)
               : null;
@@ -344,19 +397,17 @@ export default defineAction({
       const liveExternalId = meeting.calendarEventId
         ? calendarEventIdToExternalId.get(meeting.calendarEventId)
         : undefined;
+      const liveEventExcluded =
+        excludedLiveEventKeys.has(meeting.id) ||
+        (liveExternalId ? excludedLiveEventKeys.has(liveExternalId) : false);
+      if (liveEventExcluded) continue;
       const liveEventEmitted =
         emittedLiveEventKeys.has(meeting.id) ||
         (liveExternalId ? emittedLiveEventKeys.has(liveExternalId) : false);
       if (
         liveEventEmitted &&
         meeting.source === "calendar" &&
-        !meeting.recordingId &&
-        !meeting.actualStart &&
-        !meeting.actualEnd &&
-        !(meeting.summaryMd ?? "").trim() &&
-        !(meeting.userNotesMd ?? "").trim() &&
-        (meeting.bulletsJson ?? "[]") === "[]" &&
-        (meeting.actionItemsJson ?? "[]") === "[]"
+        !meetingRowHasContent(meeting)
       ) {
         continue;
       }
@@ -374,6 +425,10 @@ export default defineAction({
 
     const meetings = combined.slice(args.offset, args.offset + args.limit);
 
-    return { meetings, calendarErrors };
+    return {
+      meetings,
+      calendarErrors,
+      hasMore: combined.length > args.offset + args.limit,
+    };
   },
 });

@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
   },
   settings: {
-    openAgentSettings: "에이전트 설정 열기",
+    openAgentSettings: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    agentTitle: "에이전트 설정",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 관리",
     aliasName: "별칭 이름",
     aliasNamePlaceholder: "예: 디자인 팀",
     recipientsOnePerLine: "수신자(한 줄에 이메일 하나)",
@@ -481,6 +481,11 @@ const messages = {
     lastRun: "마지막 실행:",
     automationsDescription:
       "AI로 새 받은편지함 이메일을 자동 처리하는 규칙입니다.",
+    allowAutomationSends: "자동화가 이메일을 자동으로 보내도록 허용",
+    allowAutomationSendsDescription:
+      "기본값은 꺼짐입니다. 자동화가 매번 승인을 묻지 않고 이메일을 보내도록 하려면 켜세요.",
+    automationSendSettingSaveFailed:
+      "자동 이메일 전송 설정을 저장하지 못했습니다.",
     loadingModels: "모델 로드 중",
     newRule: "새 규칙",
     noAutomationRules: "아직 자동화 규칙이 없습니다.",

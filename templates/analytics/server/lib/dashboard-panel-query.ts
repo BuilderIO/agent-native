@@ -1,6 +1,9 @@
 import type { CredentialContext } from "@agent-native/core/credentials";
 import { resolveCredential } from "@agent-native/core/credentials";
-import { runDataProgram } from "@agent-native/core/data-programs";
+import {
+  getInitializedDataProgramsAppId,
+  runDataProgram,
+} from "@agent-native/core/data-programs";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 import { getUserSegmentation, queryEvents } from "./amplitude";
@@ -12,6 +15,7 @@ import {
   runPrometheusPanel,
   serializePanelDescriptorInput,
 } from "./prometheus";
+import { ANALYTICS_APP_ID } from "./provider-credentials";
 
 export const DASHBOARD_PANEL_SOURCES = [
   "bigquery",
@@ -25,12 +29,11 @@ export const DASHBOARD_PANEL_SOURCES = [
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
 
-const ANALYTICS_DATA_PROGRAM_APP_ID = "analytics";
-
 export interface DashboardPanelQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
   truncated?: boolean;
+  bytesProcessed?: number;
 }
 
 export function isDashboardPanelSource(
@@ -359,7 +362,10 @@ async function runProgramPanel(
   const descriptor = parseProgramDescriptor(raw);
   const result = await runDataProgram({
     programId: descriptor.programId,
-    appId: ANALYTICS_DATA_PROGRAM_APP_ID,
+    // Use the same app scope that registered the agent's data-program actions.
+    // Standalone template dev can derive that scope from the runtime package
+    // even when APP_NAME is not explicitly set.
+    appId: getInitializedDataProgramsAppId() ?? ANALYTICS_APP_ID,
     params: descriptor.params,
     ctx: { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
     triggeredBy: "panel_view",
@@ -399,8 +405,9 @@ export async function runDashboardPanelQuery(args: {
   source: DashboardPanelSource;
   query: string;
   ctx: CredentialContext;
+  timeoutMs?: number;
 }): Promise<DashboardPanelQueryResult | MissingKeyResponse> {
-  const { source, query, ctx } = args;
+  const { source, query, ctx, timeoutMs } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -445,10 +452,17 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "first-party") {
-    return await queryFirstPartyAnalytics(query, {
-      userEmail: ctx.userEmail,
-      orgId: ctx.orgId ?? null,
-    });
+    return await queryFirstPartyAnalytics(
+      query,
+      {
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId ?? null,
+      },
+      {
+        cache: true,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+    );
   }
 
   if (source === "demo") {

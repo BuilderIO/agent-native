@@ -19,7 +19,10 @@ import {
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
+  transcriptFullText,
+  transcriptSegments,
   type SourcedTranscriptSegment,
+  type TranscriptLine,
 } from "./transcription-engine";
 
 /** Grace period after stop for whisper to emit any flushed trailing finals. */
@@ -286,6 +289,17 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
 export const __test = { createWebSpeechTranscriptBuffer };
 
+/**
+ * Local transcription opens a microphone capture of its own. System-only
+ * recordings must wait for post-upload transcription instead of sampling the
+ * Mac's default microphone.
+ */
+export function shouldStartLocalRecordingTranscription(
+  microphoneEnabled: boolean,
+): boolean {
+  return microphoneEnabled;
+}
+
 export async function startTranscriptionCapture(
   mic?: {
     deviceId?: string | null;
@@ -296,8 +310,7 @@ export async function startTranscriptionCapture(
     voiceProcessing?: boolean;
   },
 ): Promise<TranscriptionCapture | null> {
-  const lines: string[] = [];
-  const segments: SourcedTranscriptSegment[] = [];
+  const lines: TranscriptLine[] = [];
   let disposed = false;
   let paused = false;
   let desiredPaused = false;
@@ -320,8 +333,8 @@ export async function startTranscriptionCapture(
   };
 
   const captured = (): CapturedTranscript => ({
-    text: lines.join("\n\n").trim(),
-    segments,
+    text: transcriptFullText(lines),
+    segments: transcriptSegments(lines),
   });
 
   let engine: TranscriptionEngine;
@@ -329,7 +342,7 @@ export async function startTranscriptionCapture(
     unlistens.push(
       await onFinalTranscript((event) => {
         if (disposed) return;
-        appendFinalTranscript(event, lines, segments);
+        appendFinalTranscript(event, lines);
       }),
     );
 
@@ -337,6 +350,10 @@ export async function startTranscriptionCapture(
       mic,
       captureSystem,
       voiceProcessing: opts?.voiceProcessing,
+      // Recordings only persist final segments. Meetings use the same engine
+      // directly and retain live partials, but repeatedly inferring partials
+      // here burns CPU without any recording UI consuming them.
+      emitPartials: false,
     });
     console.log(
       `[clips-recorder] transcription started (${engine} mic${captureSystem ? "+system" : ""})`,
@@ -367,6 +384,7 @@ export async function startTranscriptionCapture(
           mic,
           captureSystem,
           voiceProcessing: opts?.voiceProcessing,
+          emitPartials: false,
         });
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.

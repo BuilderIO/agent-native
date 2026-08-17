@@ -1,4 +1,5 @@
-import { trackEvent, useT } from "@agent-native/core/client";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useState, useRef } from "react";
 import { codeToHtml } from "shiki";
 

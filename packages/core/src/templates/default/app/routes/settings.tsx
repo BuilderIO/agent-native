@@ -1,9 +1,9 @@
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
-  LanguagePicker,
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import { Link } from "react-router";
 
 export function meta() {
@@ -33,6 +33,7 @@ export default function SettingsPage() {
         </div>
 
         <SettingsTabsPage
+          account={<AccountSettingsCard />}
           extraTabs={agentSettingsTabs}
           general={
             <section className="mx-auto w-full max-w-2xl rounded-lg border border-border/50 bg-card px-4 py-4">

@@ -3,7 +3,6 @@
   "short_name": "Design",
   "description": "Agent-native design and prototyping tool",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#71717A",
   "icons": [

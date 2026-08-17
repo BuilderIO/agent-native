@@ -5,7 +5,7 @@ description: "브랜칭, CODEOWNERS, PR 검토 및 Dispatch가 Git 수준 거버
 
 # 작업 공간 거버넌스
 
-> **어떤 작업공간 문서인가요?** 이 페이지에서는 하나의 저장소에 있는 여러 앱의 내용을 검토, 승인 및 소유하는 **거버넌스**에 대해 다룹니다. 작업공간(사용자 정의 레이어)이 무엇인지에 대해서는 [Workspace](/docs/workspace)를 참조하세요. 배포 형태(하나의 단일 저장소, 많은 앱)는 [Multi-App Workspaces](/docs/multi-app-workspace)를 참조하세요.
+> **어떤 작업공간 문서인가요?** 이 페이지에서는 하나의 저장소에 있는 여러 앱의 내용을 검토, 승인 및 소유하는 **거버넌스**에 대해 다룹니다. 에이전트 사용자 정의 레이어(에이전트 리소스: `AGENTS.md`, 메모리, skills, 사용자 정의 에이전트)에 대해서는 [에이전트 리소스](/docs/agent-resources)를 참조하세요. 배포 형태(하나의 단일 저장소, 많은 앱)는 [Multi-App Workspaces](/docs/multi-app-workspace)를 참조하세요.
 
 이 가이드에서는 분기 방법, 누가 무엇을 검토하는지, 코드 소유권을 설정하는 방법, Dispatch 제어 플레인이 거버넌스 모델에 어떻게 적합한지 등 에이전트 기반 작업 영역 실행의 운영 측면을 다룹니다.
 
@@ -87,7 +87,7 @@ main                         ← production
 
 ### 비개발자 분기
 
-변경이 필요한 모든 사람이 git에 익숙하지는 않습니다. [Builder.io](https://www.builder.io)는 내부적으로 git 분기에 매핑되는 시각적 분기 모델을 지원합니다. 이는 개발 환경 없이 콘텐츠 및 복사 변경, 레이아웃 조정, 디자인 반복 및 A/B 테스트에 유용합니다.
+변경이 필요한 모든 사람이 git에 익숙하지는 않습니다. [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=workspace_management)는 내부적으로 git 분기에 매핑되는 시각적 분기 모델을 지원합니다. 이는 개발 환경 없이 콘텐츠 및 복사 변경, 레이아웃 조정, 디자인 반복 및 A/B 테스트에 유용합니다.
 
 ## 코드 소유권
 
@@ -207,7 +207,7 @@ core:
 
 디스패치는 저장소 비밀, 재사용 가능한 작업 공간 연결, 작업 공간 리소스(skills, 지침, 에이전트 프로필, MCP 서버), 승인 및 감사 로그를 관리합니다. 공용 앱 경로 구성(`workspaceApp.audience` / `publicPaths` / `protectedPaths`)은 [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment)를 참조하세요.
 
-리소스 모델 및 표준 경로는 [Workspace — Global resources](/docs/workspace#global-resources)를 참조하세요.
+리소스 모델 및 표준 경로는 [에이전트 리소스 — Global resources](/docs/agent-resources#global-resources)를 참조하세요.
 
 ## 설정 체크리스트
 
@@ -228,7 +228,7 @@ core:
 - [ ] 공유 공급자 계정에 대해 재사용 가능한 작업 공간 연결을 등록한 다음
       Brain, Analytics, Mail, Dispatch 등의 앱이 필요할 때만 부여
       해당 계정
-- [ ] 리소스 페이지를 통해 작업 공간 전체 skills, 가드레일 지침 및 브랜드/회사 참조 리소스를 추가합니다. 전체 리소스 모델 표와 권장 스타터 팩은 [Workspace](/docs/workspace#global-resources)를 참조하세요.
+- [ ] 리소스 페이지를 통해 작업 공간 전체 skills, 가드레일 지침 및 브랜드/회사 참조 리소스를 추가합니다. 전체 리소스 모델 표와 권장 스타터 팩은 [에이전트 리소스](/docs/agent-resources#global-resources)를 참조하세요.
 - [ ] 승인 정책 및 승인자 이메일 구성
 - [ ] 관리자 알림을 위한 SendGrid(`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) 설정
 - [ ] 작업 공간 메시징을 위해 Slack 또는 Telegram을 연결하세요

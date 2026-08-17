@@ -216,6 +216,18 @@ window.__vite_plugin_react_preamble_installed__ = true;
 });
 
 describe("DesignCanvas iframe sandbox policy", () => {
+  it("allows prototype print and download controls in every preview mode", () => {
+    for (const args of [
+      { externalPreview: false, readOnly: false },
+      { externalPreview: false, readOnly: true },
+      { externalPreview: true, readOnly: true },
+    ]) {
+      const sandbox = getDesignCanvasIframeSandbox(args);
+      expect(sandbox).toContain("allow-modals");
+      expect(sandbox).toContain("allow-downloads");
+    }
+  });
+
   it("does not grant same-origin access to read-only inline previews", () => {
     const sandbox = getDesignCanvasIframeSandbox({
       externalPreview: false,

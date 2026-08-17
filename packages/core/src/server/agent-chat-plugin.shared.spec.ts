@@ -6,6 +6,7 @@ import type { ChatThread } from "../chat-threads/store.js";
 import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
+  isNetlifyRecurringJobsRuntime,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat-plugin.js";
 
@@ -124,6 +125,51 @@ describe("recurring jobs runtime startup", () => {
       shouldDisableRecurringJobsRuntime({
         NODE_ENV: "production",
         APP_URL: "https://design.agent-native.com",
+      }),
+    ).toBe(false);
+  });
+
+  it("uses the durable sweep instead of an in-process timer on Netlify", () => {
+    expect(
+      isNetlifyRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+      }),
+    ).toBe(true);
+    expect(
+      isNetlifyRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY_LOCAL: "true",
+        SITE_ID: "site-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("disables every in-process recurring sweep in serverless runtimes", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        AWS_LAMBDA_FUNCTION_NAME: "analytics-handler",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        CF_PAGES: "1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        NETLIFY_LOCAL: "true",
       }),
     ).toBe(false);
   });

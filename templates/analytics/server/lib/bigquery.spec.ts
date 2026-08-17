@@ -19,7 +19,7 @@ vi.mock("./credentials-context", () => ({
 
 vi.mock("./gcloud", () => ({ getAccessToken }));
 
-const { runQuery } = await import("./bigquery");
+const { dryRunQuery, runQuery } = await import("./bigquery");
 
 function jsonResponse(data: unknown): Response {
   return {
@@ -177,6 +177,33 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.stringContaining("/projects/test-project/queries/job-1"),
       expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("bounds dry-run validation and aborts the warehouse request", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation((_input, init) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = dryRunQuery("SELECT 1");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(pending).resolves.toBe(
+      "BigQuery validation timed out after 10 seconds",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/projects/test-project/jobs"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });

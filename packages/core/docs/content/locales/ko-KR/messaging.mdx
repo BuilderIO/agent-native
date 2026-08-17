@@ -20,6 +20,7 @@ description: "Slack, Microsoft Teams, Discord 인터랙션, 이메일, Telegram 
 - **Slack**로 상담원에게 DM을 보내거나 모든 채널에서 `@mention`로 보내세요.
 - **휴대폰에서 텔레그램이나 WhatsApp**으로 상담원에게 메시지를 보내세요.
 - **동일한 에이전트, 동일한 메모리.** Slack에서 말한 내용은 나중에 이메일로 보낼 때 기억됩니다. 웹 채팅과 외부 메시지는 하나의 스레드 기록을 공유합니다.
+- **메시지에서 다른 도구를 실행.** @mention 한 번으로 Notion의 행, Jira의 이슈, HubSpot의 레코드를 만들 수 있습니다. 전체 예제는 [Slack의 @mention → Notion의 행](#slack-to-notion)을 참고하세요.
 - 단방향 인앱 알림(종 모양 아이콘, webhooks)은 [Notifications](/docs/notifications)를 참조하세요.
 
 <Diagram id="doc-block-1hdzoku" title={"많은 채널, 하나의 에이전트"} summary={"모든 플랫폼은 동일한 에이전트 루프와 동일한 SQL 스레드 기록을 사용하므로 Slack DM 메시지과 이메일은 동일한 대화를 계속합니다."}>
@@ -126,7 +127,7 @@ Slack 앱에는 하나의 이벤트 API 요청 URL가 있습니다. 동일한 Sl
 
 ### 팁
 
-- **채널 멘션** — 작업을 시작할 때 @mention을 사용합니다. 멘션 없는 답글은 같은 스레드에 활성 작업이 있을 때만 이어집니다.
+- **채널 멘션** — 작업을 시작할 때 @mention을 사용합니다. 에이전트가 처리할 각 채널 메시지에는 명시적인 멘션이 필요하며, 일반 스레드 답글과 채널 대화는 에이전트를 실행하지 않습니다.
 - **DM** — 허용되는 개인 DM은 비공개 대화이며 확인된 조직 구성원 또는 연결된 Slack 신원이 필요합니다.
 - **신원** — DM은 확인된 Slack 이메일을 같은 앱 사용자에 연결할 수 있으며 관리 채널은 자체 서비스 신원과 정책을 사용합니다.
 - **프로덕션 허용 목록** — `SLACK_ALLOWED_TEAM_IDS`를 설정하고 공유 Slack 앱의 경우 `SLACK_ALLOWED_API_APP_IDS`를 설정하여 예상치 못한 작업 공간에서 유효한 서명 비밀을 재사용할 수 없도록 합니다.
@@ -168,8 +169,7 @@ Event Subscriptions Request URL은
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`,
 Interactivity Request URL은
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`로 설정합니다.
-`app_home_opened`, `app_context_changed`, `app_mention`, `message.channels`,
-`message.groups`, `message.im`, `message.mpim`을 구독하세요.
+`app_home_opened`, `app_context_changed`, `app_mention`, `message.im`을 구독하세요.
 `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`을
 설정한 뒤 **설정 → 메시징**에서 **Add to Slack**을 선택합니다. 설치별 토큰은
 암호화되고 대화 키는 작업 공간, 앱, 채널, 스레드별로 분리됩니다.
@@ -183,14 +183,187 @@ Slack 컨텍스트를 제공하며, `message.im`은 DM을 전달합니다. Slack
 개인 Slack DM은 확인된 Agent Native 조직 구성원이나 이미 연결된 Slack 신원에서만
 허용됩니다. 채널 서비스 주체의 정책과 예산은 이 개인 신원과 별도로 적용됩니다.
 
-멘션 없는 답글은 실행 중인 같은 스레드만 이어가며 일반 채널 대화는 에이전트를
-실행하지 않습니다. 제한된 컨텍스트에는 리액션과 파일 참조가 포함되고 네이티브
+각 채널 메시지에는 에이전트에 대한 명시적인 멘션이 필요하며, 일반 스레드 답글과
+채널 대화는 에이전트를 실행하지 않습니다. 제한된 컨텍스트에는 리액션과 파일 참조가 포함되고 네이티브
 카드는 계획, 진행률, 취소, 승인/거부를 표시합니다. DM은 개인 ID를, 관리 채널은
 명시적인 서비스 ID와 게스트, Slack Connect, 모델 정책을 사용합니다. 채널 메모리는
 명시적인 요청으로만 저장하거나 삭제되며 자동 저장되지 않습니다. 채널에서 만든
 루틴은 같은 Slack 대상으로 결과를 보냅니다. 조직, 요청자, 채널의 일별 또는 월별
 예산은 전체 감사 계보와 함께 적용됩니다. `assistant:write`는 Agent View 컨텍스트 이벤트를
 활성화하고, `chat:write`는 답글과 실시간 상태 업데이트를 처리합니다.
+
+### 전체 예제: Slack의 @mention에서 Notion의 행까지 {#slack-to-notion}
+
+Slack 멘션이 동작하기 시작하면 거의 항상 나오는 다음 요청이 _"스레드에서 에이전트를 @mention하면 내가 쓴 내용을 Notion 데이터베이스에 행으로 넣어 달라"_ 입니다. 이미 가능한 일입니다. Slack 수신, Notion 공급자 API, 앱 액션이 모두 기본 제공됩니다. 다만 세 조각을 올바른 순서로 연결해야 하고, 그중 둘은 건너뛰면 아무 말 없이 실패합니다.
+
+아래의 `<ANGLE_BRACKETS>`는 모두 자리 표시자입니다. 실제 Notion 시크릿을 소스, 커밋되는 `.env`, 채팅 메시지에 붙여 넣지 마세요.
+
+#### 1. 멘션이 앱까지 도달하게 하기
+
+Notion을 건드리기 전에 [Slack 설정](#slack)을 마치고 채널에서 `@mention`에 답변이 오는지 확인하세요. 이후 단계에서는 두 가지 동작이 중요합니다.
+
+- `@mention`이 포함된 메시지가 호출이며, 그 텍스트가 에이전트에게 전달됩니다.
+- 같은 스레드에 나중에 남기는 각 메시지에도 에이전트에 대한 명시적인 멘션이 필요합니다. 일반 답글은 도달하지 않으므로 새 요청마다 다시 @mention하세요.
+
+#### 2. 공급자 API 액션 노출하기
+
+Core에는 Notion 공급자 프리셋(기본 URL, `Notion-Version` 헤더, 인증, 문서 링크)이 포함되어 있지만, 에이전트가 이를 사용할 수 있게 해 주는 세 액션 — `provider-api-catalog`, `provider-api-docs`, `provider-api-request` — 은 **선택적 하위 경로 내보내기**입니다. 이를 추가한 적이 없는 앱에는 Notion으로 가는 경로가 전혀 없고, 에이전트는 Notion 도구가 없다고 답합니다. 대부분이 놓치는 단계입니다.
+
+공급자 런타임을 추가합니다.
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+그다음 액션 ID마다 얇은 액션 파일을 추가합니다. 팩토리 옵션은 모두 선택 사항이라 각 파일은 호출 한 줄이면 됩니다.
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+`actions/`의 파일은 자동으로 탐지되므로 편집할 레지스트리가 없습니다. 공급자 목록을 좁히거나 HTTP로 노출하려면 [Core 액션 팩토리 재사용](/docs/integrations#provider-api-factories)을 참고하세요.
+
+#### 3. Notion 키는 `.env`가 아니라 보관소에 저장하기
+
+**[notion.so/my-integrations](https://www.notion.so/my-integrations)**에서 내부 통합을 만들고 시크릿을 복사하세요. 그런 다음 앱에서 **Settings → API Keys & Connections**를 열고 이름이 정확히 `NOTION_API_KEY`인 키를 추가한 뒤 값을 붙여 넣고 범위를 선택합니다.
+
+- **Personal** — 본인 자격으로 실행되는 작업만 사용할 수 있습니다.
+- **Workspace** — 조직과 공유됩니다. 본인 외의 사람이 에이전트를 @mention할 예정이라면 이 옵션을 선택하세요. Slack 실행은 메시지를 작성한 사람이 아니라 통합 소유자로 동작하기 때문입니다.
+
+공급자 런타임은 암호화된 보관소에서 개인 → 조직 → 워크스페이스 순서로 자격 증명을 해석하며, **의도적으로 `process.env`를 전혀 읽지 않습니다**. 배포 환경 변수는 멀티테넌트 앱의 모든 사용자가 공유하게 되기 때문입니다. `.env`에 `NOTION_API_KEY` 줄을 넣어도 여기서는 사용되지 않습니다.
+
+#### 4. 데이터베이스를 통합과 공유하기
+
+Notion에서 대상 데이터베이스를 열고 **••• → Connections →** 에서 통합을 추가하세요. 이 단계를 건너뛰는 것이 Notion에서 가장 흔하고 가장 헷갈리는 실패입니다. API가 403이 아니라 **404**를 돌려주기 때문에 데이터베이스 ID가 틀린 것처럼 보입니다. 카탈로그 항목에 이 해결 안내가 들어 있고, `provider-api-request`는 401, 403, 404 응답의 `guidance` 필드에 그것을 덧붙입니다.
+
+데이터베이스 ID는 데이터베이스 URL에 있습니다. `?` 앞의 32자 문자열입니다.
+
+#### 5. 에이전트에게 만들어 달라고 하기
+
+어떤 설정 화면도 알려 주지 않는 부분이 이것입니다. 두 절반을 직접 연결하는 대신 원하는 동작을 요청하면 됩니다. 앱의 에이전트 채팅에서:
+
+> 공급자 API를 통해 Notion 데이터베이스 `<NOTION_DATABASE_ID>`에 행을 추가하는 `add-notion-row` 액션을 만들어 주세요. 메시지 본문, Slack 작성자, Slack 메시지로 돌아가는 링크를 받아야 합니다. 그런 다음 `AGENTS.md`를 업데이트해서, 누군가 Slack에서 @mention으로 기록하거나 저장해 달라고 하면 그 액션을 호출하고 새 Notion 페이지 URL로 답하도록 해 주세요.
+
+에이전트가 작성해야 하는 것은 **액션 하나**입니다. Nitro 라우트도, 브라우저에서 보내는 `fetch`도 아닙니다.
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+이 샘플에서 핵심적인 세 가지는 다음과 같습니다.
+
+- 최신 Notion에서는 행이 데이터베이스 안의 **데이터 소스**에 붙으므로, 먼저 데이터베이스를 읽고 그 `data_sources[0].id`를 부모로 사용하세요. 데이터베이스 ID를 곧바로 부모로 넘기는 것은 예전 API 형식입니다.
+- `executeRequest`는 공급자 오류를 던지지 않고 반환하므로 `response.ok`를 직접 확인하고 반환된 `guidance`를 함께 전달하세요. "데이터베이스를 공유하라"는 힌트가 거기에 담깁니다.
+- 속성 이름(`Name`, `Author`, `Source`)은 데이터베이스 열과 정확히 일치해야 하고 유형도 맞아야 합니다. 추측하게 두지 말고 에이전트가 먼저 데이터베이스의 `properties`를 읽게 하세요.
+
+`AGENTS.md` 부분은 선택 사항이 아닙니다. 이것이 없으면 에이전트는 도구를 갖고 있어도 Slack 메시지가 "이거 기록해"라고 할 때 사용할 이유가 없습니다.
+
+#### 6. 확인하기, 그리고 안 될 때 볼 곳
+
+에이전트가 있는 Slack 채널에 `@YourAgent 이거 Notion에 기록해 줘: <SOME_TEXT>`라고 올리세요. 성공한 실행은 스레드에 새 페이지 URL로 답하고, Notion에 행이 생깁니다.
+
+안 될 때는:
+
+| 보이는 증상                                               | 확인할 곳                                                                                                                    |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Slack이 전혀 답하지 않음                                  | 멘션이 앱에 도달하지 못했습니다. [Slack 설정](#slack)의 Request URL과 서명 시크릿을 다시 확인하세요. Notion 문제가 아닙니다. |
+| 에이전트가 답하지만 Notion 도구가 없다고 함               | 2단계. 공급자 API 액션이 `actions/`에 추가되지 않았습니다.                                                                   |
+| `notion credential not configured. Tried: NOTION_API_KEY` | 3단계. 키가 `.env`에 있거나 실행 주체와 다른 계정의 **Personal**로 저장되어 있습니다. **Workspace**로 저장하세요.            |
+| Notion이 `404`를 반환                                     | 4단계. 데이터베이스가 통합과 공유되지 않았습니다.                                                                            |
+| Notion이 속성 관련 `400`을 반환                           | 액션의 속성 이름이나 유형이 데이터베이스 열과 일치하지 않습니다.                                                             |
+| 한 번은 됐는데 이후 스레드 답글이 무시됨                  | 정상 동작입니다. 에이전트가 처리할 각 메시지에는 명시적인 멘션이 필요합니다. 다시 @mention하세요.                            |
 
 ## 텔레그램 설정 {#telegram}
 
