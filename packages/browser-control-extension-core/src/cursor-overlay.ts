@@ -58,12 +58,16 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
       "  position: fixed;",
       "  left: 0;",
       "  top: 0;",
-      "  width: 68px;",
+      "  width: 70px;",
       "  height: 44px;",
       "  z-index: 2147483647;",
       "  pointer-events: none;",
       "  contain: layout style;",
       "  opacity: 0;",
+      "  --agent-native-pointer-x: 0px;",
+      "  --agent-native-pointer-y: 0px;",
+      "  --agent-native-label-x: 16px;",
+      "  --agent-native-label-y: 20px;",
       "  transform: translate3d(var(--agent-native-x), var(--agent-native-y), 0);",
       "  transition: opacity 140ms ease-out;",
       "}",
@@ -71,8 +75,8 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
       ":host([data-state=fading]) { opacity: 0; transition-duration: 420ms; }",
       ".pointer-outline {",
       "  position: absolute;",
-      "  left: -1px;",
-      "  top: -1px;",
+      "  left: var(--agent-native-pointer-x);",
+      "  top: var(--agent-native-pointer-y);",
       "  width: 19px;",
       "  height: 23px;",
       "  background: white;",
@@ -82,8 +86,8 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
       "}",
       ".pointer {",
       "  position: absolute;",
-      "  left: 0;",
-      "  top: 0;",
+      "  left: var(--agent-native-pointer-x);",
+      "  top: var(--agent-native-pointer-y);",
       "  width: 17px;",
       "  height: 21px;",
       // guard:allow-raw-color — the isolated overlay has no app theme tokens.
@@ -97,8 +101,8 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
       "}",
       ".label {",
       "  position: absolute;",
-      "  left: 16px;",
-      "  top: 20px;",
+      "  left: var(--agent-native-label-x);",
+      "  top: var(--agent-native-label-y);",
       "  box-sizing: border-box;",
       "  min-height: 20px;",
       "  padding: 2px 6px;",
@@ -128,8 +132,44 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
   }
 
   clearTimers(host);
-  host.style.setProperty("--agent-native-x", x + "px");
-  host.style.setProperty("--agent-native-y", y + "px");
+  const overlayWidth = 70;
+  const overlayHeight = 44;
+  const pointerWidth = 17;
+  const pointerHeight = 21;
+  const pointerOutlineWidth = 19;
+  const pointerOutlineHeight = 23;
+  const labelWidth = 48;
+  const labelHeight = 20;
+  const labelGap = 2;
+  const labelOnLeft = x + pointerWidth + labelGap + labelWidth > window.innerWidth;
+  const labelAbove =
+    y + pointerHeight + labelGap + labelHeight > window.innerHeight;
+  const desiredOriginX = labelOnLeft ? x - 52 : x;
+  const desiredOriginY = labelAbove ? y - 22 : y;
+  const originX = Math.max(
+    0,
+    Math.min(desiredOriginX, window.innerWidth - overlayWidth),
+  );
+  const originY = Math.max(
+    0,
+    Math.min(desiredOriginY, window.innerHeight - overlayHeight),
+  );
+  const pointerX = Math.max(
+    0,
+    Math.min(x - originX, overlayWidth - pointerOutlineWidth),
+  );
+  const pointerY = Math.max(
+    0,
+    Math.min(y - originY, overlayHeight - pointerOutlineHeight),
+  );
+  const labelX = labelOnLeft ? Math.max(0, pointerX - labelWidth - labelGap) : 16;
+  const labelY = labelAbove ? Math.max(0, pointerY - labelHeight - labelGap) : 20;
+  host.style.setProperty("--agent-native-x", originX + "px");
+  host.style.setProperty("--agent-native-y", originY + "px");
+  host.style.setProperty("--agent-native-pointer-x", pointerX + "px");
+  host.style.setProperty("--agent-native-pointer-y", pointerY + "px");
+  host.style.setProperty("--agent-native-label-x", labelX + "px");
+  host.style.setProperty("--agent-native-label-y", labelY + "px");
   host.dataset.action = action.click ? "click" : "move";
   host.dataset.state = "visible";
   void host.offsetWidth;

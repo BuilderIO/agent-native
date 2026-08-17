@@ -25,6 +25,9 @@ describe("cursor overlay expression", () => {
     expect(expression).toContain("#7b61ff");
     expect(expression).toContain("pointer-outline");
     expect(expression).toContain("drop-shadow");
+    expect(expression).toContain("--agent-native-pointer-x");
+    expect(expression).toContain("labelOnLeft");
+    expect(expression).toContain("labelAbove");
     expect(expression).not.toContain("click-ring");
     expect(expression).not.toContain("royalblue");
     expect(expression).not.toContain("Runtime.evaluate");
