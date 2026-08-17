@@ -1,6 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { delimitUntrustedReference } from "@agent-native/creative-context/client";
 
-const MEMBERSHIP_LIMIT = 20;
+const MEMBERSHIP_PAGE_LIMIT = 100;
+// Bounded so a pathological context can't turn generation into an unbounded
+// membership crawl; large enough that any realistic context is covered.
+const MEMBERSHIP_FETCH_CAP = 500;
 const DESIGN_NATIVE_KINDS = new Set(["design-project", "design-frame"]);
 
 export interface CreativeContextPrecedentMatch {
@@ -35,6 +39,7 @@ interface MembershipsResponse {
       canonicalUrl?: unknown;
     } | null;
   }[];
+  nextCursor?: string;
 }
 
 function errorReason(error: unknown): string {
@@ -107,22 +112,28 @@ export async function loadCreativeContextPrecedent(
   const id = contextId?.trim();
   if (!id) return { status: "none" };
 
-  let response: MembershipsResponse;
+  const memberships: NonNullable<MembershipsResponse["memberships"]> = [];
+  let cursor: string | undefined;
   try {
-    response = (await callAction(
-      "list-context-memberships",
-      {
-        contextId: id,
-        status: "active",
-        limit: MEMBERSHIP_LIMIT,
-      },
-      { method: "GET" },
-    )) as MembershipsResponse;
+    do {
+      const response = (await callAction(
+        "list-context-memberships",
+        {
+          contextId: id,
+          status: "active",
+          limit: MEMBERSHIP_PAGE_LIMIT,
+          ...(cursor ? { cursor } : {}),
+        },
+        { method: "GET" },
+      )) as MembershipsResponse;
+      memberships.push(...(response.memberships ?? []));
+      cursor = response.nextCursor;
+    } while (cursor && memberships.length < MEMBERSHIP_FETCH_CAP);
   } catch (error) {
     return { status: "unavailable", contextId: id, reason: errorReason(error) };
   }
 
-  const matches = toMatches(response);
+  const matches = toMatches({ memberships });
   if (!matches.length) return { status: "empty", contextId: id };
   return { status: "strong", contextId: id, matches };
 }
@@ -135,7 +146,13 @@ function cloneDirectives(
   if (!clonable.length) return [];
   const refs = clonable
     .slice(0, 5)
-    .map((match) => match.title + " [design " + match.designResourceId + "]")
+    .map(
+      (match) =>
+        delimitUntrustedReference(match.title) +
+        " [design " +
+        match.designResourceId +
+        "]",
+    )
     .join("; ");
   return [
     "These members are governed snapshots of the user's own prior designs: " +
@@ -164,7 +181,7 @@ function nativeCodeDirectives(
     .slice(0, 5)
     .map(
       (match) =>
-        match.title +
+        delimitUntrustedReference(match.title) +
         " [itemId " +
         match.itemId +
         ", itemVersionId " +
@@ -186,7 +203,10 @@ export function designPrecedentDirectives(
   if (!matches.length) return [];
   const titles = matches
     .slice(0, 5)
-    .map((match) => match.title + " (" + match.kind + ")")
+    .map(
+      (match) =>
+        delimitUntrustedReference(match.title) + " (" + match.kind + ")",
+    )
     .join(", ");
   const reuse = cloneDirectives(contextId, matches);
   const evidence = reuse.length ? reuse : nativeCodeDirectives(matches);

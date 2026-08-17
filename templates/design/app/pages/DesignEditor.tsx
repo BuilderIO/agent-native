@@ -5052,9 +5052,10 @@ function DesignEditor() {
         .map((context) => ({ id: context.id, name: context.name })),
     [creativeContextsQuery.data],
   );
+  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
   const handleCreativeContextChange = useCallback(
     (contextId: string | null) => {
-      void creativeContextState
+      creativeContextPersistRef.current = creativeContextState
         .setState({
           ...creativeContextState.state,
           contextMode: "auto",
@@ -32838,9 +32839,12 @@ function DesignEditor() {
             promptRequestsVariantExploration(prompt);
           const precedent = shouldExploreVariants
             ? null
-            : await loadCreativeContextPrecedent(
-                (await readCreativeContextState()).selectedContextId,
-              );
+            : await (async () => {
+                await creativeContextPersistRef.current;
+                return loadCreativeContextPrecedent(
+                  (await readCreativeContextState()).selectedContextId,
+                );
+              })();
           const shouldSkipQuestions =
             shouldExploreVariants || precedent?.status === "strong";
           const context = [

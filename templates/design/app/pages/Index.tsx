@@ -209,9 +209,13 @@ export default function Index() {
         .map((context) => ({ id: context.id, name: context.name })),
     [creativeContextsQuery.data],
   );
+  // The editor rereads persisted creative-context state after navigation to
+  // pick the generation precedent. Track the in-flight save so a submit that
+  // follows a pick right away can wait for it instead of racing it.
+  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
   const handleCreativeContextChange = useCallback(
     (contextId: string | null) => {
-      void creativeContextState
+      creativeContextPersistRef.current = creativeContextState
         .setState({
           ...creativeContextState.state,
           contextMode: "auto",
@@ -487,6 +491,7 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
+      await creativeContextPersistRef.current;
       const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
