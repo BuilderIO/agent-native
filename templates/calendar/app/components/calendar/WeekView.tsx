@@ -1,5 +1,11 @@
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
+import {
+  IconAlertTriangleFilled,
+  IconBuilding,
+  IconHome,
+  IconMapPin,
+} from "@tabler/icons-react";
 import {
   startOfWeek,
   endOfWeek,
@@ -31,15 +37,36 @@ import {
   useViewPreferences,
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
+import {
+  groupAdjacentAllDayPlacements,
+  layoutAllDayEvents,
+  partitionAllDayEvents,
+} from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
+import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
+import {
+  getFirstVisibleOutOfOfficeDayIndex,
+  getOutOfOfficeSegment,
+  isFullDayOutOfOfficeEvent,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
 import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
 } from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
+import {
+  createWorkingLocationDisplayLabels,
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+} from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
+import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {
@@ -80,6 +107,7 @@ interface WeekViewProps {
   ) => void;
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
+  weekStartsOn?: 0 | 1;
 }
 
 // [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
@@ -145,95 +173,6 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}\u2013${endStr}`;
 }
 
-interface LayoutInfo {
-  left: number; // percentage 0-100
-  width: number; // percentage 0-100
-  col: number;
-  totalCols: number;
-}
-
-/**
- * Stacking layout — like the user's drawing and Google Cal.
- *
- * Every event is nearly full width. Overlapping events get a small left
- * indent per nesting depth and stack on top with opaque backgrounds.
- * Text at the top stays readable; the card beneath is covered.
- */
-function computeLayout(
-  dayEvents: CalendarEvent[],
-  day: Date,
-): Map<string, LayoutInfo> {
-  const result = new Map<string, LayoutInfo>();
-  if (dayEvents.length === 0) return result;
-
-  const dayStartMs = startOfDay(day).getTime();
-  const dayEndMs = addDays(startOfDay(day), 1).getTime();
-
-  // Cap each event's times to this day's boundaries once, reuse in sort + overlap
-  const times = new Map(
-    dayEvents.map((ev) => [
-      ev.id,
-      {
-        start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
-        end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
-      },
-    ]),
-  );
-
-  const sorted = [...dayEvents].sort((a, b) => {
-    const ta = times.get(a.id)!;
-    const tb = times.get(b.id)!;
-    if (ta.start !== tb.start) return ta.start - tb.start;
-    return tb.end - ta.end; // later end first when starts are equal
-  });
-
-  const INDENT_PX = 16;
-
-  for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      const ta = times.get(other.id)!;
-      const tb = times.get(ev.id)!;
-      if (ta.start < tb.end && tb.start < ta.end) depth++;
-    }
-
-    result.set(ev.id, {
-      left: depth * INDENT_PX,
-      width: 0,
-      col: depth,
-      totalCols: depth + 1,
-    });
-  }
-
-  return result;
-}
-
-/** Determine which day columns an all-day event spans within a given week */
-function getAllDaySpan(
-  event: CalendarEvent,
-  days: Date[],
-): { startCol: number; endCol: number } | null {
-  const evStart = parseISO(event.start);
-  const evEnd = event.end ? parseISO(event.end) : addDays(evStart, 1);
-
-  let startCol = -1;
-  let endCol = -1;
-
-  for (let i = 0; i < days.length; i++) {
-    const dayStart = startOfDay(days[i]);
-    const dayEnd = addDays(dayStart, 1);
-    // Event overlaps this day if it starts before day ends and ends after day starts
-    if (evStart < dayEnd && evEnd > dayStart) {
-      if (startCol === -1) startCol = i;
-      endCol = i;
-    }
-  }
-
-  if (startCol === -1) return null;
-  return { startCol, endCol };
-}
-
 function getSegmentStyle(event: CalendarEvent, day: Date) {
   const evStart = parseISO(event.start);
   const evEnd = parseISO(event.end);
@@ -253,7 +192,7 @@ interface WeekEventCardProps {
   event: CalendarEvent;
   day: Date;
   dayIndex: number;
-  layout: Map<string, LayoutInfo>;
+  layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
   focusedEventId: string | null;
@@ -294,6 +233,7 @@ interface WeekEventCardProps {
   onDraftUpdate?: WeekViewProps["onDraftUpdate"];
   onDraftCreate?: WeekViewProps["onDraftCreate"];
   onDraftDiscard?: WeekViewProps["onDraftDiscard"];
+  onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
 }
 
 /**
@@ -329,12 +269,16 @@ const WeekEventCard = memo(function WeekEventCard({
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
+  onPopoverOpenChange,
 }: WeekEventCardProps) {
+  const t = useT();
   const li = layout.get(event.id) ?? {
     left: 0,
-    width: 0,
+    width: 100,
+    indent: 0,
     col: 0,
     totalCols: 1,
+    stackOrder: 0,
   };
   const overrides =
     overrideTop !== null && overrideHeight !== null && overrideDayIndex !== null
@@ -430,14 +374,14 @@ const WeekEventCard = memo(function WeekEventCard({
       }
       style={{
         ...style,
-        left: `${li.left}px`,
-        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
             : focusedEventId === event.id
               ? 50
-              : li.col + 1,
+              : li.stackOrder + 1,
         backgroundColor: color
           ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
           : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -566,6 +510,7 @@ const WeekEventCard = memo(function WeekEventCard({
       onDraftUpdate={onDraftUpdate}
       onDraftCreate={onDraftCreate}
       onDraftDiscard={onDraftDiscard}
+      onOpenChange={(open) => onPopoverOpenChange(event, open)}
     >
       {eventButton}
     </EventDetailPopover>
@@ -615,12 +560,19 @@ export const WeekView = memo(function WeekView({
   onDraftCreate,
   onDraftDiscard,
   isLoading = false,
+  weekStartsOn = 0,
 }: WeekViewProps) {
+  const t = useT();
+  const workingLocationLabels = useMemo(
+    () => createWorkingLocationDisplayLabels(t),
+    [t],
+  );
   const { setFocusedEvent } = useCalendarSetters();
   const isMobile = useIsMobile();
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
+  const focusedEventIdRef = useRef<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const allDayContainerRef = useRef<HTMLDivElement>(null);
@@ -631,6 +583,7 @@ export const WeekView = memo(function WeekView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        focusedEventIdRef.current = null;
         setFocusedEventId(null);
         setFocusedEvent(null);
       }
@@ -655,8 +608,14 @@ export const WeekView = memo(function WeekView({
   }, []);
 
   const { prefs } = useViewPreferences();
-  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const weekEnd = useMemo(() => endOfWeek(selectedDate), [selectedDate]);
+  const weekStart = useMemo(
+    () => startOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
+  const weekEnd = useMemo(
+    () => endOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
   // Stable day/hour arrays — recomputed only when the week or weekend
   // visibility actually changes, so memoized children (event buttons) don't
   // see a new array identity on every drag/focus re-render.
@@ -676,22 +635,57 @@ export const WeekView = memo(function WeekView({
   );
 
   // Separate all-day and timed events
-  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => event.allDay || isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
 
-  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
+  const outOfOfficeEvents = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          !event.allDay &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
 
-  // Pre-compute all-day event spans
-  const allDaySpans = useMemo(() => {
-    const spans: { event: CalendarEvent; startCol: number; endCol: number }[] =
-      [];
-    for (const ev of allDayEvents) {
-      const span = getAllDaySpan(ev, days);
-      if (span) {
-        spans.push({ event: ev, ...span });
-      }
-    }
-    return spans;
-  }, [allDayEvents, days]);
+  const timedEvents = useMemo(
+    () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
+    [events],
+  );
+
+  const { workingLocations, regularEvents } = useMemo(
+    () => partitionAllDayEvents(allDayEvents),
+    [allDayEvents],
+  );
+  const workingLocationLayout = useMemo(
+    () => layoutAllDayEvents(workingLocations, days),
+    [days, workingLocations],
+  );
+  const workingLocationGroups = useMemo(
+    () =>
+      groupAdjacentAllDayPlacements(
+        workingLocationLayout.placements,
+        ({ event }) =>
+          [
+            event.accountEmail,
+            event.overlayEmail,
+            event.ownerColor,
+            getEventDisplayColor(event, prefs),
+            getWorkingLocationChipLabel(event, workingLocationLabels),
+            JSON.stringify(event.workingLocationProperties ?? {}),
+          ].join(":"),
+      ),
+    [prefs, workingLocationLabels, workingLocationLayout.placements],
+  );
+  const regularAllDayLayout = useMemo(() => {
+    return layoutAllDayEvents(regularEvents, days);
+  }, [days, regularEvents]);
 
   // Pre-compute timed events per day with layout — include events spanning into this day
   const dayData = useMemo(() => {
@@ -703,7 +697,7 @@ export const WeekView = memo(function WeekView({
         const evEnd = parseISO(e.end);
         return evStart < dayEnd && evEnd > dayStart;
       });
-      const layout = computeLayout(dayEvents, day);
+      const layout = computeTimedEventLayout(dayEvents, day);
       return { day, events: dayEvents, layout };
     });
   }, [days, timedEvents]);
@@ -714,68 +708,23 @@ export const WeekView = memo(function WeekView({
   const showNowIndicator =
     nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
 
-  const hasAnyAllDay = allDaySpans.length > 0;
-
-  // Compute the number of "rows" needed for all-day events (to handle stacking)
-  const allDayRows = useMemo(() => {
-    if (allDaySpans.length === 0) return 0;
-    // Simple row-packing algorithm
-    const rows: { startCol: number; endCol: number }[][] = [];
-    for (const span of allDaySpans) {
-      let placed = false;
-      for (const row of rows) {
-        // i18n-ignore scanner false positive for layout property access
-        const hasConflict = row.some(
-          (existing) =>
-            /* i18n-ignore scanner false positive */ span.startCol <=
-              existing.endCol && span.endCol >= existing.startCol,
-        );
-        if (!hasConflict) {
-          row.push(span);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        rows.push([span]);
-      }
-    }
-    return rows.length;
-  }, [allDaySpans]);
-
-  // Assign row index to each all-day span
-  const allDayRowAssignments = useMemo(() => {
-    const assignments = new Map<string, number>();
-    if (allDaySpans.length === 0) return assignments;
-    const rows: { startCol: number; endCol: number; id: string }[][] = [];
-    for (const span of allDaySpans) {
-      let placed = false;
-      for (let r = 0; r < rows.length; r++) {
-        // i18n-ignore scanner false positive for layout property access
-        const hasConflict = rows[r].some(
-          (existing) =>
-            /* i18n-ignore scanner false positive */ span.startCol <=
-              existing.endCol && span.endCol >= existing.startCol,
-        );
-        if (!hasConflict) {
-          rows[r].push({ ...span, id: span.event.id });
-          assignments.set(span.event.id, r);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        rows.push([{ ...span, id: span.event.id }]);
-        assignments.set(span.event.id, rows.length - 1);
-      }
-    }
-    return assignments;
-  }, [allDaySpans]);
-
+  const hasWorkingLocations = workingLocationLayout.rowCount > 0;
+  const hasRegularAllDayEvents = regularAllDayLayout.rowCount > 0;
+  const hasAnyAllDay = hasWorkingLocations || hasRegularAllDayEvents;
+  const workingLocationRowHeight = 16;
   const allDayRowHeight = 20;
-  const allDaySectionHeight = hasAnyAllDay
-    ? allDayRows * allDayRowHeight + 6
+  const workingLocationLaneHeight = hasWorkingLocations
+    ? workingLocationLayout.rowCount * workingLocationRowHeight + 2
     : 0;
+  const laneSeparatorHeight =
+    hasWorkingLocations && hasRegularAllDayEvents ? 1 : 0;
+  const regularAllDayLaneOffset =
+    workingLocationLaneHeight + laneSeparatorHeight;
+  const regularAllDayLaneHeight = hasRegularAllDayEvents
+    ? regularAllDayLayout.rowCount * allDayRowHeight + 6
+    : 0;
+  const allDaySectionHeight =
+    workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
   const allDayHeaderSpacerWidth = Math.max(
     0,
     timeGridScrollbarWidth - allDayScrollbarWidth,
@@ -882,6 +831,22 @@ export const WeekView = memo(function WeekView({
 
   const canDrag = !!onEventTimeChange;
 
+  const handleEventPopoverOpenChange = useCallback(
+    (event: CalendarEvent, open: boolean) => {
+      if (open) {
+        focusedEventIdRef.current = event.id;
+        setFocusedEventId(event.id);
+        setFocusedEvent(event);
+        return;
+      }
+      if (focusedEventIdRef.current !== event.id) return;
+      focusedEventIdRef.current = null;
+      setFocusedEventId(null);
+      setFocusedEvent(null);
+    },
+    [setFocusedEvent],
+  );
+
   const handleEventPointerDown = useCallback(
     (
       e: React.PointerEvent,
@@ -889,6 +854,7 @@ export const WeekView = memo(function WeekView({
       isStart: boolean,
       dayIndex: number,
     ) => {
+      focusedEventIdRef.current = event.id;
       setFocusedEventId(event.id);
       setFocusedEvent(event);
       if (
@@ -1010,10 +976,17 @@ export const WeekView = memo(function WeekView({
           >
             {/* Gutter label */}
             <div
-              className="flex shrink-0 items-start justify-end border-r border-border pr-2 pt-1"
+              className="relative shrink-0 border-r border-border"
               style={{ width: `${GUTTER_WIDTH}px` }}
             >
-              <span className="text-[10px] text-muted-foreground">all day</span>
+              {hasRegularAllDayEvents && (
+                <span
+                  className="absolute right-2 text-[10px] text-muted-foreground"
+                  style={{ top: `${regularAllDayLaneOffset + 4}px` }}
+                >
+                  {t("eventForm.allDay")}
+                </span>
+              )}
             </div>
 
             {/* All-day columns container (relative, for absolute-positioned spans) */}
@@ -1029,70 +1002,207 @@ export const WeekView = memo(function WeekView({
                 />
               ))}
 
-              {/* Spanning all-day event bars */}
-              {allDaySpans.map(({ event, startCol, endCol }) => {
-                const color = getEventDisplayColor(event, prefs);
-                const rowIdx = allDayRowAssignments.get(event.id) ?? 0;
-                const colCount = days.length;
-                const leftPct = (startCol / colCount) * 100;
-                const widthPct = ((endCol - startCol + 1) / colCount) * 100;
+              {laneSeparatorHeight > 0 && (
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-x-0 border-t border-border/60"
+                  style={{ top: `${workingLocationLaneHeight}px` }}
+                />
+              )}
 
-                return (
-                  <EventDetailPopover
-                    key={event.id}
-                    event={event}
-                    onDelete={onDeleteEvent}
-                    isDraft={draftEventIds.includes(event.id)}
-                    defaultOpen={quickEditEventId === event.id}
-                    onTitleSave={onQuickEditSave}
-                    onDismissNew={onQuickEditCancel}
-                    onDraftUpdate={onDraftUpdate}
-                    onDraftCreate={onDraftCreate}
-                    onDraftDiscard={onDraftDiscard}
-                  >
-                    <button
-                      className={cn(
-                        "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
-                        event.ownerColor && "pr-3.5",
-                      )}
-                      aria-label={
-                        event.ownerName || event.overlayEmail
-                          ? `${event.title}, ${
-                              event.ownerName || event.overlayEmail
-                            }'s calendar`
-                          : event.title
-                      }
-                      style={{
-                        top: `${rowIdx * allDayRowHeight + 4}px`,
-                        left: `${leftPct}%`,
-                        width: `calc(${widthPct}% - 4px)`,
-                        height: `${allDayRowHeight - 4}px`,
-                        backgroundColor: color
-                          ? `${color}30`
-                          : "hsl(var(--primary) / 0.15)",
-                        borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                        marginLeft: "2px",
-                      }}
-                    >
-                      {allOtherDeclined(event) && (
-                        <IconAlertTriangleFilled
-                          size={10}
-                          className="shrink-0 text-current opacity-70"
-                        />
-                      )}
-                      <EventStatusIcon event={event} className="shrink-0" />
-                      <span className="truncate">{event.title}</span>
-                      {event.ownerColor && (
-                        <span
-                          aria-hidden="true"
-                          className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                          style={{ backgroundColor: event.ownerColor }}
-                        />
-                      )}
-                    </button>
-                  </EventDetailPopover>
-                );
-              })}
+              <div data-working-location-lane className="contents">
+                {workingLocationGroups.map((group) => {
+                  const firstPlacement = group[0];
+                  const lastPlacement = group[group.length - 1];
+                  const groupKey = group.map(({ event }) => event.id).join(":");
+                  const colCount = days.length;
+                  const groupLeftPct =
+                    (firstPlacement.startCol / colCount) * 100;
+                  const groupWidthPct =
+                    ((lastPlacement.endCol - firstPlacement.startCol + 1) /
+                      colCount) *
+                    100;
+                  const groupColor = getEventDisplayColor(
+                    firstPlacement.event,
+                    prefs,
+                  );
+
+                  return (
+                    <div key={groupKey} className="contents">
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute rounded-full opacity-35"
+                        style={{
+                          top: `${firstPlacement.row * workingLocationRowHeight + 7}px`,
+                          left: `calc(${groupLeftPct}% + 4px)`,
+                          width: `calc(${groupWidthPct}% - 8px)`,
+                          height: "3px",
+                          backgroundColor: groupColor,
+                        }}
+                      />
+                      {group.map(({ event, startCol, endCol, row }, index) => {
+                        const colCount = days.length;
+                        const leftPct = (startCol / colCount) * 100;
+                        const widthPct =
+                          ((endCol - startCol + 1) / colCount) * 100;
+                        const title = getWorkingLocationChipLabel(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const ariaTitle = getWorkingLocationTitle(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const WorkingLocationIcon =
+                          event.workingLocationProperties?.type === "homeOffice"
+                            ? IconHome
+                            : event.workingLocationProperties?.type ===
+                                "officeLocation"
+                              ? IconBuilding
+                              : IconMapPin;
+
+                        return (
+                          <EventDetailPopover
+                            key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                            event={event}
+                            onDelete={onDeleteEvent}
+                            isDraft={draftEventIds.includes(event.id)}
+                            defaultOpen={quickEditEventId === event.id}
+                            onTitleSave={onQuickEditSave}
+                            onDismissNew={onQuickEditCancel}
+                            onDraftUpdate={onDraftUpdate}
+                            onDraftCreate={onDraftCreate}
+                            onDraftDiscard={onDraftDiscard}
+                          >
+                            <button
+                              className={cn(
+                                "group/working-location-day absolute z-10 flex items-center px-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1",
+                              )}
+                              aria-label={
+                                event.ownerName || event.overlayEmail
+                                  ? `${ariaTitle}, ${
+                                      event.ownerName || event.overlayEmail
+                                    }'s calendar`
+                                  : ariaTitle
+                              }
+                              style={{
+                                top: `${row * workingLocationRowHeight + 1}px`,
+                                left: `${leftPct}%`,
+                                width: `${widthPct}%`,
+                                height: `${workingLocationRowHeight - 2}px`,
+                              }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-x-0.5 inset-y-0 rounded-sm opacity-0 transition-opacity group-hover/working-location-day:opacity-100"
+                                style={{
+                                  backgroundColor: `color-mix(in srgb, ${groupColor} 14%, transparent)`,
+                                  boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${groupColor} 22%, transparent)`,
+                                }}
+                              />
+                              {index === 0 && (
+                                <span
+                                  className="relative inline-flex h-3.5 max-w-full items-center gap-0.5 rounded-sm px-1 text-[10px] font-medium leading-none text-foreground"
+                                  style={{
+                                    backgroundColor: `color-mix(in srgb, ${groupColor} 18%, hsl(var(--background)))`,
+                                    boxShadow: `0 0 0 1px color-mix(in srgb, ${groupColor} 28%, transparent)`,
+                                  }}
+                                >
+                                  <WorkingLocationIcon
+                                    aria-hidden="true"
+                                    className="size-2.5 shrink-0"
+                                    style={{ color: groupColor }}
+                                  />
+                                  <span className="truncate">{title}</span>
+                                </span>
+                              )}
+                            </button>
+                          </EventDetailPopover>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div data-all-day-event-lane className="contents">
+                {regularAllDayLayout.placements.map(
+                  ({ event, startCol, endCol, row }) => {
+                    const color = getEventDisplayColor(event, prefs);
+                    const colCount = days.length;
+                    const leftPct = (startCol / colCount) * 100;
+                    const widthPct = ((endCol - startCol + 1) / colCount) * 100;
+                    const title = getWorkingLocationChipLabel(
+                      event,
+                      workingLocationLabels,
+                    );
+                    const ariaTitle = getWorkingLocationTitle(
+                      event,
+                      workingLocationLabels,
+                    );
+
+                    return (
+                      <EventDetailPopover
+                        key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                        event={event}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={quickEditEventId === event.id}
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                      >
+                        <button
+                          className={cn(
+                            "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
+                            event.ownerColor && "pr-3.5",
+                          )}
+                          aria-label={
+                            event.ownerName || event.overlayEmail
+                              ? `${ariaTitle}, ${
+                                  event.ownerName || event.overlayEmail
+                                }'s calendar`
+                              : ariaTitle
+                          }
+                          style={{
+                            top: `${
+                              regularAllDayLaneOffset +
+                              row * allDayRowHeight +
+                              4
+                            }px`,
+                            left: `${leftPct}%`,
+                            width: `calc(${widthPct}% - 4px)`,
+                            height: `${allDayRowHeight - 4}px`,
+                            backgroundColor: color
+                              ? `${color}30`
+                              : "hsl(var(--primary) / 0.15)",
+                            borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                            marginLeft: "2px",
+                          }}
+                        >
+                          {allOtherDeclined(event) && (
+                            <IconAlertTriangleFilled
+                              size={10}
+                              className="shrink-0 text-current opacity-70"
+                            />
+                          )}
+                          <EventStatusIcon event={event} className="shrink-0" />
+                          <span className="truncate">{title}</span>
+                          {event.ownerColor && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                              style={{ backgroundColor: event.ownerColor }}
+                            />
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  },
+                )}
+              </div>
             </div>
             {allDayHeaderSpacerWidth > 0 && (
               <div
@@ -1150,6 +1260,16 @@ export const WeekView = memo(function WeekView({
                 if (draggedEvent) draggedInEvents.push(draggedEvent);
               }
             }
+
+            const visibleOutOfOfficeEvents = outOfOfficeEvents.filter(
+              (event) => {
+                const overrides = getDragOverrides(event.id);
+                return (
+                  getOutOfOfficeSegment(event, day) !== null ||
+                  (dragEventId === event.id && overrides?.dayIndex === dayIndex)
+                );
+              },
+            );
 
             return (
               <div
@@ -1227,9 +1347,76 @@ export const WeekView = memo(function WeekView({
                   </div>
                 )}
 
+                {/* Native Google out-of-office context sits behind meetings. */}
+                {!isLoading &&
+                  visibleOutOfOfficeEvents.map((event, markerIndex) => {
+                    const isBeingDragged = dragEventId === event.id;
+                    const overrides = getDragOverrides(event.id);
+                    const canonicalDayIndex =
+                      getFirstVisibleOutOfOfficeDayIndex(event, days);
+                    return (
+                      <OutOfOfficeEvent
+                        key={`${event._tempId ?? event.id}:${day.toISOString()}`}
+                        event={event}
+                        day={day}
+                        hourHeight={HOUR_HEIGHT}
+                        color={
+                          getEventDisplayColor(event, prefs) ??
+                          "hsl(var(--primary))"
+                        }
+                        label={t("eventForm.outOfOffice")}
+                        markerIndex={markerIndex}
+                        compactMarker
+                        canDrag={canDrag}
+                        isBeingDragged={isBeingDragged}
+                        isDragging={isDragging}
+                        isDragTargetDay={overrides?.dayIndex === dayIndex}
+                        overrideTop={overrides?.top ?? null}
+                        overrideHeight={overrides?.height ?? null}
+                        onMovePointerDown={(pointerEvent, startsOnDay) =>
+                          handleEventPointerDown(
+                            pointerEvent,
+                            event,
+                            startsOnDay,
+                            dayIndex,
+                          )
+                        }
+                        onResizeTopPointerDown={(pointerEvent) =>
+                          handleResizeTopPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        onResizeBottomPointerDown={(pointerEvent) =>
+                          handleResizeBottomPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        shouldSuppressClick={shouldSuppressClick}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={
+                          quickEditEventId === event.id &&
+                          dayIndex === canonicalDayIndex
+                        }
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                        onOpenChange={(open) =>
+                          handleEventPopoverOpenChange(event, open)
+                        }
+                      />
+                    );
+                  })}
+
                 {/* Skeleton events when loading */}
                 {isLoading &&
-                  WEEK_SKELETONS[dayIndex]?.map(
+                  WEEK_SKELETONS[day.getDay()]?.map(
                     ([startHour, startMin, duration, widthPct], i) => {
                       const topPx =
                         ((startHour - START_HOUR) * 60 + startMin) *
@@ -1291,6 +1478,7 @@ export const WeekView = memo(function WeekView({
                         onDraftUpdate={onDraftUpdate}
                         onDraftCreate={onDraftCreate}
                         onDraftDiscard={onDraftDiscard}
+                        onPopoverOpenChange={handleEventPopoverOpenChange}
                       />
                     );
                   })}

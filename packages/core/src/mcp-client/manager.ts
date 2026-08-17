@@ -228,8 +228,7 @@ export class McpClientManager {
       // If we previously loaded without stdio and now need it, top up.
       if (needStdio && !this.sdk.StdioClientTransport && isNode()) {
         try {
-          const stdioMod =
-            await import("@modelcontextprotocol/sdk/client/stdio.js");
+          const stdioMod = await import("@modelcontextprotocol/client/stdio");
           this.sdk.StdioClientTransport = stdioMod.StdioClientTransport;
         } catch (err: any) {
           console.warn(
@@ -240,15 +239,11 @@ export class McpClientManager {
       return this.sdk;
     }
     try {
-      const clientMod =
-        await import("@modelcontextprotocol/sdk/client/index.js");
-      const httpMod =
-        await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+      const clientMod = await import("@modelcontextprotocol/client");
       let StdioClientTransport: any = null;
       if (needStdio && isNode()) {
         try {
-          const stdioMod =
-            await import("@modelcontextprotocol/sdk/client/stdio.js");
+          const stdioMod = await import("@modelcontextprotocol/client/stdio");
           StdioClientTransport = stdioMod.StdioClientTransport;
         } catch (err: any) {
           console.warn(
@@ -259,7 +254,7 @@ export class McpClientManager {
       this.sdk = {
         Client: clientMod.Client,
         StdioClientTransport,
-        StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
+        StreamableHTTPClientTransport: clientMod.StreamableHTTPClientTransport,
       };
       return this.sdk;
     } catch (err: any) {
@@ -450,6 +445,7 @@ export class McpClientManager {
             },
           },
         },
+        versionNegotiation: { mode: "auto" },
       } as any,
     );
     const recordConnectionError: ErrorSink = () => {};
@@ -459,7 +455,7 @@ export class McpClientManager {
     // Attach a transport-level error handler before connect() so the SDK's
     // internal fire-and-forget paths (initial SSE stream open, scheduled
     // reconnects, message-handler-triggered reconnects — see processStream()
-    // in @modelcontextprotocol/sdk/client/streamableHttp.js) cannot leak as
+    // in @modelcontextprotocol/client) cannot leak as
     // unhandled promise rejections. On AWS Lambda the long-lived socket
     // gets reaped ~60s after the function returns; without this handler the
     // resulting `socket hang up` surfaces as an unhandledRejection and
@@ -954,9 +950,11 @@ function firstPartyMcpAudienceForUrl(rawUrl: string): string | undefined {
   try {
     const url = new URL(rawUrl);
     const pathname = url.pathname.replace(/\/+$/, "");
-    url.pathname = pathname.endsWith("/_agent-native/mcp")
-      ? pathname
-      : `${pathname}/_agent-native/mcp`;
+    if (pathname.endsWith("/_agent-native/mcp")) {
+      url.pathname = `${pathname.slice(0, -"/_agent-native/mcp".length)}/mcp`;
+    } else {
+      url.pathname = pathname.endsWith("/mcp") ? pathname : `${pathname}/mcp`;
+    }
     url.search = "";
     url.hash = "";
     return url.toString().replace(/\/+$/, "");

@@ -9,18 +9,25 @@ import { type Comment, CommentsPanel } from "./comments-panel";
 
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
+  updateComment: vi.fn(),
   otherMutation: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
   useActionMutation: (name: string) => ({
     mutate:
       name === "add-comment"
         ? actionMocks.addComment
-        : actionMocks.otherMutation,
+        : name === "update-comment"
+          ? actionMocks.updateComment
+          : actionMocks.otherMutation,
   }),
+  useAvatarUrl: () => null,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
@@ -50,28 +57,40 @@ function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   );
 }
 
+async function openMenu(trigger: HTMLButtonElement | null) {
+  expect(trigger).not.toBeNull();
+  trigger?.focus();
+  await act(async () => {
+    trigger?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await Promise.resolve();
+  });
+}
+
 describe("CommentsPanel reply composer", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let queryClient: QueryClient;
 
-  beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
+  function renderPanel(
+    currentUserEmail = "viewer@example.com",
+    comments: Comment[] = [rootComment],
+  ) {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <CommentsPanel
             recordingId="recording-1"
-            comments={[rootComment]}
+            comments={comments}
             currentMs={34_000}
-            currentUserEmail="viewer@example.com"
+            currentUserEmail={currentUserEmail}
             enableComments
+            canComment
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation="share"
@@ -79,6 +98,17 @@ describe("CommentsPanel reply composer", () => {
         </QueryClientProvider>,
       );
     });
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderPanel();
   });
 
   afterEach(() => {
@@ -101,6 +131,20 @@ describe("CommentsPanel reply composer", () => {
     expect(absoluteUrl?.rel).toBe("noopener noreferrer");
     expect(wwwUrl?.textContent).toBe("www.example.org/help");
     expect(container.textContent).toContain("www.example.org/help.");
+  });
+
+  it("renders inline Markdown while flattening headings", () => {
+    renderPanel("viewer@example.com", [
+      {
+        ...rootComment,
+        content: "# Not a heading\n\n**Bold** and `inline code`.",
+      },
+    ]);
+
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("code")?.textContent).toBe("inline code");
+    expect(container.textContent).toContain("Not a heading");
   });
 
   it("opens and focuses a reply field inline without replacing the new-comment draft", async () => {

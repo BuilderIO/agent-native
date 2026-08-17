@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconHistory, IconLoader2, IconRotate } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";

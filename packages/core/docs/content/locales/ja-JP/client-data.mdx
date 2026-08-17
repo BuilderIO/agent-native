@@ -1,0 +1,435 @@
+---
+title: "データと同期"
+description: "app/ がエージェントが呼び出すのと同じアクションを読み書きし、ライブ同期を保つためのアクション フック。"
+---
+
+# データと同期
+
+クライアント アプリケーションからアプリ データを読み書きする主な方法は、[アクション](/docs/actions-overview) フックを通すことです。リクエストをアクションに埋め込むことで、クライアントとエージェントの両方が同じ方法でアプリケーションを操作できます。
+
+以下の例では、チケットがドロップダウンから手動で、続いてチャット エージェント経由で現在のユーザーに割り当てられます。UI とエージェントはどちらも同じアクションにアクセスします。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="UI アクションとエージェント アクションが同じ結果になる例。"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="UI アクションとエージェント アクションが同じ結果になる例。"
+/>
+
+## データのフェッチと変更 {#fetching-mutating}
+
+典型的なアプリは独自の API 層を構築し、手書きの `fetch` リクエストでそれを呼び出します。agent-native アプリはそのレイヤーをスキップします。`app/` は、以下のフックを通じて、エージェントが既にツールとして持っている同じアクションを呼び出します。
+
+<Diagram id="doc-block-client-data-fm-1" title="典型的な fetch とアクション フックの比較" summary="典型的なコンポーネントは、それだけがアクセスできるルートを呼び出します。agent-native なコンポーネントは、エージェントも呼び出せるアクションを呼び出します。">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">典型的</div>
+    <div class="diagram-node">Component</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>自分の API ルート</strong>
+      <small class="diagram-muted">フロントエンドだけが呼び出せる</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>データベース</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">vs</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">Component</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">get-lead アクション</span>
+      <small class="diagram-muted">エージェント ツールでもある</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL データベース</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### アクション フック {#action-hooks}
+
+最もよく使うことになるアクション フックは 2 つあります。`useActionQuery()` と `useActionMutation()` です。これら 2 つのフックは、アプリのアクションへのアクセスを提供します。
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "アクションの登録名。",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "アクションの入力。`defineAction()` のスキーマから型付けされます。",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "[useQuery オプション](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) のすべて (`queryKey` と `queryFn` を除く。これらはフック自体が設定します)。",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      '`["action", name, params]` の下にキャッシュされます。手動の無効化なしで、変更アクションが完了するたびに自動的に再フェッチされます。',
+  }}
+/>
+
+このフックは、読み取り専用のアクションで使用することを意図しています。[useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 関数の薄いラッパーです。
+
+以下の例では、`list-tickets` アクションが呼び出されます。これは、すべてのチケットに対して GET リクエストを行うのと似ています。
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+以下の例は、`get-ticket` アクションを通じて単一のチケットをフェッチするリクエストを示しています。クエリを特定のチケットのみに絞るために `ticketId` が渡されます。追加の `enabled` オプションは、クエリが自動的には実行されず、`ticketId` が存在する場合にのみ実行されるようにするために渡されます。
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "アクションの登録名。",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "[useMutation オプション](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) のすべて (`mutationFn` を除く。これはフック自体が設定します)。",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "デフォルトのリクエスト メソッドを上書きします。",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "成功時の自動キャッシュ更新をオプトアウトします。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      '成功すると `source: "action"` で変更イベントを発行するため、変更されたデータを読み取っているすべての `useActionQuery()` が自動的に再フェッチされます。手動の無効化は不要です。',
+  }}
+/>
+
+このフックは、作成、更新、送信など、データを変更するアクションで使用することを意図しています。[useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 関数の薄いラッパーです。
+
+`useActionQuery()` とは異なり、アクションの入力はフック自体には渡されません。ミューテーションを実行する準備ができたときに `mutate()` または `mutateAsync()` に渡します。
+
+以下の例では、`send-ticket-reply` アクションが呼び出されて、チケットに返信が投稿されます。ボタンの `onClick` などのイベント ハンドラーから `mutate()` を呼び出します。
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+以下の例は、同じミューテーションを `onSuccess` オプション付きで示しています。キャッシュの無効化はすべてのミューテーションの後に自動的に発生するため、`onSuccess` は返信が送信された後に返信コンポーザーをクリアするなど、ローカルな副作用にのみ必要です。
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "アクションの登録名。",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "アクションの入力。`defineAction()` のスキーマから型付けされます。",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "以下はすべてオプションです。",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "デフォルトのリクエスト メソッドを上書きします。",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "リクエストをキャンセルします。",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "デフォルトの 60 秒のタイムアウトを、正当に時間がかかるアクションのために上書きします。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "上記のフックとは異なり、キャッシュも自動再フェッチもありません。結果に依存する他の UI がある場合は、手動の無効化と組み合わせてください。",
+  }}
+/>
+
+この関数は、プレーンなイベント ハンドラー、スクリプト、その他の非 React コード パスなど、React のレンダー フローの外側での命令的な単発アクション呼び出しのためのものです。フックの結果ではなく、直接プロミスを返します。
+
+以下の例では、`update-ticket` アクションがキーボード ショートカット ハンドラーから React のレンダー フローの外で呼び出され、チケットを担当者に割り当てます。
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+以下の例は、`timeoutMs` オプション付きの同じ呼び出しを示しています。デフォルトの 60 秒のタイムアウトより正当に長くかかるアクションに便利です。
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+すべての `useActionQuery()`、`useActionMutation()`、`callAction()` のリクエストは 60 秒のタイムアウトで制限されており、タイムアウトは黙って再試行されるのではなくエラーとして表面化します。`useActionQuery()` は、React Query の abort シグナルを使用して、上書きされたリクエストも自動的にキャンセルします。
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "すべてのフィールドはオプションです。",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description:
+            "キャッシュの無効化に使用する React Query クライアント。",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "ポーリング エンドポイントの URL。",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description:
+            "SSE エンドポイントの URL。ポーリングのみを使うには `false` を渡します。",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "ポーリング間隔 (ミリ秒)。",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "SSE が接続されている間のバックアップとしてのポーリング間隔で、イベントが取り逃された場合に備えます。切断されたタブは、代わりにより速い `interval` (または固定のアイドル間隔) でポーリングします。",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "ブラウザのタブが非表示のときにポーリングを一時停止します。非表示のタブは SSE 接続を維持し、アクティブなときは 10 秒ごと、アイドル状態になると 60 秒ごとを上限にポーリングします。",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "無視するタブごとのリクエスト ソースで、タブが自身の書き込みから再フェッチしないようにします。",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "SSE またはポーリングが変更イベントを受信したときのオプションのコールバック。",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "アクション イベントがトリガーする広範な無効化をフィルタリングします。ほとんど必要ありません。通常のソース バージョン管理されたクエリが `useChangeVersion` を通じて反応し続ける一方で、高コストなアクティブ クエリを明示的なリフレッシュのセマンティクスに保つために使用します。",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "同期イベントがすべてのアクション クエリを無効化しないようにするアクション名。すでに独自の狭い無効化を実行している高頻度のバックグラウンド アクションにのみ使用します。",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description:
+            "非推奨で無視されます。古い呼び出し元のために残されています。",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+このフックは、エージェントの書き込み、webhook、別のブラウザ タブからの変更など、自分のアクションの外で発生するデータベースの変更に UI を同期させ続けることを意図しています。サーバー送信イベント経由で変更をリッスンし、サーバー送信イベントが利用できない場合はポーリングにフォールバックします。
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+通常の CRUD には `useActionQuery()` と `useActionMutation()` を優先してください。変更アクションは `source: "action"` を発行するため、それらのフックはすぐに再フェッチします。エージェント、webhook、または別のタブからの変更は、代わりに `useDbSync()` を通じて SSE またはポーリング フォールバック経由で届きます。生の `useQuery()` 呼び出しをカスタム キーで同期させる必要がある場合は、[同期の内部](/docs/client-sync-internals) を参照してください。`application_state` に直接書き込む必要がある場合は、[高度](/docs/client-advanced) を参照してください。
+
+## 次は何ですか
+
+- [**概要**](/docs/client-overview) — このページのフックが存在する `app/` と `public/` ディレクトリ レイアウト
+- [**Agent チャット**](/docs/client-agent-chat) — エージェントへのプロンプト送信とコンテキストのステージング
+- [**Actions**](/docs/actions-overview) — このページのすべてのフックの背後にある `defineAction` サーフェス
+- [**高度**](/docs/client-advanced) — `application_state` への直接アクセス
+- [**同期の内部**](/docs/client-sync-internals) — `useChangeVersion` で生の `useQuery` を同期する
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync) — `useDbSync` が UI を最新の状態に保つ方法

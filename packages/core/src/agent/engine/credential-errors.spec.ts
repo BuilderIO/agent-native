@@ -21,6 +21,15 @@ describe("LLM credential error helpers", () => {
     ).toBe(true);
   });
 
+  it("does not treat an unreadable credential store as a setup failure", () => {
+    expect(
+      isLlmCredentialError(
+        new Error("Could not read your saved connections"),
+        "credential_store_unavailable",
+      ),
+    ).toBe(false);
+  });
+
   it("does not treat generic authentication failures as LLM setup failures", () => {
     expect(isLlmCredentialError("Authentication required")).toBe(false);
     expect(
@@ -32,7 +41,7 @@ describe("LLM credential error helpers", () => {
   it("formats agent-specific copy without provider env vars", () => {
     const message = formatLlmCredentialErrorMessage({ agentName: "Slides" });
     expect(message).toContain("Slides agent");
-    expect(message).toContain("Agent settings > LLM");
+    expect(message).toContain("Manage agent > LLM");
     expect(message).not.toContain("ANTHROPIC_API_KEY");
   });
 });

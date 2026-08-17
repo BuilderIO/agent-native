@@ -72,6 +72,8 @@ export interface FormSettings {
   successMessage?: string;
   redirectUrl?: string;
   showProgressBar?: boolean;
+  /** Send new response summaries to the form owner's account email. */
+  emailOnNewResponses?: boolean;
   /**
    * Strict response privacy mode. When enabled, submissions do not retain the
    * request IP, submitter identity, chat/run ids, page URL, or client surface.
@@ -135,7 +137,7 @@ export interface Form {
   settings: FormSettings;
   status: "draft" | "published" | "closed";
   /** Effective role of the current user on this form. */
-  role?: "owner" | "viewer" | "editor" | "admin";
+  role?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   responseCount?: number;
   createdAt: string;
   updatedAt: string;
@@ -153,15 +155,15 @@ export interface FormResponse {
   /** Real submitter email when known; synthetic anonymous-owner ids are hidden. */
   submitterEmail?: string | null;
   /**
-   * URL of the page the respondent was on, forwarded by trusted embeds (e.g.
-   * the framework FeedbackButton) as a hidden pass-through field. Null when the
-   * submission carried no page context (e.g. a direct fill on the public page).
+   * URL of the direct public form or trusted embed source page. Sensitive URL
+   * query keys are scrubbed before it is stored; null when no page context is
+   * available or anonymous mode suppresses response metadata.
    */
   pageUrl?: string | null;
   /**
    * Runtime shell the feedback was sent from — "web", "electron", or "tauri" —
    * forwarded by trusted embeds as a hidden pass-through field. Null when
-   * unknown (e.g. a direct fill on the public page).
+   * unknown or anonymous mode suppresses response metadata.
    */
   clientSurface?: string | null;
 }

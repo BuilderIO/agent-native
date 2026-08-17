@@ -1,0 +1,153 @@
+---
+title: "その他のサーフェス"
+description: "UI フック以外でアクションを呼び出すすべてのもの: ネイティブ チャット UI のウィジェット結果、CLI、A2A、MCP、そしてすべてのテンプレートが搭載する2つの標準アクション。"
+---
+
+# その他のサーフェス
+
+UI フックのサーフェスは [データと同期](/docs/client-data) で扱っています: `useActionQuery()`、`useActionMutation()`、`callAction()`。このページでは、アクションを呼び出す、またはアクションによって駆動される、それ以外のすべてを扱います。
+
+## ネイティブ チャット UI をレンダリングする {#native-chat-ui}
+
+アクションは、アプリ内チャットがネイティブにレンダリングする構造化ウィジェット データを返せます。これは、再利用可能なテーブル、チャート、セットアップ概要、インサイト カードのための、ファーストパーティのチャット経路です。エージェントがアプリ内チャットの中で任意のインタラクティブなコントロールを生成する必要がある場合は [Generative UI](/docs/generative-ui) を、外部の MCP ホストでインライン UI を表示する場合は [MCP アプリ](/docs/mcp-apps) を使用してください。
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
+  run: async () =>
+    createDataChartWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+組み込みの判別子は `"data-table"`、`"data-chart"`、`"data-insights"` で、サーバーで安全に使えるビルダーとスキーマが `@agent-native/core/data-widgets` にあります。チャートだけの回答には `data-chart` を、SQL/リストの結果には `data-table` を使い、要約/チャート/テーブルを組み合わせたカードが適切な出力である場合にのみ `data-insights` を使ってください。完全な結果契約については [ネイティブ チャット UI](/docs/native-chat-ui) を、組み込みのチャット ループの代わりにカスタムのエージェント ランタイムを配線する場合は [BYO エージェント ランタイム](/docs/native-chat-ui#byo-agent-runtimes) を参照してください。同じアクションが、自動化にも使いやすいまま、チャット内でレンダリングされたり、フル スクリーンへと成長したりできる仕組みについては、[エージェントサーフェス](/docs/agent-surfaces) を参照してください。
+
+## CLI から呼び出す {#cli}
+
+すべてのアクションは `pnpm action` から実行できます。
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+JSON 入力は、エージェントや複雑なオブジェクトに適した形式です。シンプルな手動実行や既存のスクリプトでは、フラグも同じように機能します。
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+```
+
+これは、エージェント開発ループ、スクリプト、cron ジョブに便利です。
+
+## 別のエージェントから呼び出す (A2A) {#a2a}
+
+アプリが [A2A](/docs/a2a-protocol) のピアであれば、他の agent-native アプリはあなたのアクションを自動的に発見し、名前で呼び出せます。同一オリジンのデプロイでは JWT の署名は不要です。オリジンをまたぐデプロイでは、代わりに共有の `A2A_SECRET` を使用します。
+
+## MCP 経由で公開する {#mcp}
+
+MCP を有効にすると、アクションは `/mcp` にあるフレームワークの MCP サーバーに表示されます。すべての呼び出し元は、デフォルトでコンパクトなカタログ (アプリ向けの組み込みツールと、テンプレートで宣言されたアプリ アクション) を取得し、`tool-search` は常に存在するため、他のどのツールもオンデマンドで到達可能なままです。完全なアクション サーフェスは、明示的なオプトイン (`--full-catalog` トークンまたは `AGENT_NATIVE_MCP_FULL_CATALOG=1`) のときにのみ提供され、[`publicAgent.expose`](/docs/actions-access-control#public-agent) は、安全な読み取り/取り込みツールを公開サーフェスにオプトインさせます。カタログの階層、認証、`mcpApp` リソースの詳細については、[MCP プロトコル](/docs/mcp-protocol) を参照してください。
+
+UI に対応した MCP ホスト向けに、アクションは `mcpApp` フィールド (と対応する `link`) を通じてオプションの MCP Apps リソースを宣言でき、対応するホストは結果をインラインでレンダリングできます。`link` と `mcpApp` が同じルートを指すべき場合、`embedRoute()` は1つの純粋なパス ビルダーから両方を構築します。
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+`link` は、CLI や UI を持たない MCP ホスト向けのフォールバックとして残しておいてください。これは同時に、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名済みの embed-start セッション、transplant か controlled-frame かのレンダリング、`ui/*` ホスト ブリッジ、CSP、高さのクランプ) は [外部エージェント](/docs/external-agents#mcp-app-bridge) が担っています。
+
+## 標準アクション {#standard-actions}
+
+すべてのテンプレートは、[コンテキスト認識](/docs/context-awareness) のために、この2つを含めるべきです。
+
+### view-screen {#view-screen}
+
+現在のナビゲーション状態を読み取り、コンテキストに応じたデータをフェッチし、ユーザーに見えているもののスナップショットを返します。エージェントは、画面を改めて確認する必要があるときにこれを呼び出します。
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+アプリケーション状態にワンショットのナビゲーション コマンドを書き込みます。UI はそれを読み取り、ナビゲートし、そのエントリを削除します。
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## 次は何ですか
+
+- [**データと同期**](/docs/client-data) — UI からの `useActionQuery`、`useActionMutation`、`callAction`
+- [**概要**](/docs/actions-overview) — アクションとは何か、hello world のウォークスルー
+- [**コンテキスト認識**](/docs/context-awareness) — `view-screen` + `navigate` パターンの詳細
+- [**A2A プロトコル**](/docs/a2a-protocol) — 他のエージェントがあなたのアクションを発見し呼び出す仕組み
+- [**MCP プロトコル**](/docs/mcp-protocol) — カタログの階層、認証、`mcpApp` リソース
+- [**Generative UI**](/docs/generative-ui) — 一時的または永続化された生成 UI をチャット内にインライン表示する
+- [**ネイティブ チャット UI**](/docs/native-chat-ui) — 完全なウィジェット結果の契約

@@ -21,7 +21,7 @@
  *   <AgentChatSurface mode="page" className="h-screen" />
  */
 
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import {
   IconMessageCircle,
   IconMessageDots,
@@ -34,9 +34,10 @@ import {
   IconX,
   IconDotsVertical,
   IconHistory,
+  IconArrowsHorizontal,
   IconArrowsMaximize,
-  IconArrowsMinimize,
   IconExternalLink,
+  IconShare3,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -48,7 +49,15 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
+import { flushSync } from "react-dom";
 
+import {
+  hostedHarnessAgentOption,
+  isHostedHarnessConfigured,
+  isHostedHarnessRuntime,
+  normalizeHostedHarnessRuntimes,
+  type HostedHarnessRuntime,
+} from "../agent/harness/hosted.js";
 import type { AgentRun } from "../progress/types.js";
 import {
   DropdownMenu,
@@ -58,15 +67,9 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-  normalizeTooltipText,
-} from "./components/ui/tooltip.js";
+import { normalizeTooltipText } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
-import { FeedbackButton } from "./FeedbackButton.js";
+import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
@@ -79,28 +82,45 @@ const MultiTabAssistantChatLazy = lazy(() =>
   })),
 );
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
+  AGENT_SIDEBAR_MIN_WIDTH,
   consumeAgentSidebarUrlOpenOverride,
+  clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
+  getAgentSidebarMaxWidth,
   getInitialAgentSidebarOpen,
+  getAgentSidebarWideWidth,
   setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
-import { agentNativePath, appPath } from "./api-path.js";
+import { agentNativePath, appPath, isWorkspaceAppPath } from "./api-path.js";
+import {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
+  buildAppChatSidebarStateMessage,
+  isPerAppChatStorageKey,
+  requestPerAppChatCommand,
+  usePerAppChatState,
+} from "./app-chat-sidebar.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
+import { readClientAppState } from "./application-state.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
+  startAgentChatViewTransition,
 } from "./chat-view-transition.js";
-import { RealtimeVoiceModeProvider } from "./composer/useRealtimeVoiceMode.js";
+import { fetchBuilderStatus } from "./client-status-requests.js";
+import { RealtimeVoiceModeProvider } from "./composer/index.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
@@ -110,8 +130,12 @@ import type {
   MultiTabAssistantChatHeaderProps,
   MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
-import { AgentNativeRouteWarmup } from "./route-warmup.js";
+import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-startup-gate.js";
+import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
+import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
+import { useActionQuery } from "./use-action.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
@@ -125,6 +149,13 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 
+function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
+  const message = buildAppChatSidebarStateMessage(open);
+  for (const frame of document.querySelectorAll("iframe")) {
+    frame.contentWindow?.postMessage(message, "*");
+  }
+}
+
 function settingsRouteHashForSection(section?: string | null): string {
   const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
   if (normalized === "voice") return "#voice";
@@ -132,10 +163,11 @@ function settingsRouteHashForSection(section?: string | null): string {
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
     normalized === "integrations" ||
+    normalized === "connections" ||
     normalized === "email" ||
     normalized === "browser"
   ) {
-    return "#connections";
+    return "#integrations";
   }
   if (
     normalized === "account" ||
@@ -180,6 +212,12 @@ const OnboardingPanel = lazy(() =>
   })),
 );
 
+const FirstRunOnboarding = lazy(() =>
+  import("./onboarding/FirstRunOnboarding.js").then((m) => ({
+    default: m.FirstRunOnboarding,
+  })),
+);
+
 // Lazy-load SetupButton — the header entry-point that re-opens the
 // onboarding panel after the user has dismissed it.
 const SetupButton = lazy(() =>
@@ -193,6 +231,8 @@ const SetupButton = lazy(() =>
 // GitHub, etc.) is surfaced in better places (the settings panel and the
 // per-feature setup affordances). Keep this off; do not re-enable globally.
 const SHOW_ONBOARDING = false;
+const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
+const AgentSidebarOnboardingContext = React.createContext(false);
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
@@ -202,7 +242,9 @@ type PanelMode = "chat" | "cli" | "resources" | "settings";
 export function normalizeAgentPanelModeForSurface(
   mode: PanelMode,
   allowSettingsMode: boolean,
+  chatOnly = false,
 ): PanelMode {
+  if (chatOnly) return "chat";
   return mode === "settings" && !allowSettingsMode ? "chat" : mode;
 }
 const AGENT_PANEL_FONT_FAMILY =
@@ -217,9 +259,10 @@ type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-closed-transform"?: string;
   "--agent-sidebar-inner-closed-transform"?: string;
   "--agent-sidebar-width"?: string;
+  viewTransitionName?: string;
 };
 const AGENT_PANEL_HEADER_CLASS =
-  "agent-native-shell-topbar relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border";
+  "agent-native-shell-topbar relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2";
 const AGENT_PANEL_HEADER_STYLE = {
   paddingLeft: 8,
   paddingRight: 8,
@@ -229,6 +272,32 @@ const AGENT_PANEL_CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
+
+export function deferAgentPanelOverlayOpen(
+  event: { preventDefault: () => void },
+  closeMenu: () => void,
+  openOverlay: () => void,
+): void {
+  event.preventDefault();
+  closeMenu();
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(() => openOverlay());
+  } else {
+    setTimeout(openOverlay, 0);
+  }
+}
+
+export function consumeAgentPanelOverlayFocusRestore(
+  pendingOverlayRef: { current: boolean },
+  event: { preventDefault: () => void },
+): void {
+  if (!pendingOverlayRef.current) return;
+  pendingOverlayRef.current = false;
+  event.preventDefault();
+}
 
 interface AvailableCli {
   command: string;
@@ -274,24 +343,16 @@ function IconTooltip({
   children,
 }: {
   content: string;
-  children: React.ReactNode;
+  children: React.ReactElement;
 }) {
   return (
-    <TooltipPrimitive.Provider delayDuration={250}>
-      <TooltipPrimitive.Root>
-        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-        <TooltipPrimitive.Portal>
-          <TooltipPrimitive.Content
-            side="bottom"
-            sideOffset={8}
-            className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
-          >
-            {normalizeTooltipText(content)}
-            <TooltipPrimitive.Arrow className="fill-popover" />
-          </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
-      </TooltipPrimitive.Root>
-    </TooltipPrimitive.Provider>
+    <DesignSystemTooltip
+      trigger={children}
+      content={normalizeTooltipText(content)}
+      placement="bottom"
+      delayMs={250}
+      className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
+    />
   );
 }
 
@@ -318,6 +379,7 @@ function ChatLoadingSkeleton({
   composerAreaClassName?: string;
   composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
 }) {
+  const t = useT();
   // Provide empty no-op implementations so renderHeader can render the real
   // tab/mode buttons without needing actual chat state.
   const noop = useCallback(() => {}, []);
@@ -346,32 +408,34 @@ function ChatLoadingSkeleton({
         >
           <div className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0">
             <div className="agent-empty-state sr-only" aria-busy="true">
-              Loading chat...
+              {t("agentChat.empty.loadingChat")}
             </div>
           </div>
           {composerSlot}
-          <div
-            className={cn(
-              "agent-composer-area shrink-0 px-3 py-2",
-              composerLayoutVariant !== "default" &&
-                `agent-composer-area--${composerLayoutVariant}`,
-              composerAreaClassName,
-            )}
-          >
+          <div className="agent-composer-stack">
             <div
               className={cn(
-                "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                "agent-composer-area shrink-0 px-3 py-2",
                 composerLayoutVariant !== "default" &&
-                  `agent-composer-root--${composerLayoutVariant}`,
+                  `agent-composer-area--${composerLayoutVariant}`,
+                composerAreaClassName,
               )}
             >
-              <div className="px-3 pt-3">
-                <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-              </div>
-              <div className="mt-auto flex items-center gap-2 px-3 py-2">
-                <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
+              <div
+                className={cn(
+                  "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                  composerLayoutVariant !== "default" &&
+                    `agent-composer-root--${composerLayoutVariant}`,
+                )}
+              >
+                <div className="px-3 pt-3">
+                  <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                </div>
+                <div className="mt-auto flex items-center gap-2 px-3 py-2">
+                  <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                  <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                  <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
+                </div>
               </div>
             </div>
           </div>
@@ -417,6 +481,12 @@ export function shouldShowAgentPanelChatTabBar(
     activeTabId,
   );
   return mainTabs.length > 1 || hasSubTabs;
+}
+
+export function shouldShowAgentPanelSidebarChatTabs(
+  tabs: MultiTabAssistantChatHeaderProps["tabs"],
+) {
+  return tabs.filter((tab) => !tab.parentThreadId).length > 1;
 }
 
 export function shouldShowAgentPanelPageNewChatButton(
@@ -478,13 +548,16 @@ function useBuilderConnectUrl() {
     // global), refresh fired again, and we'd loop forever.
     let lastConfigured = false;
     const refresh = () => {
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((res) => (res.ok ? res.json() : null))
+      fetchBuilderStatus<{
+        cliAuthUrl?: string;
+        connectUrl?: string;
+        configured?: boolean;
+      }>()
+        .then((result) => (result.state === "available" ? result.value : null))
         .then((data) => {
           if (cancelled || !data) return;
-          if (data.cliAuthUrl || data.connectUrl) {
-            setConnectUrl(data.cliAuthUrl || data.connectUrl);
-          }
+          const nextConnectUrl = data.cliAuthUrl || data.connectUrl;
+          if (nextConnectUrl) setConnectUrl(nextConnectUrl);
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);
           if (nextConfigured && !lastConfigured) {
@@ -572,24 +645,25 @@ export interface AgentPanelProps extends Omit<
   onCollapse?: () => void;
   /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
   isFullscreen?: boolean;
-  /** Called when the user clicks the maximize/minimize button. If provided, the button appears next to the collapse button. */
+  /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
+  /** Called when the user selects the full-view action from a sidebar chat. */
+  onFullViewRequest?: () => void;
+  /** Called when the user asks the sidebar to use the wide chat width preset. */
+  onSnapTo75Percent?: () => void;
+  /** Whether the sidebar is currently using the wide fixed drawer presentation. */
+  isWideDrawer?: boolean;
+  /** Called when the user returns the wide drawer to the normal layout. */
+  onExitWideDrawer?: () => void;
   /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
   /** Restore the previously active chat thread on mount. Default: true. */
   restoreActiveThread?: boolean;
-  /**
-   * Bind the chat to a specific resource (deck, design, dashboard, ...).
-   * When set, chats started inside the panel inherit this scope and tuck
-   * away when the user leaves that resource. General chats stay visible
-   * across resource navigation. Scoped chats get a context badge with a
-   * Detach escape hatch. Templates compute this from the current route —
-   * see the `Layout` files for each template.
-   */
+  /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
-  /** Show the compact scope chip above the composer. Default: true. */
+  /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
@@ -603,6 +677,10 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   /** Allow the sidebar settings view to render inside this panel. Default: true. */
   allowSettingsMode?: boolean;
+  /** Keep this surface on chat even when mode controls are hidden. */
+  chatOnly?: boolean;
+  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -661,14 +739,19 @@ function CodeAccessUnavailablePanel({
   compact?: boolean;
 }) {
   const { connectUrl: builderConnectUrl } = useBuilderConnectUrl();
-  const builderHref =
-    secondaryCtaHref ??
-    (builderConnectUrl
+  const builderHref = secondaryCtaHref
+    ? withBuilderUtmTrackingParams(secondaryCtaHref, {
+        campaign: "product",
+        content: "code_access_unavailable_panel",
+      })
+    : builderConnectUrl
       ? withBuilderConnectTrackingParams(builderConnectUrl, {
           source: "code_access_unavailable_panel",
           flow: "background_agent",
         })
-      : "https://builder.io");
+      : withBuilderUtmTrackingParams("https://builder.io", {
+          content: "code_access_unavailable_panel",
+        });
 
   return (
     <div
@@ -722,7 +805,6 @@ function CodeAccessUnavailablePanel({
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
         >
           {secondaryCtaLabel}
-          <IconExternalLink className="h-3 w-3" />
         </a>
       </div>
     </div>
@@ -742,6 +824,10 @@ function AgentPanelInner({
   onCollapse,
   isFullscreen,
   onToggleFullscreen,
+  onFullViewRequest,
+  onSnapTo75Percent,
+  isWideDrawer,
+  onExitWideDrawer,
   devAppUrl,
   storageKey,
   restoreActiveThread = true,
@@ -753,12 +839,26 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   allowSettingsMode = true,
+  chatOnly = false,
+  agentPageHref,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   const mounted = useClientOnly();
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
+  const showFirstRunOnboarding =
+    !firstRunOnboardingGateOwnsSurface &&
+    (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
+  const insideAgentSidebar = React.useContext(AgentSidebarOnboardingContext);
+  const isFirstRunOnboardingSurface =
+    showFirstRunOnboarding && !insideAgentSidebar;
+  const feedbackEnabled =
+    resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
   const keyPrefix = storageKey ? `:${storageKey}` : "";
   const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
   const panelModeKey = `agent-native-panel-mode${keyPrefix}`;
@@ -768,9 +868,12 @@ function AgentPanelInner({
       /Mac|iPhone|iPad/.test(navigator.userAgent),
     [],
   );
-  const closeTabHint = isMac ? "\u2303W" : "Alt+W";
-  const closeAllTabsHint = isMac ? "\u2303\u2325W" : "Ctrl+Alt+W";
-  const toggleSidebarHint = isMac ? "\u2318\\" : "Ctrl+\\";
+  const {
+    closeTab: closeTabHint,
+    closeAllTabs: closeAllTabsHint,
+    toggleSidebar: toggleSidebarHint,
+    widenChat: widenChatHint,
+  } = getAgentPanelShortcutHints(isMac);
 
   const [execMode, setExecMode] = useState<ExecMode>(() => {
     try {
@@ -804,9 +907,17 @@ function AgentPanelInner({
         saved === "resources" ||
         saved === "settings"
       )
-        return normalizeAgentPanelModeForSurface(saved, allowSettingsMode);
+        return normalizeAgentPanelModeForSurface(
+          saved,
+          allowSettingsMode,
+          chatOnly,
+        );
     } catch {}
-    return normalizeAgentPanelModeForSurface(defaultMode, allowSettingsMode);
+    return normalizeAgentPanelModeForSurface(
+      defaultMode,
+      allowSettingsMode,
+      chatOnly,
+    );
   });
   useEffect(() => {
     try {
@@ -820,15 +931,21 @@ function AgentPanelInner({
   const switchMode = useCallback(
     (m: PanelMode) => {
       startTransition(() =>
-        setMode(normalizeAgentPanelModeForSurface(m, allowSettingsMode)),
+        setMode(
+          normalizeAgentPanelModeForSurface(m, allowSettingsMode, chatOnly),
+        ),
       );
     },
-    [allowSettingsMode],
+    [allowSettingsMode, chatOnly],
   );
   useEffect(() => {
-    const nextMode = normalizeAgentPanelModeForSurface(mode, allowSettingsMode);
+    const nextMode = normalizeAgentPanelModeForSurface(
+      mode,
+      allowSettingsMode,
+      chatOnly,
+    );
     if (nextMode !== mode) switchMode(nextMode);
-  }, [mode, allowSettingsMode, switchMode]);
+  }, [mode, allowSettingsMode, chatOnly, switchMode]);
   const openRunThread = useCallback(
     (threadId: string, run?: AgentRun) => {
       switchMode("chat");
@@ -1053,73 +1170,75 @@ function AgentPanelInner({
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
-      <TooltipProvider delayDuration={200}>
-        <div className="flex shrink-0 items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
+      <div className="flex shrink-0 items-center gap-1">
+        <DesignSystemTooltip
+          trigger={
+            <button
+              onClick={() => switchMode("chat")}
+              aria-label={t("agentPanel.chatMode")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                activeMode === "chat"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              style={AGENT_PANEL_CONTROL_STYLE}
+            >
+              <IconMessageCircle size={14} />
+              {t("agentPanel.chat")}
+            </button>
+          }
+          content={t("agentPanel.chatMode")}
+          delayMs={200}
+        />
+        {showCliMode && (
+          <DesignSystemTooltip
+            trigger={
               <button
-                onClick={() => switchMode("chat")}
-                aria-label={t("agentPanel.chatMode")}
+                onClick={() => switchMode("cli")}
+                aria-label={t("agentPanel.cliTerminalMode")}
                 className={cn(
                   "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-                  activeMode === "chat"
+                  activeMode === "cli"
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
                 style={AGENT_PANEL_CONTROL_STYLE}
               >
-                <IconMessageCircle size={14} />
-                {t("agentPanel.chat")}
+                <IconTerminal2 size={14} />
+                {t("agentPanel.cli")}
               </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("agentPanel.chatMode")}</TooltipContent>
-          </Tooltip>
-          {showCliMode && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => switchMode("cli")}
-                  aria-label={t("agentPanel.cliTerminalMode")}
-                  className={cn(
-                    "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-                    activeMode === "cli"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <IconTerminal2 size={14} />
-                  {t("agentPanel.cli")}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[260px]">
-                {codeAccessEnabled
-                  ? t("agentPanel.cliTerminalMode")
-                  : codeUnavailableDescription}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => switchMode("resources")}
-                aria-label={t("agentPanel.workspaceMode")}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-                  activeMode === "resources"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-                style={AGENT_PANEL_CONTROL_STYLE}
-              >
-                <IconLayoutGrid size={14} />
-                {t("agentPanel.workspace")}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("agentPanel.workspaceMode")}</TooltipContent>
-          </Tooltip>
-        </div>
-      </TooltipProvider>
+            }
+            content={
+              codeAccessEnabled
+                ? t("agentPanel.cliTerminalMode")
+                : codeUnavailableDescription
+            }
+            className="max-w-[260px]"
+            delayMs={200}
+          />
+        )}
+        <DesignSystemTooltip
+          trigger={
+            <button
+              onClick={() => switchMode("resources")}
+              aria-label={t("agentPanel.workspaceMode")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                activeMode === "resources"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              style={AGENT_PANEL_CONTROL_STYLE}
+            >
+              <IconLayoutGrid size={14} />
+              {t("agentPanel.workspace")}
+            </button>
+          }
+          content={t("agentPanel.workspaceMode")}
+          delayMs={200}
+        />
+      </div>
     ),
     [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
   );
@@ -1147,6 +1266,43 @@ function AgentPanelInner({
     },
     [threadUrlSync],
   );
+  const wideDrawerAction = isWideDrawer ? onExitWideDrawer : onSnapTo75Percent;
+  const wideDrawerLabel = t(
+    isWideDrawer ? "agentPanel.returnChatToLayout" : "agentPanel.widenChat",
+  );
+  const fullViewAction = resolveAgentPanelFullViewAction(
+    agentPageHref,
+    onFullViewRequest,
+    mode,
+    chatOnly,
+    location.pathname,
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        !event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      if (
+        event.code === "Backslash" &&
+        onCollapse &&
+        mode === "chat" &&
+        wideDrawerAction
+      ) {
+        event.preventDefault();
+        wideDrawerAction();
+        return;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [mode, onCollapse, wideDrawerAction]);
 
   const renderHeaderActions = useCallback(
     ({
@@ -1175,7 +1331,7 @@ function AgentPanelInner({
       | "toggleHistory"
     > & { activeChatSessionId?: string }) => (
       <div className="relative flex shrink-0 items-center gap-0.5">
-        {SHOW_ONBOARDING && (
+        {!onCollapse && SHOW_ONBOARDING && (
           <Suspense fallback={null}>
             <SetupButton />
           </Suspense>
@@ -1231,7 +1387,7 @@ function AgentPanelInner({
             </button>
           </IconTooltip>
         )}
-        {mode === "cli" && canUseCodeTools && (
+        {!onCollapse && mode === "cli" && canUseCodeTools && (
           <IconTooltip content={t("agentPanel.newTerminal")}>
             <button
               onClick={addCliTab}
@@ -1255,7 +1411,19 @@ function AgentPanelInner({
               <IconDotsVertical size={14} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+          <DropdownMenuContent
+            align="end"
+            sideOffset={6}
+            className="w-48"
+            onCloseAutoFocus={(event) => {
+              // A sibling overlay owns focus next; restoring it to the menu
+              // trigger would dismiss that overlay as an outside interaction.
+              consumeAgentPanelOverlayFocusRestore(
+                preventHeaderMenuFocusRestoreRef,
+                event,
+              );
+            }}
+          >
             {onCollapse && (
               <>
                 <DropdownMenuItem onSelect={onCollapse}>
@@ -1271,8 +1439,81 @@ function AgentPanelInner({
                 <DropdownMenuSeparator />
               </>
             )}
+            {onCollapse && mode === "chat" && wideDrawerAction ? (
+              <DropdownMenuItem onSelect={wideDrawerAction}>
+                <IconArrowsHorizontal size={14} className="shrink-0" />
+                {wideDrawerLabel}
+                <DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            ) : null}
+            {fullViewAction?.kind === "callback" && onFullViewRequest ? (
+              <DropdownMenuItem
+                onSelect={onFullViewRequest}
+                aria-label={t("agentPanel.openFullView")}
+              >
+                <IconArrowsMaximize size={14} className="shrink-0" />
+                {t("agentPanel.openFullView")}
+              </DropdownMenuItem>
+            ) : fullViewAction?.kind === "link" ? (
+              <DropdownMenuItem asChild>
+                <Link
+                  to={fullViewAction.href}
+                  aria-label={t("agentPanel.openFullView")}
+                >
+                  <IconArrowsMaximize size={14} className="shrink-0" />
+                  {t("agentPanel.openFullView")}
+                </Link>
+              </DropdownMenuItem>
+            ) : null}
+            {(onCollapse && mode === "chat" && wideDrawerAction) ||
+            fullViewAction ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {onCollapse && mode === "chat" && (
+              <>
+                <DropdownMenuItem onSelect={addTab}>
+                  <IconPlus size={14} className="shrink-0" />
+                  {t("agentPanel.newChat")}
+                </DropdownMenuItem>
+                {(() => {
+                  const activeTab = activeChatSessionId
+                    ? tabs.find((tab) => tab.id === activeChatSessionId)
+                    : undefined;
+                  if (
+                    !activeTab ||
+                    (activeTabMessageCount <= 0 && activeTab.status === "idle")
+                  ) {
+                    return null;
+                  }
+                  return (
+                    // ShareButton's content is portalled, so open it only
+                    // after the menu releases its dismissable layer.
+                    <DropdownMenuItem
+                      onSelect={(event) =>
+                        deferAgentPanelOverlayOpen(
+                          event,
+                          closeHeaderMenuForOverlay,
+                          () => setShareFromMenuOpen(true),
+                        )
+                      }
+                    >
+                      <IconShare3 size={14} className="shrink-0" />
+                      Share
+                    </DropdownMenuItem>
+                  );
+                })()}
+              </>
+            )}
             {mode === "chat" && toggleHistory && (
-              <DropdownMenuItem onSelect={toggleHistory}>
+              <DropdownMenuItem
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    closeHeaderMenuForOverlay,
+                    toggleHistory,
+                  )
+                }
+              >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
                   ? t("agentPanel.hideChats")
@@ -1322,29 +1563,20 @@ function AgentPanelInner({
                 {t("agentPanel.settings")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onSelect={() => {
-                // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
-                // teardown, otherwise it can immediately dismiss the Popover we're
-                // opening in the same tick (Radix nested-overlay race).
-                setTimeout(() => setFeedbackOpen(true), 0);
-              }}
-            >
-              <IconMessageDots size={14} className="shrink-0" />
-              {t("agentPanel.feedback")}
-            </DropdownMenuItem>
-            {onToggleFullscreen && (
-              <DropdownMenuItem onSelect={onToggleFullscreen}>
-                {isFullscreen ? (
-                  <IconArrowsMinimize size={14} className="shrink-0" />
-                ) : (
-                  <IconArrowsMaximize size={14} className="shrink-0" />
-                )}
-                {isFullscreen
-                  ? t("agentPanel.exitFullscreen")
-                  : t("agentPanel.fullscreen")}
+            {feedbackEnabled ? (
+              <DropdownMenuItem
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    closeHeaderMenuForOverlay,
+                    () => setFeedbackOpen(true),
+                  )
+                }
+              >
+                <IconMessageDots size={14} className="shrink-0" />
+                {t("agentPanel.feedback")}
               </DropdownMenuItem>
-            )}
+            ) : null}
             {((mode === "chat" && activeTabId) ||
               (mode === "cli" && canUseCodeTools && activeCliTab)) && (
               <>
@@ -1425,24 +1657,34 @@ function AgentPanelInner({
       allowSettingsMode,
       availableClis,
       canUseCodeTools,
+      closeHeaderMenuForOverlay,
       closeAllCliTabs,
       closeAllTabsHint,
       closeCliTab,
       closeOtherCliTabs,
       closeTabHint,
       feedbackOpen,
+      feedbackEnabled,
       getChatThreadShareUrl,
       headerMenuOpen,
-      isFullscreen,
+      isWideDrawer,
       mode,
+      agentPageHref,
+      fullViewAction,
       onCollapse,
-      onToggleFullscreen,
+      onFullViewRequest,
+      onExitWideDrawer,
+      onSnapTo75Percent,
       openRunThread,
       selectCli,
       selectedCli,
+      shareFromMenuOpen,
       storageKey,
       switchMode,
       t,
+      wideDrawerAction,
+      wideDrawerLabel,
+      widenChatHint,
     ],
   );
 
@@ -1481,10 +1723,10 @@ function AgentPanelInner({
                 <ShareButton
                   resourceType="chat_thread"
                   resourceId={activeTab.id}
-                  resourceTitle={activeTab.label || "Chat"}
+                  allowedRoles={["viewer", "editor", "admin"]}
+                  resourceTitle={activeTab.label || t("agentPanel.chat")}
                   shareUrl={getChatThreadShareUrl(activeTab.id)}
-                  trigger="icon"
-                  triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
+                  triggerClassName="h-8 px-2 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
                 />
               ) : null}
               <button
@@ -1507,23 +1749,41 @@ function AgentPanelInner({
     [getChatThreadShareUrl, t],
   );
 
-  // Ref callback: scroll the active tab into view in the overflow container.
-  // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
-  const activeTabRefCb = useCallback((el: HTMLDivElement | null) => {
-    if (!el) return;
+  const activeTabResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const scrollActiveTabIntoView = useCallback((el: HTMLDivElement) => {
     const container = el.parentElement;
     if (!container) return;
-    // Use rAF so layout is settled after React commit
     requestAnimationFrame(() => {
-      const containerRect = container.getBoundingClientRect();
-      const tabRect = el.getBoundingClientRect();
-      if (tabRect.left < containerRect.left) {
-        container.scrollLeft += tabRect.left - containerRect.left;
-      } else if (tabRect.right > containerRect.right) {
-        container.scrollLeft += tabRect.right - containerRect.right;
-      }
+      const delta = getActiveTabScrollDelta(
+        container.getBoundingClientRect(),
+        el.getBoundingClientRect(),
+      );
+      if (delta !== 0) container.scrollLeft += delta;
     });
   }, []);
+
+  // The sidebar stays mounted while closed and animates its width on open, so
+  // the active tab ref alone can run before the overflow container is usable.
+  const activeTabRefCb = useCallback(
+    (el: HTMLDivElement | null) => {
+      activeTabResizeObserverRef.current?.disconnect();
+      activeTabResizeObserverRef.current = null;
+      if (!el) return;
+      const container = el.parentElement;
+      if (!container) return;
+
+      const observer =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(() => scrollActiveTabIntoView(el));
+      observer?.observe(container);
+      activeTabResizeObserverRef.current = observer;
+      scrollActiveTabIntoView(el);
+    },
+    [scrollActiveTabIntoView],
+  );
+
+  useEffect(() => () => activeTabResizeObserverRef.current?.disconnect(), []);
 
   const renderChatHeader = useCallback(
     ({
@@ -1554,135 +1814,279 @@ function AgentPanelInner({
       >
         {/* Top bar: mode buttons + actions */}
         <div
-          className={AGENT_PANEL_HEADER_CLASS}
-          style={AGENT_PANEL_HEADER_STYLE}
+          className="agent-sidebar-chat-header flex flex-col shrink-0"
+          data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
+          data-agent-sidebar-chat-header-active={
+            headerMenuOpen || feedbackOpen ? "" : undefined
+          }
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-            {renderModeButtons(mode)}
+          {/* Top bar: chat tabs/mode buttons + actions */}
+          <div
+            className={cn(
+              AGENT_PANEL_HEADER_CLASS,
+              !onCollapse && "border-b border-border",
+            )}
+            style={AGENT_PANEL_HEADER_STYLE}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+              {showSidebarChatTabs ? (
+                <div className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+                  {mainTabs.map((tab) => {
+                    const isActive =
+                      tab.id === activeTabId ||
+                      (tab.id === focusParentId &&
+                        activeTab?.parentThreadId === tab.id);
+                    return (
+                      <div
+                        key={tab.id}
+                        role="button"
+                        tabIndex={0}
+                        ref={isActive ? activeTabRefCb : undefined}
+                        onClick={() => setActiveTabId(tab.id)}
+                        onKeyDown={activateOnKeyDown(() =>
+                          setActiveTabId(tab.id),
+                        )}
+                        className={cn(
+                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                          isActive
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        )}
+                      >
+                        <span className="truncate pe-1">{tab.label}</span>
+                        {tab.status === "running" && (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                        )}
+                        <button
+                          type="button"
+                          aria-label={t("agentPanel.closeTab")}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeTab(tab.id);
+                          }}
+                          className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 28,
+                            paddingRight: 6,
+                            borderRadius: "0 6px 6px 0",
+                            background:
+                              "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                          }}
+                        >
+                          <IconX size={10} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : shouldShowAgentPanelModeButtons(Boolean(onCollapse)) ? (
+                renderModeButtons(mode)
+              ) : null}
+            </div>
+            <div className="flex items-center gap-0.5">
+              {renderHeaderActions({
+                activeChatSessionId: activeTabId,
+                activeTabId,
+                activeTabMessageCount,
+                addTab,
+                clearActiveTab,
+                closeAllTabs,
+                closeOtherTabs,
+                closeTab,
+                showHistory,
+                tabs,
+                toggleHistory,
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-0.5">
-            {renderHeaderActions({
-              activeChatSessionId: activeTabId,
-              activeTabId,
-              activeTabMessageCount,
-              addTab,
-              clearActiveTab,
-              closeAllTabs,
-              closeOtherTabs,
-              closeTab,
-              showHistory,
-              tabs,
-              toggleHistory,
-            })}
-          </div>
-        </div>
-        {mode === "chat" && chatNotice ? (
-          <div className="border-b border-border">{chatNotice}</div>
-        ) : null}
-        {/* Tab bar: only visible when there is actually more than one tab to switch between. */}
-        {showTabBar &&
-          (mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
-          (() => {
-            const {
-              activeTab,
-              childTabs,
-              focusParentId,
-              hasSubTabs,
-              mainTabs,
-            } = getAgentPanelChatTabGroups(tabs, activeTabId);
-            const showChatTabBar =
-              mode === "chat" &&
-              shouldShowAgentPanelChatTabBar(tabs, activeTabId);
-            const showCliTabBar =
-              mode === "cli" &&
-              canUseCodeTools &&
-              shouldShowAgentPanelCliTabBar(cliTabs);
+          {mode === "chat" && chatNotice ? (
+            <div className="border-b border-border">{chatNotice}</div>
+          ) : null}
+          {/* Tab bar: only visible when there is actually more than one tab to switch between. */}
+          {showTabBar &&
+            (mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
+            (() => {
+              const showChatTabBar =
+                mode === "chat" &&
+                shouldShowAgentPanelChatTabBar(tabs, activeTabId);
+              const showCliTabBar =
+                mode === "cli" &&
+                canUseCodeTools &&
+                shouldShowAgentPanelCliTabBar(cliTabs);
 
-            if (!showChatTabBar && !showCliTabBar) return null;
+              if (!showChatTabBar && !showCliTabBar) return null;
 
-            return (
-              <>
-                <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
-                  <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
-                    {mode === "chat"
-                      ? mainTabs.map((tab) => {
-                          // Highlight the parent tab if a child is active
-                          const isActive =
-                            tab.id === activeTabId ||
-                            (tab.id === focusParentId &&
-                              activeTab?.parentThreadId === tab.id);
-                          return (
-                            <div
-                              key={tab.id}
-                              role="button"
-                              tabIndex={0}
-                              ref={isActive ? activeTabRefCb : undefined}
-                              onClick={() => setActiveTabId(tab.id)}
-                              onKeyDown={activateOnKeyDown(() =>
-                                setActiveTabId(tab.id),
-                              )}
-                              className={cn(
-                                "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
-                                isActive
-                                  ? "bg-accent text-foreground"
-                                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                              )}
-                            >
-                              <span className="truncate pe-1">{tab.label}</span>
-                              {tab.status === "running" && (
-                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                              )}
-                              <button
-                                type="button"
-                                aria-label="Close tab"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  closeTab(tab.id);
-                                }}
-                                className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: 0,
-                                  bottom: 0,
-                                  width: 28,
-                                  paddingRight: 6,
-                                  borderRadius: "0 6px 6px 0",
-                                  background:
-                                    "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                                }}
+              return (
+                <>
+                  {!showSidebarChatTabs && (
+                    <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
+                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                        {mode === "chat"
+                          ? mainTabs.map((tab) => {
+                              // Highlight the parent tab if a child is active
+                              const isActive =
+                                tab.id === activeTabId ||
+                                (tab.id === focusParentId &&
+                                  activeTab?.parentThreadId === tab.id);
+                              return (
+                                <div
+                                  key={tab.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  ref={isActive ? activeTabRefCb : undefined}
+                                  onClick={() => setActiveTabId(tab.id)}
+                                  onKeyDown={activateOnKeyDown(() =>
+                                    setActiveTabId(tab.id),
+                                  )}
+                                  className={cn(
+                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                                    isActive
+                                      ? "bg-accent text-foreground"
+                                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                  )}
+                                >
+                                  <span className="truncate pe-1">
+                                    {tab.label}
+                                  </span>
+                                  {tab.status === "running" && (
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                                  )}
+                                  <button
+                                    type="button"
+                                    aria-label={t("agentPanel.closeTab")}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      closeTab(tab.id);
+                                    }}
+                                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                                    style={{
+                                      position: "absolute",
+                                      right: 0,
+                                      top: 0,
+                                      bottom: 0,
+                                      width: 28,
+                                      paddingRight: 6,
+                                      borderRadius: "0 6px 6px 0",
+                                      background:
+                                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                                    }}
+                                  >
+                                    <IconX size={10} />
+                                  </button>
+                                </div>
+                              );
+                            })
+                          : cliTabs.map((id, i) => (
+                              <div
+                                key={id}
+                                role="button"
+                                tabIndex={0}
+                                ref={
+                                  id === activeCliTab
+                                    ? activeTabRefCb
+                                    : undefined
+                                }
+                                onClick={() => setActiveCliTab(id)}
+                                onKeyDown={activateOnKeyDown(() =>
+                                  setActiveCliTab(id),
+                                )}
+                                className={cn(
+                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                                  id === activeCliTab
+                                    ? "bg-accent text-foreground"
+                                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                )}
                               >
-                                <IconX size={10} />
-                              </button>
-                            </div>
-                          );
-                        })
-                      : cliTabs.map((id, i) => (
+                                <span>Terminal {i + 1}</span>
+                                <button
+                                  type="button"
+                                  aria-label={t("agentPanel.closeTab")}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeCliTab(id);
+                                  }}
+                                  className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                                  style={{
+                                    position: "absolute",
+                                    right: 0,
+                                    top: 0,
+                                    bottom: 0,
+                                    width: 28,
+                                    paddingRight: 6,
+                                    borderRadius: "0 6px 6px 0",
+                                    background:
+                                      "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                                  }}
+                                >
+                                  <IconX size={10} />
+                                </button>
+                              </div>
+                            ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Sub-agent tab row — shown when the active context has children */}
+                  {mode === "chat" && hasSubTabs && (
+                    <div
+                      className={cn(
+                        "flex items-center px-2 py-0.5 gap-0.5 bg-muted/30",
+                        !showSidebarChatTabs && "border-b border-border",
+                      )}
+                    >
+                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setActiveTabId(focusParentId)}
+                          onKeyDown={activateOnKeyDown(() =>
+                            setActiveTabId(focusParentId),
+                          )}
+                          className={cn(
+                            "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
+                            activeTabId === focusParentId
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          )}
+                        >
+                          Main
+                        </div>
+                        {childTabs.map((tab) => (
                           <div
-                            key={id}
+                            key={tab.id}
                             role="button"
                             tabIndex={0}
                             ref={
-                              id === activeCliTab ? activeTabRefCb : undefined
+                              tab.id === activeTabId
+                                ? activeTabRefCb
+                                : undefined
                             }
-                            onClick={() => setActiveCliTab(id)}
+                            onClick={() => setActiveTabId(tab.id)}
                             onKeyDown={activateOnKeyDown(() =>
-                              setActiveCliTab(id),
+                              setActiveTabId(tab.id),
                             )}
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
-                              id === activeCliTab
+                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
+                              tab.id === activeTabId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                           >
-                            <span>Terminal {i + 1}</span>
+                            <span className="truncate pe-1">
+                              {tab.subAgentName || tab.label}
+                            </span>
+                            {tab.status === "running" && (
+                              <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                            )}
                             <button
                               type="button"
-                              aria-label="Close tab"
+                              aria-label={t("agentPanel.closeTab")}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                closeCliTab(id);
+                                closeTab(tab.id);
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
                               style={{
@@ -1690,96 +2094,26 @@ function AgentPanelInner({
                                 right: 0,
                                 top: 0,
                                 bottom: 0,
-                                width: 28,
-                                paddingRight: 6,
+                                width: 24,
+                                paddingRight: 4,
                                 borderRadius: "0 6px 6px 0",
                                 background:
                                   "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                               }}
                             >
-                              <IconX size={10} />
+                              <IconX size={8} />
                             </button>
                           </div>
                         ))}
-                  </div>
-                </div>
-                {/* Sub-agent tab row — shown when the active context has children */}
-                {mode === "chat" && hasSubTabs && (
-                  <div className="flex items-center px-2 py-0.5 border-b border-border gap-0.5 bg-muted/30">
-                    <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setActiveTabId(focusParentId)}
-                        onKeyDown={activateOnKeyDown(() =>
-                          setActiveTabId(focusParentId),
-                        )}
-                        className={cn(
-                          "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
-                          activeTabId === focusParentId
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                        )}
-                      >
-                        Main
                       </div>
-                      {childTabs.map((tab) => (
-                        <div
-                          key={tab.id}
-                          role="button"
-                          tabIndex={0}
-                          ref={
-                            tab.id === activeTabId ? activeTabRefCb : undefined
-                          }
-                          onClick={() => setActiveTabId(tab.id)}
-                          onKeyDown={activateOnKeyDown(() =>
-                            setActiveTabId(tab.id),
-                          )}
-                          className={cn(
-                            "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
-                            tab.id === activeTabId
-                              ? "bg-accent text-foreground"
-                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                          )}
-                        >
-                          <span className="truncate pe-1">
-                            {tab.subAgentName || tab.label}
-                          </span>
-                          {tab.status === "running" && (
-                            <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                          )}
-                          <button
-                            type="button"
-                            aria-label="Close tab"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              closeTab(tab.id);
-                            }}
-                            className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                            style={{
-                              position: "absolute",
-                              right: 0,
-                              top: 0,
-                              bottom: 0,
-                              width: 24,
-                              paddingRight: 4,
-                              borderRadius: "0 6px 6px 0",
-                              background:
-                                "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                            }}
-                          >
-                            <IconX size={8} />
-                          </button>
-                        </div>
-                      ))}
                     </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-      </div>
-    ),
+                  )}
+                </>
+              );
+            })()}
+        </div>
+      );
+    },
     [
       mode,
       renderHeaderActions,
@@ -1796,6 +2130,7 @@ function AgentPanelInner({
       activeTabRefCb,
       activateOnKeyDown,
       closeCliTab,
+      t,
     ],
   );
 
@@ -1805,7 +2140,13 @@ function AgentPanelInner({
         "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
         className,
       )}
-      style={{ ...AGENT_PANEL_ROOT_STYLE, ...style }}
+      style={{
+        ...AGENT_PANEL_ROOT_STYLE,
+        ...style,
+        // The chat view-transition container otherwise traps fixed onboarding
+        // chrome below the app's own header instead of the viewport edge.
+        ...(isFirstRunOnboardingSurface ? { contain: "none" } : {}),
+      }}
       data-agent-fullscreen={isFullscreen ? "true" : undefined}
     >
       {/* Tailwind group-hover/tab doesn't work in core package — inject directly.
@@ -1818,15 +2159,24 @@ function AgentPanelInner({
             "@media (hover:hover) and (pointer:fine){" +
             ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
             ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
+            ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}" +
             "}" +
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
-            `[data-agent-fullscreen='true'] .agent-running-activity,` +
+            `[data-agent-fullscreen='true'] .agent-running-activity{` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+            `margin-left:auto;margin-right:auto;width:100%;}` +
             `[data-agent-fullscreen='true'] .agent-composer-area,` +
             `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
-            `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+            `margin-left:auto;margin-right:auto;width:100%;}` +
+            `[data-agent-fullscreen='true'] .agent-composer-area:not(.agent-composer-area--compact){` +
+            `padding-left:0;padding-right:0;}` +
+            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,` +
+            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion-error--composer{` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
       />
@@ -1837,6 +2187,12 @@ function AgentPanelInner({
       {SHOW_ONBOARDING && mounted && (
         <Suspense fallback={null}>
           <OnboardingPanel />
+        </Suspense>
+      )}
+
+      {showFirstRunOnboarding && mounted && !insideAgentSidebar && (
+        <Suspense fallback={null}>
+          <FirstRunOnboarding />
         </Suspense>
       )}
 
@@ -1912,7 +2268,7 @@ function AgentPanelInner({
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    Loading terminal...
+                    {t("agentPanel.loadingTerminal")}
                   </div>
                 }
               >
@@ -1948,7 +2304,7 @@ function AgentPanelInner({
 
       {/* Resources view */}
       {mode === "resources" && (
-        <div className="flex-1 min-h-0">
+        <div className="flex flex-1 flex-col min-h-0">
           <Suspense
             fallback={
               <div className="flex h-full flex-col min-h-0">
@@ -1996,27 +2352,50 @@ function AgentPanelInner({
 // ─── Resize handle ──────────────────────────────────────────────────────────
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
-const SIDEBAR_FULLSCREEN_KEY = "agent-native-sidebar-fullscreen";
-const SIDEBAR_MIN = 280;
-const SIDEBAR_MAX = 700;
+const SIDEBAR_DRAWER_KEY = "agent-native-sidebar-wide-drawer";
+const SIDEBAR_DRAWER_PLACEHOLDER_KEY =
+  "agent-native-sidebar-drawer-placeholder-width";
 const SIDEBAR_ANIMATION_MS = 260;
 const SIDEBAR_OVERLAY_Z_INDEX = 70;
-const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
-/** Max width of the centered chat column in fullscreen mode (Claude-style). */
-const FULLSCREEN_CONTENT_MAX_PX = 570;
+const SIDEBAR_DRAWER_Z_INDEX = 80;
+const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
+/** Shared max width of the centered fullscreen chat column and composer. */
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;
+
+export function getActiveTabScrollDelta(
+  containerRect: Pick<DOMRect, "left" | "right">,
+  tabRect: Pick<DOMRect, "left" | "right">,
+  margin = 24,
+): number {
+  if (tabRect.left < containerRect.left + margin) {
+    return tabRect.left - containerRect.left - margin;
+  }
+  if (tabRect.right > containerRect.right - margin) {
+    return tabRect.right - containerRect.right + margin;
+  }
+  return 0;
+}
 
 function ResizeHandle({
   position,
   onDrag,
+  onResizeStart,
+  onResizeEnd,
 }: {
   position: "left" | "right";
   onDrag: (delta: number) => void;
+  onResizeStart: () => void;
+  onResizeEnd: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const lastX = useRef(0);
   const onDragRef = useRef(onDrag);
+  const onResizeStartRef = useRef(onResizeStart);
+  const onResizeEndRef = useRef(onResizeEnd);
   onDragRef.current = onDrag;
+  onResizeStartRef.current = onResizeStart;
+  onResizeEndRef.current = onResizeEnd;
   const GRAB_ZONE = 5; // px on each side of the border
 
   // All drag logic runs via document-level listeners so the 1px-wide
@@ -2033,6 +2412,7 @@ function ResizeHandle({
       e.preventDefault();
       dragging.current = true;
       lastX.current = e.clientX;
+      onResizeStartRef.current();
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     }
@@ -2062,6 +2442,7 @@ function ResizeHandle({
       dragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      onResizeEndRef.current();
     }
 
     // mouseup covers the normal release-inside-the-page case; window blur
@@ -2087,6 +2468,7 @@ function ResizeHandle({
       // selection app-wide until reload.
       document.body.style.userSelect = "";
       dragging.current = false;
+      onResizeEndRef.current();
     };
   }, [position]);
 
@@ -2192,13 +2574,7 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
     queryKey: setUrlQueryKey,
     queryFn: async () => {
       const read = async (key: string) => {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/application-state/${key}`),
-        );
-        if (!res.ok || res.status === 204) return null;
-        const text = await res.text();
-        if (!text) return null;
-        const data = JSON.parse(text);
+        const data = await readClientAppState<Record<string, unknown>>(key);
         return data ? { key, command: data } : null;
       };
       try {
@@ -2288,7 +2664,11 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
       // Replace rather than push so repeated agent URL updates don't
       // clutter the history stack and can't trigger extra remounts from
       // router navigation lifecycle.
-      window.setTimeout(() => navigate(url, { replace: true }), 0);
+      if (isWorkspaceAppPath(url)) {
+        window.location.replace(url);
+      } else {
+        window.setTimeout(() => navigate(url, { replace: true }), 0);
+      }
     } catch {
       // Malformed command — ignore.
     }
@@ -2346,6 +2726,12 @@ class AgentPanelErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    if (recoverFromStaleChunkError(error)) {
+      console.warn(
+        "[agent-native] Recovering agent panel after stale chunk error",
+      );
+      return;
+    }
     const recoverableKind = assistantUiRecoverableRenderErrorKind(error);
     if (recoverableKind) {
       console.warn(
@@ -2415,45 +2801,69 @@ class AgentPanelErrorBoundary extends React.Component<
       assistantUiRecoverableRenderErrorKind(this.state.error) &&
       this.state.staleIndexRecoveryCount < 2
     ) {
-      return (
-        <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
-          Reloading chat UI...
-        </div>
-      );
+      return <AgentPanelReloadingNotice />;
     }
 
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="max-w-[260px] space-y-1">
-          <p className="text-sm font-medium text-foreground">
-            Agent panel hit an internal UI error.
-          </p>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            The app is still usable. Reset the panel to reload the chat UI.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-          onClick={() => {
-            this.setState({ error: null, staleIndexRecoveryCount: 0 });
-            this.props.onReset();
-          }}
-        >
-          Reset agent panel
-        </button>
-        <ErrorReportActions
-          appName="Agent panel"
-          title="Agent panel UI error"
-          details={this.state.error.message}
-          issueTitle="Agent panel UI error"
-          className="max-w-[260px]"
-          feedbackClassName="h-7"
-          githubClassName="h-7"
-        />
-      </div>
+      <AgentPanelErrorFallback
+        details={this.state.error.message}
+        onReset={() => {
+          this.setState({ error: null, staleIndexRecoveryCount: 0 });
+          this.props.onReset();
+        }}
+      />
     );
   }
+}
+
+// The boundary must stay a class (componentDidCatch), but its copy still has to
+// come from the catalog like every other string in this file — so the fallback
+// UI lives in function components that can call useT.
+function AgentPanelReloadingNotice() {
+  const t = useT();
+  return (
+    <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
+      {t("agentPanel.uiError.reloading")}
+    </div>
+  );
+}
+
+function AgentPanelErrorFallback({
+  details,
+  onReset,
+}: {
+  details: string;
+  onReset: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="max-w-[260px] space-y-1">
+        <p className="text-sm font-medium text-foreground">
+          {t("agentPanel.uiError.title")}
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("agentPanel.uiError.description")}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        onClick={onReset}
+      >
+        {t("agentPanel.uiError.reset")}
+      </button>
+      <ErrorReportActions
+        appName="Agent panel"
+        title={t("agentPanel.uiError.title")}
+        details={details}
+        issueTitle="Agent panel UI error"
+        className="max-w-[260px]"
+        feedbackClassName="h-7"
+        githubClassName="h-7"
+      />
+    </div>
+  );
 }
 
 export function AgentPanel(props: AgentPanelProps) {
@@ -2466,11 +2876,9 @@ export function AgentPanel(props: AgentPanelProps) {
     setResetKey((key) => key + 1);
   }, [props.storageKey]);
   return (
-    <TooltipProvider delayDuration={200}>
-      <AgentPanelErrorBoundary onReset={resetPanel}>
-        <AgentPanelInner key={resetKey} {...props} />
-      </AgentPanelErrorBoundary>
-    </TooltipProvider>
+    <AgentPanelErrorBoundary onReset={resetPanel}>
+      <AgentPanelInner key={resetKey} {...props} />
+    </AgentPanelErrorBoundary>
   );
 }
 
@@ -2480,7 +2888,8 @@ export interface AgentChatSurfaceProps extends AgentPanelProps {
   /**
    * Layout treatment for the reusable chat surface. Use "page" when rendering
    * chat as the primary route content instead of inside the sidebar shell.
-   * Default: "panel".
+   * Default: "panel". Inline header and chat-tab chrome are hidden by default;
+   * pass `showHeader` or `showTabBar` to opt into those controls.
    */
   mode?: AgentChatSurfaceMode;
   /**
@@ -2509,13 +2918,15 @@ export function shouldAllowAgentChatSurfaceSettingsMode(
  * Reusable chat surface backed by AgentPanel internals.
  *
  * This gives page-level routes the same tabbed conversations, composer,
- * model controls, scoped chat behavior, and recovery boundary used by the
+ * model controls, context chips, and recovery boundary used by the
  * sidebar without introducing a second chat implementation.
  */
 export function AgentChatSurface({
   mode = "panel",
   className,
   defaultMode = "chat",
+  showHeader = false,
+  showTabBar = false,
   isFullscreen,
   style,
   chatViewTransition = false,
@@ -2524,12 +2935,14 @@ export function AgentChatSurface({
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
   const defaultShowPageNewChatButton =
-    shouldDefaultAgentChatSurfacePageNewChatButton(mode, props.showTabBar);
+    shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
-  return (
+  const panel = (
     <AgentPanel
       {...props}
       defaultMode={defaultMode}
+      showHeader={showHeader}
+      showTabBar={showTabBar}
       isFullscreen={isFullscreen ?? pageMode}
       allowSettingsMode={shouldAllowAgentChatSurfaceSettingsMode(
         mode,
@@ -2547,6 +2960,14 @@ export function AgentChatSurface({
         chatViewTransition ? getAgentChatViewTransitionStyle(style) : style
       }
     />
+  );
+
+  if (!pageMode) return panel;
+  return (
+    <>
+      <URLSync browserTabId={props.browserTabId} />
+      {panel}
+    </>
   );
 }
 
@@ -2568,6 +2989,22 @@ export interface AgentSidebarProps {
   onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   /** Optional secondary model menu shown inside the chat composer model picker. */
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: AssistantChatProps["availableAgents"];
+  /** Host-provided model catalog used by native chat surfaces. */
+  availableModels?: AssistantChatProps["availableModels"];
+  /** Whether the host-provided model catalog is still loading. */
+  modelListLoading?: AssistantChatProps["modelListLoading"];
+  /** Selected agent runtime identifier. */
+  selectedAgent?: AssistantChatProps["selectedAgent"];
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: AssistantChatProps["onAgentChange"];
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
+  /** Bring-your-own runtime used by embedded hosts such as Electron. */
+  runtime?: AssistantChatProps["runtime"];
+  /** Explicit key for recreating an injected runtime adapter. */
+  adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
@@ -2588,25 +3025,47 @@ export interface AgentSidebarProps {
    * page-level AgentChatSurface can morph into it on navigation.
    */
   chatViewTransition?: boolean;
+  /**
+   * Mark the initial panel mount as the destination of a page-to-sidebar chat
+   * handoff. This suppresses only the drawer's initial entry animation; normal
+   * sidebar open/close transitions remain enabled.
+   */
+  chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
+  /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
+  openStorageKey?: string;
+  /** API base URL used by the chat surface. */
+  apiUrl?: string;
+  /** Runtime surface identity used for server-side chat capabilities. */
+  agentChatSurface?: AgentChatSurfaceKind;
+  /** Show the chat thread tab row. Default: true. */
+  showTabBar?: MultiTabAssistantChatProps["showTabBar"];
+  /** Keep inline app-opening results inside the current app chat. */
+  suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
+  /** Placeholder shown in the chat composer. */
+  composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   /** Open the sidebar when a chat run is active or reconnects. */
   openOnChatRunning?: boolean;
-  /** Override the fullscreen menu action, for templates with a chat-first page. */
+  /** Called when the user selects the full-view action from the chat sidebar. */
   onFullscreenRequest?: () => void;
-  /**
-   * Bind chats to a resource. When set, every chat started here is
-   * scoped to `{type, id}`, the tab bar/history partition by that scope,
-   * and a "Working on {label}" badge appears with a Detach option.
-   * Templates compute this from the active route (see template layouts).
-   */
+  /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
-  /** Show the compact scope chip above the composer. Default: true. */
+  /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
+  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  agentPageHref?: string;
+  /** Suppress first-run onboarding while a deep-linked resource is open. */
+  suppressFirstRunOnboarding?: boolean;
+}
+
+interface HostedHarnessStatus {
+  enabled: boolean;
+  runtimes: HostedHarnessRuntime[];
 }
 
 /**
@@ -2622,6 +3081,14 @@ export function AgentSidebar({
   composerSlot,
   onComposerTextChange,
   imageModelMenu,
+  availableAgents,
+  availableModels,
+  modelListLoading,
+  selectedAgent,
+  onAgentChange,
+  onConnectLocalRuntime,
+  runtime,
+  adapterReloadKey,
   threadFooterSlot,
   defaultSidebarWidth,
   sidebarWidth,
@@ -2630,36 +3097,113 @@ export function AgentSidebar({
   animateMobile = true,
   animateDesktop = true,
   chatViewTransition = false,
+  chatViewTransitionHandoff = false,
   storageKey,
+  openStorageKey,
+  apiUrl,
+  agentChatSurface,
+  showTabBar = true,
+  suppressInlineOpenApp,
+  composerPlaceholder,
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
+  agentPageHref,
+  suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
+  const staticHostedHarnessEnabled = isHostedHarnessConfigured(
+    injectedAgentNativeConfig().harness,
+  );
+  const hostedHarnessQuery = useActionQuery<HostedHarnessStatus>(
+    "get-hosted-harness-config" as never,
+    undefined,
+    { enabled: staticHostedHarnessEnabled },
+  );
+  const hostedHarnessStatus = hostedHarnessQuery.data;
+  const hostedHarnessEnabled = hostedHarnessStatus?.enabled === true;
+  const hostedHarnessRuntimes = useMemo(
+    () =>
+      hostedHarnessEnabled
+        ? normalizeHostedHarnessRuntimes(hostedHarnessStatus?.runtimes)
+        : [],
+    [hostedHarnessEnabled, hostedHarnessStatus?.runtimes],
+  );
+  const hostedHarnessUi = hostedHarnessEnabled;
+  const hostedHarnessStorageKey = `agent-native-hosted-harness${storageKey ? `:${storageKey}` : ""}`;
+  const [hostedHarnessRuntime, setHostedHarnessRuntime] =
+    useState<HostedHarnessRuntime>("claude-code");
+  const hostedHarnessAgentOptions = useMemo(
+    () => hostedHarnessRuntimes.map(hostedHarnessAgentOption),
+    [hostedHarnessRuntimes],
+  );
+  const effectiveAvailableAgents = hostedHarnessEnabled
+    ? [
+        ...hostedHarnessAgentOptions,
+        ...(availableAgents ?? []).filter(
+          (agent) => !isHostedHarnessRuntime(agent.id),
+        ),
+      ]
+    : availableAgents;
+  const effectiveSelectedAgent = hostedHarnessEnabled
+    ? hostedHarnessRuntime
+    : selectedAgent;
+  const effectiveOnAgentChange = hostedHarnessEnabled
+    ? (agent: string) => {
+        if (isHostedHarnessRuntime(agent)) {
+          setHostedHarnessRuntime(agent);
+        }
+        onAgentChange?.(agent);
+      }
+    : onAgentChange;
+  const effectivePosition = hostedHarnessUi ? "left" : position;
+  const effectiveDefaultOpen = hostedHarnessUi || defaultOpen;
+  const effectiveShowTabBar = hostedHarnessUi || showTabBar;
+  const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
+  const sidebarOpenStorageKey = openStorageKey ?? storageKey;
+  const isPerAppChatSidebar = isPerAppChatStorageKey(sidebarOpenStorageKey);
+  const perAppChatState = usePerAppChatState(!isPerAppChatSidebar);
+  const isPerAppChatHosted =
+    !isPerAppChatSidebar && perAppChatState.hosted === true;
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
+  const showFirstRunOnboarding =
+    !firstRunOnboardingGateOwnsSurface &&
+    !suppressFirstRunOnboarding &&
+    (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
     () =>
-      openOnChatRunning || getInitialAgentSidebarOpen(defaultOpen, storageKey),
+      openOnChatRunning ||
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
-  const [fullscreen, setFullscreen] = useState(() => {
-    // Force-disable on mobile: a Claude-style centered column makes no sense
-    // when the sidebar already covers most of the viewport.
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 767px)").matches
-    ) {
-      return false;
-    }
+  const [isWideDrawer, setIsWideDrawer] = useState(() => {
+    if (typeof window === "undefined") return false;
     try {
-      return localStorage.getItem(SIDEBAR_FULLSCREEN_KEY) === "true";
+      return localStorage.getItem(SIDEBAR_DRAWER_KEY) === "true";
     } catch {
+      // coercion-ok: the drawer defaults to the normal inline presentation when storage is unavailable.
       return false;
     }
   });
+  const [drawerPlaceholderWidth, setDrawerPlaceholderWidth] = useState(() => {
+    const fallback = Number.isFinite(initialWidth) ? initialWidth : 380;
+    try {
+      const saved = localStorage.getItem(SIDEBAR_DRAWER_PLACEHOLDER_KEY);
+      const parsed = saved ? Number.parseInt(saved, 10) : Number.NaN;
+      if (Number.isFinite(parsed)) return clampAgentSidebarWidth(parsed);
+    } catch {
+      // coercion-ok: the normal sidebar width is a safe placeholder fallback.
+    }
+    return clampAgentSidebarWidth(fallback);
+  });
+  const drawerExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
 
   // Track mobile viewport so we can switch to overlay mode.
   const [isMobile, setIsMobile] = useState(
@@ -2677,27 +3221,72 @@ export function AgentSidebar({
     try {
       const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
       if (saved) {
-        const n = parseInt(saved, 10);
-        if (n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) setWidth(n);
+        const n = Number.parseInt(saved, 10);
+        if (Number.isFinite(n)) setWidth(clampAgentSidebarWidth(n));
       }
     } catch {}
   }, []);
+
+  useEffect(
+    () => () => {
+      if (drawerExitTimerRef.current !== null) {
+        clearTimeout(drawerExitTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const setOpenPersisted = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
-        setAgentSidebarOpenPreference(value, storageKey);
+        setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
         return value;
       });
     },
-    [storageKey],
+    [sidebarOpenStorageKey],
   );
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(hostedHarnessStorageKey);
+      if (saved && isHostedHarnessRuntime(saved)) {
+        setHostedHarnessRuntime(saved);
+      }
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+      // The picker falls back to Claude Code when storage is unavailable.
+    }
+  }, [hostedHarnessStorageKey]);
+
+  useEffect(() => {
+    if (!hostedHarnessEnabled || hostedHarnessRuntimes.length === 0) return;
+    const next = hostedHarnessRuntimes.includes(hostedHarnessRuntime)
+      ? hostedHarnessRuntime
+      : hostedHarnessRuntimes[0];
+    if (!next) return;
+    if (next !== hostedHarnessRuntime) setHostedHarnessRuntime(next);
+    try {
+      localStorage.setItem(hostedHarnessStorageKey, next);
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+      // The selected runtime remains in memory for this tab.
+    }
+  }, [
+    hostedHarnessEnabled,
+    hostedHarnessRuntimes,
+    hostedHarnessRuntime,
+    hostedHarnessStorageKey,
+  ]);
+
+  useEffect(() => {
+    if (hostedHarnessUi) setOpenPersisted(true);
+  }, [hostedHarnessUi, setOpenPersisted]);
+
   const applyUrlOpenOverride = useCallback(() => {
-    const override = consumeAgentSidebarUrlOpenOverride(storageKey);
+    const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
     if (override !== null) setOpenPersisted(override);
-  }, [setOpenPersisted, storageKey]);
+  }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
     applyUrlOpenOverride();
@@ -2705,18 +3294,8 @@ export function AgentSidebar({
   }, [applyUrlOpenOverride]);
 
   useEffect(() => {
-    if (openOnChatRunning) setOpen(true);
-  }, [openOnChatRunning]);
-
-  const toggleFullscreen = useCallback(() => {
-    setFullscreen((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_FULLSCREEN_KEY, String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
+    if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
+  }, [isPerAppChatHosted, openOnChatRunning]);
 
   // Track whether the frame is controlling the sidebar (code mode = frame active).
   // Default to true when inside an iframe — assume the frame sidebar is active
@@ -2744,6 +3323,7 @@ export function AgentSidebar({
     () => new Set(),
   );
   const shouldMountPanel =
+    !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
     (open || backgroundPanelActive || runningTabIds.size > 0);
@@ -2758,9 +3338,11 @@ export function AgentSidebar({
     // Skip the initial emit in frame-owned mode — wait until the frame has
     // sent us its real sidebar state. Once we know, this effect re-runs and
     // dispatches the correct value.
-    if (frameOwned && !hasFrameSidebarState) return;
+    if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
     dispatchAgentSidebarStateChange({
-      open: !presentationMode && (frameOwned ? frameSidebarOpen : open),
+      open: isPerAppChatHosted
+        ? perAppChatState.open
+        : !presentationMode && (frameOwned ? frameSidebarOpen : open),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
     });
@@ -2770,6 +3352,45 @@ export function AgentSidebar({
     open,
     presentationMode,
     hasFrameSidebarState,
+    isPerAppChatHosted,
+    perAppChatState.open,
+  ]);
+
+  useEffect(() => {
+    if (!isPerAppChatSidebar) return;
+
+    const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    if (frameOwned && !hasFrameSidebarState) return;
+
+    const openState =
+      !presentationMode && (frameOwned ? frameSidebarOpen : open);
+    const message = buildAppChatSidebarStateMessage(openState);
+
+    window.dispatchEvent(
+      new CustomEvent(APP_CHAT_SIDEBAR_STATE_EVENT, {
+        detail: message.data,
+      }),
+    );
+    postPerAppChatSidebarStateToEmbeddedFrames(openState);
+
+    const handleStateRequest = (event: MessageEvent) => {
+      if (event.data?.type !== APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE) return;
+      const frame = Array.from(document.querySelectorAll("iframe")).find(
+        (candidate) => candidate.contentWindow === event.source,
+      );
+      if (!frame) return;
+      frame.contentWindow?.postMessage(message, event.origin || "*");
+    };
+
+    window.addEventListener("message", handleStateRequest);
+    return () => window.removeEventListener("message", handleStateRequest);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    hasFrameSidebarState,
+    isPerAppChatSidebar,
+    open,
+    presentationMode,
   ]);
 
   useEffect(() => {
@@ -2782,7 +3403,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
-        if (openOnChatRunning) setOpen(true);
+        if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);
@@ -2808,7 +3429,7 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, [openOnChatRunning, setOpenPersisted]);
+  }, [isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
     const replayAfterMount = (type: string, event: Event) => {
@@ -2849,6 +3470,10 @@ export function AgentSidebar({
 
   useEffect(() => {
     const toggleHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("toggle");
+        return;
+      }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         // Forward toggle to frame parent — the frame sidebar handles it
         window.parent.postMessage(
@@ -2860,6 +3485,10 @@ export function AgentSidebar({
       }
     };
     const openHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("open");
+        return;
+      }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
           { type: "agentNative.toggleSidebar", data: { open: true } },
@@ -2870,6 +3499,10 @@ export function AgentSidebar({
       }
     };
     const closeHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("close");
+        return;
+      }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
           { type: "agentNative.toggleSidebar", data: { open: false } },
@@ -2887,7 +3520,7 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode]);
+  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.
@@ -2904,6 +3537,8 @@ export function AgentSidebar({
         appMode,
         width: frameWidth,
         open: frameOpen,
+        wide: frameWide,
+        placeholderWidth: framePlaceholderWidth,
       } = event.data.data || {};
       if (mode === "code") {
         // Frame is showing its own sidebar — hide the app's
@@ -2918,11 +3553,23 @@ export function AgentSidebar({
         setHasFrameSidebarState(true);
         setOpenPersisted(frameOpen !== false);
         if (
-          frameWidth &&
-          frameWidth >= SIDEBAR_MIN &&
-          frameWidth <= SIDEBAR_MAX
+          typeof frameWidth === "number" &&
+          Number.isFinite(frameWidth) &&
+          frameWidth >= AGENT_SIDEBAR_MIN_WIDTH &&
+          frameWidth <= getAgentSidebarMaxWidth()
         ) {
           setWidth(frameWidth);
+        }
+        if (frameWide === true || frameWide === false) {
+          setIsWideDrawer(frameWide);
+          if (
+            typeof framePlaceholderWidth === "number" &&
+            Number.isFinite(framePlaceholderWidth) &&
+            framePlaceholderWidth >= AGENT_SIDEBAR_MIN_WIDTH &&
+            framePlaceholderWidth <= getAgentSidebarMaxWidth()
+          ) {
+            setDrawerPlaceholderWidth(framePlaceholderWidth);
+          }
         }
         // Sync the panel mode from frame tab selection
         if (
@@ -3004,23 +3651,81 @@ export function AgentSidebar({
 
   const handleDrag = useCallback((delta: number) => {
     setWidth((prev) => {
-      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, prev + delta));
+      const next = clampAgentSidebarWidth(prev + delta);
       try {
         localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
       } catch {}
       return next;
     });
   }, []);
+  // `view-transition-name` is only legal to carry while a transition is
+  // actually capturing. Left on permanently it makes the panel its own
+  // stacking context and the containing block for every fixed/absolute
+  // descendant, and enlists it as a captured group in unrelated transitions
+  // (any React Router `viewTransition` navigation), which is how overlays end
+  // up painted at stale offsets. Apply it only around the drawer morph, and
+  // flush it into the DOM first: `startViewTransition` captures the old state
+  // before it invokes the callback, so a name applied in a normal React commit
+  // would land too late to be captured.
+  const [drawerMorphing, setDrawerMorphing] = useState(false);
+  const runDrawerMorph = useCallback((apply: () => void) => {
+    flushSync(() => setDrawerMorphing(true));
+    const settle = () => setDrawerMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }, []);
+  const snapTo75Percent = useCallback(() => {
+    if (drawerExitTimerRef.current !== null) {
+      clearTimeout(drawerExitTimerRef.current);
+      drawerExitTimerRef.current = null;
+    }
+    const next = getAgentSidebarWideWidth();
+    const placeholder = isWideDrawer ? drawerPlaceholderWidth : width;
+    const apply = () => {
+      setDrawerPlaceholderWidth(placeholder);
+      setIsWideDrawer(true);
+      setWidth(next);
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+        localStorage.setItem(SIDEBAR_DRAWER_KEY, "true");
+        localStorage.setItem(
+          SIDEBAR_DRAWER_PLACEHOLDER_KEY,
+          String(placeholder),
+        );
+        // coercion-ok: the drawer remains applied in memory when storage is unavailable.
+      } catch {}
+    };
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer, width]);
+  const exitWideDrawer = useCallback(() => {
+    if (!isWideDrawer || drawerExitTimerRef.current !== null) return;
+    const next = drawerPlaceholderWidth;
+    const apply = () => {
+      setWidth(next);
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+        localStorage.setItem(SIDEBAR_DRAWER_KEY, "false");
+        // coercion-ok: the normal sidebar remains applied in memory when storage is unavailable.
+      } catch {}
+      drawerExitTimerRef.current = setTimeout(() => {
+        drawerExitTimerRef.current = null;
+        setIsWideDrawer(false);
+      }, SIDEBAR_ANIMATION_MS + 32);
+    };
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer]);
+  const handleResizeStart = useCallback(() => setIsResizing(true), []);
+  const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
-  const isLeft = position === "left";
-  // Fullscreen only applies on desktop — on mobile the existing overlay is
-  // already viewport-covering, so the maximize button is hidden and the
-  // mounted state ignores any persisted value.
-  const effectiveFullscreen = !onFullscreenRequest && fullscreen && !isMobile;
-  const mobileAnimationEnabled =
-    !presentationMode && !effectiveFullscreen && isMobile && animateMobile;
+  const isLeft = effectivePosition === "left";
+  const wideDrawerEnabled = isWideDrawer && !isMobile;
+  const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !effectiveFullscreen && !isMobile && animateDesktop;
+    !presentationMode && !isMobile && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -3055,16 +3760,16 @@ export function AgentSidebar({
   const panelOpen = open && shouldMountPanel;
   const panelLayout = isMobile
     ? "mobile"
-    : effectiveFullscreen
-      ? "fullscreen"
+    : wideDrawerEnabled
+      ? "drawer"
       : "desktop";
   // On desktop the resize handle is also the visual divider. Avoid painting a
   // second panel border next to it.
-  const showResizeHandle = !isMobile && !effectiveFullscreen && panelOpen;
+  const showResizeHandle = !isMobile && !wideDrawerEnabled && panelOpen;
 
   // On mobile the sidebar floats as a fixed overlay so the content below isn't
-  // squashed. On desktop it participates in the flex layout as before, except
-  // in fullscreen mode where it overlays the entire viewport (Claude-style).
+  // squashed. On desktop it participates in the flex layout or becomes a
+  // fixed-width drawer when the user asks for more room.
   let panelStyle: AgentPanelStyle;
   if (isMobile) {
     panelStyle = {
@@ -3086,16 +3791,26 @@ export function AgentSidebar({
       "--agent-sidebar-closed-transform": `translateX(${isLeft ? "-" : ""}calc(100% + 1px))`,
       pointerEvents: mobileAnimationEnabled && !panelOpen ? "none" : undefined,
     };
-  } else if (effectiveFullscreen) {
+  } else if (wideDrawerEnabled) {
     panelStyle = {
       ...AGENT_PANEL_ROOT_STYLE,
       position: "fixed",
-      inset: 0,
-      width: "100%",
+      top: 0,
+      [isLeft ? "left" : "right"]: 0,
+      height: "100%",
+      width,
+      maxWidth: "100vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
-      zIndex: SIDEBAR_FULLSCREEN_Z_INDEX,
-      background: "hsl(var(--background))",
-      display: open ? "flex" : "none",
+      zIndex: SIDEBAR_DRAWER_Z_INDEX,
+      "--agent-sidebar-background":
+        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      background: "var(--agent-sidebar-background)",
+      borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
+      borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
+      display: "flex",
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   } else {
     panelStyle = {
@@ -3107,6 +3822,7 @@ export function AgentSidebar({
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
+      zIndex: hostedHarnessUi ? SIDEBAR_OVERLAY_Z_INDEX : undefined,
       borderLeft:
         !panelOpen || isLeft || showResizeHandle
           ? "none"
@@ -3118,6 +3834,9 @@ export function AgentSidebar({
       display: desktopAnimationEnabled || panelOpen ? "flex" : "none",
       minWidth: desktopAnimationEnabled ? 0 : undefined,
       pointerEvents: desktopAnimationEnabled && !panelOpen ? "none" : undefined,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   }
 
@@ -3126,24 +3845,40 @@ export function AgentSidebar({
   const sidebar = shouldRenderPanel ? (
     <>
       {showResizeHandle && !isLeft && (
-        <ResizeHandle position={position} onDrag={handleDrag} />
+        <ResizeHandle
+          position={effectivePosition}
+          onDrag={handleDrag}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+        />
       )}
       <div
         className={cn(
           "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
           chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
-          mobileAnimationEnabled && "shadow-2xl",
         )}
         data-agent-sidebar-animation={
-          mobileAnimationEnabled
-            ? "mobile"
-            : desktopAnimationEnabled
-              ? "desktop"
-              : undefined
+          wideDrawerEnabled
+            ? "drawer"
+            : mobileAnimationEnabled
+              ? "mobile"
+              : desktopAnimationEnabled
+                ? "desktop"
+                : undefined
         }
         data-agent-sidebar-layout={panelLayout}
-        data-agent-sidebar-position={position}
+        data-agent-sidebar-position={effectivePosition}
+        data-agent-native-hosted-harness-ui={
+          hostedHarnessUi ? "desktop" : undefined
+        }
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        data-agent-sidebar-per-app-chat={
+          isPerAppChatSidebar ? "true" : undefined
+        }
+        data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+        data-agent-sidebar-chat-handoff={
+          chatViewTransitionHandoff ? "true" : undefined
+        }
         style={
           chatViewTransition
             ? getAgentChatViewTransitionStyle(panelStyle)
@@ -3161,74 +3896,123 @@ export function AgentSidebar({
             composerSlot={composerSlot}
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
+            availableAgents={effectiveAvailableAgents}
+            availableModels={availableModels}
+            modelListLoading={modelListLoading}
+            selectedAgent={effectiveSelectedAgent}
+            onAgentChange={effectiveOnAgentChange}
+            hostedHarness={hostedHarnessEnabled}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            runtime={runtime}
+            adapterReloadKey={adapterReloadKey}
             threadFooterSlot={threadFooterSlot}
+            apiUrl={apiUrl}
+            agentChatSurface={agentChatSurface}
+            showTabBar={effectiveShowTabBar}
+            suppressInlineOpenApp={suppressInlineOpenApp}
+            composerPlaceholder={composerPlaceholder}
             missingApiKeySetupLayout="sidebar"
             onCollapse={() => setOpenPersisted(false)}
-            isFullscreen={effectiveFullscreen}
-            onToggleFullscreen={
-              isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
-            }
+            onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
+            isWideDrawer={isMobile ? false : isWideDrawer}
+            onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
+            onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
             scope={scope}
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
+            agentPageHref={agentPageHref}
             allowSettingsMode={false}
+            chatOnly
           />
         </div>
       </div>
       {showResizeHandle && isLeft && (
-        <ResizeHandle position={position} onDrag={handleDrag} />
+        <ResizeHandle
+          position={effectivePosition}
+          onDrag={handleDrag}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+        />
       )}
     </>
   ) : null;
 
-  return (
-    <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+  const drawerPlaceholder =
+    wideDrawerEnabled && !presentationMode && panelOpen ? (
       <div
-        className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-        data-agent-sidebar-position={position}
-      >
-        <AgentNativeRouteWarmup />
-        {/* Mobile backdrop — tapping it closes the sidebar */}
-        {isMobile &&
-          !presentationMode &&
-          (mobileAnimationEnabled ? shouldRenderPanel : open) && (
-            <div
-              className={cn(
-                "agent-sidebar-backdrop fixed inset-0 bg-black/40",
-                mobileAnimationEnabled && !panelOpen && "pointer-events-none",
-              )}
-              data-agent-sidebar-animation={
-                mobileAnimationEnabled ? "mobile" : undefined
-              }
-              data-agent-sidebar-state={panelOpen ? "open" : "closed"}
-              style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
-              onClick={() => setOpenPersisted(false)}
-            />
-          )}
-        {/* URLSync writes the current URL to application-state so the agent
+        aria-hidden="true"
+        className="agent-sidebar-drawer-placeholder shrink-0"
+        data-agent-sidebar-placeholder="true"
+        style={{ width: drawerPlaceholderWidth + 1 }}
+      />
+    ) : null;
+
+  return (
+    <AgentSidebarOnboardingContext.Provider value>
+      <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+        {showFirstRunOnboarding && (
+          <Suspense fallback={null}>
+            <FirstRunOnboarding />
+          </Suspense>
+        )}
+        <div
+          className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
+          data-agent-sidebar-position={effectivePosition}
+          data-agent-native-hosted-harness-ui={
+            hostedHarnessUi ? "desktop" : undefined
+          }
+          data-agent-native-hosted-chat={
+            isPerAppChatHosted ? "true" : undefined
+          }
+          data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+        >
+          {/* Mobile backdrop — tapping it closes the sidebar */}
+          {isMobile &&
+            !isPerAppChatHosted &&
+            !presentationMode &&
+            (mobileAnimationEnabled ? shouldRenderPanel : open) && (
+              <div
+                className={cn(
+                  "agent-sidebar-backdrop fixed inset-0 bg-foreground/40",
+                  mobileAnimationEnabled && !panelOpen && "pointer-events-none",
+                )}
+                data-agent-sidebar-animation={
+                  mobileAnimationEnabled ? "mobile" : undefined
+                }
+                data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+                style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
+                onClick={() => setOpenPersisted(false)}
+              />
+            )}
+          {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-        {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
-        {isLeft && !presentationMode ? sidebar : null}
-        <div
-          className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
-          data-agent-sidebar-main-position={position}
-          data-agent-sidebar-main-state={
-            !isMobile && !effectiveFullscreen && !presentationMode && panelOpen
-              ? "open"
-              : "closed"
-          }
-        >
-          {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
+          {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {isResizing ? (
+            <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
+          ) : null}
+          {isLeft && !presentationMode ? sidebar : null}
+          {isLeft && !presentationMode ? drawerPlaceholder : null}
+          <div
+            className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
+            data-agent-sidebar-main-position={position}
+            data-agent-sidebar-main-state={
+              !isMobile && !presentationMode && panelOpen ? "open" : "closed"
+            }
+            data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+          >
+            {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+            <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          </div>
+          {!isLeft && !presentationMode ? drawerPlaceholder : null}
+          {!isLeft && !presentationMode ? sidebar : null}
         </div>
-        {!isLeft && !presentationMode ? sidebar : null}
-      </div>
-    </RealtimeVoiceModeProvider>
+      </RealtimeVoiceModeProvider>
+    </AgentSidebarOnboardingContext.Provider>
   );
 }
 
@@ -3264,6 +4048,7 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const handler = (event: Event) => {
@@ -3279,25 +4064,22 @@ export function AgentToggleButton({ className }: { className?: string }) {
   // own close button.
   if (open) return null;
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Toggle agent"
-            onClick={() =>
-              window.dispatchEvent(new Event("agent-panel:toggle"))
-            }
-            className={cn(
-              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              className,
-            )}
-          >
-            <IconMessageDots size={20} aria-hidden />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Toggle agent</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <DesignSystemTooltip
+      trigger={
+        <button
+          type="button"
+          aria-label={t("agentPanel.toggleAgent")}
+          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+          className={cn(
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            className,
+          )}
+        >
+          <IconMessageDots size={20} aria-hidden />
+        </button>
+      }
+      content={t("agentPanel.toggleAgent")}
+      delayMs={200}
+    />
   );
 }

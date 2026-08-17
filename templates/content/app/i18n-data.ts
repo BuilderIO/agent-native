@@ -1,4 +1,5 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -14,10 +15,18 @@ const databaseMessages = {
   addDetailsToExistingItems: "Add details to the existing items",
   addedFieldsFromSource: "Added {{count}} fields from this source.",
   addedOneFieldFromSource: "Added 1 field from this source.",
+  addRequiredFields: "Add required fields",
+  publishingFieldsAdded: "Publishing fields added",
+  requiredBuilderFieldsReady:
+    "{{count}} required Builder fields are ready to edit in Content.",
+  requiredPublishingFields: "Required publishing fields",
+  requiredPublishingFieldsDescription:
+    "Add the metadata Builder requires before this collection can publish: {{fields}}.",
   addingDetails: "Adding details",
   addingDetailsMatchedOn: "Adding details matched on {{field}}.",
   addingItems: "Adding items",
   addingItemsAsRows: "Adding items as their own rows in this database.",
+  attachingReadOnly: "Attaching · read-only",
   addMoreItemsToThisList: "Add more items to this list",
   addProperty: "Add property",
   allAvailableDetailFieldsAlreadyVisible:
@@ -43,6 +52,11 @@ const databaseMessages = {
   builderBodySyncing: "Content is still syncing from Builder",
   builderBodySyncingDescription:
     "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
+  builderDraftConflictTitle: "Builder content arrived while you were editing",
+  builderDraftConflictDescription:
+    "Your local draft is preserved. Keep it to replace the newly synced body locally, or reload the Builder body.",
+  keepLocalDraft: "Keep local draft",
+  reloadBuilderBody: "Reload Builder body",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
   builderReviewShowingRows:
     "Showing {{shown}} of {{total}} Builder rows for this review.",
@@ -78,6 +92,9 @@ const databaseMessages = {
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
+  failedToRemoveEverySelectedRowFromDatabase:
+    "Failed to remove every selected row from the database",
+  failedToRemoveRowFromDatabase: "Failed to remove row from database",
   failedToDuplicateRow: "Failed to duplicate row",
   failedToMoveCard: "Failed to move card",
   failedToMoveRow: "Failed to move row",
@@ -86,6 +103,15 @@ const databaseMessages = {
   failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
+  removeSelectedRowsFromDatabaseQuestion: "Remove selected rows from database?",
+  removeSelectedRowsFromDatabaseDescription:
+    "The selected pages will remain available in Files and any other databases. Values belonging only to this database will be removed.",
+  removeFromDatabase: "Remove from database",
+  removeFromDatabaseQuestion: "Remove from database?",
+  removeFromDatabaseDescription:
+    "“{{title}}” will remain available in Files and any other databases. Values belonging only to this database will be removed.",
+  remove: "Remove",
+  removing: "Removing...",
   filter: "Filter",
   filterBy: "Filter by...",
   addAdvancedFilter: "Add advanced filter",
@@ -201,7 +227,7 @@ const databaseMessages = {
   collapseAllGroups: "Collapse all groups",
   color: "Color",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Connect your Builder account to browse its spaces and models.",
+    "Connect your Builder account (free tier available) to browse its spaces and models.",
   connectedSources: "Connected sources",
   couldntSyncRetry: "Couldn’t sync · Retry",
   databasePagePreview: "Database page preview",
@@ -298,6 +324,9 @@ const databaseMessages = {
   retry: "Retry",
   reviewBeforeTheyReachBuilder: "Review before they reach Builder.",
   reviewDiff: "Review diff",
+  reviewDiffDescription:
+    "Loads the complete content diff before anything reaches Builder.",
+  loadingCompleteBuilderDiff: "Loading the complete Builder diff…",
   sampleMatches: "Sample matches",
   showAll: "Show all",
   sortAscending: "Sort ascending",
@@ -358,6 +387,16 @@ const databaseMessages = {
   checksOnly: "checks only",
   close: "Close",
   closeBuilderUpdateReview: "Close Builder update review",
+  cancelPreparedUpdate: "Cancel prepared update",
+  cancelPreparedUpdateQuestion: "Cancel this prepared update?",
+  cancelPreparedUpdateDescription:
+    "This stops the local execution before dispatch and keeps the audit history. Nothing is sent to Builder.",
+  keepPreparedUpdate: "Keep prepared update",
+  cancellingPreparedUpdate: "Cancelling…",
+  preparedUpdateCancelled: "Prepared Builder update cancelled",
+  preparedUpdateAlreadyCancelled:
+    "Prepared Builder update was already cancelled",
+  cancelPreparedUpdateFailed: "Prepared Builder update was not cancelled",
   disabled: "disabled",
   draft: "Draft",
   enabled: "enabled",
@@ -386,6 +425,9 @@ const databaseMessages = {
   toValue: "To: {{value}}",
   unknown: "unknown",
   whatChanged: "What changed",
+  bodyChangeComparison: "Body change comparison",
+  currentBody: "Current body",
+  proposedBody: "Proposed body",
   whereItWillGo: "Where it will go",
   openAsFullPage: "Open as full page",
   pick: "& Pick",
@@ -427,6 +469,9 @@ const databaseMessages = {
   noPendingLocalBuilderChanges: "No pending local Builder changes yet.",
   needsAttention: "Needs attention",
   failedYouCanRetry: "Failed — you can retry",
+  reconciliationRequired: "Reconciliation required — don't retry",
+  builderPushAlreadyRunning:
+    "Builder push is already running. No second write was sent.",
   needsAFreshReview: "Needs a fresh review",
   working: "Working…",
   ready: "Ready",
@@ -466,6 +511,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "为现有项目添加详情",
     addedFieldsFromSource: "已从此来源添加 {{count}} 个字段。",
     addedOneFieldFromSource: "已从此来源添加 1 个字段。",
+    addRequiredFields: "添加必填字段",
+    publishingFieldsAdded: "发布字段已添加",
+    requiredBuilderFieldsReady:
+      "{{count}} 个 Builder 必填字段已可在 Content 中编辑。",
+    requiredPublishingFields: "必填发布字段",
+    requiredPublishingFieldsDescription:
+      "添加此集合发布前 Builder 所需的元数据：{{fields}}。",
     addingDetails: "正在添加详情",
     addingDetailsMatchedOn: "正在添加按 {{field}} 匹配的详情。",
     addingItems: "正在添加项目",
@@ -510,7 +562,19 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "从来源绑定字段",
     reviewBuilderUpdate: "审查 Builder 更新",
     closeBuilderUpdateReview: "关闭 Builder 更新审查",
+    cancelPreparedUpdate: "取消已准备的更新",
+    cancelPreparedUpdateQuestion: "取消此已准备的更新？",
+    cancelPreparedUpdateDescription:
+      "这会在发送前停止本地执行并保留审计历史。不会向 Builder 发送任何内容。",
+    keepPreparedUpdate: "保留已准备的更新",
+    cancellingPreparedUpdate: "正在取消…",
+    preparedUpdateCancelled: "已取消准备好的 Builder 更新",
+    preparedUpdateAlreadyCancelled: "准备好的 Builder 更新已被取消",
+    cancelPreparedUpdateFailed: "未能取消准备好的 Builder 更新",
     whatChanged: "更改内容",
+    bodyChangeComparison: "正文更改对比",
+    currentBody: "当前正文",
+    proposedBody: "建议正文",
     confirmUnpublish: "确认取消发布",
     builderBodyEditsNeedSaferPath:
       "Builder 正文编辑需要更安全的推送路径才能发送。",
@@ -521,6 +585,8 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "尚无待处理的本地 Builder 更改。",
     needsAttention: "需要处理",
     failedYouCanRetry: "失败 — 您可以重试",
+    reconciliationRequired: "需要核对 — 请勿重试",
+    builderPushAlreadyRunning: "Builder 推送已在运行。未发送第二次写入。",
     needsAFreshReview: "需要重新审查",
     working: "处理中…",
     checksOnly: "仅检查",
@@ -550,6 +616,17 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "删除行失败",
     failedToDeleteSelectedRows: "删除所选行失败",
     failedToDuplicateEverySelectedRow: "未能复制所有选中行",
+    failedToRemoveEverySelectedRowFromDatabase: "无法从数据库中移除所有选中行",
+    failedToRemoveRowFromDatabase: "无法从数据库中移除该行",
+    removeSelectedRowsFromDatabaseQuestion: "从数据库中移除选中行？",
+    removeSelectedRowsFromDatabaseDescription:
+      "所选页面仍可在“文件”和其他数据库中使用。仅属于此数据库的值将被移除。",
+    removeFromDatabase: "从数据库中移除",
+    removeFromDatabaseQuestion: "从数据库中移除？",
+    removeFromDatabaseDescription:
+      "“{{title}}”仍可在“文件”和其他数据库中使用。仅属于此数据库的值将被移除。",
+    remove: "移除",
+    removing: "正在移除...",
     failedToDuplicateRow: "复制行失败",
     failedToMoveCard: "移动卡片失败",
     failedToMoveRow: "移动行失败",
@@ -652,6 +729,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Añadir detalles a los elementos existentes",
     addedFieldsFromSource: "Se añadieron {{count}} campos de esta fuente.",
     addedOneFieldFromSource: "Se añadió 1 campo de esta fuente.",
+    addRequiredFields: "Añadir campos obligatorios",
+    publishingFieldsAdded: "Campos de publicación añadidos",
+    requiredBuilderFieldsReady:
+      "{{count}} campos obligatorios de Builder ya se pueden editar en Content.",
+    requiredPublishingFields: "Campos de publicación obligatorios",
+    requiredPublishingFieldsDescription:
+      "Añade los metadatos que Builder requiere para publicar esta colección: {{fields}}.",
     addingDetails: "Añadiendo detalles",
     addingDetailsMatchedOn: "Añadiendo detalles coincidentes por {{field}}.",
     addingItems: "Añadiendo elementos",
@@ -704,7 +788,21 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Vincular un campo de una fuente",
     reviewBuilderUpdate: "Revisar actualización de Builder",
     closeBuilderUpdateReview: "Cerrar revisión de actualización de Builder",
+    cancelPreparedUpdate: "Cancelar actualización preparada",
+    cancelPreparedUpdateQuestion: "¿Cancelar esta actualización preparada?",
+    cancelPreparedUpdateDescription:
+      "Esto detiene la ejecución local antes del envío y conserva el historial de auditoría. No se envía nada a Builder.",
+    keepPreparedUpdate: "Conservar actualización preparada",
+    cancellingPreparedUpdate: "Cancelando…",
+    preparedUpdateCancelled: "Actualización preparada de Builder cancelada",
+    preparedUpdateAlreadyCancelled:
+      "La actualización preparada de Builder ya estaba cancelada",
+    cancelPreparedUpdateFailed:
+      "No se canceló la actualización preparada de Builder",
     whatChanged: "Qué cambió",
+    bodyChangeComparison: "Comparación de cambios del cuerpo",
+    currentBody: "Cuerpo actual",
+    proposedBody: "Cuerpo propuesto",
     confirmUnpublish: "Confirmar retirada de publicación",
     builderBodyEditsNeedSaferPath:
       "Las ediciones del cuerpo en Builder necesitan una ruta de envío más segura antes de poder enviarse.",
@@ -717,6 +815,9 @@ const databaseMessagesByLocale = {
       "Aún no hay cambios locales de Builder pendientes.",
     needsAttention: "Necesita atención",
     failedYouCanRetry: "Falló — puedes reintentar",
+    reconciliationRequired: "Se requiere conciliación — no reintentes",
+    builderPushAlreadyRunning:
+      "El envío a Builder ya está en curso. No se envió una segunda escritura.",
     needsAFreshReview: "Necesita una nueva revisión",
     working: "Procesando…",
     checksOnly: "Solo comprobaciones",
@@ -750,6 +851,20 @@ const databaseMessagesByLocale = {
       "No se pudieron eliminar las filas seleccionadas",
     failedToDuplicateEverySelectedRow:
       "No se pudieron duplicar todas las filas seleccionadas",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "No se pudieron quitar todas las filas seleccionadas de la base de datos",
+    failedToRemoveRowFromDatabase:
+      "No se pudo quitar la fila de la base de datos",
+    removeSelectedRowsFromDatabaseQuestion:
+      "¿Quitar las filas seleccionadas de la base de datos?",
+    removeSelectedRowsFromDatabaseDescription:
+      "Las páginas seleccionadas seguirán disponibles en Archivos y en otras bases de datos. Se quitarán los valores que solo pertenecen a esta base de datos.",
+    removeFromDatabase: "Quitar de la base de datos",
+    removeFromDatabaseQuestion: "¿Quitar de la base de datos?",
+    removeFromDatabaseDescription:
+      "“{{title}}” seguirá disponible en Archivos y en otras bases de datos. Se quitarán los valores que solo pertenecen a esta base de datos.",
+    remove: "Quitar",
+    removing: "Quitando...",
     failedToDuplicateRow: "No se pudo duplicar la fila",
     failedToMoveCard: "No se pudo mover la tarjeta",
     failedToMoveRow: "No se pudo mover la fila",
@@ -854,6 +969,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Ajouter des détails aux éléments existants",
     addedFieldsFromSource: "{{count}} champs ajoutés depuis cette source.",
     addedOneFieldFromSource: "1 champ ajouté depuis cette source.",
+    addRequiredFields: "Ajouter les champs obligatoires",
+    publishingFieldsAdded: "Champs de publication ajoutés",
+    requiredBuilderFieldsReady:
+      "{{count}} champs Builder obligatoires peuvent maintenant être modifiés dans Content.",
+    requiredPublishingFields: "Champs de publication obligatoires",
+    requiredPublishingFieldsDescription:
+      "Ajoutez les métadonnées requises par Builder avant de publier cette collection : {{fields}}.",
     addingDetails: "Ajout de détails",
     addingDetailsMatchedOn: "Ajout de détails correspondant à {{field}}.",
     addingItems: "Ajout d’éléments",
@@ -907,7 +1029,21 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Lier un champ depuis une source",
     reviewBuilderUpdate: "Vérifier la mise à jour Builder",
     closeBuilderUpdateReview: "Fermer la révision de mise à jour Builder",
+    cancelPreparedUpdate: "Annuler la mise à jour préparée",
+    cancelPreparedUpdateQuestion: "Annuler cette mise à jour préparée ?",
+    cancelPreparedUpdateDescription:
+      "Cette action arrête l’exécution locale avant l’envoi et conserve l’historique d’audit. Rien n’est envoyé à Builder.",
+    keepPreparedUpdate: "Conserver la mise à jour préparée",
+    cancellingPreparedUpdate: "Annulation…",
+    preparedUpdateCancelled: "Mise à jour Builder préparée annulée",
+    preparedUpdateAlreadyCancelled:
+      "La mise à jour Builder préparée était déjà annulée",
+    cancelPreparedUpdateFailed:
+      "La mise à jour Builder préparée n’a pas été annulée",
     whatChanged: "Ce qui a changé",
+    bodyChangeComparison: "Comparaison des modifications du corps",
+    currentBody: "Corps actuel",
+    proposedBody: "Corps proposé",
     confirmUnpublish: "Confirmer la dépublication",
     builderBodyEditsNeedSaferPath:
       "Les modifications du corps dans Builder nécessitent un chemin d'envoi plus sûr avant de pouvoir être envoyées.",
@@ -921,6 +1057,9 @@ const databaseMessagesByLocale = {
       "Aucune modification Builder locale en attente pour l'instant.",
     needsAttention: "Nécessite une attention",
     failedYouCanRetry: "Échec — vous pouvez réessayer",
+    reconciliationRequired: "Rapprochement requis — ne réessayez pas",
+    builderPushAlreadyRunning:
+      "L’envoi vers Builder est déjà en cours. Aucune deuxième écriture n’a été envoyée.",
     needsAFreshReview: "Nécessite une nouvelle révision",
     working: "En cours…",
     checksOnly: "Vérifications uniquement",
@@ -953,6 +1092,20 @@ const databaseMessagesByLocale = {
       "Échec de la suppression des lignes sélectionnées",
     failedToDuplicateEverySelectedRow:
       "Impossible de dupliquer toutes les lignes sélectionnées",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "Impossible de retirer toutes les lignes sélectionnées de la base de données",
+    failedToRemoveRowFromDatabase:
+      "Impossible de retirer la ligne de la base de données",
+    removeSelectedRowsFromDatabaseQuestion:
+      "Retirer les lignes sélectionnées de la base de données ?",
+    removeSelectedRowsFromDatabaseDescription:
+      "Les pages sélectionnées resteront disponibles dans Fichiers et dans les autres bases de données. Les valeurs propres à cette base de données seront supprimées.",
+    removeFromDatabase: "Retirer de la base de données",
+    removeFromDatabaseQuestion: "Retirer de la base de données ?",
+    removeFromDatabaseDescription:
+      "« {{title}} » restera disponible dans Fichiers et dans les autres bases de données. Les valeurs propres à cette base de données seront supprimées.",
+    remove: "Retirer",
+    removing: "Suppression...",
     failedToDuplicateRow: "Échec de la duplication de la ligne",
     failedToMoveCard: "Échec du déplacement de la carte",
     failedToMoveRow: "Échec du déplacement de la ligne",
@@ -1056,6 +1209,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Details zu vorhandenen Elementen hinzufügen",
     addedFieldsFromSource: "{{count}} Felder aus dieser Quelle hinzugefügt.",
     addedOneFieldFromSource: "1 Feld aus dieser Quelle hinzugefügt.",
+    addRequiredFields: "Pflichtfelder hinzufügen",
+    publishingFieldsAdded: "Veröffentlichungsfelder hinzugefügt",
+    requiredBuilderFieldsReady:
+      "{{count}} Builder-Pflichtfelder können jetzt in Content bearbeitet werden.",
+    requiredPublishingFields: "Erforderliche Veröffentlichungsfelder",
+    requiredPublishingFieldsDescription:
+      "Fügen Sie die Metadaten hinzu, die Builder vor der Veröffentlichung dieser Sammlung benötigt: {{fields}}.",
     addingDetails: "Details werden hinzugefügt",
     addingDetailsMatchedOn: "Details werden anhand von {{field}} hinzugefügt.",
     addingItems: "Elemente werden hinzugefügt",
@@ -1109,7 +1269,21 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Ein Feld aus einer Quelle verknüpfen",
     reviewBuilderUpdate: "Builder-Update prüfen",
     closeBuilderUpdateReview: "Builder-Update-Prüfung schließen",
+    cancelPreparedUpdate: "Vorbereitetes Update abbrechen",
+    cancelPreparedUpdateQuestion: "Dieses vorbereitete Update abbrechen?",
+    cancelPreparedUpdateDescription:
+      "Dadurch wird die lokale Ausführung vor dem Senden gestoppt und der Prüfverlauf bleibt erhalten. Es wird nichts an Builder gesendet.",
+    keepPreparedUpdate: "Vorbereitetes Update behalten",
+    cancellingPreparedUpdate: "Wird abgebrochen…",
+    preparedUpdateCancelled: "Vorbereitetes Builder-Update abgebrochen",
+    preparedUpdateAlreadyCancelled:
+      "Das vorbereitete Builder-Update wurde bereits abgebrochen",
+    cancelPreparedUpdateFailed:
+      "Das vorbereitete Builder-Update wurde nicht abgebrochen",
     whatChanged: "Was sich geändert hat",
+    bodyChangeComparison: "Vergleich der Textänderung",
+    currentBody: "Aktueller Text",
+    proposedBody: "Vorgeschlagener Text",
     confirmUnpublish: "Zurückziehen bestätigen",
     builderBodyEditsNeedSaferPath:
       "Builder-Textänderungen benötigen einen sichereren Übertragungsweg, bevor sie gesendet werden können.",
@@ -1123,6 +1297,9 @@ const databaseMessagesByLocale = {
       "Noch keine ausstehenden lokalen Builder-Änderungen.",
     needsAttention: "Erfordert Aufmerksamkeit",
     failedYouCanRetry: "Fehlgeschlagen — du kannst es erneut versuchen",
+    reconciliationRequired: "Abgleich erforderlich — nicht erneut versuchen",
+    builderPushAlreadyRunning:
+      "Der Builder-Push läuft bereits. Es wurde kein zweiter Schreibvorgang gesendet.",
     needsAFreshReview: "Erfordert eine erneute Prüfung",
     working: "Wird ausgeführt…",
     checksOnly: "Nur Prüfungen",
@@ -1156,6 +1333,20 @@ const databaseMessagesByLocale = {
       "Ausgewählte Zeilen konnten nicht gelöscht werden",
     failedToDuplicateEverySelectedRow:
       "Nicht jede ausgewählte Zeile konnte dupliziert werden",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "Nicht alle ausgewählten Zeilen konnten aus der Datenbank entfernt werden",
+    failedToRemoveRowFromDatabase:
+      "Die Zeile konnte nicht aus der Datenbank entfernt werden",
+    removeSelectedRowsFromDatabaseQuestion:
+      "Ausgewählte Zeilen aus der Datenbank entfernen?",
+    removeSelectedRowsFromDatabaseDescription:
+      "Die ausgewählten Seiten bleiben unter Dateien und in anderen Datenbanken verfügbar. Werte, die nur zu dieser Datenbank gehören, werden entfernt.",
+    removeFromDatabase: "Aus Datenbank entfernen",
+    removeFromDatabaseQuestion: "Aus der Datenbank entfernen?",
+    removeFromDatabaseDescription:
+      "„{{title}}“ bleibt unter Dateien und in anderen Datenbanken verfügbar. Werte, die nur zu dieser Datenbank gehören, werden entfernt.",
+    remove: "Entfernen",
+    removing: "Wird entfernt...",
     failedToDuplicateRow: "Zeile konnte nicht dupliziert werden",
     failedToMoveCard: "Karte konnte nicht verschoben werden",
     failedToMoveRow: "Zeile konnte nicht verschoben werden",
@@ -1259,6 +1450,13 @@ const databaseMessagesByLocale = {
     addedFieldsFromSource:
       "このソースから {{count}} 個のフィールドを追加しました。",
     addedOneFieldFromSource: "このソースから 1 個のフィールドを追加しました。",
+    addRequiredFields: "必須フィールドを追加",
+    publishingFieldsAdded: "公開フィールドを追加しました",
+    requiredBuilderFieldsReady:
+      "{{count}} 個の Builder 必須フィールドを Content で編集できるようになりました。",
+    requiredPublishingFields: "公開に必要なフィールド",
+    requiredPublishingFieldsDescription:
+      "このコレクションを公開する前に Builder が必要とするメタデータを追加します: {{fields}}。",
     addingDetails: "詳細を追加中",
     addingDetailsMatchedOn: "{{field}} で一致した詳細を追加中。",
     addingItems: "アイテムを追加中",
@@ -1309,7 +1507,21 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "ソースからフィールドをバインド",
     reviewBuilderUpdate: "Builder の更新を確認",
     closeBuilderUpdateReview: "Builder 更新の確認を閉じる",
+    cancelPreparedUpdate: "準備済み更新をキャンセル",
+    cancelPreparedUpdateQuestion: "この準備済み更新をキャンセルしますか？",
+    cancelPreparedUpdateDescription:
+      "送信前にローカル実行を停止し、監査履歴は保持されます。Builder には何も送信されません。",
+    keepPreparedUpdate: "準備済み更新を保持",
+    cancellingPreparedUpdate: "キャンセル中…",
+    preparedUpdateCancelled: "準備済み Builder 更新をキャンセルしました",
+    preparedUpdateAlreadyCancelled:
+      "準備済み Builder 更新はすでにキャンセルされています",
+    cancelPreparedUpdateFailed:
+      "準備済み Builder 更新をキャンセルできませんでした",
     whatChanged: "変更内容",
+    bodyChangeComparison: "本文変更の比較",
+    currentBody: "現在の本文",
+    proposedBody: "変更後の本文",
     confirmUnpublish: "非公開を確認",
     builderBodyEditsNeedSaferPath:
       "Builder の本文編集は、送信する前により安全なプッシュ経路が必要です。",
@@ -1322,6 +1534,9 @@ const databaseMessagesByLocale = {
       "保留中のローカル Builder 変更はまだありません。",
     needsAttention: "対応が必要",
     failedYouCanRetry: "失敗しました — 再試行できます",
+    reconciliationRequired: "照合が必要です — 再試行しないでください",
+    builderPushAlreadyRunning:
+      "Builder へのプッシュはすでに実行中です。2 回目の書き込みは送信されませんでした。",
     needsAFreshReview: "再確認が必要",
     working: "処理中…",
     checksOnly: "チェックのみ",
@@ -1354,6 +1569,19 @@ const databaseMessagesByLocale = {
     failedToDeleteSelectedRows: "選択した行を削除できませんでした",
     failedToDuplicateEverySelectedRow:
       "選択したすべての行を複製できませんでした",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "選択したすべての行をデータベースから削除できませんでした",
+    failedToRemoveRowFromDatabase: "行をデータベースから削除できませんでした",
+    removeSelectedRowsFromDatabaseQuestion:
+      "選択した行をデータベースから削除しますか？",
+    removeSelectedRowsFromDatabaseDescription:
+      "選択したページは引き続きファイルや他のデータベースで利用できます。このデータベースにのみ属する値は削除されます。",
+    removeFromDatabase: "データベースから削除",
+    removeFromDatabaseQuestion: "データベースから削除しますか？",
+    removeFromDatabaseDescription:
+      "「{{title}}」は引き続きファイルや他のデータベースで利用できます。このデータベースにのみ属する値は削除されます。",
+    remove: "削除",
+    removing: "削除中...",
     failedToDuplicateRow: "行を複製できませんでした",
     failedToMoveCard: "カードを移動できませんでした",
     failedToMoveRow: "行を移動できませんでした",
@@ -1455,6 +1683,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "기존 항목에 세부 정보 추가",
     addedFieldsFromSource: "이 소스에서 필드 {{count}}개를 추가했습니다.",
     addedOneFieldFromSource: "이 소스에서 필드 1개를 추가했습니다.",
+    addRequiredFields: "필수 필드 추가",
+    publishingFieldsAdded: "게시 필드가 추가됨",
+    requiredBuilderFieldsReady:
+      "필수 Builder 필드 {{count}}개를 이제 Content에서 편집할 수 있습니다.",
+    requiredPublishingFields: "필수 게시 필드",
+    requiredPublishingFieldsDescription:
+      "이 컬렉션을 게시하기 전에 Builder에 필요한 메타데이터를 추가하세요: {{fields}}.",
     addingDetails: "세부 정보 추가 중",
     addingDetailsMatchedOn:
       "{{field}} 기준으로 일치한 세부 정보를 추가 중입니다.",
@@ -1506,7 +1741,20 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "소스에서 필드 바인딩",
     reviewBuilderUpdate: "Builder 업데이트 검토",
     closeBuilderUpdateReview: "Builder 업데이트 검토 닫기",
+    cancelPreparedUpdate: "준비된 업데이트 취소",
+    cancelPreparedUpdateQuestion: "이 준비된 업데이트를 취소할까요?",
+    cancelPreparedUpdateDescription:
+      "전송 전에 로컬 실행을 중지하고 감사 기록은 유지합니다. Builder에는 아무것도 전송되지 않습니다.",
+    keepPreparedUpdate: "준비된 업데이트 유지",
+    cancellingPreparedUpdate: "취소 중…",
+    preparedUpdateCancelled: "준비된 Builder 업데이트가 취소되었습니다",
+    preparedUpdateAlreadyCancelled:
+      "준비된 Builder 업데이트가 이미 취소되었습니다",
+    cancelPreparedUpdateFailed: "준비된 Builder 업데이트를 취소하지 못했습니다",
     whatChanged: "변경 내용",
+    bodyChangeComparison: "본문 변경 비교",
+    currentBody: "현재 본문",
+    proposedBody: "제안된 본문",
     confirmUnpublish: "게시 취소 확인",
     builderBodyEditsNeedSaferPath:
       "Builder 본문 편집은 전송하기 전에 더 안전한 푸시 경로가 필요합니다.",
@@ -1519,6 +1767,9 @@ const databaseMessagesByLocale = {
       "아직 대기 중인 로컬 Builder 변경 사항이 없습니다.",
     needsAttention: "주의 필요",
     failedYouCanRetry: "실패함 — 다시 시도할 수 있습니다",
+    reconciliationRequired: "조정 필요 — 다시 시도하지 마세요",
+    builderPushAlreadyRunning:
+      "Builder 푸시가 이미 실행 중입니다. 두 번째 쓰기는 전송되지 않았습니다.",
     needsAFreshReview: "새로운 검토 필요",
     working: "처리 중…",
     checksOnly: "검사만",
@@ -1549,6 +1800,19 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "행을 삭제하지 못했습니다",
     failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
     failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "선택한 모든 행을 데이터베이스에서 제거하지 못했습니다",
+    failedToRemoveRowFromDatabase: "행을 데이터베이스에서 제거하지 못했습니다",
+    removeSelectedRowsFromDatabaseQuestion:
+      "선택한 행을 데이터베이스에서 제거할까요?",
+    removeSelectedRowsFromDatabaseDescription:
+      "선택한 페이지는 파일 및 다른 데이터베이스에서 계속 사용할 수 있습니다. 이 데이터베이스에만 속한 값은 제거됩니다.",
+    removeFromDatabase: "데이터베이스에서 제거",
+    removeFromDatabaseQuestion: "데이터베이스에서 제거할까요?",
+    removeFromDatabaseDescription:
+      "“{{title}}”은(는) 파일 및 다른 데이터베이스에서 계속 사용할 수 있습니다. 이 데이터베이스에만 속한 값은 제거됩니다.",
+    remove: "제거",
+    removing: "제거 중...",
     failedToDuplicateRow: "행을 복제하지 못했습니다",
     failedToMoveCard: "카드를 이동하지 못했습니다",
     failedToMoveRow: "행을 이동하지 못했습니다",
@@ -1652,6 +1916,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Adicionar detalhes aos itens existentes",
     addedFieldsFromSource: "{{count}} campos adicionados desta fonte.",
     addedOneFieldFromSource: "1 campo adicionado desta fonte.",
+    addRequiredFields: "Adicionar campos obrigatórios",
+    publishingFieldsAdded: "Campos de publicação adicionados",
+    requiredBuilderFieldsReady:
+      "{{count}} campos obrigatórios do Builder já podem ser editados no Content.",
+    requiredPublishingFields: "Campos de publicação obrigatórios",
+    requiredPublishingFieldsDescription:
+      "Adicione os metadados exigidos pelo Builder antes de publicar esta coleção: {{fields}}.",
     addingDetails: "Adicionando detalhes",
     addingDetailsMatchedOn:
       "Adicionando detalhes correspondentes em {{field}}.",
@@ -1705,7 +1976,21 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Vincular um campo de uma fonte",
     reviewBuilderUpdate: "Revisar atualização do Builder",
     closeBuilderUpdateReview: "Fechar revisão de atualização do Builder",
+    cancelPreparedUpdate: "Cancelar atualização preparada",
+    cancelPreparedUpdateQuestion: "Cancelar esta atualização preparada?",
+    cancelPreparedUpdateDescription:
+      "Isso interrompe a execução local antes do envio e mantém o histórico de auditoria. Nada é enviado ao Builder.",
+    keepPreparedUpdate: "Manter atualização preparada",
+    cancellingPreparedUpdate: "Cancelando…",
+    preparedUpdateCancelled: "Atualização preparada do Builder cancelada",
+    preparedUpdateAlreadyCancelled:
+      "A atualização preparada do Builder já estava cancelada",
+    cancelPreparedUpdateFailed:
+      "A atualização preparada do Builder não foi cancelada",
     whatChanged: "O que mudou",
+    bodyChangeComparison: "Comparação da alteração do corpo",
+    currentBody: "Corpo atual",
+    proposedBody: "Corpo proposto",
     confirmUnpublish: "Confirmar cancelamento de publicação",
     builderBodyEditsNeedSaferPath:
       "As edições de corpo do Builder precisam de um caminho de envio mais seguro antes de poderem ser enviadas.",
@@ -1718,6 +2003,9 @@ const databaseMessagesByLocale = {
       "Ainda não há alterações locais do Builder pendentes.",
     needsAttention: "Precisa de atenção",
     failedYouCanRetry: "Falhou — você pode tentar novamente",
+    reconciliationRequired: "Reconciliação necessária — não tente novamente",
+    builderPushAlreadyRunning:
+      "O envio para o Builder já está em andamento. Nenhuma segunda gravação foi enviada.",
     needsAFreshReview: "Precisa de uma nova revisão",
     working: "Processando…",
     checksOnly: "Apenas verificações",
@@ -1749,6 +2037,20 @@ const databaseMessagesByLocale = {
     failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
     failedToDuplicateEverySelectedRow:
       "Falha ao duplicar todas as linhas selecionadas",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "Não foi possível remover todas as linhas selecionadas do banco de dados",
+    failedToRemoveRowFromDatabase:
+      "Não foi possível remover a linha do banco de dados",
+    removeSelectedRowsFromDatabaseQuestion:
+      "Remover as linhas selecionadas do banco de dados?",
+    removeSelectedRowsFromDatabaseDescription:
+      "As páginas selecionadas continuarão disponíveis em Arquivos e em outros bancos de dados. Os valores que pertencem somente a este banco de dados serão removidos.",
+    removeFromDatabase: "Remover do banco de dados",
+    removeFromDatabaseQuestion: "Remover do banco de dados?",
+    removeFromDatabaseDescription:
+      "“{{title}}” continuará disponível em Arquivos e em outros bancos de dados. Os valores que pertencem somente a este banco de dados serão removidos.",
+    remove: "Remover",
+    removing: "Removendo...",
     failedToDuplicateRow: "Falha ao duplicar linha",
     failedToMoveCard: "Falha ao mover cartão",
     failedToMoveRow: "Falha ao mover linha",
@@ -1851,6 +2153,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "मौजूदा आइटम में विवरण जोड़ें",
     addedFieldsFromSource: "इस स्रोत से {{count}} फ़ील्ड जोड़े गए।",
     addedOneFieldFromSource: "इस स्रोत से 1 फ़ील्ड जोड़ा गया।",
+    addRequiredFields: "ज़रूरी फ़ील्ड जोड़ें",
+    publishingFieldsAdded: "प्रकाशन फ़ील्ड जोड़े गए",
+    requiredBuilderFieldsReady:
+      "{{count}} ज़रूरी Builder फ़ील्ड अब Content में संपादन के लिए तैयार हैं।",
+    requiredPublishingFields: "ज़रूरी प्रकाशन फ़ील्ड",
+    requiredPublishingFieldsDescription:
+      "इस संग्रह को प्रकाशित करने से पहले Builder के लिए ज़रूरी मेटाडेटा जोड़ें: {{fields}}।",
     addingDetails: "विवरण जोड़े जा रहे हैं",
     addingDetailsMatchedOn: "{{field}} पर मिले विवरण जोड़े जा रहे हैं।",
     addingItems: "आइटम जोड़े जा रहे हैं",
@@ -1900,7 +2209,20 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "किसी स्रोत से एक फ़ील्ड बाँधें",
     reviewBuilderUpdate: "Builder अपडेट की समीक्षा करें",
     closeBuilderUpdateReview: "Builder अपडेट समीक्षा बंद करें",
+    cancelPreparedUpdate: "तैयार अपडेट रद्द करें",
+    cancelPreparedUpdateQuestion: "इस तैयार अपडेट को रद्द करें?",
+    cancelPreparedUpdateDescription:
+      "यह भेजने से पहले स्थानीय निष्पादन रोकता है और ऑडिट इतिहास सुरक्षित रखता है। Builder को कुछ नहीं भेजा जाता।",
+    keepPreparedUpdate: "तैयार अपडेट रखें",
+    cancellingPreparedUpdate: "रद्द किया जा रहा है…",
+    preparedUpdateCancelled: "तैयार Builder अपडेट रद्द किया गया",
+    preparedUpdateAlreadyCancelled:
+      "तैयार Builder अपडेट पहले ही रद्द किया जा चुका था",
+    cancelPreparedUpdateFailed: "तैयार Builder अपडेट रद्द नहीं हुआ",
     whatChanged: "क्या बदला",
+    bodyChangeComparison: "मुख्य पाठ के बदलाव की तुलना",
+    currentBody: "वर्तमान मुख्य पाठ",
+    proposedBody: "प्रस्तावित मुख्य पाठ",
     confirmUnpublish: "अप्रकाशित करने की पुष्टि करें",
     builderBodyEditsNeedSaferPath:
       "Builder बॉडी संपादनों को भेजे जाने से पहले एक सुरक्षित पुश पथ की आवश्यकता होती है।",
@@ -1912,6 +2234,9 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
     needsAttention: "ध्यान देने की आवश्यकता है",
     failedYouCanRetry: "विफल — आप पुनः प्रयास कर सकते हैं",
+    reconciliationRequired: "मिलान आवश्यक है — पुनः प्रयास न करें",
+    builderPushAlreadyRunning:
+      "Builder पुश पहले से चल रहा है। दूसरा लेखन नहीं भेजा गया।",
     needsAFreshReview: "एक नई समीक्षा की आवश्यकता है",
     working: "कार्य हो रहा है…",
     checksOnly: "केवल जाँच",
@@ -1942,6 +2267,18 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "पंक्ति हटाने में विफल",
     failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
     failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "डेटाबेस से सभी चुनी गई पंक्तियां नहीं हटाई जा सकीं",
+    failedToRemoveRowFromDatabase: "डेटाबेस से पंक्ति नहीं हटाई जा सकी",
+    removeSelectedRowsFromDatabaseQuestion: "चुनी गई पंक्तियां डेटाबेस से हटाएं?",
+    removeSelectedRowsFromDatabaseDescription:
+      "चुने गए पेज फ़ाइलें और अन्य डेटाबेस में उपलब्ध रहेंगे। केवल इस डेटाबेस से संबंधित मान हटा दिए जाएंगे।",
+    removeFromDatabase: "डेटाबेस से हटाएं",
+    removeFromDatabaseQuestion: "डेटाबेस से हटाएं?",
+    removeFromDatabaseDescription:
+      "“{{title}}” फ़ाइलें और अन्य डेटाबेस में उपलब्ध रहेगा। केवल इस डेटाबेस से संबंधित मान हटा दिए जाएंगे।",
+    remove: "हटाएं",
+    removing: "हटाया जा रहा है...",
     failedToDuplicateRow: "पंक्ति डुप्लिकेट करने में विफल",
     failedToMoveCard: "कार्ड ले जाने में विफल",
     failedToMoveRow: "पंक्ति ले जाने में विफल",
@@ -2041,6 +2378,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "إضافة تفاصيل إلى العناصر الحالية",
     addedFieldsFromSource: "تمت إضافة {{count}} حقول من هذا المصدر.",
     addedOneFieldFromSource: "تمت إضافة حقل واحد من هذا المصدر.",
+    addRequiredFields: "إضافة الحقول المطلوبة",
+    publishingFieldsAdded: "تمت إضافة حقول النشر",
+    requiredBuilderFieldsReady:
+      "أصبحت {{count}} من حقول Builder المطلوبة جاهزة للتحرير في Content.",
+    requiredPublishingFields: "حقول النشر المطلوبة",
+    requiredPublishingFieldsDescription:
+      "أضف البيانات الوصفية التي يتطلبها Builder قبل نشر هذه المجموعة: {{fields}}.",
     addingDetails: "إضافة تفاصيل",
     addingDetailsMatchedOn: "إضافة تفاصيل متطابقة على {{field}}.",
     addingItems: "إضافة عناصر",
@@ -2090,7 +2434,19 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "ربط حقل من مصدر",
     reviewBuilderUpdate: "مراجعة تحديث Builder",
     closeBuilderUpdateReview: "إغلاق مراجعة تحديث Builder",
+    cancelPreparedUpdate: "إلغاء التحديث المُعَد",
+    cancelPreparedUpdateQuestion: "هل تريد إلغاء هذا التحديث المُعَد؟",
+    cancelPreparedUpdateDescription:
+      "يؤدي هذا إلى إيقاف التنفيذ المحلي قبل الإرسال مع الاحتفاظ بسجل التدقيق. لن يُرسل شيء إلى Builder.",
+    keepPreparedUpdate: "الاحتفاظ بالتحديث المُعَد",
+    cancellingPreparedUpdate: "جارٍ الإلغاء…",
+    preparedUpdateCancelled: "تم إلغاء تحديث Builder المُعَد",
+    preparedUpdateAlreadyCancelled: "كان تحديث Builder المُعَد ملغى بالفعل",
+    cancelPreparedUpdateFailed: "لم يتم إلغاء تحديث Builder المُعَد",
     whatChanged: "ما الذي تغيّر",
+    bodyChangeComparison: "مقارنة تغيير المحتوى",
+    currentBody: "المحتوى الحالي",
+    proposedBody: "المحتوى المقترح",
     confirmUnpublish: "تأكيد إلغاء النشر",
     builderBodyEditsNeedSaferPath:
       "تتطلب تعديلات نص Builder مسار دفع أكثر أمانًا قبل أن يمكن إرسالها.",
@@ -2101,6 +2457,9 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "لا توجد تغييرات Builder محلية معلّقة بعد.",
     needsAttention: "يتطلب الانتباه",
     failedYouCanRetry: "فشل — يمكنك إعادة المحاولة",
+    reconciliationRequired: "المطابقة مطلوبة — لا تعد المحاولة",
+    builderPushAlreadyRunning:
+      "دفع Builder قيد التشغيل بالفعل. لم يتم إرسال كتابة ثانية.",
     needsAFreshReview: "يتطلب مراجعة جديدة",
     working: "جارٍ العمل…",
     checksOnly: "عمليات التحقق فقط",
@@ -2131,6 +2490,19 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "فشل حذف الصف",
     failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
     failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "تعذرت إزالة كل الصفوف المحددة من قاعدة البيانات",
+    failedToRemoveRowFromDatabase: "تعذرت إزالة الصف من قاعدة البيانات",
+    removeSelectedRowsFromDatabaseQuestion:
+      "هل تريد إزالة الصفوف المحددة من قاعدة البيانات؟",
+    removeSelectedRowsFromDatabaseDescription:
+      "ستظل الصفحات المحددة متاحة في الملفات وقواعد البيانات الأخرى. ستُزال القيم التي تخص قاعدة البيانات هذه فقط.",
+    removeFromDatabase: "إزالة من قاعدة البيانات",
+    removeFromDatabaseQuestion: "هل تريد الإزالة من قاعدة البيانات؟",
+    removeFromDatabaseDescription:
+      "سيظل “{{title}}” متاحا في الملفات وقواعد البيانات الأخرى. ستُزال القيم التي تخص قاعدة البيانات هذه فقط.",
+    remove: "إزالة",
+    removing: "جار الإزالة...",
     failedToDuplicateRow: "فشل تكرار الصف",
     failedToMoveCard: "فشل نقل البطاقة",
     failedToMoveRow: "فشل نقل الصف",
@@ -2210,17 +2582,26 @@ const editorPropertiesMessages = {
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",
+  connectASource: "Connect a source",
   addQuoted: 'Add "{{value}}"',
+  backToColumnMenu: "Back to sort & filter",
   cancel: "Cancel",
   check: "Check",
   checked: "Checked",
   cityVenueOrAddress: "City, venue, or address",
   clear: "Clear",
+  clearFilters_zero: "Clear filters",
+  clearFilters_one: "Clear filter",
+  clearFilters_two: "Clear filters",
+  clearFilters_few: "Clear filters",
+  clearFilters_many: "Clear filters",
+  clearFilters_other: "Clear filters",
   clearValue: "Clear value",
   color: "Color",
   computed: "Computed",
   createQuoted: "Create “{{value}}”",
   deleteProperty: "Delete property",
+  editField: "Edit field",
   deletePropertyDescription:
     'This removes "{{name}}" and its values from every document in this workspace.',
   deletePropertyDescriptionPrefix: 'This removes "',
@@ -2271,6 +2652,11 @@ const editorPropertiesMessages = {
   pasteFileOrMediaLink: "Paste file or media link",
   personOrEmail: "Person or email",
   propertyMenuFor: "Property menu for {{name}}",
+  description: "Description",
+  addPageDescription: "Add a description of this page…",
+  addDatabaseDescription: "Add a description of this database…",
+  addPropertyDescription: "Describe what belongs in this property…",
+  addOptionDescription: "When should this option be used?",
   propertyName: "Property name",
   readOnly: "Read-only",
   remove: "Remove",
@@ -2278,6 +2664,7 @@ const editorPropertiesMessages = {
   removeOption: "Remove option {{name}}",
   removePerson: "Remove {{name}}",
   renameOption: "Rename option {{name}}",
+  reorderOption: "Reorder option {{name}}",
   save: "Save",
   searchOrAddPerson: "Search or add person",
   searchOrCreateOption: "Search or create option",
@@ -2452,6 +2839,8 @@ const editorToolbarMessages = {
   failedToDisconnect: "Failed to disconnect.",
   failedToUpdateSharing: "Failed to update sharing",
   hideInSearch: "Hide in search",
+  info: "Info",
+  closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
   importingFromNotion: "Importing from Notion...",
@@ -2514,6 +2903,8 @@ const editorSlashMessages = {
   audio: "Audio",
   audioDescription: "Upload or embed audio",
   basicBlocks: "Basic blocks",
+  blockEquation: "Block equation",
+  blockEquationDescription: "Display a LaTeX equation on its own line",
   blocks: "Blocks",
   bulletedList: "Bulleted list",
   bulletedListDescription: "Unordered list",
@@ -2524,6 +2915,7 @@ const editorSlashMessages = {
   collapsibleBlockDescription: "Collapsible block",
   database: "Database",
   databaseDescription: "Inline database in this page",
+  cancelEquation: "Cancel",
   divider: "Divider",
   dividerDescription: "Horizontal rule",
   generate: "Generate",
@@ -2532,8 +2924,13 @@ const editorSlashMessages = {
   heading2Description: "Medium heading",
   heading3Description: "Small heading",
   heading4Description: "Subheading",
+  heading5Description: "Smaller heading",
+  heading6Description: "Smallest heading",
   image: "Image",
   imageDescription: "Upload or embed image",
+  inlineEquation: "Inline equation",
+  inlineEquationDescription: "Add a LaTeX equation within text",
+  insertEquation: "Insert",
   localComponents: "Local components",
   media: "Media",
   numberedList: "Numbered list",
@@ -2541,6 +2938,14 @@ const editorSlashMessages = {
   page: "Page",
   pageDescription: "Create a child page",
   pages: "Pages",
+  equationInputLabel: "LaTeX equation",
+  equationInsertFailed: "Could not insert the equation.",
+  equationNeedsRepair: "Fix the LaTeX to see a preview.",
+  equationPlaceholder: String.raw`Type LaTeX, for example \frac{a}{b}`,
+  equationPreview: "Preview",
+  equationPreviewEmpty: "Your equation will appear here.",
+  equationSubmitHint:
+    "Preview updates as you type. Press Cmd/Ctrl Enter to insert.",
   quote: "Quote",
   quoteDescription: "Block quote",
   table: "Table",
@@ -2557,15 +2962,21 @@ const editorSlashMessages = {
 };
 
 const localFilesMessages = {
+  interruptedPicker:
+    "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedElectron:
-    "Local folder sync is unavailable in this Electron browser. Use Agent Native Desktop or a browser with folder access.",
-  unsupportedBrowser: "Folder access is unavailable in this browser.",
+    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
+  unsupportedBrowser:
+    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   notSyncedYet: "Not synced yet",
   summaryCreated: "{{count}} created",
   summaryUpdated: "{{count}} updated",
   summaryUnchanged: "{{count}} unchanged",
   summarySkipped: "{{count}} skipped",
   summaryErrors: "{{count}} errors",
+  summaryConflicts: "{{count}} conflicts",
+  conflictNeedsReview:
+    "Content and the folder both changed; review is required.",
   pageTitle: "Local files",
   foldersRemembered: "Folders remembered",
   linkedCount: "{{count}} linked",
@@ -2629,6 +3040,7 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
     commandSearchDocuments: "Search documents",
@@ -2643,6 +3055,7 @@ const enUS = {
     commandLocalFilesHeading: "Local files",
     commandDatabaseResultDescription: "Open database page",
     commandAppearance: "Appearance",
+    openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
     metaTitle:
       "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
@@ -2656,7 +3069,13 @@ const enUS = {
   },
   navigation: {
     openSidebar: "Open sidebar",
+    agent: "Agent",
     settings: "Settings",
+  },
+  landing: {
+    previousPageUnavailable:
+      "Your previous page is no longer available, so we opened Welcome.",
+    saveFailed: "Your place could not be saved",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -2672,6 +3091,10 @@ const enUS = {
     metaTitle: "Settings - Content",
     title: "Settings",
     description: "Language and workspace preferences for Content.",
+    emailNotifications: "Email notifications",
+    emailNotificationsDescription:
+      "Get an email when someone comments on, replies in, or mentions you on your document.",
+    saveFailed: "Failed to save",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
@@ -2679,10 +3102,10 @@ const enUS = {
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage collaborators and shared document access.",
     openTeamSettings: "Open workspace access",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -2716,6 +3139,8 @@ const enUS = {
     heading2: "Heading 2",
     heading3: "Heading 3",
     heading4: "Heading 4",
+    heading5: "Heading 5",
+    heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
     pasteLink: "Paste link...",
@@ -2724,6 +3149,8 @@ const enUS = {
     searchLanguages: "Search languages...",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
+    blocksFieldRevisionConflict:
+      "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
     collabConnectingReadOnly:
@@ -2731,9 +3158,12 @@ const enUS = {
     liveDocumentSaveBeforeSyncFailed:
       "The live document could not be saved before syncing.",
     documentTitle: "Document title",
-    builderBodySyncing: "Content is still syncing from Builder",
+    builderBodySyncing: "This page's content is still syncing from Builder",
     builderBodySyncingDescription:
       "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
+    pageBodySyncing: "This page's content is still syncing",
+    pageBodySyncingDescription:
+      "Editing is paused until the page body finishes syncing, so existing content is not overwritten.",
     localFileSavedHistoryNotUpdated:
       "Local file saved, but history was not updated",
     reorderField: "Reorder {{name}}",
@@ -2741,6 +3171,7 @@ const enUS = {
     toggleField: "Toggle {{name}}",
     creatingDatabase: "Creating inline database...",
     databaseCreated: "Inline database created",
+    emptyBlockPlaceholder: "Press ‘/’ for commands",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
     failedToCreateDatabase: "Failed to create inline database",
@@ -2823,11 +3254,14 @@ const enUS = {
   },
   comments: {
     add: "Add a comment...",
+    title: "Comments",
+    empty: "No comments yet.",
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
+    unanchored: "Highlight unavailable",
     reply: "Reply...",
     reopen: "Reopen",
     agentRegardingText: 'Regarding this text: "{{text}}"',
@@ -2845,6 +3279,25 @@ const enUS = {
   localFiles: localFilesMessages,
   sidebar: {
     cannotReorderPages: "Cannot reorder pages",
+    pinned: "Pinned",
+    loadingPinned: "Loading pinned items…",
+    dragToReorder: "Drag to reorder {{label}}",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    moveToPosition: "Move to position",
+    positionNumber: "Position {{position}}",
+    failedSaveOrder: "Could not save order",
+    moreActionsFor: "More actions for {{label}}",
+    orderButton: "Order: {{order}}",
+    orderMode: {
+      custom: "Custom",
+      last_edited: "Last edited",
+      name: "Name",
+      created: "Created",
+    },
+    pinToSidebar: "Pin to sidebar",
+    unpinFromSidebar: "Unpin from sidebar",
+    addWorkspace: "Add workspace",
     addChild: "Add child",
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
@@ -2860,28 +3313,49 @@ const enUS = {
     database: "Database",
     databasePermanentlyDeleted: "Database permanently deleted",
     databaseRestored: "Database restored",
+    pagePermanentlyDeleted: "Page permanently deleted",
+    pageRestored: "Page restored",
     deleteDatabaseNamedPermanently: "Delete {{title}} permanently",
     deleteDatabasePermanentlyDescription:
       "This permanently deletes “{{title}}” and its pages. This cannot be undone.",
     deleteDatabasePermanentlyQuestion: "Delete database permanently?",
+    deletePageNamedPermanently: "Delete {{title}} permanently",
+    deletePagePermanentlyDescription:
+      "This permanently deletes “{{title}}” and its sub-pages. This cannot be undone.",
+    deletePagePermanentlyQuestion: "Delete page permanently?",
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create database",
     failedCreatePage: "Failed to create page",
+    failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete database",
+    failedPermanentDeletePage: "Failed to permanently delete page",
     failedMovePage: "Failed to move page",
+    failedUpdateFavorite: "Could not update pinned items",
+    removeFromFavorites: "Unpin from sidebar",
     failedRemoveLocalFiles: "Failed to remove local files",
     failedRestoreDatabase: "Failed to restore database",
+    failedRestorePage: "Failed to restore page",
+    failedSaveSidebarState: "Failed to save sidebar state",
     deletePageDescription:
-      "“{{title}}” and all its sub-pages will be permanently deleted. This cannot be undone.",
-    deletePageQuestion: "Delete page?",
+      "“{{title}}” and all its sub-pages will move to Trash. You can restore them later.",
+    deletePageQuestion: "Move page to Trash?",
     localFiles: "Local files",
+    localFolder: "Local folder",
+    files: "Files",
+    loadingFiles: "Loading files…",
     localFilesActions: "Local files actions",
     localFilesRemoved: "Local files removed",
     localFilesRemovedDescription: "{{count}} items removed",
     manageLocalFolders: "Manage folders",
     new: "New",
+    newDatabase: "New database",
     newPage: "New page",
+    newWorkspace: "New workspace",
+    newWorkspaceDescription:
+      "Create a private workspace with its own Files database.",
+    workspaceName: "Workspace name",
+    createWorkspace: "Create workspace",
     nextStep: "Next step",
     notionConfigureOAuthAuthorize:
       "Configure OAuth, then authorize your workspace.",
@@ -2912,6 +3386,7 @@ const enUS = {
       "Sync documents with your Notion workspace.",
     notionUploadCredentialsJson: "Upload credentials JSON",
     noFilesYet: "No files yet",
+    noWorkspaces: "No workspaces yet",
     noLocalFilesYet: "No local files yet",
     noOrganizationPagesYet: "No organization pages yet",
     noPagesFound: "No pages found",
@@ -2931,12 +3406,16 @@ const enUS = {
     removeLocalFilesQuestion: "Remove local files from sidebar?",
     restoreDatabase: "Restore",
     restoreDatabaseNamed: "Restore {{title}}",
+    restorePage: "Restore",
+    restorePageNamed: "Restore {{title}}",
     saving: "Saving...",
     sharedCopies: "Shared copies",
     synced: "Synced",
     trash: "Trash",
-    favorites: "Favorites",
+    trashEmpty: "Trash is empty",
+    favorites: "Pinned",
     untitled: "Untitled",
+    workspaces: "Workspaces",
   },
 };
 
@@ -3068,6 +3547,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "移除本地文件失败",
       failedPermanentDeleteDatabase: "永久删除数据库失败",
       failedRestoreDatabase: "恢复数据库失败",
+      failedSaveSidebarState: "保存侧边栏状态失败",
       localFilesActions: "本地文件操作",
       localFilesRemoved: "本地文件已移除",
       localFilesRemovedDescription: "已移除 {{count}} 个项目",
@@ -3367,6 +3847,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "No se pudo eliminar permanentemente la base de datos",
       failedRestoreDatabase: "No se pudo restaurar la base de datos",
+      failedSaveSidebarState:
+        "No se pudo guardar el estado de la barra lateral",
       localFilesActions: "Acciones de archivos locales",
       localFilesRemoved: "Archivos locales quitados",
       localFilesRemovedDescription: "{{count}} elementos quitados",
@@ -3430,6 +3912,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "移除本機檔案失敗",
       failedPermanentDeleteDatabase: "永久刪除資料庫失敗",
       failedRestoreDatabase: "還原資料庫失敗",
+      failedSaveSidebarState: "儲存側邊欄狀態失敗",
       localFilesActions: "本機檔案操作",
       localFilesRemoved: "已移除本機檔案",
       localFilesRemovedDescription: "已移除 {{count}} 個項目",
@@ -3463,6 +3946,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Échec de la suppression définitive de la base de données",
       failedRestoreDatabase: "Échec de la restauration de la base de données",
+      failedSaveSidebarState:
+        "Échec de l’enregistrement de l’état de la barre latérale",
       localFilesActions: "Actions des fichiers locaux",
       localFilesRemoved: "Fichiers locaux supprimés",
       localFilesRemovedDescription: "{{count}} éléments supprimés",
@@ -3496,6 +3981,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Datenbank konnte nicht endgültig gelöscht werden",
       failedRestoreDatabase: "Datenbank konnte nicht wiederhergestellt werden",
+      failedSaveSidebarState:
+        "Der Seitenleistenstatus konnte nicht gespeichert werden",
       localFilesActions: "Aktionen für lokale Dateien",
       localFilesRemoved: "Lokale Dateien entfernt",
       localFilesRemovedDescription: "{{count}} Elemente entfernt",
@@ -3528,6 +4015,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "ローカルファイルを削除できませんでした",
       failedPermanentDeleteDatabase: "データベースを完全に削除できませんでした",
       failedRestoreDatabase: "データベースを復元できませんでした",
+      failedSaveSidebarState: "サイドバーの状態を保存できませんでした",
       localFilesActions: "ローカルファイルの操作",
       localFilesRemoved: "ローカルファイルを削除しました",
       localFilesRemovedDescription: "{{count}} 件を削除しました",
@@ -3560,6 +4048,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "로컬 파일을 제거하지 못했습니다",
       failedPermanentDeleteDatabase: "데이터베이스를 영구 삭제하지 못했습니다",
       failedRestoreDatabase: "데이터베이스를 복원하지 못했습니다",
+      failedSaveSidebarState: "사이드바 상태를 저장하지 못했습니다",
       localFilesActions: "로컬 파일 작업",
       localFilesRemoved: "로컬 파일이 제거되었습니다",
       localFilesRemovedDescription: "{{count}}개 항목 제거됨",
@@ -3593,6 +4082,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Falha ao excluir banco de dados permanentemente",
       failedRestoreDatabase: "Falha ao restaurar banco de dados",
+      failedSaveSidebarState: "Falha ao salvar o estado da barra lateral",
       localFilesActions: "Ações de arquivos locais",
       localFilesRemoved: "Arquivos locais removidos",
       localFilesRemovedDescription: "{{count}} itens removidos",
@@ -3624,6 +4114,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "स्थानीय फ़ाइलें हटाई नहीं जा सकीं",
       failedPermanentDeleteDatabase: "डेटाबेस स्थायी रूप से हटाया नहीं जा सका",
       failedRestoreDatabase: "डेटाबेस बहाल नहीं हो सका",
+      failedSaveSidebarState: "साइडबार की स्थिति सहेजी नहीं जा सकी",
       localFilesActions: "स्थानीय फ़ाइल क्रियाएं",
       localFilesRemoved: "स्थानीय फ़ाइलें हटाई गईं",
       localFilesRemovedDescription: "{{count}} आइटम हटाए गए",
@@ -3664,6 +4155,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "هل تريد إزالة الملفات المحلية من الشريط الجانبي؟",
       failedPermanentDeleteDatabase: "فشل حذف قاعدة البيانات نهائيًا",
       failedRestoreDatabase: "فشلت استعادة قاعدة البيانات",
+      failedSaveSidebarState: "فشل حفظ حالة الشريط الجانبي",
       new: "جديد",
       page: "صفحة",
       restoreDatabase: "استعادة",
@@ -3675,9 +4167,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
 
 const localFilesMessagesByLocale = {
   "zh-CN": {
+    interruptedPicker:
+      "上次文件夹选择器未能完成，因此已在此浏览器配置文件中停用。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedElectron:
-      "此 Electron 浏览器不支持本地文件夹同步。请使用 Agent Native Desktop 或支持文件夹访问的浏览器。",
-    unsupportedBrowser: "此浏览器不支持文件夹访问。",
+      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
+    unsupportedBrowser:
+      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已创建 {{count}} 个",
     summaryUpdated: "已更新 {{count}} 个",
@@ -3720,10 +4215,12 @@ const localFilesMessagesByLocale = {
     removing: "正在移除...",
   },
   "es-ES": {
+    interruptedPicker:
+      "El selector de carpetas no terminó la última vez, por lo que se ha desactivado en este perfil del navegador. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedElectron:
-      "La sincronización de carpetas locales no está disponible en este navegador Electron. Usa Agent Native Desktop o un navegador con acceso a carpetas.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedBrowser:
-      "El acceso a carpetas no está disponible en este navegador.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     notSyncedYet: "Aún no sincronizado",
     summaryCreated: "{{count}} creados",
     summaryUpdated: "{{count}} actualizados",
@@ -3768,10 +4265,12 @@ const localFilesMessagesByLocale = {
     removing: "Quitando...",
   },
   "fr-FR": {
+    interruptedPicker:
+      "Le sélecteur de dossiers ne s’est pas terminé la dernière fois. Il a donc été désactivé dans ce profil de navigateur. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedElectron:
-      "La synchronisation des dossiers locaux n’est pas disponible dans ce navigateur Electron. Utilisez Agent Native Desktop ou un navigateur avec accès aux dossiers.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedBrowser:
-      "L’accès aux dossiers n’est pas disponible dans ce navigateur.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     notSyncedYet: "Pas encore synchronisé",
     summaryCreated: "{{count}} créés",
     summaryUpdated: "{{count}} mis à jour",
@@ -3817,9 +4316,12 @@ const localFilesMessagesByLocale = {
     removing: "Suppression...",
   },
   "de-DE": {
+    interruptedPicker:
+      "Die Ordnerauswahl wurde beim letzten Mal nicht abgeschlossen und ist daher in diesem Browserprofil deaktiviert. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedElectron:
-      "Die lokale Ordnersynchronisierung ist in diesem Electron-Browser nicht verfügbar. Verwende Agent Native Desktop oder einen Browser mit Ordnerzugriff.",
-    unsupportedBrowser: "Ordnerzugriff ist in diesem Browser nicht verfügbar.",
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
+    unsupportedBrowser:
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     notSyncedYet: "Noch nicht synchronisiert",
     summaryCreated: "{{count}} erstellt",
     summaryUpdated: "{{count}} aktualisiert",
@@ -3863,10 +4365,12 @@ const localFilesMessagesByLocale = {
     removing: "Wird entfernt...",
   },
   "ja-JP": {
+    interruptedPicker:
+      "前回フォルダーピッカーが完了しなかったため、このブラウザプロフィールでは無効になっています。Agent Native Desktop、Chrome、Edge、または別の Chromium ブラウザを使用してください。",
     unsupportedElectron:
-      "この Electron ブラウザーではローカルフォルダー同期を利用できません。Agent Native Desktop またはフォルダーアクセス対応ブラウザーを使用してください。",
+      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     unsupportedBrowser:
-      "このブラウザーではフォルダーアクセスを利用できません。",
+      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     notSyncedYet: "まだ同期されていません",
     summaryCreated: "{{count}} 件作成",
     summaryUpdated: "{{count}} 件更新",
@@ -3911,9 +4415,12 @@ const localFilesMessagesByLocale = {
     removing: "削除中...",
   },
   "ko-KR": {
+    interruptedPicker:
+      "지난번에 폴더 선택기가 완료되지 않아 이 브라우저 프로필에서 비활성화되었습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedElectron:
-      "이 Electron 브라우저에서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop 또는 폴더 접근을 지원하는 브라우저를 사용하세요.",
-    unsupportedBrowser: "이 브라우저에서는 폴더 접근을 사용할 수 없습니다.",
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
+    unsupportedBrowser:
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     notSyncedYet: "아직 동기화되지 않음",
     summaryCreated: "{{count}}개 생성됨",
     summaryUpdated: "{{count}}개 업데이트됨",
@@ -3958,10 +4465,12 @@ const localFilesMessagesByLocale = {
     removing: "제거 중...",
   },
   "pt-BR": {
+    interruptedPicker:
+      "O seletor de pastas não foi concluído da última vez, por isso foi desativado neste perfil do navegador. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedElectron:
-      "A sincronização de pastas locais não está disponível neste navegador Electron. Use o Agent Native Desktop ou um navegador com acesso a pastas.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedBrowser:
-      "O acesso a pastas não está disponível neste navegador.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     notSyncedYet: "Ainda não sincronizado",
     summaryCreated: "{{count}} criados",
     summaryUpdated: "{{count}} atualizados",
@@ -4006,9 +4515,12 @@ const localFilesMessagesByLocale = {
     removing: "Removendo...",
   },
   "hi-IN": {
+    interruptedPicker:
+      "पिछली बार फ़ोल्डर पिकर पूरा नहीं हुआ था, इसलिए इसे इस ब्राउज़र प्रोफ़ाइल में बंद कर दिया गया है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedElectron:
-      "इस Electron ब्राउज़र में स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop या फ़ोल्डर एक्सेस वाले ब्राउज़र का उपयोग करें।",
-    unsupportedBrowser: "इस ब्राउज़र में फ़ोल्डर एक्सेस उपलब्ध नहीं है।",
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
+    unsupportedBrowser:
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     notSyncedYet: "अभी सिंक नहीं हुआ",
     summaryCreated: "{{count}} बनाए गए",
     summaryUpdated: "{{count}} अपडेट किए गए",
@@ -4052,9 +4564,12 @@ const localFilesMessagesByLocale = {
     removing: "हटाया जा रहा है...",
   },
   "ar-SA": {
+    interruptedPicker:
+      "لم يكتمل منتقي المجلدات في المرة السابقة، لذلك تم تعطيله في ملف تعريف المتصفح هذا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedElectron:
-      "مزامنة المجلدات المحلية غير متاحة في متصفح Electron هذا. استخدم Agent Native Desktop أو متصفحا يدعم الوصول إلى المجلدات.",
-    unsupportedBrowser: "الوصول إلى المجلدات غير متاح في هذا المتصفح.",
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
+    unsupportedBrowser:
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     notSyncedYet: "لم تتم المزامنة بعد",
     summaryCreated: "تم إنشاء {{count}}",
     summaryUpdated: "تم تحديث {{count}}",
@@ -4199,6 +4714,8 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription: "在任何内容发送到 Builder 之前加载完整的内容差异。",
+    loadingCompleteBuilderDiff: "正在加载完整的 Builder 差异…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     saveForEveryone: "为所有人保存",
@@ -4313,6 +4830,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Carga la diferencia completa del contenido antes de enviar nada a Builder.",
+    loadingCompleteBuilderDiff: "Cargando la diferencia completa de Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4426,6 +4946,10 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Charge la comparaison complète du contenu avant tout envoi à Builder.",
+    loadingCompleteBuilderDiff:
+      "Chargement de la comparaison complète de Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4539,6 +5063,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Lädt den vollständigen Inhaltsvergleich, bevor etwas an Builder gesendet wird.",
+    loadingCompleteBuilderDiff: "Vollständiger Builder-Vergleich wird geladen…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4652,6 +5179,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Carrega a comparação completa do conteúdo antes de enviar algo ao Builder.",
+    loadingCompleteBuilderDiff: "Carregando a comparação completa do Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4765,6 +5295,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "يحمّل الفرق الكامل للمحتوى قبل إرسال أي شيء إلى Builder.",
+    loadingCompleteBuilderDiff: "جارٍ تحميل فرق Builder الكامل…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4873,6 +5406,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription:
+      "Builder に送信する前に、コンテンツの完全な差分を読み込みます。",
+    loadingCompleteBuilderDiff: "Builder の完全な差分を読み込んでいます…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     sortAscending: "升序排序",
@@ -4981,6 +5517,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription:
+      "Builder로 전송하기 전에 전체 콘텐츠 차이를 불러옵니다.",
+    loadingCompleteBuilderDiff: "전체 Builder 차이를 불러오는 중…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     sortAscending: "升序排序",
@@ -5093,6 +5632,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "दृश्य का नाम बदलें",
     reviewBeforeTheyReachBuilder: "Builder तक पहुंचने से पहले समीक्षा करें।",
     reviewDiff: "अंतर की समीक्षा करें",
+    reviewDiffDescription:
+      "Builder तक कुछ भी भेजने से पहले सामग्री का पूरा अंतर लोड करता है।",
+    loadingCompleteBuilderDiff: "Builder का पूरा अंतर लोड हो रहा है…",
     sampleMatches: "नमूना मिलान",
     showAll: "सभी दिखाएं",
     sortAscending: "आरोही क्रम में सॉर्ट करें",
@@ -5109,13 +5651,19 @@ const databaseExactEnglishMessagesByLocale = {
 const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
+    blocksFieldRevisionConflict:
+      "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
     collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
     liveDocumentSaveBeforeSyncFailed: "实时文档无法在同步前保存。",
     builderBodySyncing: "内容仍在从 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+    pageBodySyncing: "此页面的内容仍在同步",
+    pageBodySyncingDescription:
+      "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
     creatingDatabase: "正在创建内联数据库...",
     databaseCreated: "内联数据库已创建",
+    emptyBlockPlaceholder: "按“/”使用命令",
     describeWhatToGenerate: "描述要生成什么...",
     enterToSubmit: "输入提交",
     failedToCreateDatabase: "创建内联数据库失败",
@@ -5236,12 +5784,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "添加 {{name}} 链接",
       addPropertyPerson: "添加 {{name}} 人",
       addPropertyType: "添加 {{type}} 属性",
+      connectASource: "连接数据源",
       addQuoted: '添加"{{value}}"',
+      backToColumnMenu: "返回排序和筛选",
       cancel: "取消",
       check: "检查",
       checked: "已检查",
       cityVenueOrAddress: "城市、地点或地址",
       clear: "清除",
+      clearFilters_zero: "清除筛选器",
+      clearFilters_one: "清除筛选器",
+      clearFilters_two: "清除筛选器",
+      clearFilters_few: "清除筛选器",
+      clearFilters_many: "清除筛选器",
+      clearFilters_other: "清除筛选器",
       clearValue: "清晰的价值",
       color: "颜色",
       computed: "计算的",
@@ -5253,6 +5809,7 @@ const editorMessagesByLocale = {
       deletePropertyDescriptionSuffix: '"及其值。',
       deletePropertyQuestion: "删除属性？",
       duplicateProperty: "重复的属性",
+      editField: "编辑字段",
       editEndDate: "编辑 {{name}} 结束日期",
       editProperty: "编辑 {{name}}",
       editStartDate: "编辑 {{name}} 开始日期",
@@ -5296,6 +5853,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "粘贴文件或媒体链接",
       personOrEmail: "个人或电子邮件",
       propertyMenuFor: "{{name}} 的属性菜单",
+      description: "说明",
+      addPageDescription: "添加此页面的说明…",
+      addDatabaseDescription: "添加此数据库的说明…",
+      addPropertyDescription: "描述此属性中应包含的内容…",
+      addOptionDescription: "何时应使用此选项？",
       propertyName: "物业名称",
       readOnly: "只读",
       remove: "删除",
@@ -5303,6 +5865,7 @@ const editorMessagesByLocale = {
       removeOption: "删除选项 {{name}}",
       removePerson: "删除 {{name}}",
       renameOption: "重命名选项 {{name}}",
+      reorderOption: "重新排序选项 {{name}}",
       save: "保存",
       searchOrAddPerson: "搜索或添加人员",
       searchOrCreateOption: "搜索或创建选项",
@@ -5345,6 +5908,8 @@ const editorMessagesByLocale = {
       heading2Description: "中标题",
       heading3Description: "小标题",
       heading4Description: "副标题",
+      heading5Description: "较小标题",
+      heading6Description: "最小标题",
       image: "图片",
       imageDescription: "上传或嵌入图像",
       localComponents: "本地组件",
@@ -5435,6 +6000,8 @@ const editorMessagesByLocale = {
   },
   "es-ES": {
     noDocumentSelected: "Ningún documento seleccionado",
+    blocksFieldRevisionConflict:
+      "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
     collabConnectingReadOnly:
       "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
     liveDocumentSaveBeforeSyncFailed:
@@ -5442,8 +6009,12 @@ const editorMessagesByLocale = {
     builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
     builderBodySyncingDescription:
       "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+    pageBodySyncing: "El contenido de esta página aún se está sincronizando",
+    pageBodySyncingDescription:
+      "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
     creatingDatabase: "Creando base de datos integrada...",
     databaseCreated: "Base de datos integrada creada",
+    emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
     describeWhatToGenerate: "Describe qué generar...",
     enterToSubmit: "Entra para enviar",
     failedToCreateDatabase: "No se pudo crear la base de datos integrada",
@@ -5566,12 +6137,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "Agregar enlace {{name}}",
       addPropertyPerson: "Agregar persona {{name}}",
       addPropertyType: "Agregar propiedad {{type}}",
+      connectASource: "Conectar una fuente",
       addQuoted: 'Añadir "{{value}}"',
+      backToColumnMenu: "Volver a ordenar y filtrar",
       cancel: "Cancelar",
       check: "comprobar",
       checked: "Comprobado",
       cityVenueOrAddress: "Ciudad, lugar o dirección",
       clear: "Borrar",
+      clearFilters_zero: "Borrar filtros",
+      clearFilters_one: "Borrar filtro",
+      clearFilters_two: "Borrar filtros",
+      clearFilters_few: "Borrar filtros",
+      clearFilters_many: "Borrar filtros",
+      clearFilters_other: "Borrar filtros",
       clearValue: "Borrar valor",
       color: "Color [es-ES]",
       computed: "Calculado",
@@ -5584,6 +6163,7 @@ const editorMessagesByLocale = {
         '" y sus valores de todos los documentos de este espacio de trabajo.',
       deletePropertyQuestion: "¿Eliminar propiedad?",
       duplicateProperty: "Propiedad duplicada",
+      editField: "Editar campo",
       editEndDate: "Editar fecha de finalización de {{name}}",
       editProperty: "Editar {{name}}",
       editStartDate: "Editar fecha de inicio de {{name}}",
@@ -5627,6 +6207,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Pegar archivo o enlace multimedia",
       personOrEmail: "Persona o correo electrónico",
       propertyMenuFor: "Menú de propiedades para {{name}}",
+      description: "Descripción",
+      addPageDescription: "Añade una descripción de esta página…",
+      addDatabaseDescription: "Añade una descripción de esta base de datos…",
+      addPropertyDescription: "Describe qué corresponde a esta propiedad…",
+      addOptionDescription: "¿Cuándo debe usarse esta opción?",
       propertyName: "Nombre de la propiedad",
       readOnly: "Sólo lectura",
       remove: "Quitar",
@@ -5634,6 +6219,7 @@ const editorMessagesByLocale = {
       removeOption: "Eliminar opción {{name}}",
       removePerson: "Quitar {{name}}",
       renameOption: "Cambiar el nombre de la opción {{name}}",
+      reorderOption: "Reordenar opción {{name}}",
       save: "Guardar",
       searchOrAddPerson: "Buscar o agregar persona",
       searchOrCreateOption: "Opción de buscar o crear",
@@ -5676,6 +6262,8 @@ const editorMessagesByLocale = {
       heading2Description: "título medio",
       heading3Description: "título pequeño",
       heading4Description: "Subtítulo",
+      heading5Description: "Encabezado más pequeño",
+      heading6Description: "Encabezado mínimo",
       image: "Imagen",
       imageDescription: "Subir o insertar imagen",
       localComponents: "Componentes locales",
@@ -5774,6 +6362,8 @@ const editorMessagesByLocale = {
   },
   "fr-FR": {
     noDocumentSelected: "Aucun document sélectionné",
+    blocksFieldRevisionConflict:
+      "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
     collabConnectingReadOnly:
       "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
     liveDocumentSaveBeforeSyncFailed:
@@ -5782,8 +6372,13 @@ const editorMessagesByLocale = {
       "Le contenu est encore en cours de synchronisation depuis Builder",
     builderBodySyncingDescription:
       "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+    pageBodySyncing:
+      "Le contenu de cette page est encore en cours de synchronisation",
+    pageBodySyncingDescription:
+      "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
     creatingDatabase: "Création d'une base de données intégrée...",
     databaseCreated: "Base de données intégrée créée",
+    emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
     describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
     enterToSubmit: "Entrez pour soumettre",
     failedToCreateDatabase:
@@ -5908,12 +6503,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "Ajouter un lien {{name}}",
       addPropertyPerson: "Ajouter une personne {{name}}",
       addPropertyType: "Ajouter la propriété {{type}}",
+      connectASource: "Connecter une source",
       addQuoted: 'Ajouter "{{value}}"',
+      backToColumnMenu: "Retour au tri et au filtrage",
       cancel: "Annuler",
       check: "Vérifier",
       checked: "Vérifié",
       cityVenueOrAddress: "Ville, lieu ou adresse",
       clear: "Effacer",
+      clearFilters_zero: "Effacer les filtres",
+      clearFilters_one: "Effacer le filtre",
+      clearFilters_two: "Effacer les filtres",
+      clearFilters_few: "Effacer les filtres",
+      clearFilters_many: "Effacer les filtres",
+      clearFilters_other: "Effacer les filtres",
       clearValue: "Effacer la valeur",
       color: "Couleur",
       computed: "Calculé",
@@ -5926,6 +6529,7 @@ const editorMessagesByLocale = {
         " » et ses valeurs de chaque document de cet espace de travail.",
       deletePropertyQuestion: "Supprimer la propriété ?",
       duplicateProperty: "Propriété en double",
+      editField: "Modifier le champ",
       editEndDate: "Modifier la date de fin de {{name}}",
       editProperty: "Modifier {{name}}",
       editStartDate: "Modifier la date de début de {{name}}",
@@ -5969,6 +6573,12 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Coller un fichier ou un lien multimédia",
       personOrEmail: "Personne ou email",
       propertyMenuFor: "Menu Propriétés pour {{name}}",
+      description: "Description",
+      addPageDescription: "Ajoutez une description de cette page…",
+      addDatabaseDescription:
+        "Ajoutez une description de cette base de données…",
+      addPropertyDescription: "Décrivez ce qui appartient à cette propriété…",
+      addOptionDescription: "Quand cette option doit-elle être utilisée ?",
       propertyName: "Nom de la propriété",
       readOnly: "Lecture seule",
       remove: "Supprimer",
@@ -5976,6 +6586,7 @@ const editorMessagesByLocale = {
       removeOption: "Supprimer l'option {{name}}",
       removePerson: "Supprimer {{name}}",
       renameOption: "Renommer l'option {{name}}",
+      reorderOption: "Réorganiser l'option {{name}}",
       save: "Enregistrer",
       searchOrAddPerson: "Rechercher ou ajouter une personne",
       searchOrCreateOption: "Rechercher ou créer une option",
@@ -6018,6 +6629,8 @@ const editorMessagesByLocale = {
       heading2Description: "Titre moyen",
       heading3Description: "Petit titre",
       heading4Description: "Sous-titre",
+      heading5Description: "Titre plus petit",
+      heading6Description: "Titre le plus petit",
       image: "Images",
       imageDescription: "Télécharger ou intégrer une image",
       localComponents: "Composants locaux",
@@ -6116,6 +6729,8 @@ const editorMessagesByLocale = {
   },
   "de-DE": {
     noDocumentSelected: "Kein Dokument ausgewählt",
+    blocksFieldRevisionConflict:
+      "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
     collabConnectingReadOnly:
       "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
     liveDocumentSaveBeforeSyncFailed:
@@ -6123,8 +6738,12 @@ const editorMessagesByLocale = {
     builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
     builderBodySyncingDescription:
       "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+    pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
+    pageBodySyncingDescription:
+      "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
     creatingDatabase: "Inline-Datenbank wird erstellt...",
     databaseCreated: "Inline-Datenbank erstellt",
+    emptyBlockPlaceholder: "Drücke „/“ für Befehle",
     describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
     enterToSubmit: "Zum Absenden eintreten",
     failedToCreateDatabase: "Inline-Datenbank konnte nicht erstellt werden",
@@ -6250,12 +6869,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}}-Link hinzufügen",
       addPropertyPerson: "{{name}}-Person hinzufügen",
       addPropertyType: "{{type}}-Eigenschaft hinzufügen",
+      connectASource: "Datenquelle verbinden",
       addQuoted: '„{{value}}" hinzufügen',
+      backToColumnMenu: "Zurück zu Sortieren & Filtern",
       cancel: "Abbrechen",
       check: "Überprüfen",
       checked: "Geprüft",
       cityVenueOrAddress: "Stadt, Veranstaltungsort oder Adresse",
       clear: "Klar",
+      clearFilters_zero: "Filter löschen",
+      clearFilters_one: "Filter löschen",
+      clearFilters_two: "Filter löschen",
+      clearFilters_few: "Filter löschen",
+      clearFilters_many: "Filter löschen",
+      clearFilters_other: "Filter löschen",
       clearValue: "Klarer Wert",
       color: "Farbe",
       computed: "Berechnet",
@@ -6268,6 +6895,7 @@ const editorMessagesByLocale = {
         '" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
       deletePropertyQuestion: "Eigenschaft löschen?",
       duplicateProperty: "Doppelte Eigenschaft",
+      editField: "Feld bearbeiten",
       editEndDate: "{{name}}-Enddatum bearbeiten",
       editProperty: "Bearbeiten Sie {{name}}",
       editStartDate: "{{name}}-Startdatum bearbeiten",
@@ -6311,6 +6939,12 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Datei- oder Medienlink einfügen",
       personOrEmail: "Person oder E-Mail",
       propertyMenuFor: "Eigenschaftenmenü für {{name}}",
+      description: "Beschreibung",
+      addPageDescription: "Beschreibung dieser Seite hinzufügen…",
+      addDatabaseDescription: "Beschreibung dieser Datenbank hinzufügen…",
+      addPropertyDescription:
+        "Beschreiben Sie, was in diese Eigenschaft gehört…",
+      addOptionDescription: "Wann sollte diese Option verwendet werden?",
       propertyName: "Eigenschaftsname",
       readOnly: "Schreibgeschützt",
       remove: "Entfernen",
@@ -6318,6 +6952,7 @@ const editorMessagesByLocale = {
       removeOption: "Entfernen Sie die Option {{name}}",
       removePerson: "Entfernen Sie {{name}}",
       renameOption: "Benennen Sie die Option {{name}} um",
+      reorderOption: "Option {{name}} neu anordnen",
       save: "Speichern",
       searchOrAddPerson: "Person suchen oder hinzufügen",
       searchOrCreateOption: "Such- oder Erstellungsoption",
@@ -6360,6 +6995,8 @@ const editorMessagesByLocale = {
       heading2Description: "Mittlere Überschrift",
       heading3Description: "Kleine Überschrift",
       heading4Description: "Unterüberschrift",
+      heading5Description: "Kleinere Überschrift",
+      heading6Description: "Kleinste Überschrift",
       image: "Bild",
       imageDescription: "Bild hochladen oder einbetten",
       localComponents: "Lokale Komponenten",
@@ -6462,6 +7099,8 @@ const editorMessagesByLocale = {
   },
   "ja-JP": {
     noDocumentSelected: "ドキュメントが選択されていません",
+    blocksFieldRevisionConflict:
+      "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
     collabConnectingReadOnly:
       "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
     liveDocumentSaveBeforeSyncFailed:
@@ -6469,8 +7108,12 @@ const editorMessagesByLocale = {
     builderBodySyncing: "コンテンツはまだ Builder から同期中です",
     builderBodySyncingDescription:
       "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+    pageBodySyncing: "このページのコンテンツはまだ同期中です",
+    pageBodySyncingDescription:
+      "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
     creatingDatabase: "インラインデータベースを作成しています...",
     databaseCreated: "インラインデータベースが作成されました",
+    emptyBlockPlaceholder: "「/」でコマンドを表示",
     describeWhatToGenerate: "何を生成するかを説明します...",
     enterToSubmit: "入力して送信してください",
     failedToCreateDatabase: "インラインデータベースの作成に失敗しました",
@@ -6592,12 +7235,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}} リンクを追加",
       addPropertyPerson: "{{name}} 人を追加",
       addPropertyType: "{{type}}プロパティを追加",
+      connectASource: "ソースを接続",
       addQuoted: "「{{value}}」を追加",
+      backToColumnMenu: "並べ替えとフィルターに戻る",
       cancel: "キャンセル",
       check: "チェックする",
       checked: "チェック済み",
       cityVenueOrAddress: "都市、会場、または住所",
       clear: "クリア",
+      clearFilters_zero: "フィルターをクリア",
+      clearFilters_one: "フィルターをクリア",
+      clearFilters_two: "フィルターをクリア",
+      clearFilters_few: "フィルターをクリア",
+      clearFilters_many: "フィルターをクリア",
+      clearFilters_other: "フィルターをクリア",
       clearValue: "クリア値",
       color: "色",
       computed: "計算された",
@@ -6610,6 +7261,7 @@ const editorMessagesByLocale = {
       deletePropertyDescriptionSuffix: "」とその値が削除されます。",
       deletePropertyQuestion: "プロパティを削除しますか?",
       duplicateProperty: "重複したプロパティ",
+      editField: "フィールドを編集",
       editEndDate: "{{name}} の終了日を編集",
       editProperty: "{{name}}を編集",
       editStartDate: "{{name}} 開始日の編集",
@@ -6653,6 +7305,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "ファイルまたはメディアのリンクを貼り付けます",
       personOrEmail: "個人または電子メール",
       propertyMenuFor: "{{name}}のプロパティメニュー",
+      description: "説明",
+      addPageDescription: "このページの説明を追加…",
+      addDatabaseDescription: "このデータベースの説明を追加…",
+      addPropertyDescription: "このプロパティに入る内容を説明…",
+      addOptionDescription: "このオプションはいつ使いますか？",
       propertyName: "プロパティ名",
       readOnly: "読み取り専用",
       remove: "削除",
@@ -6660,6 +7317,7 @@ const editorMessagesByLocale = {
       removeOption: "オプション{{name}}を削除",
       removePerson: "{{name}} を削除します",
       renameOption: "オプション{{name}}の名前を変更します",
+      reorderOption: "オプション{{name}}を並べ替え",
       save: "保存",
       searchOrAddPerson: "人の検索または追加",
       searchOrCreateOption: "検索または作成オプション",
@@ -6702,6 +7360,8 @@ const editorMessagesByLocale = {
       heading2Description: "中見出し",
       heading3Description: "小見出し",
       heading4Description: "小見出し",
+      heading5Description: "より小さい見出し",
+      heading6Description: "最小の見出し",
       image: "画像",
       imageDescription: "画像をアップロードまたは埋め込む",
       localComponents: "ローカルコンポーネント",
@@ -6798,6 +7458,8 @@ const editorMessagesByLocale = {
   },
   "ko-KR": {
     noDocumentSelected: "선택한 문서가 없습니다.",
+    blocksFieldRevisionConflict:
+      "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
     collabConnectingReadOnly:
       "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
     liveDocumentSaveBeforeSyncFailed:
@@ -6805,8 +7467,12 @@ const editorMessagesByLocale = {
     builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
     builderBodySyncingDescription:
       "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+    pageBodySyncing: "이 페이지의 콘텐츠가 아직 동기화 중입니다",
+    pageBodySyncingDescription:
+      "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
     creatingDatabase: "인라인 데이터베이스 생성 중...",
     databaseCreated: "인라인 데이터베이스가 생성되었습니다.",
+    emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
     describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
     enterToSubmit: "제출하려면 입력하세요.",
     failedToCreateDatabase: "인라인 데이터베이스를 생성하지 못했습니다.",
@@ -6927,12 +7593,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}} 링크 추가",
       addPropertyPerson: "{{name}} 사람 추가",
       addPropertyType: "{{type}} 속성 추가",
+      connectASource: "소스 연결",
       addQuoted: '"{{value}}" 추가',
+      backToColumnMenu: "정렬 및 필터로 돌아가기",
       cancel: "취소",
       check: "확인",
       checked: "체크됨",
       cityVenueOrAddress: "도시, 장소 또는 주소",
       clear: "지우기",
+      clearFilters_zero: "필터 지우기",
+      clearFilters_one: "필터 지우기",
+      clearFilters_two: "필터 지우기",
+      clearFilters_few: "필터 지우기",
+      clearFilters_many: "필터 지우기",
+      clearFilters_other: "필터 지우기",
       clearValue: "명확한 가치",
       color: "색상",
       computed: "계산됨",
@@ -6945,6 +7619,7 @@ const editorMessagesByLocale = {
       deletePropertyDescriptionSuffix: '"와 해당 값이 제거됩니다.',
       deletePropertyQuestion: "속성을 삭제하시겠습니까?",
       duplicateProperty: "중복된 속성",
+      editField: "필드 편집",
       editEndDate: "{{name}} 종료일 수정",
       editProperty: "{{name}} 편집",
       editStartDate: "{{name}} 시작 날짜 편집",
@@ -6988,6 +7663,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "파일 또는 미디어 링크 붙여넣기",
       personOrEmail: "개인 또는 이메일",
       propertyMenuFor: "{{name}}의 속성 메뉴",
+      description: "설명",
+      addPageDescription: "이 페이지에 대한 설명 추가…",
+      addDatabaseDescription: "이 데이터베이스에 대한 설명 추가…",
+      addPropertyDescription: "이 속성에 들어갈 내용을 설명…",
+      addOptionDescription: "이 옵션은 언제 사용해야 하나요?",
       propertyName: "속성 이름",
       readOnly: "읽기 전용",
       remove: "제거",
@@ -6995,6 +7675,7 @@ const editorMessagesByLocale = {
       removeOption: "{{name}} 옵션 제거",
       removePerson: "{{name}} 제거",
       renameOption: "옵션 {{name}} 이름 바꾸기",
+      reorderOption: "옵션 {{name}} 순서 변경",
       save: "저장",
       searchOrAddPerson: "사람 검색 또는 추가",
       searchOrCreateOption: "검색 또는 생성 옵션",
@@ -7037,6 +7718,8 @@ const editorMessagesByLocale = {
       heading2Description: "중간 제목",
       heading3Description: "작은 제목",
       heading4Description: "소제목",
+      heading5Description: "더 작은 제목",
+      heading6Description: "가장 작은 제목",
       image: "이미지",
       imageDescription: "이미지 업로드 또는 삽입",
       localComponents: "로컬 구성요소",
@@ -7133,6 +7816,8 @@ const editorMessagesByLocale = {
   },
   "pt-BR": {
     noDocumentSelected: "Nenhum documento selecionado",
+    blocksFieldRevisionConflict:
+      "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
     collabConnectingReadOnly:
       "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
     liveDocumentSaveBeforeSyncFailed:
@@ -7140,8 +7825,12 @@ const editorMessagesByLocale = {
     builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
     builderBodySyncingDescription:
       "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+    pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
+    pageBodySyncingDescription:
+      "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
     creatingDatabase: "Criando banco de dados embutido...",
     databaseCreated: "Banco de dados embutido criado",
+    emptyBlockPlaceholder: "Pressione “/” para comandos",
     describeWhatToGenerate: "Descreva o que gerar...",
     enterToSubmit: "Entre para enviar",
     failedToCreateDatabase: "Falha ao criar banco de dados embutido",
@@ -7265,12 +7954,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "Adicionar link {{name}}",
       addPropertyPerson: "Adicionar pessoa {{name}}",
       addPropertyType: "Adicionar propriedade {{type}}",
+      connectASource: "Conectar uma fonte",
       addQuoted: 'Adicionar "{{value}}"',
+      backToColumnMenu: "Voltar para classificar e filtrar",
       cancel: "Cancelar",
       check: "Verifique",
       checked: "Verificado",
       cityVenueOrAddress: "Cidade, local ou endereço",
       clear: "Limpar",
+      clearFilters_zero: "Limpar filtros",
+      clearFilters_one: "Limpar filtro",
+      clearFilters_two: "Limpar filtros",
+      clearFilters_few: "Limpar filtros",
+      clearFilters_many: "Limpar filtros",
+      clearFilters_other: "Limpar filtros",
       clearValue: "Limpar valor",
       color: "Cor",
       computed: "Calculado",
@@ -7283,6 +7980,7 @@ const editorMessagesByLocale = {
         '" e seus valores de todos os documentos nesta área de trabalho.',
       deletePropertyQuestion: "Excluir propriedade?",
       duplicateProperty: "Propriedade duplicada",
+      editField: "Editar campo",
       editEndDate: "Editar data de término do {{name}}",
       editProperty: "Editar {{name}}",
       editStartDate: "Editar data de início do {{name}}",
@@ -7326,6 +8024,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Colar arquivo ou link de mídia",
       personOrEmail: "Pessoa ou e-mail",
       propertyMenuFor: "Menu de propriedades para {{name}}",
+      description: "Descrição",
+      addPageDescription: "Adicione uma descrição desta página…",
+      addDatabaseDescription: "Adicione uma descrição deste banco de dados…",
+      addPropertyDescription: "Descreva o que pertence a esta propriedade…",
+      addOptionDescription: "Quando esta opção deve ser usada?",
       propertyName: "Nome da propriedade",
       readOnly: "Somente leitura",
       remove: "Remover",
@@ -7333,6 +8036,7 @@ const editorMessagesByLocale = {
       removeOption: "Remover opção {{name}}",
       removePerson: "Remover {{name}}",
       renameOption: "Renomear opção {{name}}",
+      reorderOption: "Reordenar opção {{name}}",
       save: "Salvar",
       searchOrAddPerson: "Pesquise ou adicione pessoa",
       searchOrCreateOption: "Opção de pesquisar ou criar",
@@ -7375,6 +8079,8 @@ const editorMessagesByLocale = {
       heading2Description: "Título médio",
       heading3Description: "Título pequeno",
       heading4Description: "Subtítulo",
+      heading5Description: "Título menor",
+      heading6Description: "Título mínimo",
       image: "Imagem",
       imageDescription: "Carregar ou incorporar imagem",
       localComponents: "Componentes locais",
@@ -7474,6 +8180,8 @@ const editorMessagesByLocale = {
   },
   "hi-IN": {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
+    blocksFieldRevisionConflict:
+      "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
     collabConnectingReadOnly:
       "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
     liveDocumentSaveBeforeSyncFailed:
@@ -7481,8 +8189,12 @@ const editorMessagesByLocale = {
     builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
     builderBodySyncingDescription:
       "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+    pageBodySyncing: "इस पेज की सामग्री अभी भी सिंक हो रही है",
+    pageBodySyncingDescription:
+      "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
     creatingDatabase: "इनलाइन डेटाबेस बनाया जा रहा है...",
     databaseCreated: "इनलाइन डेटाबेस बनाया गया",
+    emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
     describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
     enterToSubmit: "सबमिट करने के लिए दर्ज करें",
     failedToCreateDatabase: "इनलाइन डेटाबेस बनाने में विफल",
@@ -7603,12 +8315,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}} लिंक जोड़ें",
       addPropertyPerson: "{{name}} व्यक्ति जोड़ें",
       addPropertyType: "{{type}} गुण जोड़ें",
+      connectASource: "स्रोत कनेक्ट करें",
       addQuoted: '"{{value}}" जोड़ें',
+      backToColumnMenu: "क्रमबद्ध करें और फ़िल्टर करें पर वापस जाएं",
       cancel: "रद्द करें",
       check: "जांचें",
       checked: "जाँच की गई",
       cityVenueOrAddress: "शहर, स्थान, या पता",
       clear: "स्पष्ट",
+      clearFilters_zero: "फ़िल्टर साफ़ करें",
+      clearFilters_one: "फ़िल्टर साफ़ करें",
+      clearFilters_two: "फ़िल्टर साफ़ करें",
+      clearFilters_few: "फ़िल्टर साफ़ करें",
+      clearFilters_many: "फ़िल्टर साफ़ करें",
+      clearFilters_other: "फ़िल्टर साफ़ करें",
       clearValue: "स्पष्ट मूल्य",
       color: "रंग",
       computed: "गणना की गई",
@@ -7620,6 +8340,7 @@ const editorMessagesByLocale = {
       deletePropertyDescriptionSuffix: '" और उसके मानों को हटा देता है।',
       deletePropertyQuestion: "संपत्ति हटाएं?",
       duplicateProperty: "डुप्लिकेट संपत्ति",
+      editField: "फ़ील्ड संपादित करें",
       editEndDate: "{{name}} समाप्ति तिथि संपादित करें",
       editProperty: "{{name}} संपादित करें",
       editStartDate: "{{name}} आरंभ दिनांक संपादित करें",
@@ -7663,6 +8384,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "फ़ाइल या मीडिया लिंक चिपकाएँ",
       personOrEmail: "व्यक्ति या ईमेल",
       propertyMenuFor: "{{name}} के लिए संपत्ति मेनू",
+      description: "विवरण",
+      addPageDescription: "इस पेज का विवरण जोड़ें…",
+      addDatabaseDescription: "इस डेटाबेस का विवरण जोड़ें…",
+      addPropertyDescription: "बताएं कि इस प्रॉपर्टी में क्या होना चाहिए…",
+      addOptionDescription: "इस विकल्प का उपयोग कब होना चाहिए?",
       propertyName: "संपत्ति का नाम",
       readOnly: "केवल पढ़ने योग्य",
       remove: "हटाओ",
@@ -7670,6 +8396,7 @@ const editorMessagesByLocale = {
       removeOption: "विकल्प {{name}} हटाएँ",
       removePerson: "{{name}} निकालें",
       renameOption: "विकल्प का नाम बदलें {{name}}",
+      reorderOption: "विकल्प {{name}} क्रम बदलें",
       save: "सहेजें",
       searchOrAddPerson: "व्यक्ति खोजें या जोड़ें",
       searchOrCreateOption: "विकल्प खोजें या बनाएं",
@@ -7712,6 +8439,8 @@ const editorMessagesByLocale = {
       heading2Description: "मध्यम शीर्षक",
       heading3Description: "छोटा शीर्षक",
       heading4Description: "उपशीर्षक",
+      heading5Description: "और छोटा शीर्षक",
+      heading6Description: "सबसे छोटा शीर्षक",
       image: "छवि",
       imageDescription: "छवि अपलोड या एम्बेड करें",
       localComponents: "स्थानीय घटक",
@@ -7805,14 +8534,20 @@ const editorMessagesByLocale = {
   },
   "ar-SA": {
     noDocumentSelected: "لم يتم تحديد أي مستند",
+    blocksFieldRevisionConflict:
+      "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",
     collabConnectingReadOnly:
       "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
     liveDocumentSaveBeforeSyncFailed: "تعذّر حفظ المستند المباشر قبل المزامنة.",
     builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
     builderBodySyncingDescription:
       "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+    pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
+    pageBodySyncingDescription:
+      "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
     creatingDatabase: "جارٍ إنشاء قاعدة بيانات مضمنة...",
     databaseCreated: "تم إنشاء قاعدة البيانات المضمنة",
+    emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
     describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
     enterToSubmit: "أدخل لتقديم",
     failedToCreateDatabase: "فشل في إنشاء قاعدة البيانات المضمنة",
@@ -7933,12 +8668,20 @@ const editorMessagesByLocale = {
       addPropertyLink: "أضف رابط {{name}}",
       addPropertyPerson: "إضافة شخص {{name}}",
       addPropertyType: "إضافة خاصية {{type}}",
+      connectASource: "توصيل مصدر",
       addQuoted: 'إضافة "{{value}}"',
+      backToColumnMenu: "العودة إلى الفرز والتصفية",
       cancel: "إلغاء",
       check: "تحقق",
       checked: "تم الفحص",
       cityVenueOrAddress: "المدينة أو المكان أو العنوان",
       clear: "واضح",
+      clearFilters_zero: "مسح الفلاتر",
+      clearFilters_one: "مسح الفلتر",
+      clearFilters_two: "مسح الفلترين",
+      clearFilters_few: "مسح الفلاتر",
+      clearFilters_many: "مسح الفلاتر",
+      clearFilters_other: "مسح الفلاتر",
       clearValue: "مسح القيمة",
       color: "اللون",
       computed: "محسوبة",
@@ -7951,6 +8694,7 @@ const editorMessagesByLocale = {
         '" وقيمه من كل مستند في مساحة العمل هذه.',
       deletePropertyQuestion: "هل تريد حذف الخاصية؟",
       duplicateProperty: "خاصية مكررة",
+      editField: "تحرير الحقل",
       editEndDate: "تحرير تاريخ انتهاء {{name}}",
       editProperty: "تحرير {{name}}",
       editStartDate: "تحرير تاريخ البدء {{name}}",
@@ -7994,6 +8738,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "الصق الملف أو رابط الوسائط",
       personOrEmail: "الشخص أو البريد الإلكتروني",
       propertyMenuFor: "قائمة الخصائص لـ {{name}}",
+      description: "الوصف",
+      addPageDescription: "أضف وصفًا لهذه الصفحة…",
+      addDatabaseDescription: "أضف وصفًا لقاعدة البيانات هذه…",
+      addPropertyDescription: "صف ما الذي ينتمي إلى هذه الخاصية…",
+      addOptionDescription: "متى يجب استخدام هذا الخيار؟",
       propertyName: "اسم العقار",
       readOnly: "للقراءة فقط",
       remove: "إزالة",
@@ -8001,6 +8750,7 @@ const editorMessagesByLocale = {
       removeOption: "إزالة الخيار {{name}}",
       removePerson: "إزالة {{name}}",
       renameOption: "إعادة تسمية الخيار {{name}}",
+      reorderOption: "إعادة ترتيب الخيار {{name}}",
       save: "حفظ",
       searchOrAddPerson: "بحث أو إضافة شخص",
       searchOrCreateOption: "خيار البحث أو الإنشاء",
@@ -8043,6 +8793,8 @@ const editorMessagesByLocale = {
       heading2Description: "عنوان متوسط",
       heading3Description: "عنوان صغير",
       heading4Description: "عنوان فرعي",
+      heading5Description: "عنوان أصغر",
+      heading6Description: "أصغر عنوان",
       image: "صورة",
       imageDescription: "تحميل أو تضمين الصورة",
       localComponents: "المكونات المحلية",
@@ -8259,11 +9011,76 @@ const contentReferenceMessagesByLocale = {
   },
 } satisfies Partial<Record<LocaleCode, typeof enUS.editor.reference>>;
 
+const commentMessagesByLocale = {
+  "zh-CN": { unanchored: "高亮不可用" },
+  "zh-TW": { unanchored: "無法使用醒目提示" },
+  "es-ES": { unanchored: "Resaltado no disponible" },
+  "fr-FR": { unanchored: "Surlignage indisponible" },
+  "de-DE": { unanchored: "Hervorhebung nicht verfügbar" },
+  "ja-JP": { unanchored: "ハイライトを利用できません" },
+  "ko-KR": { unanchored: "강조 표시를 사용할 수 없음" },
+  "pt-BR": { unanchored: "Destaque indisponível" },
+  "hi-IN": { unanchored: "हाइलाइट उपलब्ध नहीं है" },
+  "ar-SA": { unanchored: "التمييز غير متاح" },
+} satisfies Partial<Record<LocaleCode, Partial<typeof enUS.comments>>>;
+
+const landingMessagesByLocale = {
+  "zh-CN": {
+    previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
+    saveFailed: "无法保存您的位置",
+  },
+  "zh-TW": {
+    previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    saveFailed: "無法儲存您的位置",
+  },
+  "es-ES": {
+    previousPageUnavailable:
+      "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
+    saveFailed: "No se pudo guardar tu ubicación",
+  },
+  "fr-FR": {
+    previousPageUnavailable:
+      "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
+    saveFailed: "Votre emplacement n’a pas pu être enregistré",
+  },
+  "de-DE": {
+    previousPageUnavailable:
+      "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
+    saveFailed: "Deine Position konnte nicht gespeichert werden",
+  },
+  "ja-JP": {
+    previousPageUnavailable:
+      "前回のページを利用できないため、ようこそページを開きました。",
+    saveFailed: "現在位置を保存できませんでした",
+  },
+  "ko-KR": {
+    previousPageUnavailable:
+      "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
+    saveFailed: "현재 위치를 저장하지 못했습니다",
+  },
+  "pt-BR": {
+    previousPageUnavailable:
+      "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
+    saveFailed: "Não foi possível salvar sua localização",
+  },
+  "hi-IN": {
+    previousPageUnavailable:
+      "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
+    saveFailed: "आपकी जगह सेव नहीं की जा सकी",
+  },
+  "ar-SA": {
+    previousPageUnavailable:
+      "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
+    saveFailed: "تعذر حفظ موضعك",
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, typeof enUS.landing>;
+
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
+    landing: { ...enUS.landing, ...overrides.landing },
     team: { ...enUS.team, ...overrides.team },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
@@ -8292,6 +9109,10 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
   };
 }
 
@@ -8350,9 +9171,14 @@ function mergeMessagesForLocale(
       ...localeRawLiteralOverrides?.sidebar,
     },
   };
-  const base = mergeMessages(overrides);
+  const base = mergeMessages({
+    ...overrides,
+    creativeContext: creativeContextMessagesByLocale[locale],
+  });
   return {
     ...base,
+    comments: { ...base.comments, ...commentMessagesByLocale[locale] },
+    landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
     settings: { ...base.settings, ...rawLiteralOverrides.settings },
@@ -8397,6 +9223,11 @@ export const messagesByLocale = {
       builderBodySyncing: "内容仍在从 Builder 同步",
       builderBodySyncingDescription:
         "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+      builderDraftConflictTitle: "编辑期间收到了新的 Builder 内容",
+      builderDraftConflictDescription:
+        "你的本地草稿已保留。保留草稿可在本地替换新同步的正文，或重新加载 Builder 正文。",
+      keepLocalDraft: "保留本地草稿",
+      reloadBuilderBody: "重新加载 Builder 正文",
       builderReviewShowingRows:
         "此次审查显示 {{total}} 个 Builder 行中的 {{shown}} 个。",
       builderReviewShowMore: "显示更多",
@@ -8415,6 +9246,7 @@ export const messagesByLocale = {
       builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
       builderRowsFinishingUp: "Builder 行即将完成加载。",
       builderRowsLoadingBackground: "Builder 仍在后台加载行。",
+      attachingReadOnly: "正在附加 · 只读",
       builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
       opening: "正在打开...",
     },
@@ -8433,10 +9265,15 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "本地文件",
       commandDatabaseResultDescription: "打开数据库页面",
       commandAppearance: "外观",
+      openAgent: "打开代理",
       toggleTheme: "切换主题",
     },
     theme: { system: "系统主题", light: "浅色主题", dark: "深色主题" },
-    navigation: { openSidebar: "打开侧边栏", settings: "设置" },
+    navigation: {
+      openSidebar: "打开侧边栏",
+      agent: "代理",
+      settings: "设置",
+    },
     team: {
       metaTitle: "工作区访问 - Content",
       pageTitle: "工作区访问",
@@ -8449,16 +9286,19 @@ export const messagesByLocale = {
     settings: {
       title: "设置",
       description: "Content 的语言和工作区偏好设置。",
+      emailNotifications: "邮件通知",
+      emailNotificationsDescription:
+        "当有人评论你的文档、在讨论串中回复或提到你时，收到邮件通知。",
+      saveFailed: "保存失败",
       languageTitle: "语言",
       languageDescription: "选择界面语言。此偏好会保存到你的账户。",
       languageLabel: "界面语言",
       workspaceTitle: "工作区",
       workspaceDescription: "管理协作者和共享文档访问权限。",
       openTeamSettings: "打开工作区访问设置",
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
     },
     chat: {
       publicEmptyState: "向我询问有关此文档的任何问题",
@@ -8495,6 +9335,8 @@ export const messagesByLocale = {
       heading2: "标题 2",
       heading3: "标题 3",
       heading4: "标题 4",
+      heading5: "标题 5",
+      heading6: "标题 6",
       link: "链接",
       comment: "评论",
       pasteLink: "粘贴链接...",
@@ -8520,10 +9362,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "无法重新排序页面",
+      deletePagePermanentlyQuestion: "永久删除页面？",
+      loadingFiles: "正在加载文件…",
+      newDatabase: "新建数据库",
+      noWorkspaces: "还没有工作区",
       collapse: "折叠侧边栏",
       expand: "展开侧边栏",
       failedCreatePage: "创建页面失败",
       failedDeletePage: "删除页面失败",
+      failedPermanentDeletePage: "永久删除页面失败",
+      failedRestorePage: "恢复页面失败",
       failedMovePage: "移动页面失败",
       localFiles: "本地文件",
       newPage: "新页面",
@@ -8535,11 +9383,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "还没有共享副本",
       oneAffectedPageReadOnly: "受影响的页面之一是只读的。",
       organization: "组织",
+      pagePermanentlyDeleted: "页面已永久删除",
+      pageRestored: "页面已恢复",
       private: "私有",
       results: "结果",
       search: "搜索",
       searchPages: "搜索页面...",
       sharedCopies: "共享副本",
+      trashEmpty: "回收站为空",
       favorites: "收藏",
       untitled: "无标题",
     },
@@ -8559,6 +9410,12 @@ export const messagesByLocale = {
         "El contenido aún se está sincronizando desde Builder",
       builderBodySyncingDescription:
         "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+      builderDraftConflictTitle:
+        "El contenido de Builder llegó mientras editabas",
+      builderDraftConflictDescription:
+        "Tu borrador local se conserva. Consérvalo para reemplazar localmente el contenido recién sincronizado o vuelve a cargar el contenido de Builder.",
+      keepLocalDraft: "Conservar borrador local",
+      reloadBuilderBody: "Volver a cargar contenido de Builder",
       builderReviewShowingRows:
         "Mostrando {{shown}} de {{total}} filas de Builder para esta revisión.",
       builderReviewShowMore: "Mostrar más",
@@ -8579,6 +9436,7 @@ export const messagesByLocale = {
         "Las filas de Builder están terminando de cargarse.",
       builderRowsLoadingBackground:
         "Builder sigue cargando filas en segundo plano.",
+      attachingReadOnly: "Adjuntando · solo lectura",
       builderRowsLoadingHitSnag:
         "La carga de filas de Builder tuvo un problema.",
       opening: "Abriendo...",
@@ -8598,6 +9456,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Archivos locales",
       commandDatabaseResultDescription: "Abrir página de base de datos",
       commandAppearance: "Apariencia",
+      openAgent: "Abrir agente",
       toggleTheme: "Cambiar tema",
     },
     theme: {
@@ -8605,7 +9464,11 @@ export const messagesByLocale = {
       light: "Tema claro",
       dark: "Tema oscuro",
     },
-    navigation: { openSidebar: "Abrir barra lateral", settings: "Ajustes" },
+    navigation: {
+      openSidebar: "Abrir barra lateral",
+      agent: "Agente",
+      settings: "Ajustes",
+    },
     team: {
       metaTitle: "Acceso al espacio de trabajo - Content",
       pageTitle: "Acceso al espacio de trabajo",
@@ -8619,6 +9482,10 @@ export const messagesByLocale = {
     settings: {
       title: "Ajustes",
       description: "Preferencias de idioma y espacio de trabajo para Content.",
+      emailNotifications: "Notificaciones por correo",
+      emailNotificationsDescription:
+        "Recibe un correo cuando alguien comente, responda o te mencione en tu documento.",
+      saveFailed: "No se pudo guardar",
       languageTitle: "Idioma",
       languageDescription:
         "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
@@ -8627,10 +9494,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gestiona colaboradores y acceso a documentos compartidos.",
       openTeamSettings: "Abrir acceso al espacio de trabajo",
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
     },
     chat: {
       publicEmptyState: "Pregúntame cualquier cosa sobre este documento",
@@ -8668,6 +9535,8 @@ export const messagesByLocale = {
       heading2: "Encabezado 2",
       heading3: "Encabezado 3",
       heading4: "Encabezado 4",
+      heading5: "Encabezado 5",
+      heading6: "Encabezado 6",
       link: "Enlace",
       comment: "Comentario",
       pasteLink: "Pegar enlace...",
@@ -8694,10 +9563,17 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "No se pueden reordenar las páginas",
+      deletePagePermanentlyQuestion: "¿Eliminar la página permanentemente?",
+      loadingFiles: "Cargando archivos…",
+      newDatabase: "Nueva base de datos",
+      noWorkspaces: "Aún no hay espacios de trabajo",
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "No se pudo crear la página",
       failedDeletePage: "No se pudo eliminar la página",
+      failedPermanentDeletePage:
+        "No se pudo eliminar la página permanentemente",
+      failedRestorePage: "No se pudo restaurar la página",
       failedMovePage: "No se pudo mover la página",
       localFiles: "Archivos locales",
       newPage: "Nueva página",
@@ -8710,11 +9586,14 @@ export const messagesByLocale = {
       oneAffectedPageReadOnly:
         "Una de las páginas afectadas es de solo lectura.",
       organization: "Organización",
+      pagePermanentlyDeleted: "Página eliminada permanentemente",
+      pageRestored: "Página restaurada",
       private: "Privado",
       results: "Resultados",
       search: "Buscar",
       searchPages: "Buscar páginas...",
       sharedCopies: "Copias compartidas",
+      trashEmpty: "La papelera está vacía",
       favorites: "Favoritos",
       untitled: "Sin título",
     },
@@ -8734,6 +9613,12 @@ export const messagesByLocale = {
         "Le contenu est encore en cours de synchronisation depuis Builder",
       builderBodySyncingDescription:
         "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+      builderDraftConflictTitle:
+        "Le contenu Builder est arrivé pendant votre modification",
+      builderDraftConflictDescription:
+        "Votre brouillon local est conservé. Gardez-le pour remplacer localement le contenu récemment synchronisé, ou rechargez le contenu Builder.",
+      keepLocalDraft: "Garder le brouillon local",
+      reloadBuilderBody: "Recharger le contenu Builder",
       builderReviewShowingRows:
         "Affichage de {{shown}} lignes Builder sur {{total}} pour cette revue.",
       builderReviewShowMore: "Afficher plus",
@@ -8753,6 +9638,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
       builderRowsLoadingBackground:
         "Builder charge encore des lignes en arrière-plan.",
+      attachingReadOnly: "Ajout en cours · lecture seule",
       builderRowsLoadingHitSnag:
         "Le chargement des lignes Builder a rencontré un problème.",
       opening: "Ouverture...",
@@ -8773,6 +9659,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Fichiers locaux",
       commandDatabaseResultDescription: "Ouvrir la page de base de données",
       commandAppearance: "Apparence",
+      openAgent: "Ouvrir l’agent",
       toggleTheme: "Changer de thème",
     },
     theme: {
@@ -8782,6 +9669,7 @@ export const messagesByLocale = {
     },
     navigation: {
       openSidebar: "Ouvrir la barre latérale",
+      agent: "Agent",
       settings: "Paramètres",
     },
     team: {
@@ -8797,6 +9685,10 @@ export const messagesByLocale = {
     settings: {
       title: "Paramètres",
       description: "Préférences de langue et d’espace de travail pour Content.",
+      emailNotifications: "Notifications par e-mail",
+      emailNotificationsDescription:
+        "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
+      saveFailed: "Échec de l’enregistrement",
       languageTitle: "Langue",
       languageDescription:
         "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
@@ -8805,10 +9697,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gérez les collaborateurs et l’accès aux documents partagés.",
       openTeamSettings: "Ouvrir l’accès à l’espace de travail",
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
     },
     chat: {
       publicEmptyState: "Posez-moi une question sur ce document",
@@ -8846,6 +9738,8 @@ export const messagesByLocale = {
       heading2: "Titre 2",
       heading3: "Titre 3",
       heading4: "Titre 4",
+      heading5: "Titre 5",
+      heading6: "Titre 6",
       link: "Lien",
       comment: "Commentaire",
       pasteLink: "Coller le lien...",
@@ -8872,10 +9766,17 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Impossible de réordonner les pages",
+      deletePagePermanentlyQuestion: "Supprimer définitivement la page ?",
+      loadingFiles: "Chargement des fichiers…",
+      newDatabase: "Nouvelle base de données",
+      noWorkspaces: "Aucun espace de travail pour le moment",
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
       failedCreatePage: "Échec de la création de la page",
       failedDeletePage: "Échec de la suppression de la page",
+      failedPermanentDeletePage:
+        "Échec de la suppression définitive de la page",
+      failedRestorePage: "Échec de la restauration de la page",
       failedMovePage: "Échec du déplacement de la page",
       localFiles: "Fichiers locaux",
       newPage: "Nouvelle page",
@@ -8888,11 +9789,14 @@ export const messagesByLocale = {
       oneAffectedPageReadOnly:
         "L'une des pages concernées est en lecture seule.",
       organization: "Organisation",
+      pagePermanentlyDeleted: "Page supprimée définitivement",
+      pageRestored: "Page restaurée",
       private: "Privé",
       results: "Résultats",
       search: "Rechercher",
       searchPages: "Rechercher des pages...",
       sharedCopies: "Copies partagées",
+      trashEmpty: "La corbeille est vide",
       favorites: "Favoris",
       untitled: "Sans titre",
     },
@@ -8910,6 +9814,12 @@ export const messagesByLocale = {
       builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
       builderBodySyncingDescription:
         "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+      builderDraftConflictTitle:
+        "Während der Bearbeitung ist neuer Builder-Inhalt eingetroffen",
+      builderDraftConflictDescription:
+        "Ihr lokaler Entwurf bleibt erhalten. Behalten Sie ihn, um den neu synchronisierten Inhalt lokal zu ersetzen, oder laden Sie den Builder-Inhalt neu.",
+      keepLocalDraft: "Lokalen Entwurf behalten",
+      reloadBuilderBody: "Builder-Inhalt neu laden",
       builderReviewShowingRows:
         "Zeige {{shown}} von {{total}} Builder-Zeilen für diese Überprüfung.",
       builderReviewShowMore: "Mehr anzeigen",
@@ -8929,6 +9839,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
       builderRowsLoadingBackground:
         "Builder lädt weiterhin Zeilen im Hintergrund.",
+      attachingReadOnly: "Wird angehängt · schreibgeschützt",
       builderRowsLoadingHitSnag:
         "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
       opening: "Wird geöffnet...",
@@ -8949,6 +9860,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Lokale Dateien",
       commandDatabaseResultDescription: "Datenbankseite öffnen",
       commandAppearance: "Darstellung",
+      openAgent: "Agent öffnen",
       toggleTheme: "Theme wechseln",
     },
     theme: {
@@ -8958,6 +9870,7 @@ export const messagesByLocale = {
     },
     navigation: {
       openSidebar: "Seitenleiste öffnen",
+      agent: "Agent",
       settings: "Einstellungen",
     },
     team: {
@@ -8973,6 +9886,10 @@ export const messagesByLocale = {
     settings: {
       title: "Einstellungen",
       description: "Sprach- und Arbeitsbereichseinstellungen für Content.",
+      emailNotifications: "E-Mail-Benachrichtigungen",
+      emailNotificationsDescription:
+        "Erhalte eine E-Mail, wenn jemand dein Dokument kommentiert, antwortet oder dich erwähnt.",
+      saveFailed: "Speichern fehlgeschlagen",
       languageTitle: "Sprache",
       languageDescription:
         "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
@@ -8981,10 +9898,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Verwalte Mitwirkende und gemeinsamen Dokumentzugriff.",
       openTeamSettings: "Arbeitsbereichszugriff öffnen",
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
     },
     chat: {
       publicEmptyState: "Frag mich alles zu diesem Dokument",
@@ -9022,6 +9939,8 @@ export const messagesByLocale = {
       heading2: "Überschrift 2",
       heading3: "Überschrift 3",
       heading4: "Überschrift 4",
+      heading5: "Überschrift 5",
+      heading6: "Überschrift 6",
       link: "Link",
       comment: "Kommentar",
       pasteLink: "Link einfügen...",
@@ -9048,10 +9967,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Seiten können nicht neu angeordnet werden",
+      deletePagePermanentlyQuestion: "Seite dauerhaft löschen?",
+      loadingFiles: "Dateien werden geladen…",
+      newDatabase: "Neue Datenbank",
+      noWorkspaces: "Noch keine Arbeitsbereiche",
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
       failedCreatePage: "Seite konnte nicht erstellt werden",
       failedDeletePage: "Seite konnte nicht gelöscht werden",
+      failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
+      failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
       failedMovePage: "Seite konnte nicht verschoben werden",
       localFiles: "Lokale Dateien",
       newPage: "Neue Seite",
@@ -9064,11 +9989,14 @@ export const messagesByLocale = {
       oneAffectedPageReadOnly:
         "Eine der betroffenen Seiten ist schreibgeschützt.",
       organization: "Organisation",
+      pagePermanentlyDeleted: "Seite dauerhaft gelöscht",
+      pageRestored: "Seite wiederhergestellt",
       private: "Privat",
       results: "Ergebnisse",
       search: "Suchen",
       searchPages: "Seiten suchen...",
       sharedCopies: "Geteilte Kopien",
+      trashEmpty: "Papierkorb ist leer",
       favorites: "Favoriten",
       untitled: "Ohne Titel",
     },
@@ -9087,6 +10015,12 @@ export const messagesByLocale = {
       builderBodySyncing: "コンテンツはまだ Builder から同期中です",
       builderBodySyncingDescription:
         "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+      builderDraftConflictTitle:
+        "編集中に新しい Builder コンテンツが届きました",
+      builderDraftConflictDescription:
+        "ローカル下書きは保持されています。新しく同期された本文をローカルで置き換えるか、Builder 本文を再読み込みしてください。",
+      keepLocalDraft: "ローカル下書きを保持",
+      reloadBuilderBody: "Builder 本文を再読み込み",
       builderReviewShowingRows:
         "このレビューでは {{total}} 件中 {{shown}} 件の Builder 行を表示しています。",
       builderReviewShowMore: "さらに表示",
@@ -9106,6 +10040,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
       builderRowsLoadingBackground:
         "Builder はバックグラウンドで行を読み込み続けています。",
+      attachingReadOnly: "接続中 · 読み取り専用",
       builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
       opening: "開いています...",
     },
@@ -9125,6 +10060,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "ローカルファイル",
       commandDatabaseResultDescription: "データベースページを開く",
       commandAppearance: "外観",
+      openAgent: "エージェントを開く",
       toggleTheme: "テーマを切り替え",
     },
     theme: {
@@ -9132,7 +10068,11 @@ export const messagesByLocale = {
       light: "ライトテーマ",
       dark: "ダークテーマ",
     },
-    navigation: { openSidebar: "サイドバーを開く", settings: "設定" },
+    navigation: {
+      openSidebar: "サイドバーを開く",
+      agent: "エージェント",
+      settings: "設定",
+    },
     team: {
       metaTitle: "ワークスペースアクセス - Content",
       pageTitle: "ワークスペースアクセス",
@@ -9146,6 +10086,10 @@ export const messagesByLocale = {
     settings: {
       title: "設定",
       description: "Content の言語とワークスペース設定。",
+      emailNotifications: "メール通知",
+      emailNotificationsDescription:
+        "誰かがあなたのドキュメントにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
+      saveFailed: "保存に失敗しました",
       languageTitle: "言語",
       languageDescription:
         "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -9154,10 +10098,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "共同編集者と共有ドキュメントのアクセスを管理します。",
       openTeamSettings: "ワークスペースアクセスを開く",
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
     },
     chat: {
       publicEmptyState: "このドキュメントについて何でも聞いてください",
@@ -9195,6 +10139,8 @@ export const messagesByLocale = {
       heading2: "見出し 2",
       heading3: "見出し 3",
       heading4: "見出し 4",
+      heading5: "見出し 5",
+      heading6: "見出し 6",
       link: "リンク",
       comment: "コメント",
       pasteLink: "リンクを貼り付け...",
@@ -9221,10 +10167,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "ページを並べ替えられません",
+      deletePagePermanentlyQuestion: "ページを完全に削除しますか？",
+      loadingFiles: "ファイルを読み込んでいます…",
+      newDatabase: "新しいデータベース",
+      noWorkspaces: "ワークスペースはまだありません",
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
       failedCreatePage: "ページを作成できませんでした",
       failedDeletePage: "ページを削除できませんでした",
+      failedPermanentDeletePage: "ページを完全に削除できませんでした",
+      failedRestorePage: "ページを復元できませんでした",
       failedMovePage: "ページを移動できませんでした",
       localFiles: "ローカルファイル",
       newPage: "新しいページ",
@@ -9236,11 +10188,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "まだ共有コピーはありません",
       oneAffectedPageReadOnly: "影響を受けるページの 1 つは読み取り専用です。",
       organization: "組織",
+      pagePermanentlyDeleted: "ページを完全に削除しました",
+      pageRestored: "ページを復元しました",
       private: "非公開",
       results: "結果",
       search: "検索",
       searchPages: "ページを検索...",
       sharedCopies: "共有コピー",
+      trashEmpty: "ゴミ箱は空です",
       favorites: "お気に入り",
       untitled: "無題",
     },
@@ -9258,6 +10213,11 @@ export const messagesByLocale = {
       builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
       builderBodySyncingDescription:
         "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+      builderDraftConflictTitle: "편집 중 새 Builder 콘텐츠가 도착했습니다",
+      builderDraftConflictDescription:
+        "로컬 초안이 보존되었습니다. 새로 동기화된 본문을 로컬에서 대체하려면 초안을 유지하고, 아니면 Builder 본문을 다시 불러오세요.",
+      keepLocalDraft: "로컬 초안 유지",
+      reloadBuilderBody: "Builder 본문 다시 불러오기",
       builderReviewShowingRows:
         "이 검토에서 Builder 행 {{total}}개 중 {{shown}}개를 표시하고 있습니다.",
       builderReviewShowMore: "더 보기",
@@ -9277,6 +10237,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
       builderRowsLoadingBackground:
         "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
+      attachingReadOnly: "연결 중 · 읽기 전용",
       builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
       opening: "여는 중...",
     },
@@ -9295,10 +10256,15 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "로컬 파일",
       commandDatabaseResultDescription: "데이터베이스 페이지 열기",
       commandAppearance: "모양",
+      openAgent: "에이전트 열기",
       toggleTheme: "테마 전환",
     },
     theme: { system: "시스템 테마", light: "라이트 테마", dark: "다크 테마" },
-    navigation: { openSidebar: "사이드바 열기", settings: "설정" },
+    navigation: {
+      openSidebar: "사이드바 열기",
+      agent: "에이전트",
+      settings: "설정",
+    },
     team: {
       metaTitle: "워크스페이스 접근 - Content",
       pageTitle: "워크스페이스 접근",
@@ -9312,6 +10278,10 @@ export const messagesByLocale = {
     settings: {
       title: "설정",
       description: "Content의 언어 및 워크스페이스 환경설정입니다.",
+      emailNotifications: "이메일 알림",
+      emailNotificationsDescription:
+        "누군가 내 문서에 댓글을 달거나 답글을 남기거나 나를 멘션하면 이메일을 받습니다.",
+      saveFailed: "저장 실패",
       languageTitle: "언어",
       languageDescription:
         "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -9319,10 +10289,10 @@ export const messagesByLocale = {
       workspaceTitle: "워크스페이스",
       workspaceDescription: "공동 작업자와 공유 문서 접근 권한을 관리합니다.",
       openTeamSettings: "워크스페이스 접근 열기",
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
     },
     chat: {
       publicEmptyState: "이 문서에 대해 무엇이든 물어보세요",
@@ -9359,6 +10329,8 @@ export const messagesByLocale = {
       heading2: "제목 2",
       heading3: "제목 3",
       heading4: "제목 4",
+      heading5: "제목 5",
+      heading6: "제목 6",
       link: "링크",
       comment: "댓글",
       pasteLink: "링크 붙여넣기...",
@@ -9384,10 +10356,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "페이지 순서를 변경할 수 없습니다",
+      deletePagePermanentlyQuestion: "페이지를 영구적으로 삭제하시겠습니까?",
+      loadingFiles: "파일을 불러오는 중…",
+      newDatabase: "새 데이터베이스",
+      noWorkspaces: "아직 워크스페이스가 없습니다",
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
       failedCreatePage: "페이지를 만들지 못했습니다",
       failedDeletePage: "페이지를 삭제하지 못했습니다",
+      failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
+      failedRestorePage: "페이지를 복원하지 못했습니다",
       failedMovePage: "페이지를 이동하지 못했습니다",
       localFiles: "로컬 파일",
       newPage: "새 페이지",
@@ -9399,11 +10377,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "아직 공유 사본이 없습니다",
       oneAffectedPageReadOnly: "영향을 받는 페이지 중 하나가 읽기 전용입니다.",
       organization: "조직",
+      pagePermanentlyDeleted: "페이지가 영구적으로 삭제되었습니다",
+      pageRestored: "페이지가 복원되었습니다",
       private: "비공개",
       results: "결과",
       search: "검색",
       searchPages: "페이지 검색...",
       sharedCopies: "공유 사본",
+      trashEmpty: "휴지통이 비어 있습니다",
       favorites: "즐겨찾기",
       untitled: "제목 없음",
     },
@@ -9422,6 +10403,12 @@ export const messagesByLocale = {
       builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
       builderBodySyncingDescription:
         "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+      builderDraftConflictTitle:
+        "O conteúdo do Builder chegou enquanto você editava",
+      builderDraftConflictDescription:
+        "Seu rascunho local foi preservado. Mantenha-o para substituir localmente o conteúdo recém-sincronizado ou recarregue o conteúdo do Builder.",
+      keepLocalDraft: "Manter rascunho local",
+      reloadBuilderBody: "Recarregar conteúdo do Builder",
       builderReviewShowingRows:
         "Mostrando {{shown}} de {{total}} linhas do Builder para esta revisão.",
       builderReviewShowMore: "Mostrar mais",
@@ -9442,6 +10429,7 @@ export const messagesByLocale = {
         "As linhas do Builder estão terminando de carregar.",
       builderRowsLoadingBackground:
         "O Builder ainda está carregando linhas em segundo plano.",
+      attachingReadOnly: "Anexando · somente leitura",
       builderRowsLoadingHitSnag:
         "O carregamento de linhas do Builder encontrou um problema.",
       opening: "Abrindo...",
@@ -9462,6 +10450,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Arquivos locais",
       commandDatabaseResultDescription: "Abrir página do banco de dados",
       commandAppearance: "Aparência",
+      openAgent: "Abrir agente",
       toggleTheme: "Alternar tema",
     },
     theme: {
@@ -9471,6 +10460,7 @@ export const messagesByLocale = {
     },
     navigation: {
       openSidebar: "Abrir barra lateral",
+      agent: "Agente",
       settings: "Configurações",
     },
     team: {
@@ -9486,6 +10476,10 @@ export const messagesByLocale = {
     settings: {
       title: "Configurações",
       description: "Preferências de idioma e espaço de trabalho do Content.",
+      emailNotifications: "Notificações por e-mail",
+      emailNotificationsDescription:
+        "Receba um e-mail quando alguém comentar, responder ou mencionar você no seu documento.",
+      saveFailed: "Falha ao salvar",
       languageTitle: "Idioma",
       languageDescription:
         "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
@@ -9494,10 +10488,10 @@ export const messagesByLocale = {
       workspaceDescription:
         "Gerencie colaboradores e acesso a documentos compartilhados.",
       openTeamSettings: "Abrir acesso ao espaço de trabalho",
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
     },
     chat: {
       publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -9535,6 +10529,8 @@ export const messagesByLocale = {
       heading2: "Título 2",
       heading3: "Título 3",
       heading4: "Título 4",
+      heading5: "Título 5",
+      heading6: "Título 6",
       link: "Link",
       comment: "Comentário",
       pasteLink: "Cole o link...",
@@ -9561,10 +10557,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Não é possível reordenar páginas",
+      deletePagePermanentlyQuestion: "Excluir a página permanentemente?",
+      loadingFiles: "Carregando arquivos…",
+      newDatabase: "Novo banco de dados",
+      noWorkspaces: "Ainda não há espaços de trabalho",
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "Falha ao criar página",
       failedDeletePage: "Falha ao excluir página",
+      failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
+      failedRestorePage: "Falha ao restaurar a página",
       failedMovePage: "Falha ao mover página",
       localFiles: "Arquivos locais",
       newPage: "Nova página",
@@ -9576,11 +10578,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "Ainda não há cópias compartilhadas",
       oneAffectedPageReadOnly: "Uma das páginas afetadas é somente leitura.",
       organization: "Organização",
+      pagePermanentlyDeleted: "Página excluída permanentemente",
+      pageRestored: "Página restaurada",
       private: "Privado",
       results: "Resultados",
       search: "Buscar",
       searchPages: "Buscar páginas...",
       sharedCopies: "Cópias compartilhadas",
+      trashEmpty: "A lixeira está vazia",
       favorites: "Favoritos",
       untitled: "Sem título",
     },
@@ -9597,6 +10602,11 @@ export const messagesByLocale = {
       builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
       builderBodySyncingDescription:
         "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+      builderDraftConflictTitle: "आपके संपादन के दौरान नया Builder कंटेंट आया",
+      builderDraftConflictDescription:
+        "आपका स्थानीय ड्राफ्ट सुरक्षित है। नए सिंक किए गए मुख्य भाग को स्थानीय रूप से बदलने के लिए इसे रखें, या Builder का मुख्य भाग फिर से लोड करें।",
+      keepLocalDraft: "स्थानीय ड्राफ्ट रखें",
+      reloadBuilderBody: "Builder का मुख्य भाग फिर से लोड करें",
       builderReviewShowingRows:
         "इस समीक्षा के लिए {{total}} में से {{shown}} Builder पंक्तियाँ दिखाई जा रही हैं।",
       builderReviewShowMore: "और दिखाएँ",
@@ -9616,6 +10626,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
       builderRowsLoadingBackground:
         "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
+      attachingReadOnly: "संलग्न किया जा रहा है · केवल पढ़ने के लिए",
       builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
       opening: "खोला जा रहा है...",
     },
@@ -9634,10 +10645,15 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "स्थानीय फ़ाइलें",
       commandDatabaseResultDescription: "डेटाबेस पेज खोलें",
       commandAppearance: "रूप",
+      openAgent: "एजेंट खोलें",
       toggleTheme: "थीम बदलें",
     },
     theme: { system: "सिस्टम थीम", light: "लाइट थीम", dark: "डार्क थीम" },
-    navigation: { openSidebar: "साइडबार खोलें", settings: "सेटिंग्स" },
+    navigation: {
+      openSidebar: "साइडबार खोलें",
+      agent: "एजेंट",
+      settings: "सेटिंग्स",
+    },
     team: {
       metaTitle: "कार्यस्थान पहुंच - Content",
       pageTitle: "कार्यस्थान पहुंच",
@@ -9651,16 +10667,20 @@ export const messagesByLocale = {
     settings: {
       title: "सेटिंग्स",
       description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
+      emailNotifications: "ईमेल सूचनाएँ",
+      emailNotificationsDescription:
+        "जब कोई आपके दस्तावेज़ पर टिप्पणी करे, जवाब दे या आपका उल्लेख करे तो ईमेल पाएँ।",
+      saveFailed: "सहेजने में विफल",
       languageTitle: "भाषा",
       languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
       languageLabel: "इंटरफ़ेस भाषा",
       workspaceTitle: "कार्यस्थान",
       workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
       openTeamSettings: "कार्यस्थान पहुंच खोलें",
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
     },
     chat: {
       publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -9697,6 +10717,8 @@ export const messagesByLocale = {
       heading2: "शीर्षक 2",
       heading3: "शीर्षक 3",
       heading4: "शीर्षक 4",
+      heading5: "शीर्षक 5",
+      heading6: "शीर्षक 6",
       link: "लिंक",
       comment: "टिप्पणी",
       pasteLink: "लिंक चिपकाएं...",
@@ -9722,10 +10744,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "पेजों को फिर से क्रमबद्ध नहीं किया जा सकता",
+      deletePagePermanentlyQuestion: "पेज को स्थायी रूप से हटाएं?",
+      loadingFiles: "फ़ाइलें लोड हो रही हैं…",
+      newDatabase: "नया डेटाबेस",
+      noWorkspaces: "अभी कोई कार्यस्थान नहीं है",
       collapse: "साइडबार संकुचित करें",
       expand: "साइडबार फैलाएं",
       failedCreatePage: "पेज नहीं बन सका",
       failedDeletePage: "पेज हटाया नहीं जा सका",
+      failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
+      failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",
       failedMovePage: "पेज स्थानांतरित नहीं हो सका",
       localFiles: "स्थानीय फ़ाइलें",
       newPage: "नया पेज",
@@ -9737,11 +10765,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "अभी कोई साझा कॉपी नहीं है",
       oneAffectedPageReadOnly: "प्रभावित पेजों में से एक केवल-पढ़ने योग्य है।",
       organization: "संगठन",
+      pagePermanentlyDeleted: "पेज स्थायी रूप से हटा दिया गया",
+      pageRestored: "पेज पुनर्स्थापित किया गया",
       private: "निजी",
       results: "परिणाम",
       search: "खोजें",
       searchPages: "पेज खोजें...",
       sharedCopies: "साझा कॉपियां",
+      trashEmpty: "ट्रैश खाली है",
       favorites: "पसंदीदा",
       untitled: "शीर्षकहीन",
     },
@@ -9758,6 +10789,11 @@ export const messagesByLocale = {
       builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
       builderBodySyncingDescription:
         "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+      builderDraftConflictTitle: "وصل محتوى Builder جديد أثناء التحرير",
+      builderDraftConflictDescription:
+        "تم الاحتفاظ بالمسودة المحلية. احتفظ بها لاستبدال النص المتزامن حديثًا محليًا، أو أعد تحميل نص Builder.",
+      keepLocalDraft: "الاحتفاظ بالمسودة المحلية",
+      reloadBuilderBody: "إعادة تحميل نص Builder",
       builderReviewShowingRows:
         "يتم عرض {{shown}} من {{total}} صفوف Builder لهذه المراجعة.",
       builderReviewShowMore: "عرض المزيد",
@@ -9776,6 +10812,7 @@ export const messagesByLocale = {
       builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
       builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
       builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
+      attachingReadOnly: "جارٍ الإرفاق · للقراءة فقط",
       builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
       opening: "جارٍ الفتح...",
     },
@@ -9794,6 +10831,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "الملفات المحلية",
       commandDatabaseResultDescription: "فتح صفحة قاعدة البيانات",
       commandAppearance: "المظهر",
+      openAgent: "فتح الوكيل",
       toggleTheme: "تبديل السمة",
     },
     theme: {
@@ -9801,7 +10839,11 @@ export const messagesByLocale = {
       light: "السمة الفاتحة",
       dark: "السمة الداكنة",
     },
-    navigation: { openSidebar: "فتح الشريط الجانبي", settings: "الإعدادات" },
+    navigation: {
+      openSidebar: "فتح الشريط الجانبي",
+      agent: "الوكيل",
+      settings: "الإعدادات",
+    },
     team: {
       metaTitle: "الوصول إلى مساحة العمل - Content",
       pageTitle: "الوصول إلى مساحة العمل",
@@ -9815,16 +10857,20 @@ export const messagesByLocale = {
     settings: {
       title: "الإعدادات",
       description: "تفضيلات اللغة ومساحة العمل في Content.",
+      emailNotifications: "إشعارات البريد الإلكتروني",
+      emailNotificationsDescription:
+        "احصل على بريد إلكتروني عندما يعلّق شخص على مستندك أو يرد أو يذكرك.",
+      saveFailed: "فشل الحفظ",
       languageTitle: "اللغة",
       languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
       languageLabel: "لغة الواجهة",
       workspaceTitle: "مساحة العمل",
       workspaceDescription: "إدارة المتعاونين ووصول المستندات المشتركة.",
       openTeamSettings: "فتح وصول مساحة العمل",
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
     },
     chat: {
       publicEmptyState: "اسألني أي شيء عن هذا المستند",
@@ -9861,6 +10907,8 @@ export const messagesByLocale = {
       heading2: "عنوان 2",
       heading3: "عنوان 3",
       heading4: "عنوان 4",
+      heading5: "عنوان 5",
+      heading6: "عنوان 6",
       link: "رابط",
       comment: "تعليق",
       pasteLink: "الصق الرابط...",
@@ -9886,10 +10934,16 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "تعذرت إعادة ترتيب الصفحات",
+      deletePagePermanentlyQuestion: "هل تريد حذف الصفحة نهائيًا؟",
+      loadingFiles: "جارٍ تحميل الملفات…",
+      newDatabase: "قاعدة بيانات جديدة",
+      noWorkspaces: "لا توجد مساحات عمل بعد",
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
       failedCreatePage: "فشل إنشاء الصفحة",
       failedDeletePage: "فشل حذف الصفحة",
+      failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
+      failedRestorePage: "فشل استعادة الصفحة",
       failedMovePage: "فشل نقل الصفحة",
       localFiles: "الملفات المحلية",
       newPage: "صفحة جديدة",
@@ -9901,22 +10955,301 @@ export const messagesByLocale = {
       noSharedCopiesYet: "لا توجد نسخ مشتركة بعد",
       oneAffectedPageReadOnly: "إحدى الصفحات المتأثرة للقراءة فقط.",
       organization: "المؤسسة",
+      pagePermanentlyDeleted: "تم حذف الصفحة نهائيًا",
+      pageRestored: "تمت استعادة الصفحة",
       private: "خاص",
       results: "النتائج",
       search: "بحث",
       searchPages: "البحث في الصفحات...",
       sharedCopies: "النسخ المشتركة",
+      trashEmpty: "سلة المهملات فارغة",
       favorites: "المفضلة",
       untitled: "بدون عنوان",
     },
   }),
 } satisfies Record<LocaleCode, Messages>;
 
+const sidebarPinnedMessagesByLocale: Partial<
+  Record<LocaleCode, Partial<Messages["sidebar"]>>
+> = {
+  "zh-TW": {
+    pinned: "已釘選",
+    loadingPinned: "正在載入已釘選項目…",
+    dragToReorder: "拖曳以重新排序 {{label}}",
+    moveUp: "上移",
+    moveDown: "下移",
+    moveToPosition: "移至位置",
+    positionNumber: "第 {{position}} 個位置",
+    failedSaveOrder: "無法儲存排序",
+    moreActionsFor: "{{label}} 的更多操作",
+    orderButton: "排序：{{order}}",
+    orderMode: {
+      custom: "自訂",
+      last_edited: "最近編輯",
+      name: "名稱",
+      created: "建立時間",
+    },
+    pinToSidebar: "釘選到側邊欄",
+    unpinFromSidebar: "從側邊欄取消釘選",
+    failedUpdateFavorite: "無法更新已釘選項目",
+    removeFromFavorites: "從側邊欄取消釘選",
+    favorites: "已釘選",
+  },
+  "zh-CN": {
+    pinned: "已固定",
+    loadingPinned: "正在加载已固定项目…",
+    dragToReorder: "拖动以重新排序 {{label}}",
+    moveUp: "上移",
+    moveDown: "下移",
+    moveToPosition: "移至位置",
+    positionNumber: "位置 {{position}}",
+    failedSaveOrder: "无法保存排序",
+    moreActionsFor: "{{label}} 的更多操作",
+    orderButton: "排序：{{order}}",
+    orderMode: {
+      custom: "自定义",
+      last_edited: "最近编辑",
+      name: "名称",
+      created: "创建时间",
+    },
+    pinToSidebar: "固定到侧边栏",
+    unpinFromSidebar: "从侧边栏取消固定",
+    failedUpdateFavorite: "无法更新已固定项目",
+    removeFromFavorites: "从侧边栏取消固定",
+    favorites: "已固定",
+  },
+  "es-ES": {
+    pinned: "Fijados",
+    loadingPinned: "Cargando elementos fijados…",
+    dragToReorder: "Arrastra para reordenar {{label}}",
+    moveUp: "Mover hacia arriba",
+    moveDown: "Mover hacia abajo",
+    moveToPosition: "Mover a la posición",
+    positionNumber: "Posición {{position}}",
+    failedSaveOrder: "No se pudo guardar el orden",
+    moreActionsFor: "Más acciones para {{label}}",
+    orderButton: "Orden: {{order}}",
+    orderMode: {
+      custom: "Personalizado",
+      last_edited: "Última edición",
+      name: "Nombre",
+      created: "Creado",
+    },
+    pinToSidebar: "Fijar a la barra lateral",
+    unpinFromSidebar: "Desfijar de la barra lateral",
+    failedUpdateFavorite: "No se pudieron actualizar los elementos fijados",
+    removeFromFavorites: "Desfijar de la barra lateral",
+    favorites: "Fijados",
+  },
+  "fr-FR": {
+    pinned: "Épinglés",
+    loadingPinned: "Chargement des éléments épinglés…",
+    dragToReorder: "Faites glisser {{label}} pour le réorganiser",
+    moveUp: "Monter",
+    moveDown: "Descendre",
+    moveToPosition: "Déplacer à la position",
+    positionNumber: "Position {{position}}",
+    failedSaveOrder: "Impossible d’enregistrer l’ordre",
+    moreActionsFor: "Autres actions pour {{label}}",
+    orderButton: "Ordre : {{order}}",
+    orderMode: {
+      custom: "Personnalisé",
+      last_edited: "Dernière modification",
+      name: "Nom",
+      created: "Créé",
+    },
+    pinToSidebar: "Épingler à la barre latérale",
+    unpinFromSidebar: "Désépingler de la barre latérale",
+    failedUpdateFavorite: "Impossible de mettre à jour les éléments épinglés",
+    removeFromFavorites: "Désépingler de la barre latérale",
+    favorites: "Épinglés",
+  },
+  "de-DE": {
+    pinned: "Angeheftet",
+    loadingPinned: "Angeheftete Elemente werden geladen…",
+    dragToReorder: "{{label}} zum Neuordnen ziehen",
+    moveUp: "Nach oben verschieben",
+    moveDown: "Nach unten verschieben",
+    moveToPosition: "An Position verschieben",
+    positionNumber: "Position {{position}}",
+    failedSaveOrder: "Reihenfolge konnte nicht gespeichert werden",
+    moreActionsFor: "Weitere Aktionen für {{label}}",
+    orderButton: "Reihenfolge: {{order}}",
+    orderMode: {
+      custom: "Benutzerdefiniert",
+      last_edited: "Zuletzt bearbeitet",
+      name: "Name",
+      created: "Erstellt",
+    },
+    pinToSidebar: "In Seitenleiste anheften",
+    unpinFromSidebar: "Aus Seitenleiste lösen",
+    failedUpdateFavorite:
+      "Angeheftete Elemente konnten nicht aktualisiert werden",
+    removeFromFavorites: "Aus Seitenleiste lösen",
+    favorites: "Angeheftet",
+  },
+  "ja-JP": {
+    pinned: "固定済み",
+    loadingPinned: "固定済みの項目を読み込み中…",
+    dragToReorder: "{{label}} をドラッグして並べ替え",
+    moveUp: "上に移動",
+    moveDown: "下に移動",
+    moveToPosition: "指定位置に移動",
+    positionNumber: "位置 {{position}}",
+    failedSaveOrder: "並び順を保存できませんでした",
+    moreActionsFor: "{{label}} のその他の操作",
+    orderButton: "並び順: {{order}}",
+    orderMode: {
+      custom: "カスタム",
+      last_edited: "最終編集",
+      name: "名前",
+      created: "作成日",
+    },
+    pinToSidebar: "サイドバーに固定",
+    unpinFromSidebar: "サイドバーから固定解除",
+    failedUpdateFavorite: "固定済みの項目を更新できませんでした",
+    removeFromFavorites: "サイドバーから固定解除",
+    favorites: "固定済み",
+  },
+  "ko-KR": {
+    pinned: "고정됨",
+    loadingPinned: "고정된 항목 불러오는 중…",
+    dragToReorder: "{{label}} 드래그하여 순서 변경",
+    moveUp: "위로 이동",
+    moveDown: "아래로 이동",
+    moveToPosition: "위치로 이동",
+    positionNumber: "{{position}}번째 위치",
+    failedSaveOrder: "순서를 저장하지 못했습니다",
+    moreActionsFor: "{{label}}의 추가 작업",
+    orderButton: "정렬: {{order}}",
+    orderMode: {
+      custom: "사용자 지정",
+      last_edited: "최근 수정",
+      name: "이름",
+      created: "생성일",
+    },
+    pinToSidebar: "사이드바에 고정",
+    unpinFromSidebar: "사이드바에서 고정 해제",
+    failedUpdateFavorite: "고정된 항목을 업데이트하지 못했습니다",
+    removeFromFavorites: "사이드바에서 고정 해제",
+    favorites: "고정됨",
+  },
+  "pt-BR": {
+    pinned: "Fixados",
+    loadingPinned: "Carregando itens fixados…",
+    dragToReorder: "Arraste para reordenar {{label}}",
+    moveUp: "Mover para cima",
+    moveDown: "Mover para baixo",
+    moveToPosition: "Mover para a posição",
+    positionNumber: "Posição {{position}}",
+    failedSaveOrder: "Não foi possível salvar a ordem",
+    moreActionsFor: "Mais ações para {{label}}",
+    orderButton: "Ordem: {{order}}",
+    orderMode: {
+      custom: "Personalizado",
+      last_edited: "Última edição",
+      name: "Nome",
+      created: "Criado",
+    },
+    pinToSidebar: "Fixar na barra lateral",
+    unpinFromSidebar: "Desafixar da barra lateral",
+    failedUpdateFavorite: "Não foi possível atualizar os itens fixados",
+    removeFromFavorites: "Desafixar da barra lateral",
+    favorites: "Fixados",
+  },
+  "hi-IN": {
+    pinned: "पिन किए गए",
+    loadingPinned: "पिन किए गए आइटम लोड हो रहे हैं…",
+    dragToReorder: "{{label}} को फिर से क्रमबद्ध करने के लिए खींचें",
+    moveUp: "ऊपर ले जाएँ",
+    moveDown: "नीचे ले जाएँ",
+    moveToPosition: "स्थान पर ले जाएँ",
+    positionNumber: "स्थान {{position}}",
+    failedSaveOrder: "क्रम सहेजा नहीं जा सका",
+    moreActionsFor: "{{label}} के लिए और कार्रवाइयाँ",
+    orderButton: "क्रम: {{order}}",
+    orderMode: {
+      custom: "कस्टम",
+      last_edited: "अंतिम संपादन",
+      name: "नाम",
+      created: "बनाया गया",
+    },
+    pinToSidebar: "साइडबार में पिन करें",
+    unpinFromSidebar: "साइडबार से अनपिन करें",
+    failedUpdateFavorite: "पिन किए गए आइटम अपडेट नहीं किए जा सके",
+    removeFromFavorites: "साइडबार से अनपिन करें",
+    favorites: "पिन किए गए",
+  },
+  "ar-SA": {
+    pinned: "مثبتة",
+    loadingPinned: "جارٍ تحميل العناصر المثبتة…",
+    dragToReorder: "اسحب لإعادة ترتيب {{label}}",
+    moveUp: "نقل لأعلى",
+    moveDown: "نقل لأسفل",
+    moveToPosition: "نقل إلى موضع",
+    positionNumber: "الموضع {{position}}",
+    failedSaveOrder: "تعذر حفظ الترتيب",
+    moreActionsFor: "مزيد من الإجراءات لـ {{label}}",
+    orderButton: "الترتيب: {{order}}",
+    orderMode: {
+      custom: "مخصص",
+      last_edited: "آخر تعديل",
+      name: "الاسم",
+      created: "تاريخ الإنشاء",
+    },
+    pinToSidebar: "تثبيت في الشريط الجانبي",
+    unpinFromSidebar: "إلغاء التثبيت من الشريط الجانبي",
+    failedUpdateFavorite: "تعذر تحديث العناصر المثبتة",
+    removeFromFavorites: "إلغاء التثبيت من الشريط الجانبي",
+    favorites: "مثبتة",
+  },
+};
+
 const contentExactEnglishTranslations = {
+  "zh-TW": {
+    editor: {
+      toolbar: {
+        info: "資訊",
+        closeUtilityPanel: "關閉面板",
+      },
+    },
+    comments: {
+      title: "評論",
+      empty: "尚無評論。",
+    },
+    sidebar: {
+      addWorkspace: "新增工作區",
+      failedCreateWorkspace: "無法建立工作區",
+      failedUpdateFavorite: "無法更新收藏",
+      removeFromFavorites: "從收藏中移除",
+      localFolder: "本機資料夾",
+      newWorkspace: "新增工作區",
+      newWorkspaceDescription: "建立一個擁有專屬 Files 資料庫的私人工作區。",
+      workspaceName: "工作區名稱",
+      createWorkspace: "建立工作區",
+    },
+  },
   "zh-CN": {
     editor: {
       failedToCreatePage: "创建页面失败",
+      slash: {
+        blockEquation: "块级公式",
+        blockEquationDescription: "在单独一行显示 LaTeX 公式",
+        cancelEquation: "取消",
+        inlineEquation: "行内公式",
+        inlineEquationDescription: "在文本中添加 LaTeX 公式",
+        insertEquation: "插入",
+        equationInputLabel: "LaTeX 公式",
+        equationInsertFailed: "无法插入公式。",
+        equationNeedsRepair: "请修正 LaTeX 以查看预览。",
+        equationPlaceholder: String.raw`输入 LaTeX，例如 \frac{a}{b}`,
+        equationPreview: "预览",
+        equationPreviewEmpty: "公式将在此处显示。",
+        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl Enter 插入。",
+      },
       toolbar: {
+        info: "信息",
+        closeUtilityPanel: "关闭面板",
         copiedPageLink: "已复制页面链接",
         copyPageLink: "复制页面链接",
         couldNotCopyLink: "无法复制链接",
@@ -9925,11 +11258,45 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "恢复此版本？",
     },
+    comments: {
+      title: "评论",
+      empty: "暂无评论。",
+    },
+    sidebar: {
+      addWorkspace: "添加工作区",
+      failedCreateWorkspace: "无法创建工作区",
+      failedUpdateFavorite: "无法更新收藏",
+      removeFromFavorites: "从收藏中移除",
+      localFolder: "本地文件夹",
+      newWorkspace: "新建工作区",
+      newWorkspaceDescription: "创建一个拥有专属 Files 数据库的私有工作区。",
+      workspaceName: "工作区名称",
+      createWorkspace: "创建工作区",
+    },
   },
   "es-ES": {
     editor: {
       failedToCreatePage: "No se pudo crear la página",
+      slash: {
+        blockEquation: "Ecuación en bloque",
+        blockEquationDescription:
+          "Muestra una ecuación LaTeX en su propia línea",
+        cancelEquation: "Cancelar",
+        inlineEquation: "Ecuación en línea",
+        inlineEquationDescription: "Añade una ecuación LaTeX dentro del texto",
+        insertEquation: "Insertar",
+        equationInputLabel: "Ecuación LaTeX",
+        equationInsertFailed: "No se pudo insertar la ecuación.",
+        equationNeedsRepair: "Corrige el LaTeX para ver la vista previa.",
+        equationPlaceholder: String.raw`Escribe LaTeX, por ejemplo \frac{a}{b}`,
+        equationPreview: "Vista previa",
+        equationPreviewEmpty: "Tu ecuación aparecerá aquí.",
+        equationSubmitHint:
+          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl Enter para insertar.",
+      },
       toolbar: {
+        info: "Información",
+        closeUtilityPanel: "Cerrar panel",
         copiedPageLink: "Enlace de página copiado",
         copyPageLink: "Copiar enlace de página",
         couldNotCopyLink: "No se pudo copiar el enlace",
@@ -9939,11 +11306,46 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "¿Restaurar esta versión?",
     },
+    comments: {
+      title: "Comentarios",
+      empty: "Aún no hay comentarios.",
+    },
+    sidebar: {
+      addWorkspace: "Añadir espacio de trabajo",
+      failedCreateWorkspace: "No se pudo crear el espacio de trabajo",
+      failedUpdateFavorite: "No se pudo actualizar el favorito",
+      removeFromFavorites: "Quitar de favoritos",
+      localFolder: "Carpeta local",
+      newWorkspace: "Nuevo espacio de trabajo",
+      newWorkspaceDescription:
+        "Crea un espacio privado con su propia base de datos de Archivos.",
+      workspaceName: "Nombre del espacio de trabajo",
+      createWorkspace: "Crear espacio de trabajo",
+    },
   },
   "fr-FR": {
     editor: {
       failedToCreatePage: "Impossible de créer la page",
+      slash: {
+        blockEquation: "Équation en bloc",
+        blockEquationDescription:
+          "Afficher une équation LaTeX sur sa propre ligne",
+        cancelEquation: "Annuler",
+        inlineEquation: "Équation en ligne",
+        inlineEquationDescription: "Ajouter une équation LaTeX dans le texte",
+        insertEquation: "Insérer",
+        equationInputLabel: "Équation LaTeX",
+        equationInsertFailed: "Impossible d’insérer l’équation.",
+        equationNeedsRepair: "Corrigez le LaTeX pour afficher un aperçu.",
+        equationPlaceholder: String.raw`Saisissez du LaTeX, par exemple \frac{a}{b}`,
+        equationPreview: "Aperçu",
+        equationPreviewEmpty: "Votre équation apparaîtra ici.",
+        equationSubmitHint:
+          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl Entrée pour insérer.",
+      },
       toolbar: {
+        info: "Informations",
+        closeUtilityPanel: "Fermer le panneau",
         copiedPageLink: "Lien de la page copié",
         copyPageLink: "Copier le lien de la page",
         couldNotCopyLink: "Impossible de copier le lien",
@@ -9953,11 +11355,47 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "Restaurer cette version ?",
     },
+    comments: {
+      title: "Commentaires",
+      empty: "Aucun commentaire pour le moment.",
+    },
+    sidebar: {
+      addWorkspace: "Ajouter un espace de travail",
+      failedCreateWorkspace: "Impossible de créer l’espace de travail",
+      failedUpdateFavorite: "Impossible de mettre à jour le favori",
+      removeFromFavorites: "Retirer des favoris",
+      localFolder: "Dossier local",
+      newWorkspace: "Nouvel espace de travail",
+      newWorkspaceDescription:
+        "Créez un espace privé avec sa propre base de données Fichiers.",
+      workspaceName: "Nom de l’espace de travail",
+      createWorkspace: "Créer l’espace de travail",
+    },
   },
   "de-DE": {
     editor: {
       failedToCreatePage: "Seite konnte nicht erstellt werden",
+      slash: {
+        blockEquation: "Blockgleichung",
+        blockEquationDescription:
+          "Eine LaTeX-Gleichung in einer eigenen Zeile anzeigen",
+        cancelEquation: "Abbrechen",
+        inlineEquation: "Inline-Gleichung",
+        inlineEquationDescription: "Eine LaTeX-Gleichung in Text einfügen",
+        insertEquation: "Einfügen",
+        equationInputLabel: "LaTeX-Gleichung",
+        equationInsertFailed: "Die Gleichung konnte nicht eingefügt werden.",
+        equationNeedsRepair:
+          "Korrigieren Sie das LaTeX, um eine Vorschau zu sehen.",
+        equationPlaceholder: String.raw`LaTeX eingeben, zum Beispiel \frac{a}{b}`,
+        equationPreview: "Vorschau",
+        equationPreviewEmpty: "Ihre Gleichung wird hier angezeigt.",
+        equationSubmitHint:
+          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl Enter einfügen.",
+      },
       toolbar: {
+        info: "Informationen",
+        closeUtilityPanel: "Bereich schließen",
         copiedPageLink: "Seitenlink kopiert",
         copyPageLink: "Seitenlink kopieren",
         couldNotCopyLink: "Link konnte nicht kopiert werden",
@@ -9967,11 +11405,46 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "Diese Version wiederherstellen?",
     },
+    comments: {
+      title: "Kommentare",
+      empty: "Noch keine Kommentare.",
+    },
+    sidebar: {
+      addWorkspace: "Arbeitsbereich hinzufügen",
+      failedCreateWorkspace: "Arbeitsbereich konnte nicht erstellt werden",
+      failedUpdateFavorite: "Favorit konnte nicht aktualisiert werden",
+      removeFromFavorites: "Aus Favoriten entfernen",
+      localFolder: "Lokaler Ordner",
+      newWorkspace: "Neuer Arbeitsbereich",
+      newWorkspaceDescription:
+        "Erstellen Sie einen privaten Arbeitsbereich mit eigener Dateien-Datenbank.",
+      workspaceName: "Name des Arbeitsbereichs",
+      createWorkspace: "Arbeitsbereich erstellen",
+    },
   },
   "ja-JP": {
     editor: {
       failedToCreatePage: "ページを作成できませんでした",
+      slash: {
+        blockEquation: "ブロック数式",
+        blockEquationDescription: "LaTeX 数式を独立した行に表示します",
+        cancelEquation: "キャンセル",
+        inlineEquation: "インライン数式",
+        inlineEquationDescription: "テキスト内に LaTeX 数式を追加します",
+        insertEquation: "挿入",
+        equationInputLabel: "LaTeX 数式",
+        equationInsertFailed: "数式を挿入できませんでした。",
+        equationNeedsRepair:
+          "プレビューを表示するには LaTeX を修正してください。",
+        equationPlaceholder: String.raw`LaTeX を入力（例：\frac{a}{b}）`,
+        equationPreview: "プレビュー",
+        equationPreviewEmpty: "ここに数式が表示されます。",
+        equationSubmitHint:
+          "入力中にプレビューが更新されます。Cmd/Ctrl Enter で挿入します。",
+      },
       toolbar: {
+        info: "情報",
+        closeUtilityPanel: "パネルを閉じる",
         copiedPageLink: "ページリンクをコピーしました",
         copyPageLink: "ページリンクをコピー",
         couldNotCopyLink: "リンクをコピーできませんでした",
@@ -9981,11 +11454,45 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "このバージョンを復元しますか？",
     },
+    comments: {
+      title: "コメント",
+      empty: "コメントはまだありません。",
+    },
+    sidebar: {
+      addWorkspace: "ワークスペースを追加",
+      failedCreateWorkspace: "ワークスペースを作成できませんでした",
+      failedUpdateFavorite: "お気に入りを更新できませんでした",
+      removeFromFavorites: "お気に入りから削除",
+      localFolder: "ローカルフォルダー",
+      newWorkspace: "新しいワークスペース",
+      newWorkspaceDescription:
+        "専用の Files データベースを持つプライベートワークスペースを作成します。",
+      workspaceName: "ワークスペース名",
+      createWorkspace: "ワークスペースを作成",
+    },
   },
   "ko-KR": {
     editor: {
       failedToCreatePage: "페이지를 만들지 못했습니다",
+      slash: {
+        blockEquation: "블록 수식",
+        blockEquationDescription: "LaTeX 수식을 별도 줄에 표시합니다",
+        cancelEquation: "취소",
+        inlineEquation: "인라인 수식",
+        inlineEquationDescription: "텍스트 안에 LaTeX 수식을 추가합니다",
+        insertEquation: "삽입",
+        equationInputLabel: "LaTeX 수식",
+        equationInsertFailed: "수식을 삽입하지 못했습니다.",
+        equationNeedsRepair: "미리 보려면 LaTeX를 수정하세요.",
+        equationPlaceholder: String.raw`LaTeX를 입력하세요. 예: \frac{a}{b}`,
+        equationPreview: "미리보기",
+        equationPreviewEmpty: "여기에 수식이 표시됩니다.",
+        equationSubmitHint:
+          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl Enter로 삽입하세요.",
+      },
       toolbar: {
+        info: "정보",
+        closeUtilityPanel: "패널 닫기",
         copiedPageLink: "페이지 링크를 복사했습니다",
         copyPageLink: "페이지 링크 복사",
         couldNotCopyLink: "링크를 복사하지 못했습니다",
@@ -9995,11 +11502,46 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "이 버전을 복원할까요?",
     },
+    comments: {
+      title: "댓글",
+      empty: "아직 댓글이 없습니다.",
+    },
+    sidebar: {
+      addWorkspace: "워크스페이스 추가",
+      failedCreateWorkspace: "워크스페이스를 만들지 못했습니다",
+      failedUpdateFavorite: "즐겨찾기를 업데이트하지 못했습니다",
+      removeFromFavorites: "즐겨찾기에서 제거",
+      localFolder: "로컬 폴더",
+      newWorkspace: "새 워크스페이스",
+      newWorkspaceDescription:
+        "자체 Files 데이터베이스가 있는 비공개 워크스페이스를 만듭니다.",
+      workspaceName: "워크스페이스 이름",
+      createWorkspace: "워크스페이스 만들기",
+    },
   },
   "pt-BR": {
     editor: {
       failedToCreatePage: "Não foi possível criar a página",
+      slash: {
+        blockEquation: "Equação em bloco",
+        blockEquationDescription:
+          "Exiba uma equação LaTeX em uma linha própria",
+        cancelEquation: "Cancelar",
+        inlineEquation: "Equação em linha",
+        inlineEquationDescription: "Adicione uma equação LaTeX dentro do texto",
+        insertEquation: "Inserir",
+        equationInputLabel: "Equação LaTeX",
+        equationInsertFailed: "Não foi possível inserir a equação.",
+        equationNeedsRepair: "Corrija o LaTeX para ver uma prévia.",
+        equationPlaceholder: String.raw`Digite LaTeX, por exemplo \frac{a}{b}`,
+        equationPreview: "Prévia",
+        equationPreviewEmpty: "Sua equação aparecerá aqui.",
+        equationSubmitHint:
+          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl Enter para inserir.",
+      },
       toolbar: {
+        info: "Informações",
+        closeUtilityPanel: "Fechar painel",
         copiedPageLink: "Link da página copiado",
         copyPageLink: "Copiar link da página",
         couldNotCopyLink: "Não foi possível copiar o link",
@@ -10009,11 +11551,45 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "Restaurar esta versão?",
     },
+    comments: {
+      title: "Comentários",
+      empty: "Ainda não há comentários.",
+    },
+    sidebar: {
+      addWorkspace: "Adicionar espaço de trabalho",
+      failedCreateWorkspace: "Não foi possível criar o espaço de trabalho",
+      failedUpdateFavorite: "Não foi possível atualizar o favorito",
+      removeFromFavorites: "Remover dos favoritos",
+      localFolder: "Pasta local",
+      newWorkspace: "Novo espaço de trabalho",
+      newWorkspaceDescription:
+        "Crie um espaço privado com seu próprio banco de dados de Arquivos.",
+      workspaceName: "Nome do espaço de trabalho",
+      createWorkspace: "Criar espaço de trabalho",
+    },
   },
   "hi-IN": {
     editor: {
       failedToCreatePage: "पेज नहीं बनाया जा सका",
+      slash: {
+        blockEquation: "ब्लॉक समीकरण",
+        blockEquationDescription: "LaTeX समीकरण को अलग पंक्ति में दिखाएँ",
+        cancelEquation: "रद्द करें",
+        inlineEquation: "इनलाइन समीकरण",
+        inlineEquationDescription: "टेक्स्ट के भीतर LaTeX समीकरण जोड़ें",
+        insertEquation: "सम्मिलित करें",
+        equationInputLabel: "LaTeX समीकरण",
+        equationInsertFailed: "समीकरण सम्मिलित नहीं किया जा सका।",
+        equationNeedsRepair: "पूर्वावलोकन देखने के लिए LaTeX ठीक करें।",
+        equationPlaceholder: String.raw`LaTeX लिखें, जैसे \frac{a}{b}`,
+        equationPreview: "पूर्वावलोकन",
+        equationPreviewEmpty: "आपका समीकरण यहाँ दिखाई देगा।",
+        equationSubmitHint:
+          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl Enter दबाएँ।",
+      },
       toolbar: {
+        info: "जानकारी",
+        closeUtilityPanel: "पैनल बंद करें",
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
         couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
@@ -10022,11 +11598,44 @@ const contentExactEnglishTranslations = {
       },
       versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",
     },
+    comments: {
+      title: "टिप्पणियाँ",
+      empty: "अभी तक कोई टिप्पणी नहीं है।",
+    },
+    sidebar: {
+      addWorkspace: "वर्कस्पेस जोड़ें",
+      failedCreateWorkspace: "वर्कस्पेस नहीं बनाया जा सका",
+      failedUpdateFavorite: "पसंदीदा अपडेट नहीं किया जा सका",
+      removeFromFavorites: "पसंदीदा से हटाएँ",
+      localFolder: "स्थानीय फ़ोल्डर",
+      newWorkspace: "नया वर्कस्पेस",
+      newWorkspaceDescription: "अपने Files डेटाबेस के साथ एक निजी वर्कस्पेस बनाएँ।",
+      workspaceName: "वर्कस्पेस का नाम",
+      createWorkspace: "वर्कस्पेस बनाएँ",
+    },
   },
   "ar-SA": {
     editor: {
       failedToCreatePage: "تعذر إنشاء الصفحة",
+      slash: {
+        blockEquation: "معادلة مستقلة",
+        blockEquationDescription: "اعرض معادلة LaTeX في سطر مستقل",
+        cancelEquation: "إلغاء",
+        inlineEquation: "معادلة ضمن السطر",
+        inlineEquationDescription: "أضف معادلة LaTeX داخل النص",
+        insertEquation: "إدراج",
+        equationInputLabel: "معادلة LaTeX",
+        equationInsertFailed: "تعذر إدراج المعادلة.",
+        equationNeedsRepair: "صحح LaTeX لعرض المعاينة.",
+        equationPlaceholder: String.raw`اكتب LaTeX، مثل \frac{a}{b}`,
+        equationPreview: "معاينة",
+        equationPreviewEmpty: "ستظهر معادلتك هنا.",
+        equationSubmitHint:
+          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl Enter للإدراج.",
+      },
       toolbar: {
+        info: "معلومات",
+        closeUtilityPanel: "إغلاق اللوحة",
         copiedPageLink: "تم نسخ رابط الصفحة",
         copyPageLink: "نسخ رابط الصفحة",
         couldNotCopyLink: "تعذر نسخ الرابط",
@@ -10035,6 +11644,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "مسار الصفحة",
       },
       versionRestoreQuestion: "استعادة هذا الإصدار؟",
+    },
+    comments: {
+      title: "التعليقات",
+      empty: "لا توجد تعليقات بعد.",
+    },
+    sidebar: {
+      addWorkspace: "إضافة مساحة عمل",
+      failedCreateWorkspace: "تعذر إنشاء مساحة العمل",
+      failedUpdateFavorite: "تعذر تحديث المفضلة",
+      removeFromFavorites: "إزالة من المفضلة",
+      localFolder: "مجلد محلي",
+      newWorkspace: "مساحة عمل جديدة",
+      newWorkspaceDescription:
+        "أنشئ مساحة عمل خاصة بقاعدة بيانات Files خاصة بها.",
+      workspaceName: "اسم مساحة العمل",
+      createWorkspace: "إنشاء مساحة عمل",
     },
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
@@ -10063,5 +11688,9 @@ for (const [locale, overrides] of Object.entries(
         }
       }
     }
+  }
+  const sidebarPinnedMessages = sidebarPinnedMessagesByLocale[locale];
+  if (sidebarPinnedMessages) {
+    Object.assign(messages.sidebar, sidebarPinnedMessages);
   }
 }

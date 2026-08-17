@@ -6,6 +6,7 @@ import {
   computeFitCameraForFrames,
   computeIframeLocalCanvasPoint,
   readOverviewZoomPercentFromTransform,
+  resolveScreenDropPoint,
   DEFAULT_OVERVIEW_ZOOM,
   getAllScreenFrameEntries,
   getNextZoomStepDown,
@@ -760,6 +761,46 @@ describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
         clientY: 10,
         iframeRect: { left: 0, top: 0 },
         zoomPercent: 0,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("resolveScreenDropPoint — asset library drops", () => {
+  it("returns the target screen and zoom-adjusted content coordinates", () => {
+    const result = resolveScreenDropPoint({
+      clientX: 392,
+      clientY: 232,
+      screenId: "screen-1",
+      iframeRect: { left: 100, top: 20, right: 736, bottom: 444 },
+      zoomPercent: 53,
+    });
+
+    expect(result?.screenId).toBe("screen-1");
+    expect(result?.x).toBeCloseTo(550.94, 2);
+    expect(result?.y).toBe(400);
+  });
+
+  it("rejects drops outside the target screen content", () => {
+    expect(
+      resolveScreenDropPoint({
+        clientX: 80,
+        clientY: 232,
+        screenId: "screen-1",
+        iframeRect: { left: 100, top: 20, right: 736, bottom: 444 },
+        zoomPercent: 53,
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects drops without a resolved screen", () => {
+    expect(
+      resolveScreenDropPoint({
+        clientX: 392,
+        clientY: 232,
+        screenId: null,
+        iframeRect: { left: 100, top: 20, right: 736, bottom: 444 },
+        zoomPercent: 53,
       }),
     ).toBeNull();
   });

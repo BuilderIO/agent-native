@@ -1,8 +1,6 @@
-import {
-  agentNativePath,
-  sendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEventDraft } from "@shared/api";
 import {
   IconCalendarTime,
@@ -15,7 +13,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { differenceInMinutes, format } from "date-fns";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useId, useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -82,6 +80,7 @@ import {
   buildRecurrenceRules,
   getRecurrencePreset,
   remindersToDraftState,
+  resolveEventTimezone,
   type AttachmentDraft,
   type RecurrencePreset,
   type ReminderDraft,
@@ -95,6 +94,10 @@ type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
 type Availability = "opaque" | "transparent";
 type Visibility = "default" | "public" | "private" | "confidential";
 type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
+type AutoDeclineMode =
+  | "declineNone"
+  | "declineAllConflictingInvitations"
+  | "declineOnlyNewConflictingInvitations";
 
 const EMPTY_CONNECTED_ACCOUNTS: Array<{ email: string }> = [];
 
@@ -215,6 +218,7 @@ interface CreateEventPopoverProps {
   draft?: CalendarEventDraft | null;
   onDraftChange?: (draft: CalendarEventDraft) => void;
   onDraftCreated?: (draftId: string) => void;
+  locationSuggestions?: string[];
 }
 
 export function CreateEventPopover({
@@ -226,6 +230,7 @@ export function CreateEventPopover({
   draft,
   onDraftChange,
   onDraftCreated,
+  locationSuggestions = [],
 }: CreateEventPopoverProps) {
   const t = useT();
   const today = defaultDate || new Date();
@@ -235,7 +240,7 @@ export function CreateEventPopover({
   const defaultDurationMinutes = Number.isFinite(rawDefaultDuration)
     ? Math.max(5, rawDefaultDuration)
     : 30;
-  const defaultTimezone = settings?.timezone || getLocalTimezone();
+  const defaultTimezone = settings?.timezone || resolveEventTimezone();
   const fallbackStart = "09:00";
   const fallbackEnd = addMinutesToTimeString(
     fallbackStart,
@@ -249,8 +254,15 @@ export function CreateEventPopover({
   const [startTime, setStartTime] = useState(defaultStart || fallbackStart);
   const [endTime, setEndTime] = useState(defaultEnd || fallbackEnd);
   const [location, setLocation] = useState("");
+  const locationSuggestionsId = useId();
   const [allDay, setAllDay] = useState(false);
   const [eventType, setEventType] = useState<EventType>("default");
+  const [autoDeclineMode, setAutoDeclineMode] = useState<AutoDeclineMode>(
+    "declineAllConflictingInvitations",
+  );
+  const [declineMessage, setDeclineMessage] = useState(
+    "Declined because I am out of office",
+  );
   const [availability, setAvailability] = useState<Availability>("opaque");
   const [visibility, setVisibility] = useState<Visibility>("default");
   const [recurrencePreset, setRecurrencePreset] =
@@ -271,8 +283,9 @@ export function CreateEventPopover({
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
   const [accountEmail, setAccountEmail] = useState<string>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
-  const timedOnlyStatus =
-    eventType === "outOfOffice" || eventType === "focusTime";
+  const isOutOfOffice = eventType === "outOfOffice";
+  const timedOnlyStatus = eventType === "focusTime";
+  const eventTimezone = resolveEventTimezone(timezone);
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
@@ -289,33 +302,44 @@ export function CreateEventPopover({
   const formRef = useRef<HTMLFormElement>(null);
   const attendeeAutocompleteRef = useRef<AttendeeAutocompleteHandle>(null);
   const initializedKeyRef = useRef<string | null>(null);
+  const preserveInitializationOnCloseRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
+      if (preserveInitializationOnCloseRef.current) {
+        preserveInitializationOnCloseRef.current = false;
+        return;
+      }
       initializedKeyRef.current = null;
       return;
     }
 
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
-    const draftTimezone =
-      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone;
+    const draftTimezone = resolveEventTimezone(
+      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone,
+    );
     const initKey = buildEventFormInitializationKey({
       draftId: draft?.id,
-      draftTimezone,
       date: nextDate,
-      startTime: defaultStart || fallbackStart,
-      endTime: defaultEnd || fallbackEnd,
-      defaultTimezone,
+      startTime: defaultStart,
+      endTime: defaultEnd,
     });
     if (initializedKeyRef.current === initKey) return;
     initializedKeyRef.current = initKey;
 
     if (draft) {
       const startParts = draft.start
-        ? dateTimePartsInTimezone(draft.start, draftTimezone)
+        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
+          ? { date: draft.start, time: "00:00" }
+          : dateTimePartsInTimezone(draft.start, draftTimezone)
         : null;
       const endParts = draft.end
-        ? dateTimePartsInTimezone(draft.end, draft.endTimeZone || draftTimezone)
+        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
+          ? { date: draft.end, time: "00:00" }
+          : dateTimePartsInTimezone(
+              draft.end,
+              draft.endTimeZone || draftTimezone,
+            )
         : null;
       const reminderState = remindersToDraftState({
         reminders: draft.reminders,
@@ -326,15 +350,25 @@ export function CreateEventPopover({
       setDescription(draft.description || "");
       setDate(startParts?.date || nextDate);
       setEndDate(
-        draft.allDay
-          ? allDayEndDate(draft.end, startParts?.date || nextDate)
-          : endParts?.date || startParts?.date || nextDate,
+        draft.fullDay
+          ? endParts?.date || startParts?.date || nextDate
+          : draft.allDay
+            ? allDayEndDate(draft.end, startParts?.date || nextDate)
+            : endParts?.date || startParts?.date || nextDate,
       );
       setStartTime(startParts?.time || defaultStart || fallbackStart);
       setEndTime(endParts?.time || defaultEnd || fallbackEnd);
       setLocation(draft.location || draft.workingLocationLabel || "");
-      setAllDay(draft.allDay ?? false);
+      setAllDay(draft.fullDay ?? draft.allDay ?? false);
       setEventType(draft.eventType ?? "default");
+      setAutoDeclineMode(
+        draft.outOfOfficeProperties?.autoDeclineMode ??
+          "declineAllConflictingInvitations",
+      );
+      setDeclineMessage(
+        draft.outOfOfficeProperties?.declineMessage ??
+          "Declined because I am out of office",
+      );
       setAvailability(draft.transparency ?? "opaque");
       setVisibility(draft.visibility ?? "default");
       setRecurrencePreset(getRecurrencePreset(draft.recurrence));
@@ -372,6 +406,8 @@ export function CreateEventPopover({
     setLocation("");
     setAllDay(false);
     setEventType("default");
+    setAutoDeclineMode("declineAllConflictingInvitations");
+    setDeclineMessage("Declined because I am out of office");
     setAvailability("opaque");
     setVisibility("default");
     setRecurrencePreset("none");
@@ -418,18 +454,23 @@ export function CreateEventPopover({
     const draftId = safeDraftId(draft?.id);
     if (!open || !draftId) return;
 
-    const effectiveAllDay = allDay && !timedOnlyStatus;
-    if (!date || !endDate || (!effectiveAllDay && (!startTime || !endTime))) {
+    const fullDayOutOfOffice = isOutOfOffice && allDay;
+    const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+    if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
     const allDayEnd = new Date(`${endDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
-    const startISO = effectiveAllDay
-      ? new Date(`${date}T00:00:00`).toISOString()
-      : dateTimeInTimezoneToIso(date, startTime, timezone);
-    const endISO = effectiveAllDay
-      ? allDayEnd.toISOString()
-      : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+    const startValue = fullDayOutOfOffice
+      ? date
+      : effectiveAllDay
+        ? new Date(`${date}T00:00:00`).toISOString()
+        : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
+    const endValue = fullDayOutOfOffice
+      ? endDate
+      : effectiveAllDay
+        ? allDayEnd.toISOString()
+        : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
     const recurrence = buildRecurrenceRules(
@@ -441,14 +482,22 @@ export function CreateEventPopover({
       id: draftId,
       createdAt: draft?.createdAt,
       title,
-      description,
-      start: startISO,
-      end: endISO,
-      startTimeZone: effectiveAllDay ? undefined : timezone,
-      endTimeZone: effectiveAllDay ? undefined : timezone,
-      location,
+      description: isOutOfOffice ? "" : description,
+      start: startValue,
+      end: endValue,
+      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      location: isOutOfOffice ? "" : location,
       allDay: effectiveAllDay,
+      fullDay: fullDayOutOfOffice,
       eventType,
+      outOfOfficeProperties: isOutOfOffice
+        ? {
+            autoDeclineMode,
+            declineMessage:
+              autoDeclineMode === "declineNone" ? undefined : declineMessage,
+          }
+        : undefined,
       transparency:
         eventType === "workingLocation"
           ? "transparent"
@@ -465,14 +514,16 @@ export function CreateEventPopover({
           ? undefined
           : attachmentResult.attachments,
       attendees:
-        attendees.length > 0
+        !isOutOfOffice && attendees.length > 0
           ? attendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
               ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
-      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
+      ...(!isOutOfOffice
+        ? buildVideoProviderPatch(videoProvider, videoProviderTouched)
+        : {}),
       accountEmail,
       workingLocationType,
       workingLocationLabel:
@@ -508,6 +559,8 @@ export function CreateEventPopover({
     location,
     allDay,
     eventType,
+    autoDeclineMode,
+    declineMessage,
     availability,
     visibility,
     recurrencePreset,
@@ -520,6 +573,7 @@ export function CreateEventPopover({
     videoProvider,
     videoProviderTouched,
     workingLocationType,
+    isOutOfOffice,
     timedOnlyStatus,
     onDraftChange,
   ]);
@@ -541,7 +595,7 @@ export function CreateEventPopover({
         time: allDay
           ? t("eventForm.allDay")
           : t("eventForm.ai.timeRange", { startTime, endTime }),
-        timezone,
+        timezone: eventTimezone,
         location: location || t("eventForm.ai.none"),
         attendees:
           attendees.map((attendee) => attendee.email).join(", ") ||
@@ -559,6 +613,17 @@ export function CreateEventPopover({
       setVisibility("public");
     }
   }, [allDay, eventType, timedOnlyStatus]);
+
+  function handleEventTypeChange(nextEventType: EventType) {
+    if (nextEventType === "outOfOffice") {
+      if (!title.trim()) setTitle("Out of office");
+      setAllDay(true);
+    } else if (eventType === "outOfOffice" && title === "Out of office") {
+      setTitle("");
+    }
+    if (nextEventType === "focusTime") setAllDay(false);
+    setEventType(nextEventType);
+  }
 
   function addAttendee(attendee: AttendeeRecipient) {
     setAttendees((prev) => uniqueAttendees([...prev, attendee]));
@@ -585,14 +650,14 @@ export function CreateEventPopover({
     );
   }
 
-  const effectiveAllDay = allDay && !timedOnlyStatus;
+  const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
   const currentStartISO =
     !effectiveAllDay && date && startTime
-      ? dateTimeInTimezoneToIso(date, startTime, timezone)
+      ? dateTimeInTimezoneToIso(date, startTime, eventTimezone)
       : undefined;
   const currentEndISO =
     !effectiveAllDay && endDate && endTime
-      ? dateTimeInTimezoneToIso(endDate, endTime, timezone)
+      ? dateTimeInTimezoneToIso(endDate, endTime, eventTimezone)
       : undefined;
   const findTimeDurationMinutes =
     currentStartISO && currentEndISO
@@ -606,8 +671,8 @@ export function CreateEventPopover({
       : defaultDurationMinutes;
 
   function handleSelectFindTimeSlot(slot: { start: string; end: string }) {
-    const startParts = dateTimePartsInTimezone(slot.start, timezone);
-    const endParts = dateTimePartsInTimezone(slot.end, timezone);
+    const startParts = dateTimePartsInTimezone(slot.start, eventTimezone);
+    const endParts = dateTimePartsInTimezone(slot.end, eventTimezone);
     if (!startParts || !endParts) return;
     setAllDay(false);
     setDate(startParts.date);
@@ -647,22 +712,31 @@ export function CreateEventPopover({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const activeDraftId = safeDraftId(draft?.id);
-    if (!title.trim()) {
+    if (!title.trim() && !isOutOfOffice) {
       toast.error(t("eventForm.titleRequired"));
       return;
     }
 
-    const effectiveAllDay = allDay && !timedOnlyStatus;
+    const fullDayOutOfOffice = isOutOfOffice && allDay;
+    const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
     const allDayEnd = new Date(`${endDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
-    const startISO = effectiveAllDay
-      ? new Date(`${date}T00:00:00`).toISOString()
-      : dateTimeInTimezoneToIso(date, startTime, timezone);
-    const endISO = effectiveAllDay
-      ? allDayEnd.toISOString()
-      : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+    const startValue = fullDayOutOfOffice
+      ? date
+      : effectiveAllDay
+        ? new Date(`${date}T00:00:00`).toISOString()
+        : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
+    const endValue = fullDayOutOfOffice
+      ? endDate
+      : effectiveAllDay
+        ? allDayEnd.toISOString()
+        : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
-    if (new Date(endISO).getTime() <= new Date(startISO).getTime()) {
+    if (
+      fullDayOutOfOffice
+        ? endDate < date
+        : new Date(endValue).getTime() <= new Date(startValue).getTime()
+    ) {
       toast.error(
         getEventEndValidationMessage({
           allDay: effectiveAllDay,
@@ -704,15 +778,22 @@ export function CreateEventPopover({
           };
 
     const payload: Parameters<typeof createEvent.mutate>[0] = {
-      title: title.trim(),
-      description,
-      start: startISO,
-      end: endISO,
-      startTimeZone: effectiveAllDay ? undefined : timezone,
-      endTimeZone: effectiveAllDay ? undefined : timezone,
-      location,
+      title: title.trim() || undefined,
+      titleIsGenerated: !title.trim(),
+      description: isOutOfOffice ? "" : description,
+      start: startValue,
+      end: endValue,
+      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      location: isOutOfOffice ? "" : location,
       accountEmail,
       allDay: effectiveAllDay,
+      fullDay: fullDayOutOfOffice,
+      autoDeclineMode: isOutOfOffice ? autoDeclineMode : undefined,
+      declineMessage:
+        isOutOfOffice && autoDeclineMode !== "declineNone"
+          ? declineMessage
+          : undefined,
       transparency:
         eventType === "workingLocation"
           ? "transparent"
@@ -730,19 +811,23 @@ export function CreateEventPopover({
           ? attachmentResult.attachments
           : undefined,
       attendees:
-        finalAttendees.length > 0
+        !isOutOfOffice && finalAttendees.length > 0
           ? finalAttendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
               ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
-      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
+      ...(!isOutOfOffice
+        ? buildVideoProviderPatch(videoProvider, videoProviderTouched)
+        : {}),
     };
 
+    preserveInitializationOnCloseRef.current = true;
     onOpenChange(false);
     createEvent.mutate(payload, {
       onSuccess: (result) => {
+        initializedKeyRef.current = null;
         if (activeDraftId) {
           deletePersistedDraft(activeDraftId);
           onDraftCreated?.(activeDraftId);
@@ -782,7 +867,7 @@ export function CreateEventPopover({
         align="end"
         sideOffset={8}
         collisionPadding={16}
-        className="max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:w-80"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:w-80"
         onInteractOutside={(event) => {
           if (findTimeOpen) {
             event.preventDefault();
@@ -794,29 +879,31 @@ export function CreateEventPopover({
           }
         }}
       >
-        <div className="mb-3 text-sm font-semibold">
+        <div className="shrink-0 px-4 pb-3 pt-4 text-sm font-semibold">
           {draft ? t("eventForm.reviewInvite") : t("eventForm.newEvent")}
         </div>
         <form
           ref={formRef}
           onSubmit={handleSubmit}
           onKeyDown={handleFormKeyDown}
-          className="space-y-3"
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="event-title" className="text-xs">
-                {t("eventForm.title")}
-              </Label>
-              <Input
-                id="event-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t("eventForm.eventTitlePlaceholder")}
-                autoFocus
-                className="h-8 text-sm"
-              />
-            </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-3">
+            {!isOutOfOffice && (
+              <div className="space-y-1.5">
+                <Label htmlFor="event-title" className="text-xs">
+                  {t("eventForm.title")}
+                </Label>
+                <Input
+                  id="event-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t("eventForm.eventTitlePlaceholder")}
+                  autoFocus
+                  className="h-8 text-sm"
+                />
+              </div>
+            )}
 
             {shouldShowEventAccountSelector(connectedAccounts) &&
               accountEmail && (
@@ -865,7 +952,9 @@ export function CreateEventPopover({
               </Label>
               <Select
                 value={eventType}
-                onValueChange={(value) => setEventType(value as EventType)}
+                onValueChange={(value) =>
+                  handleEventTypeChange(value as EventType)
+                }
               >
                 <SelectTrigger id="event-type" className="h-8 text-sm">
                   <SelectValue />
@@ -919,31 +1008,33 @@ export function CreateEventPopover({
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="event-description" className="text-xs">
-                  {t("eventForm.description")}
-                </Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-                  onClick={handleDraftDescription}
-                >
-                  <IconMessage className="h-3 w-3" />
-                  {t("eventForm.askAi")}
-                </Button>
+            {!isOutOfOffice && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="event-description" className="text-xs">
+                    {t("eventForm.description")}
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                    onClick={handleDraftDescription}
+                  >
+                    <IconMessage className="h-3 w-3" />
+                    {t("eventForm.askAi")}
+                  </Button>
+                </div>
+                <Textarea
+                  id="event-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t("eventForm.optionalDescription")}
+                  rows={2}
+                  className="text-sm"
+                />
               </div>
-              <Textarea
-                id="event-description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={t("eventForm.optionalDescription")}
-                rows={2}
-                className="text-sm"
-              />
-            </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -992,9 +1083,7 @@ export function CreateEventPopover({
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {eventType === "outOfOffice"
-                    ? t("eventForm.outOfOfficeTimedOnly")
-                    : t("eventForm.focusTimeTimedOnly")}
+                  {t("eventForm.focusTimeTimedOnly")}
                 </TooltipContent>
               </Tooltip>
             ) : (
@@ -1045,7 +1134,7 @@ export function CreateEventPopover({
               </div>
             )}
 
-            {!effectiveAllDay && (
+            {!isOutOfOffice && !effectiveAllDay && (
               <Button
                 type="button"
                 variant="outline"
@@ -1058,110 +1147,130 @@ export function CreateEventPopover({
               </Button>
             )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="event-attendees" className="text-xs">
-                {t("eventForm.attendees")}
-              </Label>
-              <AttendeeAutocomplete
-                ref={attendeeAutocompleteRef}
-                attendees={attendees}
-                onAdd={addAttendee}
-                onRemove={removeAttendee}
-                onToggleOptional={toggleAttendeeOptional}
-                inputId="event-attendees"
-                placeholder={t("eventForm.attendeesPlaceholder")}
-                onEmptyEnter={() => formRef.current?.requestSubmit()}
-              />
-              {attendees.length > 0 && (
-                <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <IconUsers className="h-3 w-3" />
-                  {t("eventForm.invitedNotice", { count: attendees.length })}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="event-location" className="text-xs">
-                {t("eventForm.location")}
-              </Label>
-              <Input
-                id="event-location"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder={t("eventForm.optionalLocation")}
-                className="h-8 text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="event-video-provider" className="text-xs">
-                {t("eventForm.video")}
-              </Label>
-              <Select
-                value={videoProvider}
-                onValueChange={(value) => {
-                  setVideoProvider(value as VideoProvider);
-                  setVideoProviderTouched(true);
-                }}
-              >
-                <SelectTrigger
-                  id="event-video-provider"
-                  className="h-8 text-sm"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("eventForm.noVideo")}</SelectItem>
-                  <SelectItem value="google_meet">
-                    <span className="flex items-center gap-2">
-                      <IconVideo className="h-3.5 w-3.5" />
-                      {t("eventForm.googleMeet")}
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="zoom">
-                    <span className="flex items-center gap-2">
-                      <IconBrandZoom className="h-3.5 w-3.5" />
-                      {t("eventForm.zoom")}
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {videoProvider === "zoom" && !zoomStatus.data?.connected && (
-                <div className="rounded-md border border-border bg-muted/30 p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-muted-foreground">
-                      {zoomStatus.data?.configured === false
-                        ? t("eventForm.zoomNotConfigured")
-                        : t("eventForm.connectZoomBeforeCreate")}
+            {!isOutOfOffice && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-attendees" className="text-xs">
+                    {t("eventForm.attendees")}
+                  </Label>
+                  <AttendeeAutocomplete
+                    ref={attendeeAutocompleteRef}
+                    attendees={attendees}
+                    onAdd={addAttendee}
+                    onRemove={removeAttendee}
+                    onToggleOptional={toggleAttendeeOptional}
+                    inputId="event-attendees"
+                    placeholder={t("eventForm.attendeesPlaceholder")}
+                    onEmptyEnter={() => formRef.current?.requestSubmit()}
+                  />
+                  {attendees.length > 0 && (
+                    <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <IconUsers className="h-3 w-3" />
+                      {t("eventForm.invitedNotice", {
+                        count: attendees.length,
+                      })}
                     </p>
-                    {zoomStatus.data?.configured !== false && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 shrink-0 gap-1.5 text-xs"
-                        disabled={connectZoom.isPending}
-                        onClick={() =>
-                          connectZoom.mutate(undefined, {
-                            onSuccess: () =>
-                              toast(t("eventForm.zoomConnectionOpened")),
-                            onError: (error) =>
-                              toast.error(
-                                error instanceof Error
-                                  ? error.message
-                                  : t("eventForm.zoomConnectFailed"),
-                              ),
-                          })
-                        }
-                      >
-                        <IconBrandZoom className="h-3.5 w-3.5" />
-                        {t("common.connect")}
-                      </Button>
-                    )}
-                  </div>
+                  )}
                 </div>
-              )}
-            </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-location" className="text-xs">
+                    {t("eventForm.location")}
+                  </Label>
+                  <Input
+                    id="event-location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder={t("eventForm.optionalLocation")}
+                    className="h-8 text-sm"
+                    list={
+                      locationSuggestions.length > 0
+                        ? locationSuggestionsId
+                        : undefined
+                    }
+                  />
+                  {locationSuggestions.length > 0 && (
+                    <datalist id={locationSuggestionsId}>
+                      {locationSuggestions.map((suggestion) => (
+                        <option key={suggestion} value={suggestion} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-video-provider" className="text-xs">
+                    {t("eventForm.video")}
+                  </Label>
+                  <Select
+                    value={videoProvider}
+                    onValueChange={(value) => {
+                      setVideoProvider(value as VideoProvider);
+                      setVideoProviderTouched(true);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="event-video-provider"
+                      className="h-8 text-sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        {t("eventForm.noVideo")}
+                      </SelectItem>
+                      <SelectItem value="google_meet">
+                        <span className="flex items-center gap-2">
+                          <IconVideo className="h-3.5 w-3.5" />
+                          {t("eventForm.googleMeet")}
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="zoom">
+                        <span className="flex items-center gap-2">
+                          <IconBrandZoom className="h-3.5 w-3.5" />
+                          {t("eventForm.zoom")}
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {videoProvider === "zoom" && !zoomStatus.data?.connected && (
+                    <div className="rounded-md border border-border bg-muted/30 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          {zoomStatus.data?.configured === false
+                            ? t("eventForm.zoomNotConfigured")
+                            : t("eventForm.connectZoomBeforeCreate")}
+                        </p>
+                        {zoomStatus.data?.configured !== false && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 gap-1.5 text-xs"
+                            disabled={connectZoom.isPending}
+                            onClick={() =>
+                              connectZoom.mutate(undefined, {
+                                onSuccess: () =>
+                                  toast(t("eventForm.zoomConnectionOpened")),
+                                onError: (error) =>
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : t("eventForm.zoomConnectFailed"),
+                                  ),
+                              })
+                            }
+                          >
+                            <IconBrandZoom className="h-3.5 w-3.5" />
+                            {t("common.connect")}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             <Collapsible>
               <CollapsibleTrigger asChild>
@@ -1179,74 +1288,106 @@ export function CreateEventPopover({
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="event-availability" className="text-xs">
-                      {t("eventForm.showAs")}
-                    </Label>
-                    <Select
-                      value={
-                        eventType === "workingLocation"
-                          ? "transparent"
-                          : eventType === "default"
-                            ? availability
-                            : "opaque"
-                      }
-                      onValueChange={(value) =>
-                        setAvailability(value as Availability)
-                      }
-                      disabled={eventType !== "default"}
-                    >
-                      <SelectTrigger
-                        id="event-availability"
+                {isOutOfOffice && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-title" className="text-xs">
+                        {t("eventForm.title")}
+                      </Label>
+                      <Input
+                        id="event-title"
+                        value={title}
+                        onChange={(event) => setTitle(event.target.value)}
+                        placeholder={t("eventForm.outOfOffice")}
                         className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-auto-decline" className="text-xs">
+                        {t("eventForm.autoDecline")}
+                      </Label>
+                      <Select
+                        value={autoDeclineMode}
+                        onValueChange={(value) =>
+                          setAutoDeclineMode(value as AutoDeclineMode)
+                        }
                       >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="opaque">
-                          {t("eventForm.busy")}
-                        </SelectItem>
-                        <SelectItem value="transparent">
-                          {t("eventForm.free")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                        <SelectTrigger
+                          id="event-auto-decline"
+                          className="h-8 text-sm"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="declineAllConflictingInvitations">
+                            {t("eventForm.declineAllConflicts")}
+                          </SelectItem>
+                          <SelectItem value="declineOnlyNewConflictingInvitations">
+                            {t("eventForm.declineNewConflicts")}
+                          </SelectItem>
+                          <SelectItem value="declineNone">
+                            {t("eventForm.declineNone")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {autoDeclineMode !== "declineNone" && (
+                      <div className="space-y-1.5">
+                        <Label
+                          htmlFor="event-decline-message"
+                          className="text-xs"
+                        >
+                          {t("eventForm.declineMessage")}
+                        </Label>
+                        <Textarea
+                          id="event-decline-message"
+                          value={declineMessage}
+                          onChange={(event) =>
+                            setDeclineMessage(event.target.value)
+                          }
+                          rows={2}
+                          className="text-sm"
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="event-visibility" className="text-xs">
-                      {t("eventForm.visibility")}
-                    </Label>
-                    <Select
-                      value={
-                        eventType === "workingLocation" ? "public" : visibility
-                      }
-                      onValueChange={(value) =>
-                        setVisibility(value as Visibility)
-                      }
-                      disabled={eventType === "workingLocation"}
-                    >
-                      <SelectTrigger
-                        id="event-visibility"
-                        className="h-8 text-sm"
+                {!isOutOfOffice && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-availability" className="text-xs">
+                        {t("eventForm.showAs")}
+                      </Label>
+                      <Select
+                        value={
+                          eventType === "workingLocation"
+                            ? "transparent"
+                            : eventType === "default"
+                              ? availability
+                              : "opaque"
+                        }
+                        onValueChange={(value) =>
+                          setAvailability(value as Availability)
+                        }
+                        disabled={eventType !== "default"}
                       >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">
-                          {t("eventForm.default")}
-                        </SelectItem>
-                        <SelectItem value="public">
-                          {t("eventForm.public")}
-                        </SelectItem>
-                        <SelectItem value="private">
-                          {t("eventForm.private")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                        <SelectTrigger
+                          id="event-availability"
+                          className="h-8 text-sm"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opaque">
+                            {t("eventForm.busy")}
+                          </SelectItem>
+                          <SelectItem value="transparent">
+                            {t("eventForm.free")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
                 <div className="space-y-1.5">
                   <Label htmlFor="event-recurrence" className="text-xs">
@@ -1348,7 +1489,7 @@ export function CreateEventPopover({
               (draft ? t("eventForm.invite") : t("eventForm.newEventLower"))
             }
             date={date}
-            timezone={timezone}
+            timezone={eventTimezone}
             durationMinutes={findTimeDurationMinutes}
             attendees={attendees}
             accountEmail={accountEmail}
@@ -1359,7 +1500,7 @@ export function CreateEventPopover({
             onRemoveAttendee={removeAttendee}
           />
 
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex shrink-0 items-center justify-between border-t border-border bg-popover px-4 py-3">
             <p className="text-[10px] text-muted-foreground/60">
               <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
                 ↵
@@ -1372,7 +1513,10 @@ export function CreateEventPopover({
                 variant="ghost"
                 size="sm"
                 className="h-7 text-xs"
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  initializedKeyRef.current = null;
+                  onOpenChange(false);
+                }}
               >
                 {t("eventForm.cancel")}
               </Button>

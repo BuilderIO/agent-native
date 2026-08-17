@@ -122,12 +122,13 @@ function stopForRepeatedBigQueryQuery(): never {
 
 export default defineAction({
   description:
-    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
+    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. For a named customer or organization ID, resolve the canonical CRM/contract identity first and verify the returned rows carry the same customer and org/root-org identifiers. For account health, distinguish completed-month usage from current partial snapshots, contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),
   readOnly: true,
   toolCallable: true,
+  grounding: true,
   run: async (args, context?: ActionRunContext) => {
     if (hasPriorFailedBigQueryCall(args.sql)) {
       stopForRepeatedBigQueryQuery();
@@ -152,10 +153,18 @@ export default defineAction({
           "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
         );
       }
-      if (
-        /BigQuery (API|poll) error/i.test(msg) ||
-        /BigQuery query timed out/i.test(msg)
-      ) {
+      // A timeout means the SQL was valid but slow. Routing it through the schema-error
+      // branch below told the model to go re-inspect the schema and rerun, which turns
+      // one slow query into a loop of 60-second attempts.
+      if (/BigQuery query timed out/i.test(msg)) {
+        return {
+          error: "bigquery_query_timeout",
+          message: extractBigQueryMessage(msg),
+          recoverable: true,
+          hint: "The SQL was valid but exceeded the 60-second warehouse budget. Do NOT inspect the schema and do NOT rerun this query as-is. Make it cheaper: narrow the date range, add a LIMIT, aggregate in SQL instead of returning raw rows, or filter on a partition/cluster column. If the full scan is genuinely required, run it through run-code with background: true instead of retrying here.",
+        };
+      }
+      if (/BigQuery (API|poll) error/i.test(msg)) {
         // Recoverable: hand the real error back to the model so it can inspect
         // the schema and self-correct, instead of force-ending the turn.
         return {

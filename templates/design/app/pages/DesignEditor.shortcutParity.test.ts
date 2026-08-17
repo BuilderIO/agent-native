@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("DesignEditor Figma navigation shortcut wiring", () => {
   const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const rootSource = readFileSync("app/root.tsx", "utf8");
   const layersSource = readFileSync(
     "app/components/design/LayersPanel.tsx",
     "utf8",
@@ -33,6 +34,17 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     expect(editorSource).toContain(
       "onShowAssetsPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowAssetsPanel",
     );
+  });
+
+  it("exposes Show/Hide UI through the command menu", () => {
+    expect(rootSource).toContain("onSelect={requestDesignUiToggle}");
+    expect(rootSource).toContain(
+      't("designEditor.keyboardShortcuts.commands.toggleUi")',
+    );
+    expect(editorSource).toContain(
+      "window.addEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi)",
+    );
+    expect(editorSource).toContain("openCommandMenu();");
   });
 
   it("projects the active move-group sub-tool through the toolbar", () => {

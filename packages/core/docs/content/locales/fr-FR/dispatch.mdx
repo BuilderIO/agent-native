@@ -87,15 +87,15 @@ Si vous exécutez un seul modèle autonome, vous n'avez pas besoin de Dispatch 
 
 Sept fonctionnalités, toutes situées au-dessus de la même base de données d'espace de travail que celles utilisées par les autres applications :
 
-| Capacité                              | Ce que cela vous donne                                                                                 | Configurez-le                                                  |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| **Boîte de réception centrale**       | Slack, e-mail, Telegram, WhatsApp atteignent tous un seul agent avec mémoire partagée + outils         | **Paramètres → Messagerie** ([Messaging](/docs/messaging))     |
-| **Coffre secret**                     | Stockez chaque identifiant une fois ; effectuer une rotation au même endroit dans chaque application   | **Vault** + mode d'accès (toutes les applications ou manuel)   |
-| **Délégation inter-applications**     | Achemine une demande vers la bonne application spécialisée via A2A et répond dans le fil de discussion | Automatique ([A2A](/docs/a2a-protocol))                        |
-| **Passerelle unifiée MCP**            | Un connecteur MCP pour les agents externes atteint chaque application d'espace de travail accordée     | [External Agents](/docs/external-agents)                       |
-| **Ressources de l'espace de travail** | Auteur skills/instructions/profils une fois ; les applications en héritent au moment de l'exécution    | **Ressources** ([Workspace](/docs/workspace#global-resources)) |
-| **Rêves**                             | Examine les exécutions/commentaires passés et propose des améliorations durables à approuver           | Onglet **Rêves**                                               |
-| **Flux d'approbation**                | Gestion des modifications d'exécution sensibles derrière la révision par l'administrateur en ligne     | **Politique d'approbation d'expédition**                       |
+| Capacité                              | Ce que cela vous donne                                                                                 | Configurez-le                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| **Boîte de réception centrale**       | Slack, e-mail, Telegram, WhatsApp atteignent tous un seul agent avec mémoire partagée + outils         | **Paramètres → Messagerie** ([Messaging](/docs/messaging))                       |
+| **Coffre secret**                     | Stockez chaque identifiant une fois ; effectuer une rotation au même endroit dans chaque application   | **Vault** + mode d'accès (toutes les applications ou manuel)                     |
+| **Délégation inter-applications**     | Achemine une demande vers la bonne application spécialisée via A2A et répond dans le fil de discussion | Automatique ([A2A](/docs/a2a-protocol))                                          |
+| **Passerelle unifiée MCP**            | Un connecteur MCP pour les agents externes atteint chaque application d'espace de travail accordée     | [External Agents](/docs/external-agents)                                         |
+| **Ressources de l'espace de travail** | Auteur skills/instructions/profils une fois ; les applications en héritent au moment de l'exécution    | **Ressources** ([Ressources de l'agent](/docs/agent-resources#global-resources)) |
+| **Rêves**                             | Examine les exécutions/commentaires passés et propose des améliorations durables à approuver           | Onglet **Rêves**                                                                 |
+| **Flux d'approbation**                | Gestion des modifications d'exécution sensibles derrière la révision par l'administrateur en ligne     | **Politique d'approbation d'expédition**                                         |
 
 Chacun est détaillé ci-dessous.
 
@@ -113,16 +113,16 @@ Dispatch découvre automatiquement les autres applications de votre espace de tr
 
 ### Passerelle unifiée MCP
 
-Dispatch peut être le connecteur MCP unique pour les agents externes : ajoutez `https://dispatch.agent-native.com/_agent-native/mcp` une fois dans Claude, ChatGPT, Codex ou Cursor, et une autorisation atteint chaque application d'espace de travail accordée au lieu d'un connecteur par application. Consultez [External Agents](/docs/external-agents) pour connaître le flux de connexion complet, les subventions d'application, OAuth et les aperçus de l'application MCP en ligne.
+Dispatch peut être le connecteur MCP unique pour les agents externes : ajoutez `https://dispatch.agent-native.com/mcp` une fois dans Claude, ChatGPT, Codex ou Cursor, et une autorisation atteint chaque application d'espace de travail accordée au lieu d'un connecteur par application. Consultez [External Agents](/docs/external-agents) pour connaître le flux de connexion complet, les subventions d'application, OAuth et les aperçus de l'application MCP en ligne.
 
-<Endpoint id="doc-block-173hyrp" method="POST" path="/_agent-native/mcp" summary={"Point de terminaison de passerelle MCP unifiée"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+<Endpoint id="doc-block-173hyrp" method="POST" path="/mcp" summary={"Point de terminaison de passerelle MCP unifiée"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
   {
     "status": "200",
     "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
   }
 ]}>
 
-The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
 
 </Endpoint>
 
@@ -130,7 +130,7 @@ The single MCP connector URL external agents add (e.g. `https://dispatch.agent-n
 
 Skills, les instructions de garde-corps, les profils d'agent et les ressources de référence peuvent être créés une fois dans Dispatch et hérités par le reste de l'espace de travail. Les ressources avec la portée **Toutes les applications** sont globales : Dispatch les stocke une fois dans la portée de l'espace de travail et chaque agent d'application les lit au moment de l'exécution. Ils ne sont pas copiés dans chaque application et il n’y a pas d’étape de synchronisation manuelle espace de travail-ressource. Les ressources partagées de l'application et les ressources personnelles peuvent remplacer ou restreindre les paramètres par défaut de l'espace de travail localement.
 
-Voir [Workspace — Global resources](/docs/workspace#global-resources) pour le tableau des chemins canoniques, le pack de démarrage et le modèle de remplacement.
+Voir [Ressources de l'agent — Global resources](/docs/agent-resources#global-resources) pour le tableau des chemins canoniques, le pack de démarrage et le modèle de remplacement.
 
 Les ressources du serveur MCP utilisent JSON et sont intentionnellement réservées à HTTP. Stocker les jetons dans
 Distribuez Vault, accordez ou synchronisez ces clés avec les applications cibles et référencez-les

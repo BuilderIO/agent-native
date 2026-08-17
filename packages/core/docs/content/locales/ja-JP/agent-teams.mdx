@@ -14,7 +14,7 @@ description: "メイン エージェントは、独自のスレッドで実行�
 ## メンタルモデル {#mental-model}
 
 - **メイン チャット** — オーケストレーター。代表の皆さん、リクエストを読みます。重労働自体を行うことはほとんどありません。
-- **サブエージェント** — 独自のスレッド、独自のシステム プロンプト、独自のツール セットで実行されます。それぞれは、[workspace](/docs/workspace) の「カスタム エージェント」プロファイルにマッピングされます。
+- **サブエージェント** — 独自のスレッド、独自のシステム プロンプト、独自のツール セットで実行されます。それぞれは、[エージェント リソース](/docs/agent-resources) の「カスタム エージェント」プロファイルにマッピングされます。
 - **チップ** — メイン チャットにインラインで表示される豊富なプレビュー カードで、サブエージェントの現在のステップ、ストリーミング出力、および最終的な概要が表示されます。デフォルトでは折りたたまれています。クリックすると会話全体が展開されます。
 - **双方向メッセージング** — メイン エージェントは実行中のサブエージェントにフォローアップを送信できます。サブエージェントは、曖昧な点に達した場合にメッセージを返すことができます。
 
@@ -105,7 +105,7 @@ description: "メイン エージェントは、独自のスレッドで実行�
 
 ユーザーがチャット コンポーザーに `@agent-name` と入力します。ワークスペースのサブエージェントのドロップダウンが表示されます。 1 つを選択するとチップが挿入されます。送信時に、メイン エージェントはメッセージをそのサブエージェントに委任します。
 
-カスタム エージェントは、`agents/<slug>.md` (YAML フロントマターを含む Markdown ファイル) のワークスペースに存在します。形式については、[Custom Agents](/docs/workspace#custom-agents) を参照してください。
+カスタム エージェントは、`agents/<slug>.md` (YAML フロントマターを含む Markdown ファイル) のワークスペースに存在します。形式については、[Custom Agents](/docs/agent-resources#custom-agents) を参照してください。
 
 ### 2.メインエージェントは自動的に委任します {#auto-delegate}
 
@@ -247,7 +247,7 @@ interface AgentTask {
 
 ## カスタム エージェント プロファイル {#profiles}
 
-サブエージェントはカスタム エージェント プロファイルにマップされます。ワークスペース内の `agents/<slug>.md` にある Markdown ファイルは、`@mention` ドロップダウンに表示され、委任ターゲットとして機能します。 [Workspace — Custom Agents](/docs/workspace#custom-agents) は完全なフォーマット (フロントマター、`tools`、`delegate-default`、モデル オーバーライド) を所有します。
+サブエージェントはカスタム エージェント プロファイルにマップされます。ワークスペース内の `agents/<slug>.md` にある Markdown ファイルは、`@mention` ドロップダウンに表示され、委任ターゲットとして機能します。 [エージェント リソース — Custom Agents](/docs/agent-resources#custom-agents) は完全なフォーマット (フロントマター、`tools`、`delegate-default`、モデル オーバーライド) を所有します。
 
 ## 委任デプスガード {#depth-guard}
 
@@ -327,6 +327,6 @@ AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # サブエージェントは許可されま
 
 ## 次は何ですか
 
-- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — プロファイル形式
+- [**エージェント リソース — Custom Agents**](/docs/agent-resources#custom-agents) — プロファイル形式
 - [**A2A Protocol**](/docs/a2a-protocol) — 「サブエージェント」が完全に別のアプリ内に存在する場合
-- [**Actions**](/docs/actions) — サブエージェントが呼び出すツール
+- [**Actions**](/docs/actions-overview) — サブエージェントが呼び出すツール

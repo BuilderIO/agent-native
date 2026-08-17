@@ -1,11 +1,11 @@
 import {
   AgentSidebar,
-  isEmbedAuthActive,
-  getBrowserTabId,
   useGuidedQuestionFlow,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
@@ -20,6 +20,10 @@ import { useLocation } from "react-router";
 
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
+import {
+  designEditorRoute,
+  isDesignEditorRoute,
+} from "@/lib/design-editor-route";
 import { cn } from "@/lib/utils";
 
 import {
@@ -48,7 +52,7 @@ const BARE_PREFIXES = ["/present/"];
  * DesignEditor mode/zoom/device, shared ExtensionViewer / ExtensionsListPage
  * chrome). The editor owns its agent surface inside its Figma-style left rail.
  */
-const EDITOR_PREFIXES = ["/design/", "/extensions"];
+const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
@@ -59,7 +63,7 @@ export function Layout({ children }: LayoutProps) {
   useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);
-  const isDesignEditor = location.pathname.startsWith("/design/");
+  const isDesignEditor = isDesignEditorRoute(location.pathname);
   const showMobileTopBar = !isDesignEditor;
   const browserTabId = getBrowserTabId();
   const {
@@ -72,8 +76,7 @@ export function Layout({ children }: LayoutProps) {
   // (which we already short-circuit as BARE). Anywhere else (list,
   // design-systems, settings) leaves scope null so general chats keep working.
   const designScope = useMemo(() => {
-    const match = location.pathname.match(/^\/design\/([^/]+)/);
-    const designId = match?.[1];
+    const designId = designEditorRoute(location.pathname)?.designId;
     if (!designId) return null;
     return { type: "design" as const, id: designId };
   }, [location.pathname]);
@@ -81,6 +84,7 @@ export function Layout({ children }: LayoutProps) {
     ? `show-questions:${designScope.id}`
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
+    enabled: hasSession,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -149,6 +153,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           storageKey={DESIGN_CHAT_STORAGE_KEY}
+          agentPageHref="/settings/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionLandingPage"),
@@ -161,9 +166,12 @@ export function Layout({ children }: LayoutProps) {
           threadFooterSlot={designQuestionsWaitingSlot}
           onComposerTextChange={handleComposerTextChange}
           composerSlot={
-            detectedFigmaComposerLink ? (
-              <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
-            ) : null
+            <>
+              <CreativeContextComposerChip />
+              {detectedFigmaComposerLink ? (
+                <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
+              ) : null}
+            </>
           }
         >
           <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">

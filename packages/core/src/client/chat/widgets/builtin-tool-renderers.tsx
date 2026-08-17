@@ -1,10 +1,14 @@
+import { lazy, Suspense } from "react";
+
 import {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
 } from "../../../action-ui.js";
+import { useT } from "../../i18n.js";
 import {
   registerReservedActionChatRenderer,
   registerReservedFallbackToolRenderer,
@@ -19,13 +23,34 @@ import {
   normalizeDataWidgetResult,
   type DataWidgetResult,
 } from "./data-widget-types.js";
-import { DataChartWidget } from "./DataChartWidget.js";
-import { DataInsightsWidget } from "./DataInsightsWidget.js";
-import { DataTableWidget } from "./DataTableWidget.js";
-import {
-  InlineExtensionWidget,
-  normalizeInlineExtensionToolResult,
-} from "./InlineExtensionWidget.js";
+import { normalizeInlineExtensionToolResult } from "./inline-extension-result.js";
+import { normalizeWorkspaceFileResult } from "./workspace-file-result.js";
+
+const LazyDataChartWidget = lazy(() =>
+  import("./DataChartWidget.js").then((module) => ({
+    default: module.DataChartWidget,
+  })),
+);
+const LazyDataInsightsWidget = lazy(() =>
+  import("./DataInsightsWidget.js").then((module) => ({
+    default: module.DataInsightsWidget,
+  })),
+);
+const LazyDataTableWidget = lazy(() =>
+  import("./DataTableWidget.js").then((module) => ({
+    default: module.DataTableWidget,
+  })),
+);
+const LazyInlineExtensionWidget = lazy(() =>
+  import("./InlineExtensionWidget.js").then((module) => ({
+    default: module.InlineExtensionWidget,
+  })),
+);
+const LazyWorkspaceFileWidget = lazy(() =>
+  import("./WorkspaceFileWidget.js").then((module) => ({
+    default: module.WorkspaceFileWidget,
+  })),
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -84,19 +109,43 @@ function renderDataWidget(context: ToolRendererContext) {
   const widget = normalizeDataWidgetKind(result.widget);
   if (widget === DATA_TABLE_WIDGET && result.table) {
     return (
-      <DataTableWidget
-        table={result.table}
-        action={result.display?.primaryAction}
-      />
+      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+        <LazyDataTableWidget
+          table={result.table}
+          action={result.display?.primaryAction}
+        />
+      </Suspense>
     );
   }
   if (widget === DATA_CHART_WIDGET && result.chartSeries) {
-    return <DataChartWidget chart={result.chartSeries} />;
+    return (
+      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+        <LazyDataChartWidget chart={result.chartSeries} />
+      </Suspense>
+    );
   }
   if (widget === DATA_INSIGHTS_WIDGET) {
-    return <DataInsightsWidget result={result} />;
+    return (
+      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+        <LazyDataInsightsWidget result={result} />
+      </Suspense>
+    );
   }
   return null;
+}
+
+function BuiltinToolRendererSkeleton({ framed = true }: { framed?: boolean }) {
+  const t = useT();
+  return (
+    <div
+      aria-label={t("agentChat.widget.loadingToolResult")}
+      className={
+        framed
+          ? "my-1.5 h-24 animate-pulse rounded-lg border border-border bg-muted/30"
+          : "h-24 animate-pulse bg-muted/30"
+      }
+    />
+  );
 }
 
 const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
@@ -104,8 +153,19 @@ const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
 
 const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
   normalizeInlineExtensionToolResult(context) ? (
-    <InlineExtensionWidget context={context} />
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyInlineExtensionWidget context={context} />
+    </Suspense>
   ) : null;
+
+const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
+  const result = normalizeWorkspaceFileResult(context.resultJson);
+  return result ? (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyWorkspaceFileWidget result={result} />
+    </Suspense>
+  ) : null;
+};
 
 export function isBuiltinDataWidgetActionRenderer(
   context: ToolRendererContext,
@@ -127,6 +187,12 @@ export function resolveBuiltinActionChatRenderer(
     normalizeInlineExtensionToolResult(context)
   ) {
     return BuiltinInlineExtensionRenderer;
+  }
+  if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER &&
+    normalizeWorkspaceFileResult(context.resultJson)
+  ) {
+    return BuiltinWorkspaceFileRenderer;
   }
   if (
     isBuiltinDataWidgetActionRenderer(context) &&

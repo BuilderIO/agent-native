@@ -542,14 +542,17 @@ Brain は個人の監視ではなく、会社の記憶のために設計され�
   ルート、フィルター、および選択された ID がエージェントの `application_state` にミラーリングされます
   コンテキスト。
 
-エージェントに変更を依頼してください。エージェントは独自のソースを編集できます。参照
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+これらの変更はリポジトリの開発ワークフローで行います。埋め込み
+エージェントがソース編集を支援できるのは、ホストが
+repository/workspace の書き込みツールを意図的に付与した場合だけです。
+それ以外では actions とデータを通じて動作します。参照
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## 次は何ですか
 
 - [**Dispatch**](/docs/dispatch) — ワークスペース コントロール プレーン
 - [**Dispatch template**](/docs/template-dispatch) — スキャフォールド調整アプリ
-- [**Workspace**](/docs/workspace) — アプリ間でリソースを共有
+- [**エージェント リソース**](/docs/agent-resources) — アプリ間でリソースを共有
 - [**A2A Protocol**](/docs/a2a-protocol) — クロスアプリ委任
 - [**Templates**](/docs/cloneable-saas) — クローンして所有するモデルと、開始点になるその他のすべてのドメインテンプレート
 - [**Getting Started**](/docs/getting-started) — Actions、アプリケーション状態、ライブ同期というフレームワークの基本

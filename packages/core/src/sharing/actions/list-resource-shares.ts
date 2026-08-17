@@ -60,7 +60,15 @@ export default defineAction({
       allowPublic: reg.allowPublic !== false,
       requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
     };
-    const access = await resolveAccess(args.resourceType, args.resourceId);
+    // Only `ownerEmail`/`orgId`/`visibility` are read below, all of which the
+    // projected load carries — so the share dialog never pulls a resource's
+    // body blob just to render who it is shared with.
+    const access = await resolveAccess(
+      args.resourceType,
+      args.resourceId,
+      undefined,
+      { skipResourceBody: true },
+    );
     if (!access)
       return { ownerEmail: null, visibility: null, shares: [], policy };
 
@@ -76,6 +84,7 @@ export default defineAction({
       orgId: access.resource.orgId ?? null,
       visibility: access.resource.visibility ?? "private",
       role: access.role,
+      agentReadable: Boolean(reg.agentReadable),
       shares: shares.map((s: any) => ({
         id: s.id,
         principalType: s.principalType,

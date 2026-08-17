@@ -10,26 +10,53 @@ export function tenantFileKey(email: string): string {
     .slice(0, 24);
 }
 
-export function tenantUploadDir(email: string): string {
-  return path.join(process.cwd(), "data", "uploads", tenantFileKey(email));
+export function tenantUploadDir(email: string, cwd = process.cwd()): string {
+  return path.join(cwd, "data", "uploads", tenantFileKey(email));
 }
 
-function exportRootDir(): string {
+export function isHostedSlidesRuntime(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env.NETLIFY && env.NETLIFY !== "false" && env.NETLIFY_LOCAL !== "true") {
+    return true;
+  }
   if (
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.cwd() === "/var/task" ||
-    process.cwd().startsWith("/var/task/")
+    (env.AWS_LAMBDA_FUNCTION_NAME ||
+      env.LAMBDA_TASK_ROOT ||
+      cwd === "/var/task" ||
+      cwd.startsWith("/var/task/")) &&
+    env.NETLIFY_LOCAL !== "true"
   ) {
+    return true;
+  }
+  return Boolean(
+    env.VERCEL ||
+    env.VERCEL_ENV ||
+    env.CF_PAGES ||
+    env.RENDER ||
+    env.FLY_APP_NAME ||
+    env.K_SERVICE,
+  );
+}
+
+function exportRootDir(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (isHostedSlidesRuntime(cwd, env)) {
     return path.join(os.tmpdir(), "agent-native-slides", "exports");
   }
 
-  return path.join(process.cwd(), "data", "exports");
+  return path.join(cwd, "data", "exports");
 }
 
-export function tenantExportDir(email: string): string {
-  return path.join(exportRootDir(), tenantFileKey(email));
+export function tenantExportDir(
+  email: string,
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(exportRootDir(cwd, env), tenantFileKey(email));
 }
 
 export function safeGeneratedFilename(title: string, ext: ".html" | ".pptx") {

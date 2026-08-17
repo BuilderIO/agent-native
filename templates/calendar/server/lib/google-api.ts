@@ -401,9 +401,14 @@ export function calendarUpdateEvent(
   calendarId: string,
   eventId: string,
   body: any,
+  params?: {
+    sendUpdates?: string;
+    conferenceDataVersion?: number;
+    supportsAttachments?: boolean;
+  },
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
     accessToken,
     {
       method: "PUT",

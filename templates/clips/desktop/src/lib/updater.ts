@@ -31,6 +31,11 @@ let lastCheckStartedAt = 0;
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+const UPDATE_RETRY_DELAYS_MS = [1000, 3000];
+
+function waitForRetry(delayMs: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
 
 function canRunUpdateChecks() {
   // Dev and local release builds are for testing the current checkout. Do not
@@ -43,48 +48,67 @@ function setStatus(next: UpdateStatus) {
   for (const l of listeners) l(next);
 }
 
+async function runCheckAttempt(staged: string | null) {
+  if (!staged) setStatus({ state: "checking" });
+  const update = await check();
+  if (!update) {
+    // The endpoint answering "current" while a newer bundle sits staged is a
+    // contradiction, not a reason to drop the download. Keep it staged.
+    if (!staged) setStatus({ state: "not-available" });
+    return;
+  }
+  if (staged && update.version === staged) return;
+  const version = update.version;
+  const notes = update.body ?? undefined;
+  setStatus({ state: "available", version, notes });
+
+  // Download ONLY — do not install here. On macOS `install` swaps the .app
+  // bundle on disk while this process keeps running, which invalidates the
+  // running process's Screen Recording (TCC) grant and breaks capture until
+  // relaunch. We defer the swap to `installAndRestart()` so a downloaded-but-
+  // not-yet-installed update leaves the running app fully functional; the
+  // user records normally until they choose to restart.
+  let total = 0;
+  let downloaded = 0;
+  await update.download((event) => {
+    if (event.event === "Started") {
+      total = event.data.contentLength ?? 0;
+      downloaded = 0;
+      setStatus({ state: "downloading", version, notes, percent: 0 });
+    } else if (event.event === "Progress") {
+      downloaded += event.data.chunkLength;
+      const percent =
+        total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+      setStatus({ state: "downloading", version, notes, percent });
+    }
+  });
+  pendingUpdate = update;
+  setStatus({ state: "downloaded", version, notes });
+}
+
 async function runCheck() {
-  if (cachedStatus.state === "downloaded") return;
   if (checkInFlight) return checkInFlight;
+
+  // A staged update keeps checking on the normal cadence. Stopping here is what
+  // made "Restart to update" land on a binary that was already out of date and
+  // immediately ask to restart again — every check runs against the *running*
+  // version, so it re-offers the staged version until a newer one ships.
+  const staged =
+    cachedStatus.state === "downloaded" ? cachedStatus.version : null;
 
   lastCheckStartedAt = Date.now();
   checkInFlight = (async () => {
     try {
-      setStatus({ state: "checking" });
-      const update = await check();
-      if (!update) {
-        setStatus({ state: "not-available" });
-        return;
-      }
-      pendingUpdate = update;
-      const version = update.version;
-      const notes = update.body ?? undefined;
-      setStatus({ state: "available", version, notes });
-
-      // Download ONLY — do not install here. On macOS `install` swaps the .app
-      // bundle on disk while this process keeps running, which invalidates the
-      // running process's Screen Recording (TCC) grant and breaks capture until
-      // relaunch. We defer the swap to `installAndRestart()` so a downloaded-but-
-      // not-yet-installed update leaves the running app fully functional; the
-      // user records normally until they choose to restart.
-      let total = 0;
-      let downloaded = 0;
-      await update.download((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? 0;
-          downloaded = 0;
-          setStatus({ state: "downloading", version, notes, percent: 0 });
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          const percent =
-            total > 0
-              ? Math.min(100, Math.round((downloaded / total) * 100))
-              : 0;
-          setStatus({ state: "downloading", version, notes, percent });
-        } else if (event.event === "Finished") {
-          setStatus({ state: "downloaded", version, notes });
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await runCheckAttempt(staged);
+          return;
+        } catch (err) {
+          const delay = UPDATE_RETRY_DELAYS_MS[attempt];
+          if (delay === undefined) throw err;
+          await waitForRetry(delay);
         }
-      });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus({ state: "error", message });
@@ -98,7 +122,6 @@ async function runCheck() {
 
 function maybeCheckForUpdate() {
   if (!canRunUpdateChecks()) return;
-  if (cachedStatus.state === "downloaded") return;
   if (
     checkInFlight ||
     Date.now() - lastCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS

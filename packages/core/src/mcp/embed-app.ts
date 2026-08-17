@@ -2,7 +2,7 @@ import type { ActionMcpAppResourceConfig } from "../action.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 
 const MCP_APP_IMPORT =
-  "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.2/app-with-deps";
+  "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
@@ -1486,10 +1486,21 @@ export function embedApp(
     });
 
     window.addEventListener("message", (event) => {
-      if (!appFrame || event.source !== appFrame.contentWindow) return;
-      if (!event.data) return;
+      const message = event.data;
+      const expiredSessionMessage =
+        message?.type === "agentNative.embedSessionExpired" &&
+        typeof message.embedStartUrl === "string" &&
+        event.source === null &&
+        (message.embedStartUrl === appFrame?.src ||
+          message.embedStartUrl === lastFrameSrc);
+      if (
+        !appFrame ||
+        (!expiredSessionMessage && event.source !== appFrame.contentWindow)
+      )
+        return;
+      if (!message) return;
       const data = event.data.data || {};
-      if (event.data.type === "agentNative.embeddedAppReady") {
+      if (message.type === "agentNative.embeddedAppReady") {
         appFrameReady = true;
         embedSessionRefreshAttempts = 0;
         clearFrameLoadTimer();
@@ -1497,7 +1508,7 @@ export function embedApp(
         notifyOuterMcpAppReady();
         return;
       }
-      if (event.data.type === "agentNative.contentHeight") {
+      if (message.type === "agentNative.contentHeight") {
         const next = finiteNumber(data && data.height);
         if (next && Math.abs(next - reportedContentHeight) >= 1) {
           reportedContentHeight = next;
@@ -1505,23 +1516,23 @@ export function embedApp(
         }
         return;
       }
-      if (event.data.type === "agentNative.embedSessionExpired") {
+      if (message.type === "agentNative.embedSessionExpired") {
         refreshExpiredEmbedSession();
         return;
       }
-      if (event.data.type === "agentNative.submitChat") {
+      if (message.type === "agentNative.submitChat") {
         void sendHostChat(data);
         return;
       }
-      if (event.data.type === "agentNative.mcpHost.updateModelContext") {
+      if (message.type === "agentNative.mcpHost.updateModelContext") {
         respondToAppFrame(data.requestId, updateHostModelContext(data));
         return;
       }
-      if (event.data.type === "agentNative.mcpHost.openLink") {
+      if (message.type === "agentNative.mcpHost.openLink") {
         respondToAppFrame(data.requestId, openHostLink(data));
         return;
       }
-      if (event.data.type === "agentNative.mcpHost.requestDisplayMode") {
+      if (message.type === "agentNative.mcpHost.requestDisplayMode") {
         respondToAppFrame(data.requestId, requestHostDisplayMode(data.mode));
       }
     });

@@ -3,15 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
+  shouldShowNewDeckGeneratingProgress,
 } from "./generation-state";
 
 describe("new deck generation state", () => {
-  it("shows the blocking overlay only while a fresh deck has no slides", () => {
+  it("shows the blocking overlay before and during the first slide", () => {
     expect(
       shouldShowNewDeckGeneratingOverlay({
         generating: true,
         isNewDeckCreation: true,
         slideCount: 0,
+        generationStarted: true,
       }),
     ).toBe(true);
 
@@ -20,6 +22,7 @@ describe("new deck generation state", () => {
         generating: true,
         isNewDeckCreation: true,
         slideCount: 1,
+        generationStarted: true,
       }),
     ).toBe(false);
 
@@ -28,30 +31,58 @@ describe("new deck generation state", () => {
         generating: false,
         isNewDeckCreation: true,
         slideCount: 0,
+        generationStarted: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldShowNewDeckGeneratingOverlay({
+        generating: false,
+        isNewDeckCreation: true,
+        slideCount: 0,
+        generationStarted: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps creation intent until generation starts", () => {
+    expect(
+      shouldClearNewDeckGeneratingState({
+        generating: false,
+        generationStarted: false,
       }),
     ).toBe(false);
   });
 
-  it("clears new-deck generating state when work finishes or a slide lands", () => {
+  it("keeps progress visible after the first slide lands", () => {
     expect(
-      shouldClearNewDeckGeneratingState({
+      shouldShowNewDeckGeneratingProgress({
         generating: true,
-        slideCount: 0,
+        isNewDeckCreation: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldClearNewDeckGeneratingState({
         generating: true,
-        slideCount: 1,
+        generationStarted: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("clears new-deck generating state only when observed work finishes", () => {
+    expect(
+      shouldClearNewDeckGeneratingState({
+        generating: false,
+        generationStarted: true,
       }),
     ).toBe(true);
 
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        slideCount: 0,
+        generationStarted: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

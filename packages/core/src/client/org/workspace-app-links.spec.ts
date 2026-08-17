@@ -21,6 +21,9 @@ describe("org switcher app links", () => {
     });
     expect(apps.find((app) => app.id === "brain")?.icon).toBe("Brain");
     expect(apps.find((app) => app.id === "analytics")?.icon).toBe("BarChart2");
+    expect(apps.find((app) => app.id === "analytics")?.description).toContain(
+      "connect data sources",
+    );
     expect(apps.map((app) => app.id)).toEqual(
       expect.arrayContaining([
         "analytics",

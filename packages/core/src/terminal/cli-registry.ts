@@ -38,11 +38,16 @@ export const CLI_REGISTRY: Record<string, CliEntry> = {
     installPackage: "opencode-ai",
     stripEnv: [],
   },
+  pi: {
+    label: "Pi",
+    installPackage: "",
+    stripEnv: [],
+  },
 };
 
 /** Check if a command name is in the CLI_REGISTRY allowlist */
 export function isAllowedCommand(cmd: string): boolean {
-  return Object.hasOwn(CLI_REGISTRY, cmd);
+  return Object.prototype.hasOwnProperty.call(CLI_REGISTRY, cmd);
 }
 
 /** Check if a CLI command exists on PATH (safe — no shell interpolation) */

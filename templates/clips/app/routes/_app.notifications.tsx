@@ -1,8 +1,8 @@
 import {
   useActionQuery,
   useActionMutation,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";

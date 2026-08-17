@@ -135,7 +135,7 @@ Options:
   } else if (scope === "workspace") {
     owner = WORKSPACE_OWNER;
   } else {
-    const personalOwner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+    const personalOwner = getRequestUserEmail() ?? getAmbientUserEmail();
     if (!personalOwner) {
       fail(
         "resource-write --scope=personal requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

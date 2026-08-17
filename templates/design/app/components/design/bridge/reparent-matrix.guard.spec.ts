@@ -673,6 +673,138 @@ describe("Chromium reparent matrix", () => {
       await page.close();
     },
   );
+
+  it(
+    "inserts host-supplied markup into the running DOM against a pending-id anchor and removes it when the host rejects",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      // No data-agent-native-node-id anywhere: this is the real localhost
+      // shape, where the hit-test can only hand back a minted pending id.
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        #host { display:flex;gap:12px;padding:16px;background:#eef2ff; }
+        #existing { width:100px;height:44px;background:#a5b4fc; }
+      </style></head><body>
+        <div id="host" data-an-pending-node-id="pending-anchor-1">
+          <div id="existing">Existing</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 41,
+              html: '<div data-agent-native-node-id="board-rect" style="width:60px;height:40px;background:#f97316">Rect</div>',
+              anchorSelector: "",
+              anchorSourceId: "",
+              anchorPendingNodeId: "pending-anchor-1",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const inserted = await page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-agent-native-node-id="board-rect"]',
+        );
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        const structures = messages.filter(
+          (message) => message.type === "visual-structure-change",
+        );
+        return {
+          parent: el?.parentElement?.id ?? null,
+          order: Array.from(document.getElementById("host")!.children).map(
+            (child) =>
+              child.id || child.getAttribute("data-agent-native-node-id"),
+          ),
+          structures,
+        };
+      });
+      expect(inserted.parent).toBe("host");
+      expect(inserted.order).toEqual(["existing", "board-rect"]);
+      expect(inserted.structures).toHaveLength(1);
+      // insertedHtml is what tells the host (and then the coding agent) this is
+      // new markup to add, not an existing element to relocate.
+      expect(inserted.structures[0]!.insertedHtml).toContain(
+        'data-agent-native-node-id="board-rect"',
+      );
+
+      // Cmd+Z on a pending live insert rejects the round-trip. There is no
+      // pre-insert position to restore, so the only correct revert is removal.
+      await page.evaluate((requestId) => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: { type: "visual-structure-ack", requestId, applied: false },
+          }),
+        );
+      }, inserted.structures[0]!.requestId);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document.querySelectorAll(
+                '[data-agent-native-node-id="board-rect"]',
+              ).length,
+          ),
+        )
+        .toBe(0);
+      await page.close();
+    },
+  );
+
+  it(
+    "answers an unresolvable insert anchor instead of dropping the gesture silently",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body><div id="host"></div></body></html>`,
+      );
+      await installBridge(page);
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 42,
+              html: '<div data-agent-native-node-id="board-rect"></div>',
+              anchorSelector: "#nope",
+              anchorPendingNodeId: "missing",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+      const rejections = await page.evaluate(() => {
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return messages.filter(
+          (message) => message.type === "runtime-structure-insert-rejected",
+        );
+      });
+      expect(rejections).toHaveLength(1);
+      expect(rejections[0]).toMatchObject({
+        requestId: 42,
+        reason: "anchor-unresolved",
+      });
+      await page.close();
+    },
+  );
 });
 
 describe("cross-screen source and runtime matrix", () => {
@@ -732,6 +864,50 @@ describe("cross-screen source and runtime matrix", () => {
         targetRuntimeOnly: true,
         sourceScreenId: "screen-a",
         targetScreenId: "screen-a",
+      }),
+    ).toBe("screen-bridge");
+    // A board primitive dropped into a live localhost screen: neither endpoint
+    // is runtimeOnly (the live anchor has no stored layer owner), so without
+    // targetScreenIsLive this resolves to "source-edit" and the move is written
+    // as an HTML document over the destination screen's bridge URL.
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: false,
+        targetRuntimeOnly: false,
+        sourceScreenId: "board",
+        targetScreenId: "live",
+        sourceScreenIsBoard: true,
+        targetScreenIsLive: true,
+      }),
+    ).toBe("screen-bridge-insert");
+    // Only the board may be reinterpreted as an insert — a stored screen's
+    // element moved into a live app would otherwise be silently duplicated.
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: false,
+        targetRuntimeOnly: false,
+        sourceScreenId: "screen-a",
+        targetScreenId: "live",
+        targetScreenIsLive: true,
+      }),
+    ).toBe("semantic-handoff");
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: false,
+        targetRuntimeOnly: false,
+        sourceScreenId: "board",
+        targetScreenId: "live",
+        sourceScreenIsBoard: true,
+      }),
+    ).toBe("source-edit");
+    // Same-screen live reorders keep the existing bridge move path.
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: true,
+        targetRuntimeOnly: true,
+        sourceScreenId: "live",
+        targetScreenId: "live",
+        targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge");
     for (const ownership of [

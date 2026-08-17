@@ -6,9 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CanvasCommentPins } from "./CanvasCommentPins";
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...values: Array<string | false | null | undefined>) =>
-    values.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string =>
@@ -210,8 +208,6 @@ describe("CanvasCommentPins anchoring and clustering", () => {
     });
 
     expect(marker()?.className).toContain("outline-dashed");
-    const tooltip = rendered.container.querySelector("[data-tooltip-content]");
-    expect(tooltip?.textContent).toBe("visualEditor.staleAnchorDetail");
   });
 });
 

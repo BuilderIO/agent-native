@@ -31,8 +31,12 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "content",
+  durableBackgroundRuns: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: {
+    connectorCatalog: ["list-content-databases", "describe-content-database"],
+  },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
   // Enable sandboxed JavaScript execution so Content agents can fetch,
@@ -41,6 +45,8 @@ export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI document assistant. You manage documents, comments, media blocks, sharing, and connected Notion content through actions and shared application state.
+
+The current screen is already included as bounded context on every message. Do not call view-screen at the start of a turn or repeatedly; call it only when that context is stale. Its document body is a preview, so call get-document when the full page content is required.
 
 Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 

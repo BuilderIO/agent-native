@@ -1,17 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   isAgentNativeFirstPartyAppOrigin,
   isChatGptMcpSandboxOrigin,
   isLocalMcpEmbedOrigin,
   isMcpEmbedCorsOrigin,
+  isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
+  mcpEmbedStaticAssetRouteRules,
   shouldAllowMcpEmbedCredentials,
 } from "./mcp-embed-headers.js";
 
 describe("MCP embed headers", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("sets nosniff on CDN-served static assets", () => {
+    // The h3 security-headers middleware never runs for these paths.
+    for (const rule of Object.values(mcpEmbedStaticAssetRouteRules())) {
+      expect(rule.headers["X-Content-Type-Options"]).toBe("nosniff");
+    }
+  });
+
   it("allows frontend action-client headers from embedded apps", () => {
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Frontend");
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
+      "X-Agent-Native-Client-Compatibility",
+    );
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Build-Id");
   });
 
   it("allows ChatGPT web-sandbox origins", () => {
@@ -44,6 +61,47 @@ describe("MCP embed headers", () => {
       expect(isMcpEmbedCorsOrigin(origin)).toBe(true);
       expect(shouldAllowMcpEmbedCredentials(origin)).toBe(false);
     }
+  });
+
+  it("only allows explicitly configured or exact native origins to read credentialed responses", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://preview.example.com");
+    expect(shouldAllowMcpEmbedCredentials("https://preview.example.com")).toBe(
+      true,
+    );
+    expect(shouldAllowMcpEmbedCredentials("https://builder.io")).toBe(false);
+    expect(shouldAllowMcpEmbedCredentials("https://workspace.builder.io")).toBe(
+      false,
+    );
+    expect(shouldAllowMcpEmbedCredentials("http://localhost:9310")).toBe(false);
+    expect(shouldAllowMcpEmbedCredentials("https://evil.example")).toBe(false);
+    expect(shouldAllowMcpEmbedCredentials("tauri://localhost")).toBe(true);
+    expect(shouldAllowMcpEmbedCredentials("https://tauri.localhost")).toBe(
+      true,
+    );
+  });
+
+  it("does not allow builder or local fallback origins to read credentialed responses", () => {
+    expect(shouldAllowMcpEmbedCredentials("https://builder.io")).toBe(false);
+    expect(shouldAllowMcpEmbedCredentials("https://workspace.builder.io")).toBe(
+      false,
+    );
+    expect(shouldAllowMcpEmbedCredentials("http://localhost:9310")).toBe(false);
+  });
+
+  it("only allows trusted MCP or first-party origins to read transplant locations", () => {
+    expect(
+      isMcpEmbedTransplantOrigin(
+        "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      ),
+    ).toBe(true);
+    expect(isMcpEmbedTransplantOrigin("https://design.agent-native.com")).toBe(
+      true,
+    );
+    expect(isMcpEmbedTransplantOrigin("https://workspace.builder.io")).toBe(
+      false,
+    );
+    expect(isMcpEmbedTransplantOrigin("http://localhost:9310")).toBe(false);
+    expect(isMcpEmbedTransplantOrigin("null")).toBe(false);
   });
 
   it("allows first-party hosted apps to embed sibling MCP apps without credentialed CORS", () => {

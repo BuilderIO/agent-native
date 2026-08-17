@@ -1,6 +1,6 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
+import { IconAlertTriangleFilled, IconMapPin } from "@tabler/icons-react";
 import {
   eachHourOfInterval,
   format,
@@ -28,15 +28,32 @@ import {
   useViewPreferences,
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
+import { partitionAllDayEvents } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
+import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
+import {
+  fullDayOutOfOfficeCoversDate,
+  isFullDayOutOfOfficeEvent,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
 import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
 } from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
+import {
+  createWorkingLocationDisplayLabels,
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+  isWorkingLocationEvent,
+} from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
+import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 
 interface DayViewProps {
   events: CalendarEvent[];
@@ -125,54 +142,6 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}–${endStr}`;
 }
 
-interface LayoutInfo {
-  left: number; // percentage 0-100
-  width: number; // percentage 0-100
-  col: number;
-  totalCols: number;
-}
-
-function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
-  const result = new Map<string, LayoutInfo>();
-  if (dayEvents.length === 0) return result;
-
-  const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = parseISO(a.start).getTime();
-    const bStart = parseISO(b.start).getTime();
-    if (aStart !== bStart) return aStart - bStart;
-    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
-  });
-
-  const times = new Map<string, { start: number; end: number }>();
-  for (const ev of sorted) {
-    times.set(ev.id, {
-      start: parseISO(ev.start).getTime(),
-      end: parseISO(ev.end).getTime(),
-    });
-  }
-
-  const INDENT_PX = 20; // DayView has wider columns, more indent room
-
-  for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      const ta = times.get(other.id)!;
-      const tb = times.get(ev.id)!;
-      if (ta.start < tb.end && tb.start < ta.end) depth++;
-    }
-
-    result.set(ev.id, {
-      left: depth * INDENT_PX,
-      width: 0,
-      col: depth,
-      totalCols: depth + 1,
-    });
-  }
-
-  return result;
-}
-
 function getEventStyleForDate(event: CalendarEvent, date: Date) {
   const start = parseISO(event.start);
   const end = parseISO(event.end);
@@ -194,7 +163,7 @@ function getEventStyleForDate(event: CalendarEvent, date: Date) {
 interface DayEventCardProps {
   event: CalendarEvent;
   date: Date;
-  layout: Map<string, LayoutInfo>;
+  layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
   focusedEventId: string | null;
@@ -223,6 +192,7 @@ interface DayEventCardProps {
   onDraftUpdate?: DayViewProps["onDraftUpdate"];
   onDraftCreate?: DayViewProps["onDraftCreate"];
   onDraftDiscard?: DayViewProps["onDraftDiscard"];
+  onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
 }
 
 /**
@@ -255,12 +225,17 @@ const DayEventCard = memo(function DayEventCard({
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
+  onPopoverOpenChange,
 }: DayEventCardProps) {
+  const t = useT();
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const li = layout.get(event.id) ?? {
     left: 0,
     width: 100,
+    indent: 0,
     col: 0,
     totalCols: 1,
+    stackOrder: 0,
   };
   const overrides =
     overrideTop !== null && overrideHeight !== null
@@ -323,21 +298,21 @@ const DayEventCard = memo(function DayEventCard({
       )}
       aria-label={
         event.ownerName || event.overlayEmail
-          ? `${event.title}, ${
+          ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
               event.ownerName || event.overlayEmail
             }'s calendar`
-          : event.title
+          : getWorkingLocationTitle(event, workingLocationLabels)
       }
       style={{
         ...posStyle,
-        left: `${li.left}px`,
-        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
             : focusedEventId === event.id
               ? 50
-              : li.col + 1,
+              : li.stackOrder + 1,
         backgroundColor: color
           ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
           : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -381,8 +356,13 @@ const DayEventCard = memo(function DayEventCard({
               !isPast && !isDeclined && "font-semibold",
             )}
           >
-            {event.title}
+            {getWorkingLocationChipLabel(event, workingLocationLabels)}
           </span>
+          {isWorkingLocationEvent(event) && (
+            <span className="shrink-0 text-[10px] font-normal text-foreground/55">
+              {t("eventForm.workingLocation")}
+            </span>
+          )}
         </div>
       ) : (
         <>
@@ -403,8 +383,15 @@ const DayEventCard = memo(function DayEventCard({
               />
             )}
             <EventStatusIcon event={event} className="shrink-0" />
-            <span className="truncate">{event.title}</span>
+            <span className="truncate">
+              {getWorkingLocationChipLabel(event, workingLocationLabels)}
+            </span>
           </div>
+          {isWorkingLocationEvent(event) && isStart && (
+            <div className="mt-0.5 truncate text-[10px] leading-tight text-foreground/60">
+              {t("eventForm.workingLocation")}
+            </div>
+          )}
           {isStart && (
             <div
               className={cn(
@@ -467,6 +454,7 @@ const DayEventCard = memo(function DayEventCard({
       onDraftUpdate={onDraftUpdate}
       onDraftCreate={onDraftCreate}
       onDraftDiscard={onDraftDiscard}
+      onOpenChange={(open) => onPopoverOpenChange(event, open)}
     >
       {eventButton}
     </EventDetailPopover>
@@ -517,10 +505,12 @@ export const DayView = memo(function DayView({
   isLoading = false,
 }: DayViewProps) {
   const t = useT();
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const { setFocusedEvent } = useCalendarSetters();
   const { prefs } = useViewPreferences();
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
+  const focusedEventIdRef = useRef<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -528,6 +518,7 @@ export const DayView = memo(function DayView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        focusedEventIdRef.current = null;
         setFocusedEventId(null);
         setFocusedEvent(null);
       }
@@ -567,9 +558,35 @@ export const DayView = memo(function DayView({
     [date],
   );
 
-  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
-  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
-  const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => event.allDay || fullDayOutOfOfficeCoversDate(event, date),
+      ),
+    [date, events],
+  );
+  const { workingLocations, regularEvents: regularAllDayEvents } = useMemo(
+    () => partitionAllDayEvents(allDayEvents),
+    [allDayEvents],
+  );
+  const outOfOfficeEvents = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          !event.allDay &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
+  const timedEvents = useMemo(
+    () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
+    [events],
+  );
+  const layout = useMemo(
+    () => computeTimedEventLayout(timedEvents, date),
+    [date, timedEvents],
+  );
 
   // Timezone label: prefer the short generic name (e.g. "PT", "ET")
   // over the offset form ("GMT-7"), and fall back to the IANA id when
@@ -640,8 +657,25 @@ export const DayView = memo(function DayView({
 
   const canDrag = !!onEventTimeChange;
 
+  const handleEventPopoverOpenChange = useCallback(
+    (event: CalendarEvent, open: boolean) => {
+      if (open) {
+        focusedEventIdRef.current = event.id;
+        setFocusedEventId(event.id);
+        setFocusedEvent(event);
+        return;
+      }
+      if (focusedEventIdRef.current !== event.id) return;
+      focusedEventIdRef.current = null;
+      setFocusedEventId(null);
+      setFocusedEvent(null);
+    },
+    [setFocusedEvent],
+  );
+
   const handleEventPointerDown = useCallback(
     (e: React.PointerEvent, event: CalendarEvent, isStart: boolean) => {
+      focusedEventIdRef.current = event.id;
       setFocusedEventId(event.id);
       setFocusedEvent(event);
       if (
@@ -726,72 +760,161 @@ export const DayView = memo(function DayView({
         </Tooltip>
       </div>
 
-      {/* All-day events */}
+      {/* Working locations and ordinary all-day events */}
       {allDayEvents.length > 0 && (
-        <div className="border-b border-border bg-card/50 px-4 py-2">
-          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t("eventForm.allDay")}
-          </p>
-          <div className="space-y-1">
-            {allDayEvents.map((event) => {
-              const color = getEventDisplayColor(event, prefs);
-              return (
-                <EventDetailPopover
-                  key={event.id}
-                  event={event}
-                  onDelete={onDeleteEvent}
-                  isDraft={draftEventIds.includes(event.id)}
-                  defaultOpen={quickEditEventId === event.id}
-                  onTitleSave={onQuickEditSave}
-                  onDismissNew={onQuickEditCancel}
-                  onDraftUpdate={onDraftUpdate}
-                  onDraftCreate={onDraftCreate}
-                  onDraftDiscard={onDraftDiscard}
-                >
-                  <button
-                    className={cn(
-                      "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
-                      event.ownerColor && "pr-5",
-                    )}
-                    aria-label={
-                      event.ownerName || event.overlayEmail
-                        ? `${event.title}, ${
-                            event.ownerName || event.overlayEmail
-                          }'s calendar`
-                        : event.title
-                    }
-                    style={
-                      color
-                        ? {
-                            backgroundColor: `${color}30`,
-                            borderLeft: `3px solid ${color}`,
-                          }
-                        : {
-                            backgroundColor: "hsl(var(--primary) / 0.15)",
-                            borderLeft: "3px solid hsl(var(--primary))",
-                          }
-                    }
-                  >
-                    {allOtherDeclined(event) && (
-                      <IconAlertTriangleFilled
-                        size={14}
-                        className="shrink-0 text-current opacity-70"
-                      />
-                    )}
-                    <EventStatusIcon event={event} className="shrink-0" />
-                    <span className="truncate">{event.title}</span>
-                    {event.ownerColor && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                        style={{ backgroundColor: event.ownerColor }}
-                      />
-                    )}
-                  </button>
-                </EventDetailPopover>
-              );
-            })}
-          </div>
+        <div className="border-b border-border bg-card/50">
+          {workingLocations.length > 0 && (
+            <div data-working-location-lane className="px-4 py-1.5">
+              <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground">
+                <IconMapPin aria-hidden="true" className="size-3" />
+                {t("eventForm.workingLocation")}
+              </p>
+              <div className="grid gap-1 sm:grid-cols-2">
+                {workingLocations.map((event) => {
+                  const color = getEventDisplayColor(event, prefs);
+                  return (
+                    <EventDetailPopover
+                      key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                      event={event}
+                      onDelete={onDeleteEvent}
+                      isDraft={draftEventIds.includes(event.id)}
+                      defaultOpen={quickEditEventId === event.id}
+                      onTitleSave={onQuickEditSave}
+                      onDismissNew={onQuickEditCancel}
+                      onDraftUpdate={onDraftUpdate}
+                      onDraftCreate={onDraftCreate}
+                      onDraftDiscard={onDraftDiscard}
+                    >
+                      <button
+                        className={cn(
+                          "relative flex h-6 w-full items-center gap-1.5 truncate rounded-sm px-2 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80",
+                          event.ownerColor && "pr-5",
+                        )}
+                        aria-label={
+                          event.ownerName || event.overlayEmail
+                            ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
+                                event.ownerName || event.overlayEmail
+                              }'s calendar`
+                            : getWorkingLocationTitle(
+                                event,
+                                workingLocationLabels,
+                              )
+                        }
+                        style={{
+                          backgroundColor: color
+                            ? `${color}1f`
+                            : "hsl(var(--muted))",
+                          borderLeft: `2px solid ${
+                            color ?? "hsl(var(--muted-foreground))"
+                          }`,
+                        }}
+                      >
+                        <IconMapPin
+                          aria-hidden="true"
+                          className="size-3 shrink-0 opacity-70"
+                        />
+                        <span className="truncate">
+                          {getWorkingLocationChipLabel(
+                            event,
+                            workingLocationLabels,
+                          )}
+                        </span>
+                        {event.ownerColor && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                            style={{ backgroundColor: event.ownerColor }}
+                          />
+                        )}
+                      </button>
+                    </EventDetailPopover>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {regularAllDayEvents.length > 0 && (
+            <div
+              data-all-day-event-lane
+              className={cn(
+                "px-4 py-2",
+                workingLocations.length > 0 && "border-t border-border/60",
+              )}
+            >
+              <p className="mb-1.5 text-[11px] font-medium uppercase text-muted-foreground">
+                {t("eventForm.allDay")}
+              </p>
+              <div className="flex flex-col gap-1">
+                {regularAllDayEvents.map((event) => {
+                  const color = getEventDisplayColor(event, prefs);
+                  return (
+                    <EventDetailPopover
+                      key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                      event={event}
+                      onDelete={onDeleteEvent}
+                      isDraft={draftEventIds.includes(event.id)}
+                      defaultOpen={quickEditEventId === event.id}
+                      onTitleSave={onQuickEditSave}
+                      onDismissNew={onQuickEditCancel}
+                      onDraftUpdate={onDraftUpdate}
+                      onDraftCreate={onDraftCreate}
+                      onDraftDiscard={onDraftDiscard}
+                    >
+                      <button
+                        className={cn(
+                          "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
+                          event.ownerColor && "pr-5",
+                        )}
+                        aria-label={
+                          event.ownerName || event.overlayEmail
+                            ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
+                                event.ownerName || event.overlayEmail
+                              }'s calendar`
+                            : getWorkingLocationTitle(
+                                event,
+                                workingLocationLabels,
+                              )
+                        }
+                        style={
+                          color
+                            ? {
+                                backgroundColor: `${color}30`,
+                                borderLeft: `3px solid ${color}`,
+                              }
+                            : {
+                                backgroundColor: "hsl(var(--primary) / 0.15)",
+                                borderLeft: "3px solid hsl(var(--primary))",
+                              }
+                        }
+                      >
+                        {allOtherDeclined(event) && (
+                          <IconAlertTriangleFilled
+                            size={14}
+                            className="shrink-0 text-current opacity-70"
+                          />
+                        )}
+                        <EventStatusIcon event={event} className="shrink-0" />
+                        <span className="truncate">
+                          {getWorkingLocationChipLabel(
+                            event,
+                            workingLocationLabels,
+                          )}
+                        </span>
+                        {event.ownerColor && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                            style={{ backgroundColor: event.ownerColor }}
+                          />
+                        )}
+                      </button>
+                    </EventDetailPopover>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -884,6 +1007,53 @@ export const DayView = memo(function DayView({
             </div>
           )}
 
+          {/* Native Google out-of-office context sits behind meetings. */}
+          {!isLoading &&
+            outOfOfficeEvents.map((event, markerIndex) => {
+              const isBeingDragged = dragEventId === event.id;
+              const overrides = getDragOverrides(event.id);
+              return (
+                <OutOfOfficeEvent
+                  key={event._tempId ?? event.id}
+                  event={event}
+                  day={date}
+                  hourHeight={HOUR_HEIGHT}
+                  color={
+                    getEventDisplayColor(event, prefs) ?? "hsl(var(--primary))"
+                  }
+                  label={t("eventForm.outOfOffice")}
+                  markerIndex={markerIndex}
+                  canDrag={canDrag}
+                  isBeingDragged={isBeingDragged}
+                  isDragging={isDragging}
+                  isDragTargetDay={isBeingDragged}
+                  overrideTop={overrides?.top ?? null}
+                  overrideHeight={overrides?.height ?? null}
+                  onMovePointerDown={(pointerEvent, startsOnDay) =>
+                    handleEventPointerDown(pointerEvent, event, startsOnDay)
+                  }
+                  onResizeTopPointerDown={(pointerEvent) =>
+                    handleResizeTopPointerDown(pointerEvent, event.id)
+                  }
+                  onResizeBottomPointerDown={(pointerEvent) =>
+                    handleResizeBottomPointerDown(pointerEvent, event.id)
+                  }
+                  shouldSuppressClick={shouldSuppressClick}
+                  onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
+                  defaultOpen={quickEditEventId === event.id}
+                  onTitleSave={onQuickEditSave}
+                  onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
+                  onOpenChange={(open) =>
+                    handleEventPopoverOpenChange(event, open)
+                  }
+                />
+              );
+            })}
+
           {/* Skeleton events when loading */}
           {isLoading &&
             DAY_SKELETONS.map(
@@ -938,6 +1108,7 @@ export const DayView = memo(function DayView({
                   onDraftUpdate={onDraftUpdate}
                   onDraftCreate={onDraftCreate}
                   onDraftDiscard={onDraftDiscard}
+                  onPopoverOpenChange={handleEventPopoverOpenChange}
                 />
               );
             })}

@@ -1,4 +1,8 @@
 import {
+  frameworkGroupEnabled,
+  type FrameworkToolGroup,
+} from "../../framework-tools.js";
+import {
   getFrontmatterValue,
   getSkillNameFromPath,
   parseFrontmatter,
@@ -14,9 +18,17 @@ import {
   sharedResourceOwner,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
+import type {
+  ContextGovernanceTier,
+  ContextManifestSourceRef,
+  ContextSystemProvenance,
+} from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import { getRequestOrgId } from "../request-context.js";
-import { parseSkillFrontmatter } from "./skill-frontmatter.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "./skill-frontmatter.js";
 
 // ---------------------------------------------------------------------------
 // System-prompt resource loading: AGENTS.md, instructions/*.md, skills
@@ -28,6 +40,97 @@ import { parseSkillFrontmatter } from "./skill-frontmatter.js";
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 export const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
 const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
+const PROMPT_CONTEXT_PROVIDER_MAX_CHARS = 8_000;
+
+export interface PromptContextProviderContext {
+  owner: string;
+  compact: boolean;
+  selfAppId?: string;
+  orgId: string | null;
+}
+
+export interface PromptContextProviderContribution {
+  content: string;
+  label?: string;
+  provenance?: ContextSystemProvenance;
+  governance?: ContextGovernanceTier;
+  sourceRef?: ContextManifestSourceRef;
+}
+
+export interface PromptContextProvider {
+  id: string;
+  load(
+    context: PromptContextProviderContext,
+  ):
+    | Promise<PromptContextProviderContribution | null | undefined>
+    | PromptContextProviderContribution
+    | null
+    | undefined;
+}
+
+const promptContextProviders = new Map<string, PromptContextProvider>();
+
+/** Register a package-owned, request-scoped system-context contribution. */
+export function registerPromptContextProvider(
+  provider: PromptContextProvider,
+): () => void {
+  const id = provider.id.trim();
+  if (!/^[a-z][a-z0-9-]{1,63}$/.test(id)) {
+    throw new Error(
+      "Prompt context provider ids must be 2-64 lowercase letters, digits, or hyphens",
+    );
+  }
+  const registered = { ...provider, id };
+  promptContextProviders.set(id, registered);
+  return () => {
+    if (promptContextProviders.get(id) === registered) {
+      promptContextProviders.delete(id);
+    }
+  };
+}
+
+function xmlAttributeEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function loadPromptContextProviderBlocks(
+  context: PromptContextProviderContext,
+): Promise<string[]> {
+  const providers = [...promptContextProviders.values()].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  const settled = await Promise.allSettled(
+    providers.map(async (provider) => ({
+      provider,
+      contribution: await provider.load(context),
+    })),
+  );
+  const blocks: string[] = [];
+  for (const result of settled) {
+    if (result.status !== "fulfilled") continue;
+    const { provider, contribution } = result.value;
+    if (!contribution) continue;
+    const content = contribution.content.trim();
+    if (!content) continue;
+    const boundedContent =
+      content.length <= PROMPT_CONTEXT_PROVIDER_MAX_CHARS
+        ? content
+        : `${content.slice(0, PROMPT_CONTEXT_PROVIDER_MAX_CHARS)}\n[truncated after ${PROMPT_CONTEXT_PROVIDER_MAX_CHARS.toLocaleString()} characters]`;
+    const label = contribution.label?.trim() || provider.id;
+    const provenance = contribution.provenance ?? "runtime-context";
+    const governance = contribution.governance ?? "inherited";
+    const sourceScope = contribution.sourceRef?.scope?.trim() || "provider";
+    const sourcePath = contribution.sourceRef?.path?.trim() || provider.id;
+    blocks.push(
+      `<prompt-context-provider id="${xmlAttributeEscape(provider.id)}" label="${xmlAttributeEscape(label)}" provenance="${provenance}" governance="${governance}" scope="${xmlAttributeEscape(sourceScope)}" path="${xmlAttributeEscape(sourcePath)}">\n${boundedContent.replace(/<\/prompt-context-provider>/gi, "&lt;/prompt-context-provider&gt;")}\n</prompt-context-provider>`,
+    );
+  }
+  return blocks;
+}
 
 export function compactPromptLine(value: string, maxChars: number): string {
   const line = value.replace(/\s+/g, " ").trim();
@@ -40,8 +143,219 @@ const PROMPT_SKILL_METADATA_READ_LIMIT = 80;
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 
+export interface PromptResourceManifestSection {
+  label: string;
+  provenance: ContextSystemProvenance;
+  governance: ContextGovernanceTier;
+  content: string;
+  sourceRef?: ContextManifestSourceRef;
+}
+
 function normalizeResourcePathForPrompt(path: string): string {
   return path.replace(/^\/+/, "").trim();
+}
+
+function xmlAttribute(attrs: string, name: string): string | undefined {
+  const match = new RegExp(`\\b${name}="([^"]*)"`).exec(attrs);
+  return match?.[1];
+}
+
+function resourceManifestClassification(
+  scope: string,
+  path: string,
+  index: number,
+): {
+  provenance: ContextSystemProvenance;
+  governance: ContextGovernanceTier;
+} {
+  const normalizedPath = normalizeResourcePathForPrompt(path);
+  if (scope === "template") {
+    return { provenance: "template", governance: "inherited" };
+  }
+  if (scope.startsWith("workspace")) {
+    return {
+      provenance:
+        scope === "workspace" && index === 0
+          ? "enterprise-workspace-core"
+          : "sql-workspace",
+      governance:
+        scope === "workspace" && index === 0 ? "required" : "inherited",
+    };
+  }
+  if (scope.startsWith("personal")) {
+    return {
+      provenance: normalizedPath === "memory/MEMORY.md" ? "memory" : "personal",
+      governance: "user",
+    };
+  }
+  if (scope.startsWith("app-default")) {
+    return { provenance: "legacy-app-default", governance: "inherited" };
+  }
+  if (scope.startsWith("organization")) {
+    return { provenance: "organization", governance: "inherited" };
+  }
+  if (scope.startsWith("shared")) {
+    return {
+      provenance:
+        normalizedPath === "LEARNINGS.md"
+          ? "organization"
+          : "legacy-app-default",
+      governance: "inherited",
+    };
+  }
+  return { provenance: "template", governance: "inherited" };
+}
+
+/**
+ * Extracts bounded-in-memory metadata from the already-composed resource
+ * prompt. The caller turns these inputs into hashed/previews before anything
+ * is persisted; this helper never writes or returns the full manifest.
+ */
+export function promptResourceManifestSections(
+  prompt: string,
+): PromptResourceManifestSection[] {
+  const sections: PromptResourceManifestSection[] = [];
+  const resourcePattern = /<resource\b([^>]*)>([\s\S]*?)<\/resource>/g;
+  let match: RegExpExecArray | null;
+  let workspaceIndex = 0;
+  let sharedIndex = 0;
+  while ((match = resourcePattern.exec(prompt))) {
+    const attrs = match[1] ?? "";
+    const scope = xmlAttribute(attrs, "scope") ?? "resource";
+    const path =
+      xmlAttribute(attrs, "path") ?? xmlAttribute(attrs, "name") ?? "";
+    const name = xmlAttribute(attrs, "name") ?? (path || "resource");
+    const index = scope.startsWith("workspace")
+      ? workspaceIndex++
+      : scope.startsWith("shared")
+        ? sharedIndex++
+        : 0;
+    const classification = resourceManifestClassification(scope, path, index);
+    sections.push({
+      label: name,
+      ...classification,
+      content: match[2] ?? "",
+      sourceRef: {
+        ...(path ? { path } : {}),
+        scope,
+      },
+    });
+  }
+
+  const providerPattern =
+    /<prompt-context-provider\b([^>]*)>([\s\S]*?)<\/prompt-context-provider>/g;
+  while ((match = providerPattern.exec(prompt))) {
+    const attrs = match[1] ?? "";
+    const id = xmlAttribute(attrs, "id") ?? "prompt-context-provider";
+    const label = xmlAttribute(attrs, "label") ?? id;
+    const provenanceValue = xmlAttribute(attrs, "provenance");
+    const governanceValue = xmlAttribute(attrs, "governance");
+    const provenance = (
+      [
+        "framework-core",
+        "actions-prompt",
+        "template",
+        "enterprise-workspace-core",
+        "sql-workspace",
+        "legacy-app-default",
+        "organization",
+        "personal",
+        "memory",
+        "db-schema",
+        "tools",
+        "model-overlay",
+        "runtime-context",
+      ] as const
+    ).includes(provenanceValue as ContextSystemProvenance)
+      ? (provenanceValue as ContextSystemProvenance)
+      : "runtime-context";
+    const governance = (["required", "inherited", "user"] as const).includes(
+      governanceValue as ContextGovernanceTier,
+    )
+      ? (governanceValue as ContextGovernanceTier)
+      : "inherited";
+    sections.push({
+      label,
+      provenance,
+      governance,
+      content: match[2] ?? "",
+      sourceRef: {
+        path: xmlAttribute(attrs, "path") ?? id,
+        scope: xmlAttribute(attrs, "scope") ?? "provider",
+      },
+    });
+  }
+
+  const taggedSections = [
+    {
+      tag: "skills-summary",
+      label: "Workspace skills index",
+      provenance: "template" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "resource-skills",
+      label: "Workspace resource skills",
+      provenance: "template" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "instruction-resources",
+      label: "Instruction resources index",
+      provenance: "sql-workspace" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "workspace-resources",
+      label: "Workspace reference resources",
+      provenance: "sql-workspace" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "context-note",
+      label: "Resource availability note",
+      provenance: "framework-core" as const,
+      governance: "required" as const,
+    },
+    {
+      tag: "context-budget-note",
+      label: "Context budget note",
+      provenance: "framework-core" as const,
+      governance: "required" as const,
+    },
+    {
+      tag: "available-apps",
+      label: "Available workspace apps",
+      provenance: "tools" as const,
+      governance: "required" as const,
+    },
+  ];
+  for (const tagged of taggedSections) {
+    const pattern = new RegExp(
+      `<${tagged.tag}\\b[^>]*>([\\s\\S]*?)</${tagged.tag}>`,
+      "g",
+    );
+    let taggedMatch: RegExpExecArray | null;
+    while ((taggedMatch = pattern.exec(prompt))) {
+      const taggedAttrs =
+        taggedMatch[0]?.slice(tagged.tag.length + 1).split(">")[0] ?? "";
+      const taggedScope = xmlAttribute(taggedAttrs, "scope");
+      const taggedClassification =
+        tagged.tag === "instruction-resources" && taggedScope
+          ? resourceManifestClassification(taggedScope, "", 0)
+          : {
+              provenance: tagged.provenance,
+              governance: tagged.governance,
+            };
+      sections.push({
+        label: tagged.label,
+        ...taggedClassification,
+        content: taggedMatch[1] ?? "",
+        ...(taggedScope ? { sourceRef: { scope: taggedScope } } : {}),
+      });
+    }
+  }
+  return sections;
 }
 
 function resourceToolHint(
@@ -111,28 +425,120 @@ function promptResourceBlock(input: {
   return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
 }
 
-function selectPromptSectionsWithinBudget(
-  sections: string[],
-  maxChars: number,
-): string[] {
-  const omissionNote = `<context-budget-note>Some startup context sections were omitted to keep the first model request responsive. Use \`resources\` with \`action: "list"\` or \`"read"\`, \`docs-search\`, and \`tool-search\` to retrieve relevant depth on demand.</context-budget-note>`;
-  const contentBudget = Math.max(0, maxChars - omissionNote.length - 2);
-  const selected: string[] = [];
-  let used = 0;
-  let omitted = 0;
+/**
+ * One assembled startup-context block plus the governance tier the context
+ * manifest reports for it (`ContextGovernanceTier`). `required` is the tier
+ * that already meant "not opt-out-able" in the manifest; the budget fitter
+ * honours it as "reserve before anything else competes".
+ */
+export interface PromptSection {
+  content: string;
+  governance: ContextGovernanceTier;
+}
 
-  for (const section of sections) {
-    const separatorChars = selected.length > 0 ? 2 : 0;
-    if (used + separatorChars + section.length <= contentBudget) {
-      selected.push(section);
-      used += separatorChars + section.length;
+export interface SkippedPromptSection {
+  label: string;
+  chars: number;
+}
+
+export interface PromptSectionBudgetResult {
+  sections: string[];
+  skipped: SkippedPromptSection[];
+  /** Chars by which required sections alone exceeded `maxChars`, else 0. */
+  overflowChars: number;
+}
+
+const PROMPT_SECTION_SEPARATOR = "\n\n";
+const TRIM_NOTE_LABELS_MAX_CHARS = 300;
+const TRIM_NOTE_MAX_CHARS = 700;
+
+function promptSectionLabel(content: string): string {
+  const open = /^<([a-z][a-z0-9-]*)\b([^>]*)>/i.exec(content.trimStart());
+  if (!open) return "unlabelled context section";
+  const attrs = open[2] ?? "";
+  const name = xmlAttribute(attrs, "name") ?? xmlAttribute(attrs, "id");
+  const scope = xmlAttribute(attrs, "scope");
+  if (name) return scope ? `${name} (${scope})` : name;
+  return scope ? `${open[1]} (${scope})` : (open[1] ?? "context section");
+}
+
+function promptBudgetTrimNote(
+  skipped: SkippedPromptSection[],
+  maxChars: number,
+): string {
+  const labels = compactPromptLine(
+    skipped.map((section) => section.label).join(", "),
+    TRIM_NOTE_LABELS_MAX_CHARS,
+  );
+  return `<context-budget-note>Your startup context was trimmed: ${skipped.length} section(s) did not fit the ${maxChars.toLocaleString()}-character first-request budget and were omitted (${labels}). Treat them as unread, not as absent — use \`resources\` with \`action: "list"\` or \`"read"\`, \`docs-search\`, and \`tool-search\` before telling the user something does not exist.</context-budget-note>`;
+}
+
+/**
+ * Fits assembled startup context into `maxChars`, reserving `required`
+ * sections before discretionary ones compete for the remainder, and reporting
+ * every omission so an over-budget request is never silent.
+ *
+ * Required sections are never truncated and never dropped: a half-rendered
+ * list of workspace apps or governance rules reads to the model as a complete
+ * one, which is worse than an explicit note that a section is missing. If they
+ * alone exceed the budget, the budget is exceeded deliberately, every
+ * discretionary section is dropped, and `overflowChars` reports by how much.
+ */
+export function selectPromptSectionsWithinBudget(
+  sections: PromptSection[],
+  maxChars: number,
+): PromptSectionBudgetResult {
+  const required = sections.filter(
+    (section) => section.governance === "required",
+  );
+  const keep = new Set<number>();
+  const skipped: SkippedPromptSection[] = [];
+  let used = required.reduce(
+    (total, section) => total + section.content.length,
+    0,
+  );
+  let count = required.length;
+  const requiredFit =
+    used + count * PROMPT_SECTION_SEPARATOR.length + TRIM_NOTE_MAX_CHARS <=
+    maxChars;
+
+  for (const [index, section] of sections.entries()) {
+    if (section.governance === "required") {
+      keep.add(index);
+      continue;
+    }
+    const projected =
+      used +
+      section.content.length +
+      (count + 1) * PROMPT_SECTION_SEPARATOR.length +
+      TRIM_NOTE_MAX_CHARS;
+    if (requiredFit && projected <= maxChars) {
+      keep.add(index);
+      used += section.content.length;
+      count++;
     } else {
-      omitted++;
+      skipped.push({
+        label: promptSectionLabel(section.content),
+        chars: section.content.length,
+      });
     }
   }
 
-  if (omitted > 0) selected.push(omissionNote);
-  return selected;
+  const selected = sections
+    .filter((_section, index) => keep.has(index))
+    .map((section) => section.content);
+  if (skipped.length > 0) {
+    selected.push(promptBudgetTrimNote(skipped, maxChars));
+  }
+
+  const totalChars =
+    selected.reduce((total, section) => total + section.length, 0) +
+    Math.max(0, selected.length - 1) * PROMPT_SECTION_SEPARATOR.length;
+  return {
+    sections: selected,
+    skipped,
+    overflowChars: requiredFit ? 0 : Math.max(0, totalChars - maxChars),
+  };
 }
 
 function isAutoLoadedInstructionPath(path: string): boolean {
@@ -198,19 +604,23 @@ async function loadAgentsResourceForPrompt(
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
 ): Promise<string | null> {
+  let agents: Awaited<ReturnType<typeof resourceGetByPath>>;
   try {
-    const agents = await resourceGetByPath(owner, "AGENTS.md");
-    if (!agents?.content?.trim()) return null;
-    return promptResourceBlock({
-      name: "AGENTS.md",
-      scope,
-      path: "AGENTS.md",
-      content: agents.content,
-      maxChars,
-    });
-  } catch {
-    return null;
+    agents = await resourceGetByPath(owner, "AGENTS.md");
+  } catch (error) {
+    throw new Error(
+      `Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`,
+      { cause: error },
+    );
   }
+  if (!agents?.content?.trim()) return null;
+  return promptResourceBlock({
+    name: "AGENTS.md",
+    scope,
+    path: "AGENTS.md",
+    content: agents.content,
+    maxChars,
+  });
 }
 
 async function loadInstructionResourcesForPrompt(
@@ -319,7 +729,7 @@ async function loadResourceSkillsPromptBlock(
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
-      if (meta.scope === "dev") continue;
+      if (!isRuntimeVisibleScope(meta.scope)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -428,10 +838,23 @@ export async function loadResourcesForPrompt(
   compact = false,
   selfAppId?: string,
   orgId: string | null = getRequestOrgId() ?? null,
+  opts?: { disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup> },
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
 
-  const sections: string[] = [];
+  const sections: PromptSection[] = [];
+  const addSection = (
+    content: string | null | undefined,
+    governance: ContextGovernanceTier = "inherited",
+  ): void => {
+    if (content?.trim()) sections.push({ content, governance });
+  };
+  const addSections = (
+    blocks: string[],
+    governance: ContextGovernanceTier = "inherited",
+  ): void => {
+    for (const block of blocks) addSection(block, governance);
+  };
   const promptResourceMaxChars = compact
     ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
     : SHARED_PROMPT_RESOURCE_MAX_CHARS;
@@ -453,21 +876,22 @@ export async function loadResourcesForPrompt(
         readHint:
           'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
       });
-      if (block) sections.push(block);
+      addSection(block, "required");
     }
 
-    // 2. Template AGENTS.md — always included (critical template instructions).
-    if (bundle.agentsMd.trim()) {
+    // 2. Runtime instruction file — always included when configured.
+    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+    if (runtimeAgentsMd.trim()) {
       const block = promptResourceBlock({
         name: "AGENTS.md",
         scope: "template",
         path: "AGENTS.md",
-        content: bundle.agentsMd,
+        content: runtimeAgentsMd,
         maxChars: promptResourceMaxChars,
         readHint:
           'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
       });
-      if (block) sections.push(block);
+      addSection(block);
     }
 
     // In compact mode, skip the full skills block — the agent can use
@@ -476,7 +900,7 @@ export async function loadResourcesForPrompt(
     const runtimeSkills = getRuntimeSkills(bundle);
     if (!compact) {
       const skillsBlock = generateSkillsPromptBlock(bundle);
-      if (skillsBlock) sections.push(skillsBlock);
+      addSection(skillsBlock);
     } else if (runtimeSkills.length > 0) {
       const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
       const lines = listedSkills.map((s) => {
@@ -490,7 +914,7 @@ export async function loadResourcesForPrompt(
           `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
         );
       }
-      sections.push(
+      addSection(
         `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills.\n\n${lines.join("\n")}\n</skills-summary>`,
       );
     }
@@ -504,14 +928,14 @@ export async function loadResourcesForPrompt(
     "workspace",
     promptResourceMaxChars,
   );
-  if (workspaceAgents) sections.push(workspaceAgents);
-  sections.push(
-    ...(await loadInstructionResourcesForPrompt(
+  addSection(workspaceAgents, "required");
+  addSections(
+    await loadInstructionResourcesForPrompt(
       WORKSPACE_OWNER,
       "workspace-instruction",
       promptResourceMaxChars,
       compact,
-    )),
+    ),
   );
 
   const organizationOwner = sharedResourceOwner(orgId);
@@ -524,16 +948,16 @@ export async function loadResourcesForPrompt(
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
   );
-  if (appDefaultAgents) sections.push(appDefaultAgents);
-  sections.push(
-    ...(await loadInstructionResourcesForPrompt(
+  addSection(appDefaultAgents, "required");
+  addSections(
+    await loadInstructionResourcesForPrompt(
       SHARED_OWNER,
       organizationOwner === SHARED_OWNER
         ? "shared-instruction"
         : "app-default-instruction",
       promptResourceMaxChars,
       compact,
-    )),
+    ),
   );
 
   // 5. Active organization resources. These are the durable team rules and
@@ -541,17 +965,17 @@ export async function loadResourcesForPrompt(
   if (organizationOwner !== SHARED_OWNER) {
     const organizationAgents = await loadAgentsResourceForPrompt(
       organizationOwner,
-      "shared",
+      "organization",
       promptResourceMaxChars,
     );
-    if (organizationAgents) sections.push(organizationAgents);
-    sections.push(
-      ...(await loadInstructionResourcesForPrompt(
+    addSection(organizationAgents, "required");
+    addSections(
+      await loadInstructionResourcesForPrompt(
         organizationOwner,
-        "shared-instruction",
+        "organization-instruction",
         promptResourceMaxChars,
         compact,
-      )),
+      ),
     );
   }
 
@@ -563,19 +987,20 @@ export async function loadResourcesForPrompt(
       "personal",
       promptResourceMaxChars,
     );
-    if (personalAgents) sections.push(personalAgents);
-    sections.push(
-      ...(await loadInstructionResourcesForPrompt(
+    addSection(personalAgents, "required");
+    addSections(
+      await loadInstructionResourcesForPrompt(
         owner,
         "personal-instruction",
         promptResourceMaxChars,
         compact,
-      )),
+      ),
+      "user",
     );
   }
 
   const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId);
-  if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
+  addSection(resourceSkillsBlock);
 
   let sharedLearnings: Awaited<ReturnType<typeof resourceGetByPath>> = null;
   try {
@@ -599,10 +1024,13 @@ export async function loadResourcesForPrompt(
         content: sharedLearnings.content,
         maxChars: COMPACT_PROMPT_RESOURCE_MAX_CHARS,
       });
-      if (block) sections.push(block);
+      addSection(block);
     }
-    sections.push(
+    // The pointer to on-demand learnings/memory must survive trimming: without
+    // it the agent has no way to learn those scopes exist at all.
+    addSection(
       `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
+      "required",
     );
   } else {
     // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md
@@ -616,7 +1044,7 @@ export async function loadResourcesForPrompt(
         content: sharedLearnings.content,
         maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
       });
-      if (block) sections.push(block);
+      addSection(block);
     }
 
     // 3. Personal memory index (skip if owner is the shared sentinel).
@@ -634,7 +1062,7 @@ export async function loadResourcesForPrompt(
             content: memoryIndex.content,
             maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
           });
-          if (block) sections.push(block);
+          addSection(block, "user");
         }
       } catch {}
     }
@@ -644,30 +1072,51 @@ export async function loadResourcesForPrompt(
     WORKSPACE_OWNER,
     "workspace",
   );
-  if (workspaceResourceIndex) sections.push(workspaceResourceIndex);
+  addSection(workspaceResourceIndex);
 
   const appDefaultResourceIndex = await loadResourceIndexForPrompt(
     SHARED_OWNER,
     "shared",
   );
-  if (appDefaultResourceIndex) sections.push(appDefaultResourceIndex);
+  addSection(appDefaultResourceIndex);
   if (organizationOwner !== SHARED_OWNER) {
     const organizationResourceIndex = await loadResourceIndexForPrompt(
       organizationOwner,
       "shared",
     );
-    if (organizationResourceIndex) sections.push(organizationResourceIndex);
+    addSection(organizationResourceIndex);
   }
 
+  addSections(
+    await loadPromptContextProviderBlocks({
+      owner,
+      compact,
+      selfAppId,
+      orgId,
+    }),
+  );
+
   try {
-    const agents = (await discoverAgents(selfAppId)).slice(0, 30);
+    // Both tools this block names by name come from the `workspaceApps` group.
+    // With that group off there is no `call-agent` to delegate through, so the
+    // block would only teach a capability the request cannot carry.
+    const agents = frameworkGroupEnabled(
+      opts?.disabledFrameworkGroups,
+      "workspaceApps",
+    )
+      ? (await discoverAgents(selfAppId)).slice(0, 30)
+      : [];
     if (agents.length > 0) {
       const lines = agents.map(
         (agent) =>
           `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
       );
-      sections.push(
-        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nUse \`call-agent\` with the app id when another app owns the work or data. Use tool-search or app-specific actions for details only when needed.\n</available-apps>`,
+      // Nothing else in the prompt or the initial tool surface tells the agent
+      // which peer apps exist, so this block is not droppable: without it the
+      // agent reports cross-app work as impossible instead of delegating.
+      addSection(
+        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nWhen another app owns the work or data, use \`call-agent\` with the app id and a natural-language message. The receiving specialist owns source selection, schema interpretation, queries, joins, and use of its local tools. Direct action invocation is only for an explicitly read-only bounded action with a fully known schema. Never put creates, updates, deletes, sends, saves, publishes, or other side effects in direct action mode; put those objectives in the natural-language message.\n\nThese one-liners are the only cross-app detail in this prompt. Before building a capability another app may already own, before telling the user what is or is not possible across apps, and whenever the user asks which app to use, call \`describe-workspace-apps\` - it reads each peer's live agent card for current purpose and optional capability details. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
+        "required",
       );
     }
   } catch {
@@ -675,12 +1124,26 @@ export async function loadResourcesForPrompt(
   }
 
   if (sections.length === 0) return "";
-  const selectedSections = compact
-    ? selectPromptSectionsWithinBudget(
-        sections,
-        COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
-      )
-    : sections;
+  let selectedSections = sections.map((section) => section.content);
+  if (compact) {
+    const budget = selectPromptSectionsWithinBudget(
+      sections,
+      COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
+    );
+    selectedSections = budget.sections;
+    if (budget.skipped.length > 0) {
+      console.warn(
+        `[agent-native] startup context exceeded the ${COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS.toLocaleString()}-character compact budget for ${selfAppId ?? "app"}; omitted ${budget.skipped.length} discretionary section(s): ${budget.skipped
+          .map((section) => `${section.label} (${section.chars} chars)`)
+          .join(", ")}`,
+      );
+    }
+    if (budget.overflowChars > 0) {
+      console.warn(
+        `[agent-native] required startup context alone exceeds the compact budget by ${budget.overflowChars.toLocaleString()} characters for ${selfAppId ?? "app"}; sending it over budget rather than truncating required context. Shrink workspace-core AGENTS.md or reduce discovered workspace apps.`,
+      );
+    }
+  }
   return (
     "\n\nThe following resources contain template-specific instructions and user context. Use the information in them to help the user.\n\n" +
     selectedSections.join("\n\n")

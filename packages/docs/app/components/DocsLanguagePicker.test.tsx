@@ -3,7 +3,7 @@
 import {
   AgentNativeI18nProvider,
   LOCALE_STORAGE_KEY,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
 import {
   cleanup,
   fireEvent,
@@ -136,7 +136,7 @@ describe("DocsLanguagePicker", () => {
     expect(zhLink.getAttribute("href")).toBe(
       "/zh-CN/docs/internationalization?tab=api#overview",
     );
-    expect(zhLink.getAttribute("data-an-prefetch")).toBe("render");
+    expect(zhLink.getAttribute("data-an-prefetch")).toBe("viewport");
   });
 
   it("renders locale options in product order", () => {

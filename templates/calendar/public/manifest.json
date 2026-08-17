@@ -1,9 +1,8 @@
 {
-  "name": "Agent Native Calendar",
+  "name": "Calendar",
   "short_name": "Calendar",
   "description": "Google Calendar integration",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#8B5CF6",
   "icons": [

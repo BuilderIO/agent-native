@@ -25,11 +25,12 @@ describe("determinism", () => {
     expect(a).toBe(b);
   });
 
-  it("different salt produces different output", () => {
+  it("always uses the canonical anonymous email regardless of salt", () => {
     const input = "Reach out to sarah.connor@acme.com";
     const a = redactDemoString(input, { salt: "alpha" });
     const b = redactDemoString(input, { salt: "beta" });
-    expect(a).not.toBe(b);
+    expect(a).toBe("Reach out to anonymous@builder.io");
+    expect(b).toBe(a);
   });
 
   it("repeated value maps consistently within one redactDemoData call", () => {
@@ -64,21 +65,89 @@ describe("determinism", () => {
 });
 
 describe("emails", () => {
-  it("replaces emails with realistic (non-example.com) addresses", () => {
+  it("replaces emails with the canonical anonymous address", () => {
     const out = redactDemoString("Email me at jane.doe@acme.io please");
-    expect(out).not.toContain("jane.doe@acme.io");
-    expect(out).not.toContain("example.com");
-    const m = out.match(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
-    expect(m).not.toBeNull();
-    expect(m![0]).not.toContain("example.com");
+    expect(out).toBe("Email me at anonymous@builder.io please");
   });
 
   it("keeps email consistent across occurrences", () => {
     const out = redactDemoString("a@x.com then again a@x.com", { salt: "k" });
     const emails = out.match(/[a-z0-9._]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [];
     expect(emails.length).toBe(2);
-    expect(emails[0]).toBe(emails[1]);
-    expect(emails[0]).not.toContain("example.com");
+    expect(emails).toEqual(["anonymous@builder.io", "anonymous@builder.io"]);
+  });
+
+  it("can redact email-backed identities while preserving other IDs", () => {
+    const out = redactDemoData(
+      {
+        userId: "jane.doe@acme.com",
+        user_key: "jane.doe@acme.com",
+        sessionId: "session-1234",
+      },
+      {
+        salt: "s",
+        redactNumbers: false,
+        redactProtectedEmails: true,
+      },
+    ) as {
+      userId: string;
+      user_key: string;
+      sessionId: string;
+    };
+
+    expect(out.userId).toBe("anonymous@builder.io");
+    expect(out.user_key).toBe(out.userId);
+    expect(out.sessionId).toBe("session-1234");
+  });
+
+  it("supports email-only frontend redaction without changing numbers", () => {
+    const out = redactDemoData(
+      {
+        email: "jane.doe@acme.com",
+        count: 4200,
+        summary: "4200 visits by jane.doe@acme.com",
+      },
+      { salt: "s", redactNumbers: false },
+    ) as {
+      email: string;
+      count: number;
+      summary: string;
+    };
+
+    expect(out.email).not.toBe("jane.doe@acme.com");
+    expect(out.count).toBe(4200);
+    expect(out.summary).toContain("4200 visits");
+    expect(out.email).toBe("anonymous@builder.io");
+    expect(out.summary).toContain("anonymous@builder.io");
+  });
+
+  it("anonymizes every email-bearing field in an error-reporting response", () => {
+    const out = redactDemoData(
+      {
+        events: [
+          {
+            userId: "alice@builder.io",
+            userKey: "alice@builder.io",
+            message: "Contact alice@builder.io",
+            tags: { reporter: "bob@example.com" },
+            breadcrumbs: [{ message: "Signed in as bob@example.com" }],
+          },
+        ],
+      },
+      { redactNumbers: false, redactProtectedEmails: true },
+    );
+
+    expect(out).toEqual({
+      events: [
+        {
+          userId: "anonymous@builder.io",
+          userKey: "anonymous@builder.io",
+          message: "Contact anonymous@builder.io",
+          tags: { reporter: "anonymous@builder.io" },
+          breadcrumbs: [{ message: "Signed in as anonymous@builder.io" }],
+        },
+      ],
+    });
   });
 });
 

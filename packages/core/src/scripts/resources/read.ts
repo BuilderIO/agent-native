@@ -41,7 +41,7 @@ Options:
   }
 
   const scope = parsed.scope;
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
       "resource-read requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

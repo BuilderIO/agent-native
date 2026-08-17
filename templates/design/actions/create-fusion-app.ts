@@ -7,13 +7,14 @@
  * necessarily ready immediately — call `sync-fusion-app` to poll the
  * container and pick up the preview URL once it boots.
  *
- * Gated behind `FULL_APP_BUILDING_ENABLED`. When Builder is not configured
+ * Gated behind the full-app-building runtime feature flag. When Builder is not configured
  * (no credentials or no branch project ID), returns the same graceful
  * `{ status: "not-configured", cta, message }` shape as
  * `migrate-inline-design-to-app` instead of throwing.
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -27,7 +28,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { resolveBuilderStatus } from "../shared/builder-app.js";
 import {
-  FULL_APP_BUILDING_ENABLED,
+  FULL_APP_BUILDING,
   readFusionApp,
   writeFusionApp,
 } from "../shared/full-app.js";
@@ -52,7 +53,7 @@ export default defineAction({
     "Create a brand-new full-app (fusion) design: provisions a Builder Fusion " +
     "branch and hands the prompt to the Builder cloud agent to scaffold a real " +
     "running app. Use this when the user wants a real app (not an HTML " +
-    "prototype) built from scratch for a design. Requires Builder.io to be " +
+    "prototype) built from scratch for a design. Requires Builder.io (free tier available) to be " +
     "connected with a branch project ID configured; when not configured " +
     "returns a connect CTA — never throws. If the design already has a " +
     "fusion app, returns the existing linkage instead of creating a second " +
@@ -73,8 +74,8 @@ export default defineAction({
         "Optional branch name for the Builder agent to use. If omitted, Builder generates one.",
       ),
   }),
-  run: async ({ designId, prompt, branchName }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, prompt, branchName }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 
@@ -115,13 +116,13 @@ export default defineAction({
             kind: "connect-builder" as const,
             label: "Build a real app",
             description:
-              "Connect Builder.io to build this design as a real running app " +
+              "Connect Builder.io (free tier available) to build this design as a real running app " +
               "with a live container, branches, and deploys.",
             primaryAction: "Connect Builder.io",
             connectUrl,
           },
           message:
-            "Builder is not connected. Call connect-builder-app to start " +
+            "Builder is not connected (free tier available). Call connect-builder-app to start " +
             "the OAuth flow, then retry create-fusion-app.",
         };
       }

@@ -133,6 +133,21 @@ describe("useBuilderStatus", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the neutral Builder connection-status route", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(connectedBuilderStatus));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/connection-status/builder",
+    );
+  });
+
   it("keeps the last good Builder status when a refresh fails", async () => {
     vi.stubGlobal(
       "fetch",
@@ -202,6 +217,18 @@ describe("useBuilderConnectFlow", () => {
     container.remove();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("polls the neutral Builder connection-status route", async () => {
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+      "http://localhost:3000/_agent-native/connection-status/builder",
+    );
   });
 
   it("opens a blank web popup and navigates to a freshly fetched cli-auth URL", async () => {
@@ -274,6 +301,32 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).not.toContain(
       "Couldn't start Builder connect",
     );
+  });
+
+  it("treats a successful click-time status refresh as authoritative", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle unresolved");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
   });
 
   it("does not probe Builder status when disabled", async () => {

@@ -1,99 +1,131 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import {
+  IconBrain,
+  IconCalendar,
+  IconChartBar,
+  IconCode,
+  IconFileText,
+  IconLayoutBoard,
+  IconListCheck,
+  IconMail,
+  IconMessageCircle,
+  IconPhoto,
+  IconPresentation,
+  IconRoute,
+  IconScreenShare,
+  IconSettings,
+  IconStack2,
+  IconUsers,
+} from "@tabler/icons-react-native";
+import type { ColorValue } from "react-native";
+import { Text, TouchableOpacity, View } from "react-native";
 
-const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
-  Mail: "mail",
-  CalendarDays: "calendar",
-  FileText: "file-text",
-  LayoutBoard: "trello",
-  BarChart2: "bar-chart-2",
-  GalleryHorizontal: "layout",
-  Image: "image",
-  Globe: "globe",
-  Code: "code",
-  Database: "database",
-  MessageSquare: "message-square",
-  Route: "shuffle",
-  Settings: "settings",
+type AppIconComponent = React.ComponentType<{
+  color?: ColorValue;
+  size?: number;
+  strokeWidth?: number;
+}>;
+
+const ICON_MAP: Record<string, AppIconComponent> = {
+  BarChart2: IconChartBar,
+  Brain: IconBrain,
+  CalendarDays: IconCalendar,
+  Code: IconCode,
+  FileText: IconFileText,
+  GalleryHorizontal: IconPresentation,
+  LayoutBoard: IconLayoutBoard,
+  ListCheck: IconListCheck,
+  Mail: IconMail,
+  MessageCircle: IconMessageCircle,
+  Photo: IconPhoto,
+  Route: IconRoute,
+  ScreenShare: IconScreenShare,
+  Settings: IconSettings,
+  Users: IconUsers,
 };
 
-function getFeatherIcon(iconName: string): keyof typeof Feather.glyphMap {
-  return ICON_MAP[iconName] ?? "box";
+const FALLBACK_APP_COLORS = [
+  "#0EA5E9",
+  "#8B5CF6",
+  "#10B981",
+  "#F59E0B",
+  "#F472B6",
+  "#14B8A6",
+];
+
+function hashForApp(id: string, name: string): number {
+  let hash = 0;
+  for (const character of `${id}:${name}`) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  return Math.abs(hash);
 }
 
-function AppIcon({
+export function appAccentColor(
+  app: Pick<AppConfig, "id" | "name" | "color">,
+): string {
+  if (app.color && /^#[0-9a-f]{6}$/i.test(app.color)) return app.color;
+  return FALLBACK_APP_COLORS[
+    hashForApp(app.id, app.name) % FALLBACK_APP_COLORS.length
+  ];
+}
+
+export function appAccentBackgroundColor(color: string): string {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return "#27272A";
+  return `${color}24`;
+}
+
+export function AppIcon({
   iconName,
   size,
   color,
 }: {
   iconName: string;
   size: number;
-  color: string;
+  color: ColorValue;
 }) {
-  if (iconName === "Brain") {
-    return <MaterialCommunityIcons name="brain" size={size} color={color} />;
-  }
-
-  return <Feather name={getFeatherIcon(iconName)} size={size} color={color} />;
+  const Icon = ICON_MAP[iconName] ?? IconStack2;
+  return <Icon color={color} size={size} strokeWidth={1.8} />;
 }
 
 interface AppCardProps {
   app: AppConfig;
   onPress: () => void;
   onLongPress?: () => void;
+  sourceLabel?: string;
 }
 
-export default function AppCard({ app, onPress, onLongPress }: AppCardProps) {
+export default function AppCard({
+  app,
+  onPress,
+  onLongPress,
+  sourceLabel,
+}: AppCardProps) {
+  const accentColor = appAccentColor(app);
+
   return (
     <TouchableOpacity
-      style={styles.card}
+      className="flex-1 bg-card-dark border border-border-dark rounded-2xl p-4 m-1.5 items-center min-h-32 active:opacity-75"
       onPress={onPress}
       onLongPress={onLongPress}
-      activeOpacity={0.7}
     >
-      <View style={styles.iconContainer}>
-        <AppIcon iconName={app.icon} size={28} color="#ffffff" />
+      <View
+        className="w-14 h-14 rounded-xl items-center justify-center mb-2.5"
+        style={{ backgroundColor: appAccentBackgroundColor(accentColor) }}
+      >
+        <AppIcon iconName={app.icon} size={28} color={accentColor} />
       </View>
-      <Text style={styles.name} numberOfLines={1}>
+      <Text
+        className="text-white text-sm font-semibold mb-0.75"
+        numberOfLines={1}
+      >
         {app.name}
       </Text>
-      <Text style={styles.description} numberOfLines={2}>
-        {app.description}
-      </Text>
+      {sourceLabel ? (
+        <Text className="text-status-gray text-[10px] font-medium">
+          {sourceLabel}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: "#1A1A1A",
-    borderRadius: 16,
-    padding: 16,
-    margin: 6,
-    alignItems: "center",
-    minHeight: 130,
-  },
-  iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-    backgroundColor: "#252525",
-  },
-  name: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 3,
-  },
-  description: {
-    color: "#888888",
-    fontSize: 11,
-    textAlign: "center",
-    lineHeight: 15,
-  },
-});

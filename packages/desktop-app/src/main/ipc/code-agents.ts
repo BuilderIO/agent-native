@@ -16,6 +16,7 @@ import {
   type CodeAgentProjectSelectResult,
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdateResult,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentRemoteConnectorControlResult,
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
@@ -39,17 +40,19 @@ import {
 } from "electron";
 
 import {
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+} from "../code-agent-transcript-ipc.js";
+import {
   getComputerPermissionStatus,
   requestAccessibilityPermission,
   runComputerSetupAction,
 } from "../computer-control";
-import {
-  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
-  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
-  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
-  type CodeAgentTranscriptSubscription,
-  type CodeAgentTranscriptSubscriptionBatch,
-} from "../index";
+import type {
+  CodeAgentTranscriptSubscription,
+  CodeAgentTranscriptSubscriptionBatch,
+} from "../index.js";
 
 export interface CodeAgentsIpcDeps {
   isObject: (value: unknown) => value is Record<string, unknown>;
@@ -58,6 +61,9 @@ export interface CodeAgentsIpcDeps {
   normalizeCodeAgentRunId: (value: unknown) => string | null;
   listDesktopCodeAgentRuns: (goalId?: string) => CodeAgentRun[];
   createCodeAgentRun: (input: unknown) => Promise<CodeAgentCreateRunResult>;
+  submitCodeAgentRemoteWaitlist: (
+    input: unknown,
+  ) => Promise<CodeAgentRemoteWaitlistResult>;
   getCodeAgentModelList: () => CodeAgentModelListResult;
   readCodeAgentTranscript: (input: unknown) => CodeAgentTranscriptResult;
   removeCodeAgentTranscriptSubscription: (subscriptionId: string) => void;
@@ -95,7 +101,12 @@ export interface CodeAgentsIpcDeps {
     projects: CodeAgentProjectFolder[];
   };
   chooseCodeAgentProject: () => Promise<CodeAgentProjectSelectResult>;
-  openTerminalForCodeAgents: (request?: unknown) => CodeAgentTerminalResult;
+  openTerminalForCodeAgents: (
+    request?: unknown,
+  ) => CodeAgentTerminalResult | Promise<CodeAgentTerminalResult>;
+  openCodeAgentCodexLogin: () =>
+    | CodeAgentTerminalResult
+    | Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus: () => CodeAgentRemoteConnectorStatus;
   setRemoteConnectorEnabled: (
     enabled: boolean,
@@ -119,6 +130,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     normalizeCodeAgentRunId,
     listDesktopCodeAgentRuns,
     createCodeAgentRun,
+    submitCodeAgentRemoteWaitlist,
     getCodeAgentModelList,
     readCodeAgentTranscript,
     removeCodeAgentTranscriptSubscription,
@@ -142,6 +154,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     readCodeAgentProjectsState,
     chooseCodeAgentProject,
     openTerminalForCodeAgents,
+    openCodeAgentCodexLogin,
     getRemoteConnectorStatus,
     setRemoteConnectorEnabled,
     pairRemoteCodeAgentConnector,
@@ -191,6 +204,15 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
   );
 
   ipcMain.handle(
+    IPC.CODE_AGENTS_REMOTE_WAITLIST,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentRemoteWaitlistResult> =>
+      submitCodeAgentRemoteWaitlist(input),
+  );
+
+  ipcMain.handle(
     IPC.CODE_AGENTS_LIST_MODELS,
     (): CodeAgentModelListResult => getCodeAgentModelList(),
   );
@@ -235,16 +257,14 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       event.sender.once("destroyed", () => {
         removeCodeAgentTranscriptSubscription(subscriptionId);
       });
-      if (result.status !== "ok" || result.error) {
-        sendCodeAgentTranscriptSubscriptionBatch(subscription, {
-          status: result.status,
-          runId: result.runId ?? runId,
-          events: [],
-          eventFile: result.eventFile,
-          reason: "subscribe",
-          error: result.error,
-        });
-      }
+      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
+        status: result.status,
+        runId: result.runId ?? runId,
+        events: result.events,
+        eventFile: result.eventFile,
+        reason: "snapshot",
+        error: result.error,
+      });
     },
   );
 
@@ -410,12 +430,18 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
 
   ipcMain.handle(
     IPC.CODE_AGENTS_OPEN_TERMINAL,
-    (
+    async (
       _event: IpcMainInvokeEvent,
       request?: unknown,
-    ): CodeAgentTerminalResult => {
-      return openTerminalForCodeAgents(request);
+    ): Promise<CodeAgentTerminalResult> => {
+      return await openTerminalForCodeAgents(request);
     },
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_OPEN_CODEX_LOGIN,
+    async (): Promise<CodeAgentTerminalResult> =>
+      await openCodeAgentCodexLogin(),
   );
 
   ipcMain.handle(

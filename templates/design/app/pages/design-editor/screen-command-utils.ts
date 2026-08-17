@@ -42,6 +42,10 @@ export function designEditorCommandFromSearchParams(
   const rawZoom = searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
+  // `single` is the URL spelling for the responsive Interact surface. There
+  // is no focused editing view, so even an older URL without mode=interact
+  // must enter Interact directly instead of reviving the removed Full view.
+  const mode = editorView === "single" ? "interact" : undefined;
   if (
     editorView !== "overview" &&
     editorView !== "single" &&
@@ -76,6 +80,7 @@ export function designEditorCommandFromSearchParams(
     command.zoom = FOCUSED_SCREEN_ZOOM;
   }
   if (tool) command.tool = tool;
+  if (mode) command.mode = mode;
   return command;
 }
 

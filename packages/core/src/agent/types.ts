@@ -1,3 +1,4 @@
+import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -122,6 +123,17 @@ export interface AgentChatAttachment {
   type: string;
   name: string;
   data?: string;
+  /** Stable object-storage URL for this attachment, when uploaded. */
+  url?: string;
+  /** Provider that owns `url` (for example Builder or S3). */
+  uploadProvider?: string;
+  /** SVG and other unsafe files must stay references, never inline content. */
+  referenceOnly?: boolean;
+  securityNote?: string;
+  /** Set when the current turn could not create a durable object-storage URL. */
+  storageRequired?: boolean;
+  /** Set when a configured object-storage provider rejected or failed the upload. */
+  storageUploadFailed?: boolean;
   contentType?: string;
   text?: string;
 }
@@ -132,8 +144,15 @@ export interface AgentChatScope {
   label?: string;
 }
 
+export interface AgentChatHarnessRequest {
+  /** Hosted tools-only runtime selected in the production app picker. */
+  runtime: "claude-code" | "codex" | "pi" | "opencode";
+}
+
 export interface AgentChatRequest {
   message: string;
+  /** Stable identity of a durable queued message, used to reject replayed delivery. */
+  queuedMessageId?: string;
   /**
    * User-visible text to persist in chat history. `message` may be normalized
    * for the model (for example mention markup or internal continuation text).
@@ -166,6 +185,7 @@ export interface AgentChatRequest {
     continuationReason?:
       | "run_timeout"
       | "loop_limit"
+      | "max_tokens"
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
@@ -194,6 +214,15 @@ export interface AgentChatRequest {
     payloadRef?: boolean;
   };
   /**
+   * Server-resolved action authorization carried across authenticated durable
+   * background dispatches. Normal client requests must not trust this field;
+   * the foreground handler deletes and replaces it before persistence.
+   */
+  __resolvedActionSurface?: {
+    orgId: string | null;
+    allowedActionNames: string[];
+  };
+  /**
    * Stable identity for the logical assistant turn this request belongs to.
    * The client sends the SAME turnId for the initial POST and every
    * auto-continuation re-POST of one turn, so the server can fold each
@@ -207,7 +236,7 @@ export interface AgentChatRequest {
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */
   engine?: string;
-  /** Per-request reasoning effort override (ephemeral, from the composer picker). */
+  /** Per-request effort override (ephemeral, from the composer picker). */
   effort?: ReasoningEffort;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
@@ -215,6 +244,8 @@ export interface AgentChatRequest {
   browserTabId?: string;
   /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
   scope?: AgentChatScope | null;
+  /** Optional hosted tools-only harness selection. */
+  harness?: AgentChatHarnessRequest;
   /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
   /**
@@ -241,6 +272,10 @@ export type AgentChatEvent =
       id?: string;
       progressBytes?: number;
     }
+  /** The model is still assembling an action input; sent before tool_start. */
+  | { type: "tool_input_start"; tool?: string; id?: string }
+  /** Incremental action-input text, kept separate from the finalized input. */
+  | { type: "tool_input_delta"; tool?: string; id?: string; text: string }
   | { type: "stream_keepalive" }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
@@ -272,7 +307,18 @@ export type AgentChatEvent =
   | {
       type: "agent_call";
       agent: string;
-      status: "start" | "done" | "error";
+      status: "start" | "done" | "pending" | "error";
+      agentCallId?: string;
+      /** Remote task to resume when status is pending/input-required. */
+      taskId?: string;
+      durationMs?: number;
+      /**
+       * Why the call ended, on a terminal status. Already computed for
+       * telemetry; without it here the persisted event says only that a
+       * cross-app call failed after N ms and never why, so a failed A2A call
+       * cannot be diagnosed from the database without a repro.
+       */
+      terminalCode?: string;
     }
   | {
       /**
@@ -290,14 +336,26 @@ export type AgentChatEvent =
        */
       type: "agent_call_progress";
       agent: string;
-      /** Remote A2A task state for this poll, e.g. "working" | "submitted". */
+      /** Remote A2A task state for this poll, e.g. "working" | "processing". */
       state: string;
       /** Elapsed wall-clock seconds since the cross-app call began. */
       elapsedSeconds: number;
       /** Optional short text surfaced from the remote poll, when present. */
       detail?: string;
+      agentCallId?: string;
     }
-  | { type: "agent_call_text"; agent: string; text: string }
+  | {
+      type: "agent_call_text";
+      agent: string;
+      text: string;
+      agentCallId?: string;
+    }
+  | {
+      type: "agent_call_activity";
+      agent: string;
+      snapshot: A2AAgentActivitySnapshot;
+      agentCallId?: string;
+    }
   | {
       type: "agent_task";
       taskId: string;
@@ -316,7 +374,11 @@ export type AgentChatEvent =
       taskId: string;
       summary: string;
     }
-  | { type: "done" }
+  | {
+      type: "done";
+      /** Set when a human explicitly stopped the current turn. */
+      reason?: "user";
+    }
   | {
       type: "error";
       error: string;
@@ -353,20 +415,58 @@ export type AgentChatEvent =
     }
   | {
       type: "auto_continue";
-      reason:
-        | "run_timeout"
-        | "loop_limit"
-        | "no_progress"
-        | "stream_ended"
-        | "gateway_timeout"
-        | "network_interrupted";
+      reason: ContinuationReason;
       maxIterations?: number;
     }
   | { type: "clear" };
+
+export const CONTINUATION_REASONS = [
+  "run_timeout",
+  "loop_limit",
+  "max_tokens",
+  "no_progress",
+  "stream_ended",
+  "gateway_timeout",
+  "network_interrupted",
+] as const;
+
+export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+/**
+ * True when an `agent_runs.terminal_reason` marks a CHUNK boundary rather than
+ * the end of the turn — i.e. the run was TRUNCATED at a budget/timeout/loop/
+ * no-progress boundary and did not finish what it was asked to do.
+ *
+ * This is the single predicate for "the reason says this run did not finish".
+ * `setRunTerminalReason` (run-store) uses it to record `status='truncated'`
+ * instead of `'completed'`, so consumers should read the status rather than
+ * re-deriving truncation from the reason. It stays exported for legacy
+ * `status='completed'` rows written before the `truncated` status existed,
+ * which linger for one retention window.
+ */
+export function isContinuationTerminalReason(reason: unknown): boolean {
+  return (
+    reason === "auto_continue" ||
+    CONTINUATION_REASONS.includes(reason as ContinuationReason)
+  );
+}
 
 export interface RunEvent {
   seq: number;
   event: AgentChatEvent;
 }
 
-export type RunStatus = "running" | "completed" | "errored" | "aborted";
+/**
+ * `agent_runs.status`. `completed` means the turn actually finished (terminal
+ * reason `done`); `truncated` means it stopped at a budget/timeout/loop/
+ * no-progress boundary with work still outstanding. Truncations were previously
+ * filed as `completed`, which made them invisible to every success-rate query
+ * and — because retention keys off status — deleted them a week before the
+ * genuine failures they belong with.
+ */
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "truncated"
+  | "errored"
+  | "aborted";

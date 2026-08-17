@@ -2,11 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
+  BrainCaptureBlockedError,
   createCapture,
   ensureManualSource,
   serializeCapture,
   serializeSource,
 } from "../server/lib/brain.js";
+import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
 import { captureKindSchema, optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -31,21 +33,43 @@ export default defineAction({
       ? null
       : await ensureManualSource(args.sourceTitle ?? "Manual imports");
     const sourceId = args.sourceId ?? source!.id;
-    const capture = await createCapture({
-      sourceId,
-      externalId: args.externalId,
-      title: args.title,
-      kind: args.kind,
-      content: args.content,
-      capturedAt: args.capturedAt,
-      metadata: args.metadata,
-    });
+    let capture;
+    try {
+      capture = await createCapture({
+        sourceId,
+        externalId: args.externalId,
+        title: args.title,
+        kind: args.kind,
+        content: args.content,
+        capturedAt: args.capturedAt,
+        metadata: args.metadata,
+      });
+    } catch (error) {
+      if (!(error instanceof BrainCaptureBlockedError)) throw error;
+      return {
+        source: source ? serializeSource(source) : undefined,
+        capture: undefined,
+        sensitivityReceipt: error.receipt,
+        distillation: undefined,
+      };
+    }
+    const distillation =
+      args.enqueueDistillation &&
+      capture.status !== "distilled" &&
+      capture.status !== "ignored"
+        ? await enqueueCaptureDistillation({ capture })
+        : undefined;
+    const serializedCapture = serializeCapture(capture);
     return {
       source: source ? serializeSource(source) : undefined,
-      capture: serializeCapture(capture),
-      nextAction: args.enqueueDistillation
-        ? "Call enqueue-distillation with this captureId."
-        : undefined,
+      capture: distillation
+        ? {
+            ...serializedCapture,
+            status: "distilling",
+            updatedAt: distillation.queueItem.updatedAt,
+          }
+        : serializedCapture,
+      distillation,
     };
   },
 });

@@ -94,8 +94,7 @@ description: "एजेंट ट्रेस, मूल्यांकन, फ�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -383,5 +382,5 @@ CLI का हार्डकोडेड DSN जानबूझकर किय
 ## आगे क्या है
 
 - [**Tracking**](/docs/tracking) - आपके ऐप के अपने इवेंट के लिए उत्पाद विश्लेषण (पोस्टहॉग, मिक्सपैनल, एम्प्लिट्यूड)
-- [**Actions**](/docs/actions) - वे ऑपरेशन जो ट्रेस में टूल कॉल के रूप में दिखाई देते हैं
+- [**Actions**](/docs/actions-overview) - वे ऑपरेशन जो ट्रेस में टूल कॉल के रूप में दिखाई देते हैं
 - [**Security**](/docs/security) - डेटा स्कोपिंग और क्रेडेंशियल हैंडलिंग

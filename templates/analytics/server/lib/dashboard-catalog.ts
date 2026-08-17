@@ -1,6 +1,12 @@
 import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
+import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
-import { listDashboards, type DashboardRecord } from "./dashboards-store";
+import {
+  listDashboardSummaries,
+  type DashboardRecord,
+  type DashboardSummaryRecord,
+} from "./dashboards-store";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export type DashboardTemplateCategory =
   | "Acquisition"
@@ -57,7 +63,11 @@ const CATALOG_VERSION = "2026-06-08";
 function seedConfig(id: string): SqlDashboardConfig {
   const seed = loadDashboardSeed(id);
   if (!seed) throw new Error(`Dashboard seed not found: ${id}`);
-  return seed as unknown as SqlDashboardConfig;
+  if (id !== FIRST_PARTY_DASHBOARD_ID) {
+    return seed as unknown as SqlDashboardConfig;
+  }
+  return repairCanonicalFirstPartyDashboardQueries(seed)
+    .config as unknown as SqlDashboardConfig;
 }
 
 function promPanelSql(
@@ -938,7 +948,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 36,
+    panelCount: 38,
     version: CATALOG_VERSION,
     recommended: true,
     visibleInCatalog: false,
@@ -1013,33 +1023,13 @@ export function cloneDashboardConfig(
   return JSON.parse(JSON.stringify(entry.buildConfig())) as SqlDashboardConfig;
 }
 
-function templateIdFromConfig(config: Record<string, unknown>): string | null {
-  const catalog = config.catalog;
-  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
-    return null;
-  }
-  const templateId = (catalog as Record<string, unknown>).templateId;
-  return typeof templateId === "string" && templateId ? templateId : null;
-}
-
-function demoIdFromConfig(config: Record<string, unknown>): string | null {
-  const demo = config.demo;
-  if (!demo || typeof demo !== "object" || Array.isArray(demo)) {
-    return null;
-  }
-  const demoId = (demo as Record<string, unknown>).id;
-  return typeof demoId === "string" && demoId ? demoId : null;
-}
-
 function installedDashboardForTemplate(
-  row: DashboardRecord,
+  row: DashboardSummaryRecord,
   entry: DashboardCatalogEntry,
 ): boolean {
-  const templateId = templateIdFromConfig(row.config);
-  const demoId = demoIdFromConfig(row.config);
   return (
-    templateId === entry.id ||
-    demoId === entry.id ||
+    row.catalogTemplateId === entry.id ||
+    row.demoId === entry.id ||
     row.id === entry.defaultDashboardId
   );
 }
@@ -1047,10 +1037,11 @@ function installedDashboardForTemplate(
 export async function listDashboardCatalog(
   ctx: AccessCtx,
 ): Promise<DashboardCatalogTemplate[]> {
-  const dashboards = await listDashboards(ctx, {
+  const dashboards = await listDashboardSummaries(ctx, {
     kind: "sql",
     archived: "all",
     hidden: "all",
+    includeCatalogMetadata: true,
   });
 
   return dashboardCatalogEntries
@@ -1060,10 +1051,7 @@ export async function listDashboardCatalog(
         .filter((row) => installedDashboardForTemplate(row, entry))
         .map((row) => ({
           id: row.id,
-          name:
-            typeof row.config.name === "string" && row.config.name.trim()
-              ? row.config.name
-              : row.title,
+          name: row.configName?.trim() || row.name,
           visibility: row.visibility,
           updatedAt: row.updatedAt,
           archivedAt: row.archivedAt,

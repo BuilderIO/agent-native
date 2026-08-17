@@ -69,7 +69,7 @@ export default defineAction({
     "and persists the discovered components into component_index. For real-app " +
     "sources (localhost / fusion), the indexComponents capability must be " +
     "available; if not, returns an empty list with ctaRequired=true and a " +
-    "message prompting the user to Connect Builder.",
+    "message prompting the user to Connect Builder (free tier available).",
   schema: z.object({
     designId: z.string().describe("Design project ID to index components for"),
     fileId: z
@@ -110,7 +110,7 @@ export default defineAction({
         ctaMessage:
           "Full component indexing (prop types, cva variants, Storybook " +
           "stories, jump-to-source) requires a connected Builder app. " +
-          "Connect Builder via the Make it real CTA to unlock this feature.",
+          "Connect Builder (free tier available) via the Make it real CTA to unlock this feature.",
         components: [] as ComponentDefinition[],
         instances: [] as ComponentInstance[],
         totalComponents: 0,
@@ -235,7 +235,7 @@ export default defineAction({
       totalInstances: instances.length,
       note:
         sourceType === "inline"
-          ? "Showing annotated Alpine components from data-agent-native-component attributes. Connect Builder for full TS prop types and cva variants."
+          ? "Showing annotated Alpine components from data-agent-native-component attributes. Connect Builder (free tier available) for full TS prop types and cva variants."
           : undefined,
     };
   },

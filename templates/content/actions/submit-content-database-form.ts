@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseView,
+  DocumentPropertySystemRole,
   SubmitContentDatabaseFormResponse,
 } from "../shared/api.js";
 import { contentDatabaseFormQuestions } from "../shared/database-form.js";
@@ -24,6 +25,11 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
@@ -44,6 +50,21 @@ const submitContentDatabaseFormSchema = z.object({
 
 type PropertyDefinitionRow =
   typeof schema.documentPropertyDefinitions.$inferSelect;
+
+function propertyDefinitionFingerprint(definitions: PropertyDefinitionRow[]) {
+  return JSON.stringify(
+    definitions
+      .map((definition) => ({
+        id: definition.id,
+        name: definition.name,
+        type: definition.type,
+        systemRole: definition.systemRole,
+        visibility: definition.visibility,
+        optionsJson: definition.optionsJson,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  );
+}
 
 function resolveFormView(
   views: ContentDatabaseView[],
@@ -142,6 +163,11 @@ function resolveSubmittedProperties(
     }
     const definition = exact ?? named[0];
     if (!definition) throw new Error(`Unknown form property "${inputKey}".`);
+    if (definition.systemRole) {
+      throw new Error(
+        `System property "${definition.name}" cannot be submitted.`,
+      );
+    }
     if (!enabledPropertyIds.has(definition.id)) {
       throw new Error(
         `Property "${definition.name}" is not enabled in this form.`,
@@ -169,6 +195,15 @@ function resolveSubmittedProperties(
 export default defineAction({
   description:
     "Submit one row through a Content database form. Validates that form's required questions, resolves option labels safely, writes the title, Blocks, and property values atomically, verifies the saved row, and returns its exact page link.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Submit Content Database Form",
+    description:
+      "Delegate a validated, atomic submission to an existing Content database form.",
+  },
   schema: submitContentDatabaseFormSchema,
   mcpApp: {
     compactCatalog: true,
@@ -197,6 +232,9 @@ export default defineAction({
         ),
       );
     if (!database) throw new Error(`Database "${databaseId}" not found.`);
+    if (!database.spaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
 
     const access = await assertAccess(
       "document",
@@ -204,6 +242,11 @@ export default defineAction({
       "editor",
     );
     const databaseDocument = access.resource;
+    if (databaseDocument.spaceId !== database.spaceId) {
+      throw new Error(
+        "Database page and database belong to different Content spaces.",
+      );
+    }
     const definitions = await db
       .select()
       .from(schema.documentPropertyDefinitions)
@@ -216,6 +259,7 @@ export default defineAction({
           ),
         ),
       );
+    const definitionsFingerprint = propertyDefinitionFingerprint(definitions);
     const viewConfig = parseDatabaseViewConfig(database.viewConfigJson);
     const formView = resolveFormView(
       viewConfig.views,
@@ -226,6 +270,7 @@ export default defineAction({
       definition: {
         id: definition.id,
         type: definition.type as DocumentPropertyType,
+        systemRole: definition.systemRole as DocumentPropertySystemRole | null,
       },
     }));
     const questions = contentDatabaseFormQuestions(formView, properties);
@@ -294,6 +339,35 @@ export default defineAction({
     const createdBy = getRequestUserEmail() ?? database.ownerEmail;
 
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+      );
+      await touchContentDatabase(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+        now,
+      );
+      const lockedDefinitions = await tx
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              database.ownerEmail,
+            ),
+          ),
+        );
+      if (
+        propertyDefinitionFingerprint(lockedDefinitions) !==
+        definitionsFingerprint
+      ) {
+        throw new Error(
+          "Database properties changed before form submission completed.",
+        );
+      }
       const [maxDocumentPosition] = await tx
         .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
         .from(schema.documents)
@@ -318,6 +392,7 @@ export default defineAction({
 
       await tx.insert(schema.documents).values({
         id: documentId,
+        spaceId: database.spaceId,
         ownerEmail: database.ownerEmail,
         orgId: database.orgId,
         parentId: database.documentId,
@@ -380,6 +455,8 @@ export default defineAction({
           })),
         );
       }
+
+      await ensureDocumentFilesMembership(tx, documentId, now);
 
       const [savedDocument] = await tx
         .select({

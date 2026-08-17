@@ -8,6 +8,7 @@ import {
   createBuilderEngine,
 } from "./builder-engine.js";
 import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "./prompt-cache.js";
 import type { EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -19,7 +20,7 @@ const credentialState = vi.hoisted(() => ({
 }));
 
 const AGENT_NATIVE_UPGRADE_URL =
-  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
@@ -104,6 +105,9 @@ describe("createBuilderEngine", () => {
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+    // The 1h stable-prefix TTL is opt-in (`stablePrefixCacheControl`); the
+    // breakpoint assertions below check the opted-in shape.
+    vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
   });
 
   afterEach(() => {
@@ -117,7 +121,6 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     expect(engine.name).toBe("builder");
     expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
-    expect(engine.defaultModel).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
@@ -138,7 +141,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
-    expect(stop?.error).toContain("Agent settings > LLM");
+    expect(stop?.error).toContain("Manage agent > LLM");
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 
@@ -168,6 +171,40 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses credentials captured during engine construction instead of ambient lookup", async () => {
+    const { resolveBuilderCredentials } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderCredentials).mockClear();
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonlResponse([
+        { type: "text-delta", text: "Hi!" },
+        { type: "stop", reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine({
+      credentials: {
+        privateKey: "bpk-captured",
+        publicKey: "space-captured",
+        userId: "captured-user",
+        orgName: "Captured Space",
+      },
+    });
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.some((event) => event.type === "text-delta")).toBe(true);
+    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-captured",
+    );
+    expect(init.headers.Authorization).toBe("Bearer bpk-captured");
+    expect(init.headers["x-builder-user-id"]).toBe("captured-user");
   });
 
   it("short-circuits with missing-credentials when BUILDER_PUBLIC_KEY is unset", async () => {
@@ -215,12 +252,13 @@ describe("createBuilderEngine", () => {
     expect(body.model).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     // With prompt caching enabled the system prompt is wrapped in an array
-    // with a cache_control block on the last element.
+    // with a cache_control block on the last element. The stable prefix takes
+    // the 1h TTL; the per-iteration message breakpoint stays on the default.
     expect(body.system).toEqual([
       {
         type: "text",
         text: "You are helpful.",
-        cache_control: { type: "ephemeral" },
+        cache_control: { type: "ephemeral", ttl: "1h" },
       },
     ]);
     // Message should have a cache_control block on its last content element.
@@ -232,6 +270,48 @@ describe("createBuilderEngine", () => {
         ],
       },
     ]);
+  });
+
+  it("splits the system prompt at the cache sentinel, keeping the breakpoint on the stable prefix", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        systemPrompt: `stable${SYSTEM_PROMPT_CACHE_SPLIT}volatile`,
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.system).toEqual([
+      {
+        type: "text",
+        text: "stable",
+        cache_control: { type: "ephemeral", ttl: "1h" },
+      },
+      { type: "text", text: "volatile" },
+    ]);
+  });
+
+  it("strips the cache sentinel when prompt caching is disabled", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        systemPrompt: `stable${SYSTEM_PROMPT_CACHE_SPLIT}volatile`,
+        providerOptions: { anthropic: { cacheControl: false } },
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.system).toBe("stablevolatile");
   });
 
   it("honors an explicit max output token override", async () => {
@@ -354,7 +434,7 @@ describe("createBuilderEngine", () => {
             type: "tool-call-delta",
             id: "toolu_01",
             name: "x",
-            argsTextDelta: "}",
+            argsTextDelta: '"id":"ext"}',
           },
           { type: "tool-call", id: "toolu_01", name: "x", input: {} },
           { type: "stop", reason: "tool_use", requestId: "req_1" },
@@ -376,10 +456,120 @@ describe("createBuilderEngine", () => {
         type: "tool-input-delta",
         id: "toolu_01",
         name: "x",
-        text: "}",
+        text: '"id":"ext"}',
       },
     ]);
-    expect(events.find((e) => e.type === "tool-call")).toBeDefined();
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "x",
+      input: { id: "ext" },
+    });
+  });
+
+  it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '{"title":"Q',
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '3 plan"',
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: "}",
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+    const assistantContent = events.find((e) => e.type === "assistant-content");
+    expect(assistantContent?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "create_document",
+        input: { title: "Q3 plan" },
+      },
+    ]);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+
+  it("reports a tool call truncated mid-arguments as an in-band tool-call error instead of dropping it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '{"title":"Q',
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const toolCallError = events.find((e) => e.type === "tool-call-error");
+    expect(toolCallError).toMatchObject({
+      id: "toolu_01",
+      name: "create_document",
+      input: '{"title":"Q',
+    });
+    expect(toolCallError?.error).toMatch(/never finished streaming/i);
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual(
+      [],
+    );
+  });
+
+  it("does not re-emit a tool call the gateway already delivered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "x",
+            argsTextDelta: '{"a":1}',
+          },
+          { type: "tool-call", id: "toolu_01", name: "x", input: { a: 1 } },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
   });
 
   it("maps gateway heartbeat frames to gateway-heartbeat engine events", async () => {
@@ -567,6 +757,35 @@ describe("createBuilderEngine", () => {
     });
   });
 
+  it("treats a bare streamed 'Unauthorized' as a model rejection, not a broken connection", async () => {
+    // The gateway authenticated the request before streaming, so this means
+    // the account cannot use this model. Recording a credential failure here
+    // disconnected Builder for every model, including working ones.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Unauthorized",
+            requestId: "req_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_model_unauthorized");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).not.toHaveBeenCalled();
+  });
+
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
     // A reverse proxy returning a bare HTML 502/504 should not swallow the
     // body silently. Before the fix, `.json()` would throw and the
@@ -717,6 +936,35 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("builder_gateway_network_error");
   });
 
+  it("tags retry-wrapped OpenAI TLS connection failures as gateway network errors", async () => {
+    const error =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "0029217D3D7F0000:error:0A000438:SSL routines:ssl3_read_bytes:" +
+      "tlsv1 alert internal error";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error,
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "gpt-5-6-terra" }),
+    );
+
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe(error);
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
   it("keeps the hard timeout active while reading the gateway stream", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
@@ -787,7 +1035,91 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("uses the long local timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
+  it("aborts at the 120s first-event deadline when nothing ever streams, even under the long local timeout cap", async () => {
+    // With no events at all, the two-stage deadline is
+    // min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) — here
+    // min(840_000, 120_000) — so a fully wedged request is cut off in 2
+    // minutes instead of riding the full 14-minute local cap.
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
+  });
+
+  it("still enforces the full local total deadline once the stream produces a real event", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `${JSON.stringify({ type: "text-delta", text: "hi" })}\n`,
+            ),
+          );
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(init.signal?.reason ?? new Error("aborted"));
+          });
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    // The 120s first-event window passes uneventfully — a real event already
+    // streamed, so it must not abort here.
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(settledEarly).toBe(false);
+
+    // The original 840s total deadline (measured from request start) still
+    // governs the rest of the request.
+    await vi.advanceTimersByTimeAsync(720_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "text-delta")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("840s");
+  });
+
+  it("keeps the pre-first-event deadline at the hosted foreground cap (45s) instead of extending it to 120s", async () => {
+    vi.stubEnv("NETLIFY", "true");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -802,21 +1134,51 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
     await vi.advanceTimersByTimeAsync(45_000);
-
-    let settledEarly = false;
-    void eventsPromise.then(() => {
-      settledEarly = true;
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settledEarly).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(795_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("840s");
+    expect(stop?.error).toContain("45s");
+  });
+
+  it("does not let heartbeat frames extend the first-event deadline past 120s", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5_000);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(120_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
@@ -1161,7 +1523,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("xhigh");
   });
 
-  it("sends reasoning_effort medium by default for a reasoning-capable Claude model", async () => {
+  it("sends reasoning_effort high by default for an effort-capable Claude model", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1177,7 +1539,115 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  it("sends reasoning_effort high by default for Luna", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  // OpenAI rejects reasoning_effort + function tools on Chat Completions,
+  // where the gateway routes GPT models — every gpt-5.x chat WITH TOOLS (i.e.
+  // every real agent turn) failed deterministically until this sent "none".
+  it("sends reasoning_effort none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.tools).toHaveLength(1);
+  });
+
+  it("preserves explicit none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        reasoningEffort: "none",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+  });
+
+  it("keeps full reasoning_effort for a Claude model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
   });
 
   it("omits reasoning_effort by default for a non-reasoning model", async () => {

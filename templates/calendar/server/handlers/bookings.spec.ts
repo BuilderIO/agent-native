@@ -5,6 +5,8 @@ import * as googleCalendar from "../lib/google-calendar.js";
 import {
   generateAvailableSlotsForDate,
   getConflictItems,
+  parseBookingAvailabilityDraft,
+  resolveBookingLinkAvailabilityOverrides,
   resolveBookingCalendarAccount,
 } from "./bookings";
 
@@ -268,6 +270,50 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
+  });
+
+  it("applies draft durations and co-hosts to preview availability", () => {
+    const parsed = parseBookingAvailabilityDraft(
+      JSON.stringify({
+        slug: "updated-meeting",
+        durations: [45, 60],
+        hosts: [{ email: "new-host@example.com" }],
+      }),
+    );
+    expect("draft" in parsed).toBe(true);
+    if (!("draft" in parsed)) return;
+
+    const overrides = resolveBookingLinkAvailabilityOverrides({
+      bookingLink: {
+        ownerEmail: "owner@example.com",
+        hosts: JSON.stringify([{ email: "old-host@example.com" }]),
+        duration: 30,
+        durations: JSON.stringify([30]),
+      } as Parameters<
+        typeof resolveBookingLinkAvailabilityOverrides
+      >[0]["bookingLink"],
+      draft: parsed.draft,
+    });
+
+    expect(overrides.hostEmails).toEqual([
+      "owner@example.com",
+      "new-host@example.com",
+    ]);
+    expect(overrides.durationSource).toEqual({
+      duration: 45,
+      durations: "[45,60]",
+    });
+  });
+
+  it("rejects malformed draft preview payloads", () => {
+    expect(parseBookingAvailabilityDraft("not-json")).toEqual({
+      error: "draft must be valid JSON",
+    });
+    expect(
+      parseBookingAvailabilityDraft(
+        JSON.stringify({ slug: "meeting", durations: [], hosts: [] }),
+      ),
+    ).toEqual({ error: "draft has an invalid booking-link configuration" });
   });
 });
 

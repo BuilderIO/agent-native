@@ -25,7 +25,6 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
-import { normalizeSignature } from "../../shared/signature.js";
 import {
   incrementSendFrequency,
   getContactFrequencyMap,
@@ -63,6 +62,12 @@ import {
 } from "../lib/google-auth.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import { listInboxEmails } from "../lib/list-inbox-emails.js";
+import {
+  readLocalEmails as readEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails as writeEmails,
+} from "../lib/local-email-store.js";
+import { readSettings } from "../lib/mail-settings.js";
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
@@ -277,41 +282,10 @@ async function userEmail(event: H3Event): Promise<string> {
   return session.email;
 }
 
-// ─── Settings defaults ──────────────────────────────────────────────────────
-
-const DEFAULT_SETTINGS: UserSettings = {
-  name: "",
-  email: "",
-  signature: "",
-  writingStyle: "",
-  theme: "dark",
-  density: "comfortable",
-  previewPane: "right",
-  sendAndArchive: false,
-  undoSendDelay: 5,
-  tracking: { opens: false, clicks: false },
-};
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-async function readEmails(email: string): Promise<EmailMessage[]> {
-  const data = await getUserSetting(email, "local-emails");
-  if (data && Array.isArray((data as any).emails)) {
-    return (data as any).emails;
-  }
-  return [];
-}
 
 function reqSource(event: H3Event) {
   return getHeader(event, "x-request-source") || undefined;
-}
-
-async function writeEmails(
-  email: string,
-  emails: EmailMessage[],
-  options?: { requestSource?: string },
-): Promise<void> {
-  await putUserSetting(email, "local-emails", { emails }, options);
 }
 
 async function readGmailComposeAttachment(
@@ -373,19 +347,6 @@ async function writeLabels(
   options?: { requestSource?: string },
 ): Promise<void> {
   await putUserSetting(email, "labels", { labels }, options);
-}
-
-async function readSettings(email: string): Promise<UserSettings> {
-  const data = await getUserSetting(email, "mail-settings");
-  if (data) {
-    return {
-      ...DEFAULT_SETTINGS,
-      ...(data as any),
-      email: (data as any).email || email,
-      signature: normalizeSignature((data as any).signature),
-    } as UserSettings;
-  }
-  return { ...DEFAULT_SETTINGS, email };
 }
 
 function recomputeUnreadCounts(
@@ -779,27 +740,32 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
   }
 
   // Local fallback: move to trash with a spam label
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isTrashed: true,
-        labelIds: [...emails[i].labelIds.filter((l) => l !== "inbox"), "spam"],
-      };
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
+    const target = emails.find((e) => e.id === getRouterParam(event, "id"));
+    if (!target) {
+      setResponseStatus(event, 404);
+      return { error: "Email not found" };
     }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-  return { id: getRouterParam(event, "id"), threadId, spam: true };
+    const threadId = target.threadId || target.id;
+    for (let i = 0; i < emails.length; i++) {
+      const eid = emails[i].threadId || emails[i].id;
+      if (eid === threadId) {
+        emails[i] = {
+          ...emails[i],
+          isTrashed: true,
+          labelIds: [
+            ...emails[i].labelIds.filter((l) => l !== "inbox"),
+            "spam",
+          ],
+        };
+      }
+    }
+    await writeEmails(email, emails, { requestSource: reqSource(event) });
+    const labels = recomputeUnreadCounts(emails, await readLabels(email));
+    await writeLabels(email, labels, { requestSource: reqSource(event) });
+    return { id: getRouterParam(event, "id"), threadId, spam: true };
+  });
 });
 
 // ─── Block sender ─────────────────────────────────────────────────────────────
@@ -888,27 +854,32 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const emails = await readEmails(email);
-  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
-  if (!target) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-  const threadId = target.threadId || target.id;
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isTrashed: true,
-        labelIds: [...emails[i].labelIds.filter((l) => l !== "inbox"), "spam"],
-      };
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
+    const target = emails.find((e) => e.id === getRouterParam(event, "id"));
+    if (!target) {
+      setResponseStatus(event, 404);
+      return { error: "Email not found" };
     }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-  return { id: getRouterParam(event, "id"), threadId, blocked: senderEmail };
+    const threadId = target.threadId || target.id;
+    for (let i = 0; i < emails.length; i++) {
+      const eid = emails[i].threadId || emails[i].id;
+      if (eid === threadId) {
+        emails[i] = {
+          ...emails[i],
+          isTrashed: true,
+          labelIds: [
+            ...emails[i].labelIds.filter((l) => l !== "inbox"),
+            "spam",
+          ],
+        };
+      }
+    }
+    await writeEmails(email, emails, { requestSource: reqSource(event) });
+    const labels = recomputeUnreadCounts(emails, await readLabels(email));
+    await writeLabels(email, labels, { requestSource: reqSource(event) });
+    return { id: getRouterParam(event, "id"), threadId, blocked: senderEmail };
+  });
 });
 
 // ─── Mute thread ──────────────────────────────────────────────────────────────
@@ -964,35 +935,39 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     await writeMutedThreads(email, muted, { requestSource: reqSource(event) });
   }
 
-  const emails = await readEmails(email);
-  for (let i = 0; i < emails.length; i++) {
-    const eid = emails[i].threadId || emails[i].id;
-    if (eid === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: true,
-        labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
-      };
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
+    for (let i = 0; i < emails.length; i++) {
+      const eid = emails[i].threadId || emails[i].id;
+      if (eid === threadId) {
+        emails[i] = {
+          ...emails[i],
+          isArchived: true,
+          labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
+        };
+      }
     }
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
-  const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels, { requestSource: reqSource(event) });
-  return { threadId, muted: true };
+    await writeEmails(email, emails, { requestSource: reqSource(event) });
+    const labels = recomputeUnreadCounts(emails, await readLabels(email));
+    await writeLabels(email, labels, { requestSource: reqSource(event) });
+    return { threadId, muted: true };
+  });
 });
 
 // ─── Delete permanently ───────────────────────────────────────────────────────
 
 export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const emails = await readEmails(email);
-  const filtered = emails.filter((e) => e.id !== getRouterParam(event, "id"));
-  if (filtered.length === emails.length) {
-    setResponseStatus(event, 404);
-    return { error: "Email not found" };
-  }
-  await writeEmails(email, filtered, { requestSource: reqSource(event) });
-  return { ok: true };
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
+    const filtered = emails.filter((e) => e.id !== getRouterParam(event, "id"));
+    if (filtered.length === emails.length) {
+      setResponseStatus(event, 404);
+      return { error: "Email not found" };
+    }
+    await writeEmails(email, filtered, { requestSource: reqSource(event) });
+    return { ok: true };
+  });
 });
 
 // ─── Send / compose ───────────────────────────────────────────────────────────
@@ -1197,62 +1172,64 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   }
 
   // Local fallback: store as sent email
-  const emails = await readEmails(email);
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
 
-  const newEmail: EmailMessage = {
-    id: `msg-${nanoid(8)}`,
-    threadId: replyToId
-      ? (emails.find((e) => e.id === replyToId)?.threadId ??
-        `thread-${nanoid(8)}`)
-      : `thread-${nanoid(8)}`,
-    from: { name: settings.name, email: settings.email },
-    to: (to as string).split(",").map((t: string) => {
-      const trimmed = t.trim();
-      return { name: trimmed, email: trimmed };
-    }),
-    ...(cc
-      ? {
-          cc: (cc as string)
-            .split(",")
-            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
-        }
-      : {}),
-    ...(bcc
-      ? {
-          bcc: (bcc as string)
-            .split(",")
-            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
-        }
-      : {}),
-    subject,
-    snippet: markdownPreviewSnippet(body),
-    body,
-    bodyHtml: outgoingBodyToHtml(body),
-    date: new Date().toISOString(),
-    isRead: true,
-    isStarred: false,
-    isSent: true,
-    isArchived: false,
-    isTrashed: false,
-    labelIds: ["sent"],
-    ...(attachments.length > 0
-      ? {
-          attachments: attachments.map((att) => ({
-            id: att.filename,
-            filename: att.originalName,
-            mimeType: att.mimeType,
-            size: att.size,
-            url: att.url,
-          })),
-        }
-      : {}),
-  };
+    const newEmail: EmailMessage = {
+      id: `msg-${nanoid(8)}`,
+      threadId: replyToId
+        ? (emails.find((e) => e.id === replyToId)?.threadId ??
+          `thread-${nanoid(8)}`)
+        : `thread-${nanoid(8)}`,
+      from: { name: settings.name, email: settings.email },
+      to: (to as string).split(",").map((t: string) => {
+        const trimmed = t.trim();
+        return { name: trimmed, email: trimmed };
+      }),
+      ...(cc
+        ? {
+            cc: (cc as string)
+              .split(",")
+              .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+          }
+        : {}),
+      ...(bcc
+        ? {
+            bcc: (bcc as string)
+              .split(",")
+              .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+          }
+        : {}),
+      subject,
+      snippet: markdownPreviewSnippet(body),
+      body,
+      bodyHtml: outgoingBodyToHtml(body),
+      date: new Date().toISOString(),
+      isRead: true,
+      isStarred: false,
+      isSent: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["sent"],
+      ...(attachments.length > 0
+        ? {
+            attachments: attachments.map((att) => ({
+              id: att.filename,
+              filename: att.originalName,
+              mimeType: att.mimeType,
+              size: att.size,
+              url: att.url,
+            })),
+          }
+        : {}),
+    };
 
-  emails.push(newEmail);
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
+    emails.push(newEmail);
+    await writeEmails(email, emails, { requestSource: reqSource(event) });
 
-  setResponseStatus(event, 201);
-  return newEmail;
+    setResponseStatus(event, 201);
+    return newEmail;
+  });
 });
 
 // ─── Save draft (persistent, Gmail-style) ─────────────────────────────────────
@@ -1353,80 +1330,82 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   }
 
   // Local fallback: save as EmailMessage with isDraft=true
-  const emails = await readEmails(email);
-  const existingIdx = draftId
-    ? emails.findIndex((e) => e.id === draftId && e.isDraft)
-    : -1;
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
+    const existingIdx = draftId
+      ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+      : -1;
 
-  const draftEmail: EmailMessage = {
-    id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
-    threadId:
-      existingIdx >= 0
-        ? emails[existingIdx].threadId
-        : replyToId
-          ? (emails.find((e) => e.id === replyToId)?.threadId ??
-            `thread-${nanoid(8)}`)
-          : `thread-${nanoid(8)}`,
-    from: { name: settings.name, email: settings.email },
-    to: to
-      ? (to as string)
-          .split(",")
-          .filter((t: string) => t.trim())
-          .map((t: string) => ({ name: t.trim(), email: t.trim() }))
-      : [],
-    ...(cc
-      ? {
-          cc: (cc as string)
+    const draftEmail: EmailMessage = {
+      id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
+      threadId:
+        existingIdx >= 0
+          ? emails[existingIdx].threadId
+          : replyToId
+            ? (emails.find((e) => e.id === replyToId)?.threadId ??
+              `thread-${nanoid(8)}`)
+            : `thread-${nanoid(8)}`,
+      from: { name: settings.name, email: settings.email },
+      to: to
+        ? (to as string)
             .split(",")
             .filter((t: string) => t.trim())
-            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
-        }
-      : {}),
-    ...(bcc
-      ? {
-          bcc: (bcc as string)
-            .split(",")
-            .filter((t: string) => t.trim())
-            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
-        }
-      : {}),
-    subject: subject || "(no subject)",
-    snippet: markdownPreviewSnippet(body || ""),
-    body: body || "",
-    bodyHtml: outgoingBodyToHtml(body || ""),
-    date: new Date().toISOString(),
-    isRead: true,
-    isStarred: false,
-    isDraft: true,
-    isArchived: false,
-    isTrashed: false,
-    labelIds: ["drafts"],
-    ...(attachments.length > 0
-      ? {
-          attachments: attachments.map((att) => ({
-            id: att.filename,
-            filename: att.originalName,
-            mimeType: att.mimeType,
-            size: att.size,
-            url: att.url,
-          })),
-        }
-      : {}),
-    ...(replyToId ? { replyToId } : {}),
-    ...(replyToThreadId ? { replyToThreadId } : {}),
-  };
+            .map((t: string) => ({ name: t.trim(), email: t.trim() }))
+        : [],
+      ...(cc
+        ? {
+            cc: (cc as string)
+              .split(",")
+              .filter((t: string) => t.trim())
+              .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+          }
+        : {}),
+      ...(bcc
+        ? {
+            bcc: (bcc as string)
+              .split(",")
+              .filter((t: string) => t.trim())
+              .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+          }
+        : {}),
+      subject: subject || "(no subject)",
+      snippet: markdownPreviewSnippet(body || ""),
+      body: body || "",
+      bodyHtml: outgoingBodyToHtml(body || ""),
+      date: new Date().toISOString(),
+      isRead: true,
+      isStarred: false,
+      isDraft: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["drafts"],
+      ...(attachments.length > 0
+        ? {
+            attachments: attachments.map((att) => ({
+              id: att.filename,
+              filename: att.originalName,
+              mimeType: att.mimeType,
+              size: att.size,
+              url: att.url,
+            })),
+          }
+        : {}),
+      ...(replyToId ? { replyToId } : {}),
+      ...(replyToThreadId ? { replyToThreadId } : {}),
+    };
 
-  if (existingIdx >= 0) {
-    emails[existingIdx] = draftEmail;
-  } else {
-    emails.push(draftEmail);
-  }
-  await writeEmails(email, emails, { requestSource: reqSource(event) });
+    if (existingIdx >= 0) {
+      emails[existingIdx] = draftEmail;
+    } else {
+      emails.push(draftEmail);
+    }
+    await writeEmails(email, emails, { requestSource: reqSource(event) });
 
-  return {
-    draftId: draftEmail.id,
-    [existingIdx >= 0 ? "updated" : "created"]: true,
-  };
+    return {
+      draftId: draftEmail.id,
+      [existingIdx >= 0 ? "updated" : "created"]: true,
+    };
+  });
 });
 
 /**
@@ -1488,12 +1467,14 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   }
 
   // Local fallback
-  const emails = await readEmails(email);
-  const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
-  if (filtered.length !== emails.length) {
-    await writeEmails(email, filtered, { requestSource: reqSource(event) });
-  }
-  return { ok: true };
+  return withLocalEmailMutationLock(email, async () => {
+    const emails = await readEmails(email);
+    const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
+    if (filtered.length !== emails.length) {
+      await writeEmails(email, filtered, { requestSource: reqSource(event) });
+    }
+    return { ok: true };
+  });
 });
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
@@ -1843,33 +1824,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
     } catch {}
   }
   return readLabels(email);
-});
-
-// ─── Settings ─────────────────────────────────────────────────────────────────
-
-export const getSettings = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  return readSettings(email);
-});
-
-export const updateSettings = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const current = await readSettings(email);
-  const body = await readBody(event);
-  const updated = {
-    ...current,
-    ...body,
-    ...(body.signature !== undefined
-      ? { signature: normalizeSignature(body.signature) }
-      : {}),
-  };
-  await putUserSetting(
-    email,
-    "mail-settings",
-    updated as Record<string, unknown>,
-    { requestSource: reqSource(event) },
-  );
-  return updated;
 });
 
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────

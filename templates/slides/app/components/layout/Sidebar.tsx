@@ -1,17 +1,17 @@
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useT,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  IconStack2,
-  IconPalette,
+  IconLayoutGrid,
+  IconComponents,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
@@ -24,12 +24,15 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconStack2, labelKey: "navigation.decks", href: "/" },
+  { icon: IconLayoutGrid, labelKey: "navigation.decks", href: "/" },
   {
-    icon: IconPalette,
+    icon: IconComponents,
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+];
+
+const bottomNavItems = [
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -49,25 +52,120 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       ? location.pathname === "/"
       : location.pathname.startsWith(href);
 
+  const collapseButton = onToggleCollapsed ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("root.searchDecks")}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.searchDecks")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "min-w-0"}
+    />
+  );
+
+  const brand = (
+    <div
+      className={cn(
+        "flex items-center gap-2",
+        collapsed ? "size-8 justify-center" : "min-w-0 flex-1",
+      )}
+    >
+      <img
+        src={appPath("/agent-native-icon-light.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+      />
+      <img
+        src={appPath("/agent-native-icon-dark.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+      />
+      {!collapsed && (
+        <span className="truncate text-sm font-semibold tracking-tight">
+          {t("navigation.brand")}
+        </span>
+      )}
+    </div>
+  );
+  const brandControl = onToggleCollapsed ? (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className={cn(
+            "flex min-w-0 items-center rounded-md text-foreground outline-none transition-colors hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed
+              ? "size-8 justify-center"
+              : "w-full gap-2 px-1 py-1 text-start",
+          )}
+          data-sidebar-brand-toggle
+        >
+          {brand}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    brand
+  );
+
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-e border-border bg-sidebar py-2 text-sidebar-foreground transition-[width] duration-200 ease-out">
-        {onToggleCollapsed && (
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onToggleCollapsed}
-                aria-label={t("sidebar.expandSidebar")}
-                className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              >
-                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("sidebar.expandSidebar")}
-            </TooltipContent>
-          </Tooltip>
-        )}
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
+        <div className="flex h-12 w-full shrink-0 items-center justify-center">
+          {brandControl}
+        </div>
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -99,40 +197,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   }
 
   return (
-    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="flex items-center gap-2">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto dark:block"
-          />
-          <span className="text-sm font-semibold tracking-tight">
-            {t("navigation.brand")}
-          </span>
-        </div>
-        {onToggleCollapsed && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onToggleCollapsed}
-                aria-label={t("sidebar.collapseSidebar")}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              >
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("sidebar.collapseSidebar")}</TooltipContent>
-          </Tooltip>
-        )}
-      </div>
+    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
+      <div className="flex h-12 shrink-0 items-center px-4">{brandControl}</div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <nav className="space-y-1 px-2 py-2">
@@ -158,9 +224,27 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         </nav>
 
         <div className="mt-auto shrink-0">
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
+          <nav className="space-y-1 px-2 py-1">
+            {bottomNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isItemActive(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {t(item.labelKey)}
+                </Link>
+              );
+            })}
+          </nav>
 
           <div className="px-3 py-2">
             <OrgSwitcher />
@@ -175,6 +259,11 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
               </div>
             </div>
           </div>
+          <SidebarFooterActions
+            feedback={feedbackButton}
+            search={searchButton}
+            collapse={collapseButton}
+          />
         </div>
       </div>
     </aside>

@@ -24,6 +24,13 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { credentialKeyMatches } from "./credential-key-aliases.js";
+import {
+  assertWorkspaceUserGroupIds,
+  normalizeWorkspaceUserGroupIds,
+  workspaceUserGroupsIncludeUser,
+} from "./groups.js";
+import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -50,6 +57,10 @@ export interface WorkspaceConnection {
   scopes: string[];
   config: Record<string, unknown>;
   allowedApps: string[];
+  /** Empty means every member of the owning workspace. */
+  allowedUsers: string[];
+  /** Groups are unioned with allowedUsers; empty means no group restriction. */
+  allowedUserGroups?: string[];
   credentialRefs: WorkspaceConnectionCredentialRef[];
   ownerEmail: string;
   orgId: string | null;
@@ -113,6 +124,8 @@ export interface UpsertWorkspaceConnectionInput {
   scopes?: string[];
   config?: Record<string, unknown>;
   allowedApps?: string[];
+  allowedUsers?: string[];
+  allowedUserGroups?: string[];
   credentialRefs?: WorkspaceConnectionCredentialRef[];
   lastCheckedAt?: Date | number | string | null;
   lastError?: string | null;
@@ -189,6 +202,8 @@ export interface WorkspaceConnectionForAppSummary {
   grantScope: "all-apps" | "selected-apps";
   appAccess: WorkspaceConnectionAppAccess;
   allowedApps: string[];
+  allowedUsers: string[];
+  allowedUserGroups?: string[];
   credentialRefs: WorkspaceConnectionPublicCredentialRef[];
   lastUsedAt: string | null;
   lastCheckedAt: string | null;
@@ -383,6 +398,18 @@ async function ensureWorkspaceConnectionColumns(
   await ensureColumn(
     client,
     table,
+    "allowed_users_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
+    "allowed_user_groups_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
     "credential_refs_json",
     "TEXT NOT NULL DEFAULT '[]'",
   );
@@ -476,6 +503,8 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             scopes_json TEXT NOT NULL DEFAULT '[]',
             config_json TEXT NOT NULL DEFAULT '{}',
             allowed_apps_json TEXT NOT NULL DEFAULT '[]',
+            allowed_users_json TEXT NOT NULL DEFAULT '[]',
+            allowed_user_groups_json TEXT NOT NULL DEFAULT '[]',
             credential_refs_json TEXT NOT NULL DEFAULT '[]',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
@@ -552,6 +581,16 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           "workspace_connections",
           "allowed_apps_json",
           `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_apps_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "allowed_users_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_users_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "allowed_user_groups_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_user_groups_json TEXT NOT NULL DEFAULT '[]'`,
         );
         await ensureColumnExists(
           "workspace_connections",
@@ -752,6 +791,56 @@ function normalizeStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+export function normalizeWorkspaceConnectionAllowedUsers(
+  value: unknown,
+): string[] {
+  return Array.from(
+    new Set(normalizeStringArray(value).map((email) => email.toLowerCase())),
+  );
+}
+
+function workspaceConnectionHasDirectUserAccess(
+  connection: Pick<
+    SerializedWorkspaceConnection,
+    "allowedUsers" | "allowedUserGroups"
+  >,
+  userEmail: string,
+): boolean {
+  const allowedUserGroups = connection.allowedUserGroups ?? [];
+  return (
+    (connection.allowedUsers.length === 0 && allowedUserGroups.length === 0) ||
+    connection.allowedUsers.includes(userEmail)
+  );
+}
+
+async function filterWorkspaceConnectionsForUser(
+  connections: SerializedWorkspaceConnection[],
+  scope: ReturnType<typeof requireWorkspaceConnectionScope>,
+): Promise<SerializedWorkspaceConnection[]> {
+  return Promise.all(
+    connections.map(async (connection) => {
+      if (
+        workspaceConnectionHasDirectUserAccess(connection, scope.ownerEmail)
+      ) {
+        return connection;
+      }
+      if ((connection.allowedUserGroups?.length ?? 0) === 0) return null;
+      return (await workspaceUserGroupsIncludeUser(
+        scope.orgId,
+        connection.allowedUserGroups,
+        scope.ownerEmail,
+      ))
+        ? connection
+        : null;
+    }),
+  ).then((items) =>
+    items.filter(
+      (connection): connection is SerializedWorkspaceConnection =>
+        connection !== null,
+    ),
+  );
+}
+
 function normalizeRequiredString(value: unknown, label: string): string {
   const normalized = typeof value === "string" ? value.trim() : "";
   if (!normalized) {
@@ -880,6 +969,12 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     allowedApps: normalizeStringArray(
       safeJsonParse<unknown>(row.allowed_apps_json, []),
     ),
+    allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
+      safeJsonParse<unknown>(row.allowed_users_json, []),
+    ),
+    allowedUserGroups: normalizeWorkspaceUserGroupIds(
+      safeJsonParse<unknown>(row.allowed_user_groups_json, []),
+    ),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
@@ -921,6 +1016,12 @@ export function serializeWorkspaceConnection(
     scopes: normalizeStringArray(connection.scopes),
     config: sanitizeConfig(connection.config),
     allowedApps: normalizeStringArray(connection.allowedApps),
+    allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
+      connection.allowedUsers,
+    ),
+    allowedUserGroups: normalizeWorkspaceUserGroupIds(
+      connection.allowedUserGroups,
+    ),
     credentialRefs: normalizeCredentialRefs(connection.credentialRefs),
   };
 }
@@ -1105,6 +1206,8 @@ function serializeConnectionForApp(
       connection.allowedApps.length === 0 ? "all-apps" : "selected-apps",
     appAccess,
     allowedApps: connection.allowedApps,
+    allowedUsers: connection.allowedUsers,
+    allowedUserGroups: connection.allowedUserGroups ?? [],
     credentialRefs: publicCredentialRefs(
       connection.credentialRefs,
       "connection",
@@ -1260,7 +1363,12 @@ function missingRequiredCredentialKeys(
       .map((ref) => ref.key.trim())
       .filter(Boolean),
   );
-  return requiredCredentialKeys(provider).filter((key) => !available.has(key));
+  return requiredCredentialKeys(provider).filter(
+    (key) =>
+      !Array.from(available).some((refKey) =>
+        credentialKeyMatches(provider.id, key, refKey),
+      ),
+  );
 }
 
 export function summarizeWorkspaceConnectionProviderReadiness({
@@ -1345,7 +1453,11 @@ export async function listWorkspaceConnectionProviderCatalogForApp({
   includeConnections = "all",
 }: ListWorkspaceConnectionProviderCatalogForAppOptions): Promise<WorkspaceConnectionProviderCatalogForApp> {
   const [connections, grants] = await Promise.all([
-    listWorkspaceConnections({ provider, includeDisabled }),
+    listWorkspaceConnections({
+      provider,
+      appId,
+      includeDisabled,
+    }),
     listWorkspaceConnectionGrants({ provider, appId }),
   ]);
   const providers = listWorkspaceConnectionProviders({
@@ -1403,7 +1515,11 @@ export async function listWorkspaceConnectionsForApp({
     "listWorkspaceConnectionsForApp appId",
   );
   const [connections, grants] = await Promise.all([
-    listWorkspaceConnections({ provider, includeDisabled }),
+    listWorkspaceConnections({
+      provider,
+      appId: normalizedAppId,
+      includeDisabled,
+    }),
     listWorkspaceConnectionGrants({ provider, appId: normalizedAppId }),
   ]);
 
@@ -1424,15 +1540,20 @@ export async function resolveWorkspaceConnectionForApp({
     "resolveWorkspaceConnectionForApp appId",
   );
   const normalizedConnectionId = connectionId?.trim();
+  const scope = requireWorkspaceConnectionScope();
   const requestedConnections = await listWorkspaceConnections({
     provider,
     includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
   });
+  const userConnections = await filterWorkspaceConnectionsForUser(
+    requestedConnections,
+    scope,
+  );
   const candidateConnections = normalizedConnectionId
-    ? requestedConnections.filter(
+    ? userConnections.filter(
         (connection) => connection.id === normalizedConnectionId,
       )
-    : requestedConnections;
+    : userConnections;
   const grants = await listWorkspaceConnectionGrants({
     provider,
     appId: normalizedAppId,
@@ -1567,7 +1688,11 @@ export async function listWorkspaceConnections(
     scope,
     appId,
   );
-  return connections.filter(
+  const userConnections = await filterWorkspaceConnectionsForUser(
+    connections,
+    scope,
+  );
+  return userConnections.filter(
     (connection) =>
       connection.allowedApps.length === 0 ||
       connection.allowedApps.includes(appId) ||
@@ -1605,12 +1730,26 @@ export async function upsertWorkspaceConnection(
   const scope = requireWorkspaceConnectionScope();
   const where = scopedWhere(scope);
   const id = input.id?.trim() || randomUUID();
+  const existingConnection = input.id?.trim()
+    ? await getWorkspaceConnection(id)
+    : null;
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
   const scopes = normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
+  const allowedUsers =
+    input.allowedUsers === undefined
+      ? (existingConnection?.allowedUsers ?? [])
+      : normalizeWorkspaceConnectionAllowedUsers(input.allowedUsers);
+  const allowedUserGroups =
+    input.allowedUserGroups === undefined
+      ? (existingConnection?.allowedUserGroups ?? [])
+      : ((await assertWorkspaceUserGroupIds(
+          input.allowedUserGroups,
+          scope.orgId,
+        )) ?? []);
   const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
   const lastCheckedAt = millis(input.lastCheckedAt);
   const lastError = input.lastError ?? null;
@@ -1619,6 +1758,7 @@ export async function upsertWorkspaceConnection(
     sql: `UPDATE ${table}
       SET provider = ?, label = ?, account_id = ?, account_label = ?,
         status = ?, scopes_json = ?, config_json = ?, allowed_apps_json = ?,
+        allowed_users_json = ?, allowed_user_groups_json = ?,
         credential_refs_json = ?, updated_at = ?, last_checked_at = ?,
         last_error = ?
       WHERE id = ? AND ${where.sql}`,
@@ -1631,6 +1771,8 @@ export async function upsertWorkspaceConnection(
       JSON.stringify(scopes),
       JSON.stringify(config),
       JSON.stringify(allowedApps),
+      JSON.stringify(allowedUsers),
+      JSON.stringify(allowedUserGroups),
       JSON.stringify(credentialRefs),
       now,
       lastCheckedAt,
@@ -1645,10 +1787,11 @@ export async function upsertWorkspaceConnection(
       await client.execute({
         sql: `INSERT INTO ${table}
           (id, provider, label, account_id, account_label, status,
-            scopes_json, config_json, allowed_apps_json, credential_refs_json,
+            scopes_json, config_json, allowed_apps_json, allowed_users_json,
+            allowed_user_groups_json, credential_refs_json,
             owner_email, org_id, created_at, updated_at, last_checked_at,
             last_error)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           id,
           provider,
@@ -1659,6 +1802,8 @@ export async function upsertWorkspaceConnection(
           JSON.stringify(scopes),
           JSON.stringify(config),
           JSON.stringify(allowedApps),
+          JSON.stringify(allowedUsers),
+          JSON.stringify(allowedUserGroups),
           JSON.stringify(credentialRefs),
           scope.ownerEmail,
           scope.orgId,
@@ -1903,6 +2048,15 @@ export async function revokeWorkspaceConnectionGrant(
     sql: `DELETE FROM ${table} WHERE connection_id = ? AND app_id = ? AND ${where.sql}`,
     args: [normalizedConnectionId, normalizedAppId, ...where.args],
   });
+  if (result.rowsAffected > 0) {
+    await notifyWorkspaceConnectionLifecycle({
+      type: "grant-revoked",
+      connectionId: normalizedConnectionId,
+      appId: normalizedAppId,
+      ownerEmail: scope.ownerEmail,
+      orgId: scope.orgId,
+    });
+  }
   return result.rowsAffected > 0;
 }
 
@@ -1921,6 +2075,12 @@ export async function deleteWorkspaceConnection(id: string): Promise<boolean> {
     await client.execute({
       sql: `DELETE FROM ${grantsTable} WHERE connection_id = ? AND ${where.sql}`,
       args: [id, ...where.args],
+    });
+    await notifyWorkspaceConnectionLifecycle({
+      type: "connection-deleted",
+      connectionId: id,
+      ownerEmail: scope.ownerEmail,
+      orgId: scope.orgId,
     });
   }
   return result.rowsAffected > 0;

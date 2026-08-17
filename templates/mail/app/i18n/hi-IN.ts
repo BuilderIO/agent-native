@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
   },
   settings: {
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    openAgentSettings: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    agentTitle: "एजेंट सेटिंग्स",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    agentTitle: "एजेंट प्रबंधित करें",
     aliasName: "उपनाम नाम",
     aliasNamePlaceholder: "जैसे, डिज़ाइन टीम",
     recipientsOnePerLine: "प्राप्तकर्ता (हर पंक्ति में एक ईमेल)",
@@ -481,6 +481,11 @@ const messages = {
     lastRun: "आखिरी रन:",
     automationsDescription:
       "AI का उपयोग करके नए inbox emails को स्वतः process करने वाले नियम।",
+    allowAutomationSends: "Automations को emails अपने आप भेजने की अनुमति दें",
+    allowAutomationSendsDescription:
+      "डिफ़ॉल्ट रूप से बंद है। जब आप चाहते हैं कि automations हर बार approval मांगे बिना emails भेजें, तब इसे चालू करें।",
+    automationSendSettingSaveFailed:
+      "Automation email setting सहेजी नहीं जा सकी।",
     loadingModels: "मॉडल लोड हो रहे हैं",
     newRule: "नया नियम",
     noAutomationRules: "अभी कोई automation rules नहीं हैं।",

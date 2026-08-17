@@ -59,7 +59,7 @@ export default createAuthPlugin({
     ...PUBLIC_AGENT_CHAT_PATHS,
   ],
   marketing: {
-    appName: "Agent-Native Plan",
+    appName: "Plan",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

@@ -5,6 +5,7 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  isWorkspaceAppPath,
 } from "./api-path.js";
 import { oauthRedirectUri } from "./frame.js";
 
@@ -194,6 +195,42 @@ describe("appPath", () => {
     });
 
     expect(appPath("api/local-migration")).toBe("api/local-migration");
+  });
+});
+
+describe("isWorkspaceAppPath", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("recognizes sibling workspace app mounts without treating local routes as external", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "market-research", path: "/market-research" },
+        { id: "seo-application", path: "/seo-application" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/market-research/_agent-native/poll" },
+    });
+
+    expect(isWorkspaceAppPath("/seo-application")).toBe(true);
+    expect(isWorkspaceAppPath("/seo-application/settings")).toBe(true);
+    expect(isWorkspaceAppPath("/settings")).toBe(false);
+    expect(isWorkspaceAppPath("/market-research/settings")).toBe(false);
+  });
+
+  it("fails closed when the workspace app manifest is unreadable", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON", "not-json");
+    vi.stubGlobal("window", {
+      location: { pathname: "/market-research/_agent-native/poll" },
+    });
+
+    expect(isWorkspaceAppPath("/seo-application")).toBe(false);
   });
 });
 

@@ -1,18 +1,22 @@
+import { useChatModels } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
-  agentNativePath,
+  callAction,
   useActionMutation,
-  useChatModels,
   useChangeVersions,
-  ChangelogSettingsCard,
-  LanguagePicker,
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
+import {
+  AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
   type SettingsSearchEntry,
   type SettingsTabItem,
-} from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import type {
   Alias,
   AutomationAction,
@@ -866,6 +870,12 @@ function TriggersSubsection() {
 
 // ─── Automations Section ─────────────────────────────────────────────────────
 
+type AutomationSettings = {
+  engine?: string;
+  model?: string;
+  allowAutomationSends: boolean;
+};
+
 function AutomationsSection() {
   const t = useT();
   const { data: rules = [], isLoading } = useAutomations();
@@ -894,18 +904,25 @@ function AutomationsSection() {
   // Refetch on any settings write or agent action so agent-driven changes
   // (e.g. update-automation-settings) show up without a manual refresh.
   const settingsSync = useChangeVersions(["settings", "action"]);
-  const { data: autoSettings } = useQuery({
+  const { data: autoSettings } = useQuery<AutomationSettings>({
     queryKey: ["automation-settings", settingsSync],
-    queryFn: async () => {
-      const res = await fetch(appApiPath("/api/automations/settings"));
-      if (!res.ok) return { engine: "anthropic", model: defaultModel };
-      return res.json();
+    queryFn: async (): Promise<AutomationSettings> => {
+      try {
+        return await callAction(
+          "get-automation-settings",
+          {},
+          { method: "GET" },
+        );
+      } catch {
+        return { model: defaultModel, allowAutomationSends: false };
+      }
     },
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
 
   const queryClient = useQueryClient();
+  const [isSavingAutomationSends, setIsSavingAutomationSends] = useState(false);
   const selectedModel = autoSettings?.model || defaultModel;
   const selectedEngine =
     autoSettings?.engine ||
@@ -922,12 +939,52 @@ function AutomationsSection() {
   const handleModelChange = async (value: string) => {
     const [engine, model] = value.split("::");
     if (!engine || !model) return;
-    queryClient.setQueryData(["automation-settings"], { engine, model });
-    await fetch(appApiPath("/api/automations/settings"), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engine, model }),
-    });
+    queryClient.setQueriesData<AutomationSettings>(
+      { queryKey: ["automation-settings"] },
+      (current) =>
+        current
+          ? { ...current, engine, model }
+          : { engine, model, allowAutomationSends: false },
+    );
+    await callAction(
+      "update-automation-settings",
+      { engine, model },
+      { method: "PUT" },
+    );
+  };
+
+  const handleAutomationSendsChange = async (enabled: boolean) => {
+    if (!autoSettings || isSavingAutomationSends) return;
+    const previous = autoSettings.allowAutomationSends;
+    queryClient.setQueriesData<AutomationSettings>(
+      { queryKey: ["automation-settings"] },
+      (current) =>
+        current ? { ...current, allowAutomationSends: enabled } : current,
+    );
+    setIsSavingAutomationSends(true);
+    try {
+      await callAction(
+        "update-automation-settings",
+        { allowAutomationSends: enabled },
+        { method: "PUT" },
+      );
+    } catch (error) {
+      queryClient.setQueriesData<AutomationSettings>(
+        { queryKey: ["automation-settings"] },
+        (current) =>
+          current ? { ...current, allowAutomationSends: previous } : current,
+      );
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("settings.automationSendSettingSaveFailed"),
+      );
+    } finally {
+      setIsSavingAutomationSends(false);
+      await queryClient.invalidateQueries({
+        queryKey: ["automation-settings"],
+      });
+    }
   };
 
   const handleCreate = (data: {
@@ -986,6 +1043,20 @@ function AutomationsSection() {
           <IconPlus className="h-3.5 w-3.5" />
           {t("settings.newRule")}
         </Button>
+      </div>
+
+      <div className="max-w-2xl mb-6">
+        {autoSettings ? (
+          <SettingsSwitchRow
+            title={t("settings.allowAutomationSends")}
+            description={t("settings.allowAutomationSendsDescription")}
+            checked={autoSettings.allowAutomationSends}
+            disabled={isSavingAutomationSends}
+            onCheckedChange={handleAutomationSendsChange}
+          />
+        ) : (
+          <Skeleton className="h-16 w-full" />
+        )}
       </div>
 
       {/* Content */}
@@ -1272,7 +1343,7 @@ function DraftingSection() {
   );
 }
 
-function TrackingRow({
+function SettingsSwitchRow({
   title,
   description,
   checked,
@@ -1334,13 +1405,13 @@ function TrackingSection() {
           </>
         ) : (
           <>
-            <TrackingRow
+            <SettingsSwitchRow
               title={t("settings.trackEmailOpens")}
               description={t("settings.trackEmailOpensDescription")}
               checked={tracking.opens}
               onCheckedChange={(v) => update({ opens: v })}
             />
-            <TrackingRow
+            <SettingsSwitchRow
               title={t("settings.trackLinkClicks")}
               description={t("settings.trackLinkClicksDescription")}
               checked={tracking.clicks}
@@ -1486,22 +1557,18 @@ function GeneralSection() {
         </p>
       </div>
 
-      <div
-        id="language"
-        className="max-w-2xl scroll-mt-4 rounded-lg border border-border/20 bg-card/50 p-4"
-      >
-        <div className="mb-3">
-          <h3 className="text-[13px] font-semibold text-foreground">
-            {t("settings.languageTitle")}
-          </h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            {t("settings.languageDescription")}
-          </p>
-        </div>
-        <div className="max-w-sm">
-          <LanguagePicker label={t("settings.languageLabel")} />
-        </div>
-      </div>
+      <SettingsGroup className="max-w-2xl border-border/20 bg-card/50">
+        <SettingsRow
+          id="language"
+          label={t("settings.languageTitle")}
+          description={t("settings.languageDescription")}
+          control={
+            <div className="w-56">
+              <LanguagePicker label={t("settings.languageLabel")} />
+            </div>
+          }
+        />
+      </SettingsGroup>
     </div>
   );
 }
@@ -1533,7 +1600,7 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navState = useNavigationState();
   const agentSettingsTabs = useAgentSettingsTabs();
-  const [activeSection, setActiveSection] = useState<string>("general");
+  const [activeSection, setActiveSection] = useState<string>("integrations");
 
   const mailTabs = useMemo<SettingsTabItem[]>(
     () => [
@@ -1611,7 +1678,7 @@ export function SettingsPage() {
   );
 
   const validSectionIds = useMemo(() => {
-    const ids = new Set<string>(["general", "team", "whats-new"]);
+    const ids = new Set<string>(["general", "account", "team", "whats-new"]);
     for (const tab of extraTabs) ids.add(tab.id);
     return ids;
   }, [extraTabs]);
@@ -1640,6 +1707,7 @@ export function SettingsPage() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       className="flex-1"
       generalLabel={t("settings.general")}
       teamLabel={t("settings.team")}

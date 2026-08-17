@@ -11,7 +11,7 @@ description: "ईमेल/पासवर्ड, सामाजिक प्�
 
 ऑथ सर्वर प्लगइन में `autoMountAuth(app)` के माध्यम से ऑथ स्वचालित रूप से कॉन्फ़िगर किया गया है। तीन मोड हैं:
 
-- **डिफ़ॉल्ट:** ईमेल/पासवर्ड + सामाजिक प्रदाताओं के साथ बेहतर प्रामाणिकता। पहली बार विजिट करने पर ऑनबोर्डिंग पेज दिखाया गया।
+- **डिफ़ॉल्ट:** आउटबाउंड ईमेल तैयार होने पर Better Auth में magic link पहले, ईमेल/पासवर्ड fallback और सामाजिक प्रदाताओं के साथ। fallback को बाध्य करने के लिए `AUTH_MAGIC_LINK=0` सेट करें।
 - **रिमोट MCP OAuth:** MCP होस्ट जैसे Claude कोड और ChatGPT कनेक्टर के लिए मानक OAuth 2.1।
 - **कस्टम:** `getSession` कॉलबैक के माध्यम से अपना स्वयं का लेख लाएँ।
 
@@ -102,11 +102,19 @@ description: "ईमेल/पासवर्ड, सामाजिक प्�
 
 </Callout>
 
+## स्थानीय विकास साइन-इन {#local-development-sign-in}
+
+लूपबैक डेवलपमेंट सर्वर पर साझा साइन-इन पेज सबसे पहले **Continue as local dev** दिखाता है। यह वास्तविक Better Auth डेवलपमेंट अकाउंट और सेशन बनाता या फिर से उपयोग करता है, इसलिए ऐप के बाकी हिस्सों में इस्तेमाल होने वाला वही प्रमाणित प्रवाह बना रहता है।
+
+**Show full sign in options** चुनने पर सामान्य साइनअप, पासवर्ड, magic link और सोशल प्रोवाइडर विकल्प दिखते हैं। यदि स्थानीय सेशन नहीं बनाया जा सकता, तो पेज इन विकल्पों को अपने आप दिखाता है ताकि आप मानक प्रमाणीकरण के साथ आगे बढ़ सकें।
+
+यह सुविधा केवल तब उपलब्ध है जब ब्राउज़र `localhost`, `127.0.0.0/8` या `::1` के माध्यम से विकास या परीक्षण वातावरण में कनेक्ट हो। डिप्लॉयमेंट प्रीव्यू और होस्टेड प्रोडक्शन में यह बंद रहती है। यह प्रमाणीकरण बायपास नहीं है। `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` सेट करके इसे बंद करें और स्थानीय विकास में सामान्य साइन-इन पेज दिखाएं।
+
 ## बेहतर प्रमाणीकरण (डिफ़ॉल्ट) {#better-auth}
 
 डिफ़ॉल्ट रूप से, Better Auth प्रमाणीकरण को शक्ति प्रदान करता है। यह प्रदान करता है:
 
-- ईमेल/पासवर्ड पंजीकरण और लॉगिन
+- magic link पंजीकरण और लॉगिन, ईमेल/पासवर्ड fallback के साथ
 - सामाजिक प्रदाता (Google, GitHub, और 35+ अन्य)
 - भूमिकाओं और आमंत्रणों वाले संगठन
 - API और A2A एक्सेस के लिए JWT टोकन
@@ -115,6 +123,7 @@ description: "ईमेल/पासवर्ड, सामाजिक प्�
 बेहतर प्रामाणिक मार्ग `/_agent-native/auth/ba/*` पर स्थापित हैं। फ्रेमवर्क पिछड़े-संगत समापन बिंदु भी प्रदान करता है:
 
 - `GET /_agent-native/auth/session` - वर्तमान सत्र प्राप्त करें
+- `POST /_agent-native/auth/magic-link` - magic link ईमेल का अनुरोध करें
 - `POST /_agent-native/auth/login` - ईमेल/पासवर्ड लॉगिन
 - `POST /_agent-native/auth/register` - खाता बनाएं
 - `POST /_agent-native/auth/logout` - साइन आउट करें
@@ -219,7 +228,7 @@ ACCESS_TOKENS=token1,token2,token3
 प्रत्येक ऐप का MCP एंडपॉइंट एक मानक संरक्षित MCP संसाधन के रूप में कार्य कर सकता है। OAuth-सक्षम क्लाइंट को केवल दूरस्थ MCP URL के साथ कॉन्फ़िगर किया जा सकता है:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 अप्रमाणित MCP अनुरोध `/.well-known/oauth-protected-resource` की ओर इशारा करते हुए एक `WWW-Authenticate` चुनौती लौटाते हैं। क्लाइंट तब ऐप के OAuth मेटाडेटा को खोजता है, गतिशील रूप से एक सार्वजनिक क्लाइंट को पंजीकृत करता है, ऐप के प्राधिकरण पृष्ठ को खोलता है, और एक्सेस और रीफ्रेश टोकन के लिए PKCE के साथ एक प्राधिकरण कोड का आदान-प्रदान करता है।
@@ -363,8 +372,9 @@ interface AuthSession {
 क्लाइंट पर, `useSession()` हुक का उपयोग करें:
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;
@@ -378,7 +388,7 @@ function MyComponent() {
 **सार्वजनिक पेज** (शेयर लिंक, एंबेड, मार्केटिंग पेज) वाले टेम्पलेट्स को अक्सर एक इन-पेज CTA की आवश्यकता होती है जो अज्ञात दर्शकों को साइन इन करने के लिए कहता है और उन्हें उस पेज पर वापस लाता है जिस पर वे थे। फ़्रेमवर्क इसके लिए एकल प्रवेश बिंदु प्रदान करता है:
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 जब कोई गुमनाम दर्शक इस URL पर क्लिक करता है, तो फ्रेमवर्क का लॉगिन पेज प्रस्तुत किया जाता है। सफल साइन-इन (कोई भी प्रवाह - टोकन, ईमेल/पासवर्ड, या Google OAuth) के बाद, ब्राउज़र `return` पर वापस जाता है।
@@ -393,8 +403,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -402,11 +411,13 @@ function SignInCta() {
 
 ### निजी पथ बुकमार्क किए गए
 
-सामान्य ऐप पेज हर विज़िटर के लिए एक ही गैर-व्यक्तिगत, सार्वजनिक रूप से कैश होने वाला SSR शेल उपयोग करते हैं। `AppProviders` क्लाइंट पर सेशन जाँचता है; `/dashboard` जैसे निजी पथ पर यह निजी ऐप UI माउंट करने से पहले अनाम विज़िटर को `/_agent-native/sign-in?return=%2Fdashboard` पर रीडायरेक्ट करता है। साइन-इन के बाद विज़िटर `/dashboard` पर लौटता है। सार्वजनिक/SEO रूट के लिए `isPublicPath`, या MCP एम्बेड टोकन जैसी किसी अन्य सीमित प्रमाणीकरण विधि वाले सतह के लिए `sessionBypass` उपयोग करें।
+सामान्य ऐप पेज हर विज़िटर के लिए एक ही गैर-व्यक्तिगत, सार्वजनिक रूप से कैश होने वाला SSR शेल उपयोग करते हैं। `AppProviders` क्लाइंट पर सेशन जाँचता है; `/dashboard` जैसे निजी पथ पर यह निजी ऐप UI माउंट करने से पहले अनाम विज़िटर को `/sign-in?return=%2Fdashboard` पर रीडायरेक्ट करता है। साइन-इन के बाद विज़िटर `/dashboard` पर लौटता है। सार्वजनिक/SEO रूट के लिए `isPublicPath`, या MCP एम्बेड टोकन जैसी किसी अन्य सीमित प्रमाणीकरण विधि वाले सतह के लिए `sessionBypass` उपयोग करें।
+
+वह शेल कितनी देर कैश रहता है यह पूरे परिनियोजन की सेटिंग है — `AGENT_NATIVE_SSR_CACHE` के लिए [SSR Caching](/docs/deployment#ssr-caching) देखें। कैश को छोटा या अक्षम करने से केवल अवधि बदलती है; SSR अब भी कुकीज़ हटाकर अनाम ब्रांच रेंडर करता है।
 
 ### पर्दे के पीछे: Google OAuth
 
-दोनों प्रवाह (स्पष्ट `/_agent-native/sign-in` प्रविष्टि बिंदु और बुकमार्क-पथ केस) OAuth स्थिति के माध्यम से रिटर्न URL को थ्रेड करते हैं। राज्य HMAC-हस्ताक्षरित है, इसलिए इसे पारगमन में जाली नहीं बनाया जा सकता है। कॉलबैक पर, रिटर्न URL को रीडायरेक्ट से पहले समान-मूल के रूप में पुनः मान्य किया जाता है - इसलिए एक लीक हुई साइनिंग कुंजी को अभी भी ओपन-रीडायरेक्ट ऑरेकल में नहीं बदला जा सकता है।
+दोनों प्रवाह (स्पष्ट `/sign-in` प्रविष्टि बिंदु और बुकमार्क-पथ केस) OAuth स्थिति के माध्यम से रिटर्न URL को थ्रेड करते हैं। राज्य HMAC-हस्ताक्षरित है, इसलिए इसे पारगमन में जाली नहीं बनाया जा सकता है। कॉलबैक पर, रिटर्न URL को रीडायरेक्ट से पहले समान-मूल के रूप में पुनः मान्य किया जाता है - इसलिए एक लीक हुई साइनिंग कुंजी को अभी भी ओपन-रीडायरेक्ट ऑरेकल में नहीं बदला जा सकता है।
 
 यदि आपका टेम्प्लेट सीधे `/_agent-native/google/auth-url` को लपेटता है (उदाहरण के लिए मेल और कैलेंडर टेम्प्लेट, दायरा बढ़ाने के लिए करते हैं), तो एक `?return=<path>` क्वेरी स्वीकार करें और इसे `encodeOAuthState` के विकल्प-ऑब्जेक्ट फॉर्म के माध्यम से अग्रेषित करें:
 
@@ -443,3 +454,8 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/कनेक्ट क्लाइंट के लिए स्टेटिक बियरर फ़ॉलबैक; ब्राउज़र प्रमाणीकरण नहीं                                                                                                                   |
 | `ACCESS_TOKENS`                         | MCP/कनेक्ट क्लाइंट के लिए अल्पविराम से अलग किए गए स्थिर बियरर फ़ॉलबैक; ब्राउज़र प्रमाणीकरण नहीं                                                                                             |
 | `A2A_SECRET`                            | JWT-हस्ताक्षरित A2A क्रॉस-ऐप पहचान सत्यापन के लिए साझा रहस्य और, मौजूद होने पर, MCP OAuth एक्सेस-टोकन हस्ताक्षर                                                                             |
+
+Dispatch का default-off `desktop.workspace-sso` flag केवल उपलब्धता नियंत्रित करता है; authentication, signature, nonce, origin, callback, session और revocation जाँच हमेशा अनिवार्य रहती हैं। flag बंद या अपठनीय होने पर Desktop प्रति-app sign-in, sign-out या Settings नहीं बदलता।
+Canary user-agent marker केवल availability hint है, remote attestation नहीं; authentication और authorization उस पर भरोसा नहीं करते।
+हर Desktop build broker शुरू कर सकता है जब device preference `desktopSsoEnabled` true (default) हो; स्पष्ट रूप से persist किया गया `false` opt-out बना रहता है। Dispatch flag `desktop.workspace-sso` भी enabled होना चाहिए। Canary user-agent marker अब broker initialization को gate नहीं करता; यह केवल update channel बताता है।
+Canary अनाम ऐप sign-in navigation को intercept नहीं करता। उपयोगकर्ता को सक्रिय registered app के लिए Desktop Settings में workspace sign-in स्पष्ट रूप से चुनना होगा; सामान्य app sign-in default path बना रहता है।

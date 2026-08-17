@@ -114,6 +114,20 @@ export const VideoNode = Node.create<ContentVideoOptions>({
         parseHTML: () => null,
         renderHTML: () => ({}),
       },
+      // UI-only state. Keeping the source panel on the ProseMirror node makes
+      // it survive React node-view remounts while the empty video draft is
+      // being autosaved/reconciled. It is deliberately omitted from HTML and
+      // Markdown serialization.
+      sourcePanelOpen: {
+        default: false,
+        parseHTML: () => false,
+        renderHTML: () => ({}),
+      },
+      sourceTab: {
+        default: "upload",
+        parseHTML: () => "upload",
+        renderHTML: () => ({}),
+      },
     };
   },
 

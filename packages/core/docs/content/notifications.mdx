@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -38,10 +38,26 @@ await notify(
       </div>
     </div>
     <div class="fan-row">
+      <span class="diagram-pill">email</span>
+      <div class="diagram-box" data-rough>
+        Resend / SendGrid<br /><small class="diagram-muted"
+          >always registered &middot; best-effort</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
+      <span class="diagram-pill">slack</span>
+      <div class="diagram-box" data-rough>
+        Block Kit JSON to an incoming webhook<br /><small class="diagram-muted"
+          >always registered &middot; best-effort</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
       <span class="diagram-pill">webhook</span>
       <div class="diagram-box" data-rough>
         POST JSON to NOTIFICATIONS_WEBHOOK_URL<br /><small class="diagram-muted"
-          >best-effort</small
+          >always registered &middot; best-effort</small
         >
       </div>
     </div>
@@ -121,28 +137,10 @@ channel no-ops for the emission.
 
 The webhook and Slack channels resolve `${keys.NAME}` references in both the URL and `NOTIFICATIONS_*_AUTH` against the owner's ad-hoc [secrets](/docs/security), so the raw value never enters the agent's context. Per-key URL allowlists are enforced — same rule the automations `web-request` tool uses.
 
-<Diagram id="doc-block-1lduyog" title="Channels and severity" summary={"inbox is always on; webhook needs an env var; custom channels register at startup. Severity drives badge styling and is passed through to every channel."}>
+<Diagram id="doc-block-1lduyog" title="Severity drives the badge" summary={"Severity is passed through to every channel and drives the bell dropdown's badge color."}>
 
 ```html
 <div class="diagram-channels">
-  <div class="diagram-panel col" data-rough>
-    <strong>Channels</strong>
-    <div class="diagram-box" data-rough>
-      inbox<br /><small class="diagram-muted"
-        >always on &mdash; part of the primitive</small
-      >
-    </div>
-    <div class="diagram-box" data-rough>
-      webhook<br /><small class="diagram-muted"
-        >needs NOTIFICATIONS_WEBHOOK_URL</small
-      >
-    </div>
-    <div class="diagram-box" data-rough>
-      custom<br /><small class="diagram-muted"
-        >registerNotificationChannel()</small
-      >
-    </div>
-  </div>
   <div class="diagram-panel col" data-rough>
     <strong>Severity drives the badge</strong>
     <div class="sev-row">
@@ -240,14 +238,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 Each function is owner-scoped — no cross-user reads, no cross-user writes.
@@ -368,7 +366,7 @@ Automations can chain off this — e.g. _"if a critical notification fires, also
 ## How it works {#internals}
 
 - **Owner scoping** — every row has an `owner` column; every query filters on it; every route uses the authenticated session's email. Users never see each other's notifications.
-- **Poll integration** — every mutation calls `recordChange()` so templates using [`useDbSync`](/docs/client) auto-invalidate without any extra wiring.
+- **Poll integration** — every mutation calls `recordChange()` so templates using [`useDbSync`](/docs/client-data#usedbsync) auto-invalidate without any extra wiring.
 - **Best-effort fan-out** — channel errors are caught and logged; one failing channel does not block others or the inbox write.
 - **Fire-and-forget** — `notify()` returns after the inbox write completes; custom channels run in the background.
 
@@ -376,4 +374,4 @@ Automations can chain off this — e.g. _"if a critical notification fires, also
 
 - [**Automations**](/docs/automations) — the most common caller of `notify()`
 - [**Security**](/docs/security) — the `${keys.NAME}` substitution that powers the webhook channel
-- [**Server plugins**](/docs/server) — where custom channels are registered at startup
+- [**Server plugins**](/docs/server-plugins) — where custom channels are registered at startup

@@ -92,6 +92,47 @@ export function getDesignToolActivationState(tool: DesignTool): {
   return { mode: "edit", drawMode: false, pinMode: false };
 }
 
+export function shouldAutoEnableDrawOverlay(args: {
+  mode: EditorMode;
+  activeTool: DesignTool;
+  pinMode: boolean;
+}): boolean {
+  return (
+    args.mode === "annotate" && args.activeTool === "draw" && !args.pinMode
+  );
+}
+
+/**
+ * There are only two views: the infinite canvas (where Edit and Annotate
+ * live) and the focused responsive screen (where Interact lives). A mode
+ * choice that disagrees with the current view is therefore a view change —
+ * picking Edit or Annotate from a focused screen must return to the canvas,
+ * not strand the screen in the forbidden single-screen editing state.
+ */
+export function resolveModeChangeView(args: {
+  next: EditorMode;
+  viewMode: "single" | "overview";
+}): "enter-single-interact" | "enter-overview" | "stay" {
+  if (args.next === "interact") {
+    return args.viewMode === "overview" ? "enter-single-interact" : "stay";
+  }
+  return args.viewMode === "single" ? "enter-overview" : "stay";
+}
+
+export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
+
+export function getDesignBottomToolbarMode(args: {
+  isSignedIn: boolean;
+  canEditDesign: boolean;
+  canCommentDesign: boolean;
+  hasActiveFile: boolean;
+}): DesignBottomToolbarMode {
+  if (!args.isSignedIn || !args.hasActiveFile || !args.canCommentDesign) {
+    return "hidden";
+  }
+  return args.canEditDesign ? "editor" : "commenter";
+}
+
 export function getSingleScreenCreationTool(args: {
   activeTool: DesignTool;
   viewMode: "single" | "overview";
