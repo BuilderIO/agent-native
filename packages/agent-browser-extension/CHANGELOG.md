@@ -1,5 +1,24 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.158
+
+### Patch Changes
+
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+  - @agent-native/core@0.160.1
+
 ## 0.1.157
 
 ### Patch Changes

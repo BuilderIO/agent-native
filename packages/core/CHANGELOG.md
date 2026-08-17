@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.160.1
+
+### Patch Changes
+
+- d3702a5: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
+- d3702a5: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
+- d3702a5: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- d3702a5: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- d3702a5: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- d3702a5: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- d3702a5: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- d3702a5: Support moving existing local Code Agents chats to a paired Portal computer with their code snapshot and text transcript context.
+- d3702a5: Format the Portal reference table in the shared core documentation.
+- d3702a5: Redact nested callback parameters in desktop magic-link diagnostics.
+- d3702a5: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+- d3702a5: Keep approved agent actions valid across Dispatch history replay and scope them to the current turn.
+- d3702a5: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
 ## 0.160.0
 
 ### Minor Changes

@@ -1,5 +1,24 @@
 # @agent-native/mobile-app
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+  - @agent-native/core@0.160.1
+
 ## 0.1.6
 
 ### Patch Changes
