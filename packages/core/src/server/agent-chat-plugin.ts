@@ -1231,14 +1231,14 @@ export function createAgentChatPlugin(
             await import("../extensions/web-search-tool.js");
           const {
             getBuilderWebSearchBaseUrl,
-            resolveBuilderCredentials,
+            resolveBuilderGatewayCredentials,
             resolveSecret,
           } = await import("./credential-provider.js");
           const { getBuilderGatewayRequestHeaders } =
             await import("../agent/engine/builder-gateway-headers.js");
           webSearchTool = createWebSearchToolEntry({
             resolveSecret,
-            resolveBuilderCredentials,
+            resolveBuilderCredentials: resolveBuilderGatewayCredentials,
             getBuilderWebSearchBaseUrl,
             getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
           });
@@ -5332,6 +5332,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const workerClaim = run.runId
               ? await readBackgroundRunClaim(run.runId).catch(() => null)
               : null;
+            const { isBuilderGatewayDeployConfigured } =
+              await import("./credential-provider.js");
 
             return {
               active: true,
@@ -5349,6 +5351,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
               terminalReason: run.terminalReason ?? null,
+              // Who is paying for AI here, which is also who is reading a
+              // failure. `terminalReason` is a bare error CODE, and the client
+              // owns the copy for the handoff failures that never produce an
+              // error event — so without this it has to author credential copy
+              // for a reader it cannot identify, and picks the owner's.
+              deploymentPaysForAi: isBuilderGatewayDeployConfigured(),
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time

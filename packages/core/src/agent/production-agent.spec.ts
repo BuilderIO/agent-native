@@ -10134,6 +10134,88 @@ describe("runAgentLoop", () => {
     expect(events2.at(-1)).toEqual({ type: "done" });
   });
 
+  it("runs an approved call when the continuation has a new provider call id", async () => {
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const events1: any[] = [];
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    let continuationStreamCalls = 0;
+    const continuationEngine: AgentEngine = {
+      ...approvalEngine().engine,
+      async *stream(): AsyncIterable<EngineEvent> {
+        continuationStreamCalls += 1;
+        if (continuationStreamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "replayed-call-id",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "sent the email" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const consumeApproval = vi.fn(
+      async (binding: { callId: string; approvalKey: string }) => {
+        expect(binding.callId).toBe("replayed-call-id");
+        return binding.approvalKey === approvalKey;
+      },
+    );
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: continuationEngine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired: vi.fn(async () => undefined),
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events2.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("requires the server approval consumer before executing an approved call", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
@@ -10576,6 +10658,39 @@ describe("isRetryableError", () => {
   it("does not retry when providerRetryable is false and no other signals", () => {
     const err = new EngineError("not retryable", { providerRetryable: false });
     expect(isRetryableError(err)).toBe(false);
+  });
+
+  // On a Builder-credits site the gateway's message is replaced by one
+  // visitor-facing line before it ever reaches here, so the org concurrency
+  // throttle has no retryable keyword left in it. The structured fields
+  // builder-engine attaches are the whole retry decision; the first assertion
+  // is what fails if anyone re-couples this to wording.
+  it("retries the gateway concurrency throttle from structure alone, not wording", () => {
+    const visitorLine = "AI features aren't available on this site right now.";
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "too_many_concurrent_requests",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "too_many_concurrent_requests",
+          statusCode: 429,
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "rate_limited",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("retries on Anthropic bare 'Connection error.' transport failures", () => {
@@ -11119,6 +11234,51 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         foregroundSelfChainEligible: true,
       }),
     ).toBe(false);
+  });
+
+  // `providerRetryable` is the engine's "another attempt may succeed", carried
+  // on the error event because a Builder-credits deployment replaces the message
+  // the client keyword-matched. It must NOT be read as a continuation boundary
+  // here: a provider throttle would self-chain up to
+  // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
+  // that just rejected the call, on every lane. `recoverable` — the server's own
+  // boundary signal — still chains, which is the distinction.
+  it("does NOT chain on the engine's retry verdict alone", () => {
+    for (const errorCode of [
+      "rate_limited",
+      "too_many_concurrent_requests",
+      "upstream_unavailable",
+    ]) {
+      expect(
+        shouldChainBackgroundContinuation({
+          isBackgroundWorker: true,
+          run: makeRun([
+            {
+              type: "error",
+              error: "AI features aren't available on this site right now.",
+              errorCode,
+              providerRetryable: true,
+            },
+          ]),
+          continuationCount: 0,
+        }),
+      ).toBe(false);
+    }
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "stale_run",
+            recoverable: true,
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
   });
 
   it("preserves the specific continuation reason for recoverable background errors", () => {

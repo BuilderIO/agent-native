@@ -3,6 +3,8 @@ import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
@@ -291,6 +293,29 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   turn_continuation_budget_exhausted:
     "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
 };
+
+/**
+ * Re-decide the mapped copy for whoever is reading it.
+ *
+ * The map above is client-authored copy for a server-produced code, and for the
+ * credential reasons that duplicates a decision the server already makes with
+ * `formatLlmCredentialErrorMessage({ visitorFacing })` — without the one input
+ * the decision needs. Earlier notes called this an unfixable residual gap on the
+ * grounds that the client cannot know the lane; the framing was wrong, because
+ * the lane is a fact about the deployment that the run snapshot can carry
+ * (`deploymentPaysForAi` on `/runs/active`). Everything else in the map is
+ * background-handoff copy that reads the same to either party.
+ */
+function laneAwareTerminalReasonMessage(
+  mapped: string | undefined,
+  terminalReason: string,
+  deploymentPaysForAi: boolean,
+): string | undefined {
+  if (!mapped || !isLlmCredentialError(mapped, terminalReason)) return mapped;
+  return formatLlmCredentialErrorMessage({
+    visitorFacing: deploymentPaysForAi,
+  });
+}
 
 /**
  * `agent_runs.terminal_reason` values that mark a CHUNK boundary, not the end
@@ -2808,7 +2833,11 @@ export function createAgentChatAdapter(
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
           const terminalReason = rawTerminalReason.replace(/^error:/, "");
           const mappedMessage = terminalReason
-            ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
+            ? laneAwareTerminalReasonMessage(
+                BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason],
+                terminalReason,
+                lastKnown?.deploymentPaysForAi === true,
+              )
             : undefined;
           const mappedErrorCode =
             terminalReason === "missing_api_key" ||
@@ -2816,31 +2845,44 @@ export function createAgentChatAdapter(
               ? LLM_MISSING_CREDENTIALS_ERROR_CODE
               : terminalReason;
 
-          if (mappedMessage) {
-            yield* emitBackgroundTerminalError({
-              message: mappedMessage,
-              errorCode: mappedErrorCode,
-              details: `terminal_reason: ${rawTerminalReason}`,
-            });
-            return;
-          }
-
           if (hasErrorTerminalReason) {
-            if (lastRecoverableRunError) {
+            // Never REPLACE the wording the server chose for this failure: a
+            // deployment that pays for its own AI answers whoever is chatting
+            // with one visitor line, and the map only knows the owner copy.
+            // Only the captured error whose code IS the terminal reason is that
+            // wording — an earlier auto-recoverable error in the same run is
+            // stale (the cursor reset only clears it when the followed run
+            // changes), and letting it outrank the terminal reason reports a
+            // transient blip for a run that died of something else.
+            const serverChosenError =
+              lastRecoverableRunError?.errorCode === terminalReason
+                ? lastRecoverableRunError
+                : null;
+            if (serverChosenError) {
               yield* emitBackgroundTerminalError({
-                message: lastRecoverableRunError.message,
+                message: serverChosenError.message,
                 errorCode:
-                  lastRecoverableRunError.errorCode ||
+                  serverChosenError.errorCode ||
                   mappedErrorCode ||
                   "background_run_failed",
-                details: lastRecoverableRunError.details,
+                details: serverChosenError.details,
               });
               return;
             }
             yield* emitBackgroundTerminalError({
               message:
+                mappedMessage ??
                 "The agent's background run failed before its final response could be recovered. You can retry from the preserved chat context.",
               errorCode: mappedErrorCode || "background_run_failed",
+              details: `terminal_reason: ${rawTerminalReason}`,
+            });
+            return;
+          }
+
+          if (mappedMessage) {
+            yield* emitBackgroundTerminalError({
+              message: mappedMessage,
+              errorCode: mappedErrorCode,
               details: `terminal_reason: ${rawTerminalReason}`,
             });
             return;

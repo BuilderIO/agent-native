@@ -28,6 +28,14 @@ export class EngineError extends Error {
   readonly statusCode?: number;
   /** Whether the provider explicitly marked this error as retryable. */
   readonly providerRetryable?: boolean;
+  /**
+   * Whether the request exceeded the model's context window. Set by engines that
+   * classified the provider's own reply, because the delivered message may not
+   * be that reply: a Builder-credits deployment replaces it with one visitor
+   * line, which leaves `isContextTooLongError` nothing to match and kills the
+   * one-shot trim-and-retry recovery.
+   */
+  readonly contextOverflow?: boolean;
   constructor(
     message: string,
     opts?: {
@@ -35,6 +43,7 @@ export class EngineError extends Error {
       upgradeUrl?: string;
       statusCode?: number;
       providerRetryable?: boolean;
+      contextOverflow?: boolean;
     },
   ) {
     super(message);
@@ -43,6 +52,7 @@ export class EngineError extends Error {
     this.upgradeUrl = opts?.upgradeUrl;
     this.statusCode = opts?.statusCode;
     this.providerRetryable = opts?.providerRetryable;
+    this.contextOverflow = opts?.contextOverflow;
   }
 }
 
@@ -216,6 +226,13 @@ export type EngineEvent =
        * should retry even if status code / message patterns don't match.
        */
       providerRetryable?: boolean;
+      /**
+       * The request exceeded the model's context window. Carried structurally
+       * for the same reason as `providerRetryable`: `error` is visitor copy on a
+       * Builder-credits deployment, so a verdict left in the prose is gone by
+       * the time the agent decides whether to trim and retry.
+       */
+      contextOverflow?: boolean;
     };
 
 // ---------------------------------------------------------------------------

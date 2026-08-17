@@ -1,10 +1,75 @@
 # @agent-native/skills
 
+## 0.2.598
+
+### Patch Changes
+
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+  - @agent-native/core@0.160.1
+
+## 0.2.597
+
+### Patch Changes
+
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [167be56]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+  - @agent-native/core@0.160.0
+
+## 0.2.596
+
+### Patch Changes
+
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+  - @agent-native/core@0.159.6
+
 ## 0.2.595
 
 ### Patch Changes
 
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
 - Updated dependencies [94fc4d8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
   - @agent-native/core@0.159.5
 
 ## 0.2.594

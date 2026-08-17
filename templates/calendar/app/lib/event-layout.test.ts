@@ -157,4 +157,28 @@ describe("computeTimedEventLayout", () => {
       indent: 16,
     });
   });
+
+  it("uses the pinned timezone across a DST boundary", () => {
+    const overnight = event("overnight-dst", "00:00", "10:00");
+    overnight.start = "2026-03-08T06:30:00.000Z";
+    overnight.end = "2026-03-08T08:30:00.000Z";
+    const later = event("later-dst", "00:00", "01:00");
+    later.start = "2026-03-08T07:00:00.000Z";
+    later.end = "2026-03-08T07:30:00.000Z";
+
+    const layout = computeTimedEventLayout(
+      [overnight, later],
+      new Date(2026, 2, 8, 12),
+      "America/New_York",
+    );
+
+    expect(layout.get("overnight-dst")).toMatchObject({
+      col: 0,
+      totalCols: 2,
+    });
+    expect(layout.get("later-dst")).toMatchObject({
+      col: 1,
+      totalCols: 2,
+    });
+  });
 });
