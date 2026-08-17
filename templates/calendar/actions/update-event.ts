@@ -412,6 +412,7 @@ export default defineAction({
         start: args.start ?? existingEvent.start,
         end: args.end ?? existingEvent.end,
       });
+      updates.allDay = args.allDay ?? existingEvent.allDay;
       if (
         existingEvent.eventType === "workingLocation" &&
         existingEvent.workingLocationProperties
