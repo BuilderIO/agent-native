@@ -17,7 +17,7 @@ Declara el flag en un módulo que tanto el servidor como el cliente puedan impor
 
 ```ts
 // shared/feature-flags.ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",
