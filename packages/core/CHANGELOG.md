@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.159.2
+
+### Patch Changes
+
+- 7acc86e: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- 7acc86e: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 7acc86e: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 7acc86e: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- 7acc86e: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- 7acc86e: Format the Portal reference table in the shared core documentation.
+- 7acc86e: Redact nested callback parameters in desktop magic-link diagnostics.
+- 7acc86e: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.159.1
+
+### Patch Changes
+
+- 4f686cd: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 4f686cd: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 4f686cd: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- 4f686cd: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- 4f686cd: Format the Portal reference table in the shared core documentation.
+- 4f686cd: Redact nested callback parameters in desktop magic-link diagnostics.
+- 4f686cd: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
 ## 0.159.0
 
 ### Minor Changes
