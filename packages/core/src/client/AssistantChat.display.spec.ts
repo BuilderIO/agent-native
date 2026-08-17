@@ -41,6 +41,21 @@ import {
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
 
+describe("AssistantChat thread restore", () => {
+  it("keeps a failed restore visible and distinguishes a missing thread", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("knownAbsentThreadIds");
+    expect(source).toContain(
+      'res.status === 404 ? "not-found" : "unavailable"',
+    );
+    expect(source).toContain("retryThreadRestore");
+    expect(source).toContain("This chat thread is no longer available");
+  });
+});
+
 describe("installAssistantUiMessageRepositoryRecovery", () => {
   it("patches replacement repositories exposed by a stable thread binding", () => {
     const duplicateError = new Error(

@@ -218,7 +218,7 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("thread-1")).toBe(false);
   });
 
-  it("reclassifies a saved missing thread as a new empty tab after the thread list loads", async () => {
+  it("keeps a saved missing thread active so the chat can surface a restore error", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
       "empty-sidebar-tab",
@@ -259,11 +259,8 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
-    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(true);
-    expect(hook!.threads.map((thread) => thread.id)).toEqual([
-      "empty-sidebar-tab",
-      "real-thread",
-    ]);
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual(["real-thread"]);
   });
 
   it("can ignore a saved active thread and start fresh immediately", async () => {

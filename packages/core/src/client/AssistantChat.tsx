@@ -200,6 +200,7 @@ export {
 export { displayableUserMessageText } from "./chat/message-components.js";
 
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
+type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -512,13 +513,6 @@ function clearPendingSelection() {
     window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
   }
 }
-
-// Thread ids the server has already told us don't exist (a prior mount's
-// /threads/:id probe returned 404). Module-scoped so it survives remounts:
-// re-probing a known-absent thread on every navigation just re-spams DevTools
-// with 404s for a thread that has no server row yet (e.g. a freshly created,
-// not-yet-sent chat). Reset on a full page reload.
-const knownAbsentThreadIds = new Set<string>();
 
 export async function waitForThreadRunToClear(
   apiUrl: string,
@@ -2402,6 +2396,9 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
+  const [threadRestoreError, setThreadRestoreError] =
+    useState<ThreadRestoreErrorKind | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [initialCachedThreadSnapshot] = useState(() =>
     readCachedThreadSnapshot(apiUrl, threadId),
   );
@@ -2411,6 +2408,13 @@ const AssistantChatInner = forwardRef<
       !isNewThread &&
       !initialCachedThreadSnapshot,
   );
+  const retryThreadRestore = useCallback(() => {
+    if (!threadId || isNewThread) return;
+    hasRestoredRef.current = false;
+    setThreadRestoreError(null);
+    setIsRestoring(true);
+    setRestoreAttempt((attempt) => attempt + 1);
+  }, [isNewThread, threadId]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -3158,59 +3162,63 @@ const AssistantChatInner = forwardRef<
       // message is sent. Avoid probing /threads/:id on mount; that request
       // can only 404 and makes normal app startup look broken in DevTools.
       setIsRestoring(false);
-    } else if (threadId && knownAbsentThreadIds.has(threadId)) {
-      // A prior mount already learned this thread has no server row (404).
-      // Skip the re-probe so remounts don't re-spam 404s for the same id.
-      setIsRestoring(false);
     } else if (threadId) {
       (async () => {
         try {
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
           );
-          if (res.ok) {
-            const data = await res.json();
-            if (data.threadData) {
-              const repo = importThreadData(data.threadData, {
-                markTitleGenerated: true,
-              });
-              if (repo) {
-                let shouldCacheServerSnapshot = true;
-                try {
-                  shouldCacheServerSnapshot = shouldImportServerThreadData(
-                    normalizeThreadRepository(threadRuntime.export()),
-                    repo,
-                  );
-                } catch {
-                  shouldCacheServerSnapshot = false;
-                }
-                if (shouldCacheServerSnapshot) {
-                  const { title, preview } = extractThreadMeta(repo);
-                  writeCachedThreadSnapshot(apiUrl, threadId, {
-                    threadData:
-                      typeof data.threadData === "string"
-                        ? data.threadData
-                        : JSON.stringify(data.threadData),
-                    title: data.title || title,
-                    preview,
-                    messageCount: Array.isArray(repo.messages)
-                      ? repo.messages.length
-                      : 0,
-                  });
-                }
+          if (!res.ok) {
+            setThreadRestoreError(
+              res.status === 404 ? "not-found" : "unavailable",
+            );
+            return;
+          }
+          const data = await res.json();
+          if (!data || typeof data !== "object") {
+            setThreadRestoreError("unavailable");
+            return;
+          }
+          if (data.threadData) {
+            const repo = importThreadData(data.threadData, {
+              markTitleGenerated: true,
+            });
+            if (repo) {
+              let shouldCacheServerSnapshot = true;
+              try {
+                shouldCacheServerSnapshot = shouldImportServerThreadData(
+                  normalizeThreadRepository(threadRuntime.export()),
+                  repo,
+                );
+              } catch {
+                shouldCacheServerSnapshot = false;
+              }
+              if (shouldCacheServerSnapshot) {
+                const { title, preview } = extractThreadMeta(repo);
+                writeCachedThreadSnapshot(apiUrl, threadId, {
+                  threadData:
+                    typeof data.threadData === "string"
+                      ? data.threadData
+                      : JSON.stringify(data.threadData),
+                  title: data.title || title,
+                  preview,
+                  messageCount: Array.isArray(repo.messages)
+                    ? repo.messages.length
+                    : 0,
+                });
               }
             }
-            // Also skip title generation if thread already has a title
-            if (data.title) {
-              titleGeneratedRef.current = true;
-            }
-          } else if (res.status === 404) {
-            // No server row for this thread yet — remember it so later remounts
-            // skip the probe instead of re-fetching a known 404.
-            knownAbsentThreadIds.add(threadId);
+          } else {
+            setThreadRestoreError("unavailable");
+            return;
           }
+          // Also skip title generation if thread already has a title
+          if (data.title) {
+            titleGeneratedRef.current = true;
+          }
+          setThreadRestoreError(null);
         } catch {
-          // Start fresh
+          setThreadRestoreError("unavailable");
         } finally {
           // Clear the skeleton as soon as the persisted messages are imported.
           // The active-run reconnect probe below must NOT gate first paint — it
@@ -3249,6 +3257,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     loadHistoryRepository,
     isNewThread,
+    restoreAttempt,
   ]);
 
   useEffect(() => {
@@ -4637,6 +4646,26 @@ const AssistantChatInner = forwardRef<
     !authError &&
     showEmptyState &&
     !isRestoring;
+  const threadRestoreErrorSurface = threadRestoreError ? (
+    <div
+      role="alert"
+      className="flex max-w-[320px] flex-col items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-center"
+    >
+      <IconRefresh className="h-5 w-5 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        {threadRestoreError === "not-found"
+          ? "This chat thread is no longer available. Start a new chat or retry if this was unexpected."
+          : "Chat history could not be restored. Try again."}
+      </p>
+      <button
+        type="button"
+        onClick={retryThreadRestore}
+        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+      >
+        Retry
+      </button>
+    </div>
+  ) : null;
 
   // Clarifying-question surface: the `ask-question` action writes a
   // GuidedQuestionPayload to application_state under "guided-questions". The
@@ -4883,33 +4912,39 @@ const AssistantChatInner = forwardRef<
                               : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
                           )}
                         >
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <IconMessage className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <p className="sr-only">
-                            {emptyStateText ?? "How can I help you?"}
-                          </p>
-                          {emptyStateAddon}
-                          {resolvedSuggestions &&
-                          resolvedSuggestions.length > 0 ? (
-                            <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                              {resolvedSuggestions.map((suggestion) => (
-                                <button
-                                  key={suggestion}
-                                  onClick={() => {
-                                    if (missingApiKey) {
-                                      requestMissingKeySetup();
-                                      return;
-                                    }
-                                    void addToQueue(suggestion);
-                                  }}
-                                  className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                                >
-                                  {suggestion}
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
+                          {threadRestoreError ? (
+                            threadRestoreErrorSurface
+                          ) : (
+                            <>
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                                <IconMessage className="h-5 w-5 text-muted-foreground" />
+                              </div>
+                              <p className="sr-only">
+                                {emptyStateText ?? "How can I help you?"}
+                              </p>
+                              {emptyStateAddon}
+                              {resolvedSuggestions &&
+                              resolvedSuggestions.length > 0 ? (
+                                <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
+                                  {resolvedSuggestions.map((suggestion) => (
+                                    <button
+                                      key={suggestion}
+                                      onClick={() => {
+                                        if (missingApiKey) {
+                                          requestMissingKeySetup();
+                                          return;
+                                        }
+                                        void addToQueue(suggestion);
+                                      }}
+                                      className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                                    >
+                                      {suggestion}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                           {showInlineEmptyThreadFooterSlot ? (
                             <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
                               {resolvedThreadFooterSlot}
