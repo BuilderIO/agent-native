@@ -11,6 +11,15 @@ packages/core/docs/content/locales/ar-SA/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ar-SA/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ar-SA/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ar-SA/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Launch goals
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Reading list
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Top objectives
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ar-SA/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creative Context
@@ -31,6 +40,15 @@ packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/de-DE/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/de-DE/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/de-DE/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/de-DE/template-content.mdx|Launch goals
+packages/core/docs/content/locales/de-DE/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/de-DE/template-content.mdx|Reading list
+packages/core/docs/content/locales/de-DE/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/de-DE/template-content.mdx|Top objectives
+packages/core/docs/content/locales/de-DE/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/de-DE/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/de-DE/toolkit-capability-packages.mdx|Creative Context
@@ -47,6 +65,15 @@ packages/core/docs/content/locales/es-ES/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/es-ES/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/es-ES/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/es-ES/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/es-ES/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/es-ES/template-content.mdx|Launch goals
+packages/core/docs/content/locales/es-ES/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/es-ES/template-content.mdx|Reading list
+packages/core/docs/content/locales/es-ES/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/es-ES/template-content.mdx|Top objectives
+packages/core/docs/content/locales/es-ES/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/es-ES/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/es-ES/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/es-ES/toolkit-capability-packages.mdx|Creative Context
@@ -64,6 +91,15 @@ packages/core/docs/content/locales/fr-FR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/fr-FR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/fr-FR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/fr-FR/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Launch goals
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Reading list
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Top objectives
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/fr-FR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creative Context
@@ -98,6 +134,15 @@ packages/core/docs/content/locales/hi-IN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/hi-IN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/hi-IN/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/hi-IN/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Launch goals
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Reading list
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Top objectives
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/hi-IN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
@@ -125,6 +170,15 @@ packages/core/docs/content/locales/ja-JP/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ja-JP/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ja-JP/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ja-JP/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Launch goals
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Reading list
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Top objectives
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ja-JP/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ja-JP/toolkit-capability-packages.mdx|Creative Context
@@ -143,6 +197,15 @@ packages/core/docs/content/locales/ko-KR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ko-KR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ko-KR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ko-KR/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Launch goals
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Reading list
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Top objectives
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ko-KR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
@@ -162,6 +225,15 @@ packages/core/docs/content/locales/pt-BR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/pt-BR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/pt-BR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/pt-BR/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Launch goals
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Reading list
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Top objectives
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/pt-BR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
@@ -183,6 +255,15 @@ packages/core/docs/content/locales/zh-CN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-CN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-CN/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/zh-CN/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Launch goals
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Reading list
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Top objectives
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/zh-CN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
@@ -204,6 +285,15 @@ packages/core/docs/content/locales/zh-TW/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-TW/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-TW/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/zh-TW/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Launch goals
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Reading list
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Top objectives
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/zh-TW/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context
