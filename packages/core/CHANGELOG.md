@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.159.5
+
+### Patch Changes
+
+- 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
+
 ## 0.159.4
 
 ### Patch Changes
