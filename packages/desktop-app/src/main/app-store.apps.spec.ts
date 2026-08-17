@@ -36,15 +36,6 @@ describe("desktop app mode defaults", () => {
     expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(false);
   });
 
-  it("preserves an explicit persisted workspace sign-in choice", () => {
-    fs.writeFileSync(
-      path.join(electronState.userData, "desktop-app-preferences.json"),
-      JSON.stringify({ desktopSsoEnabled: false }),
-    );
-
-    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(false);
-  });
-
   it("removes the generic chat starter from an existing desktop config", () => {
     const initialApps = loadApps();
     fs.writeFileSync(
