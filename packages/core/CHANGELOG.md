@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.158.6
+
+### Patch Changes
+
+- e76df66: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- e76df66: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- e76df66: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- e76df66: Format the Portal reference table in the shared core documentation.
+
 ## 0.158.5
 
 ### Patch Changes
