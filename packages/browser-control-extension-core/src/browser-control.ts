@@ -1246,7 +1246,14 @@ export class BrowserControlService {
     }
   }
 
-  private async hideCursor(tabId: number): Promise<void> {
+  private async hideCursor(tabId: number, ownerTaskId?: string): Promise<void> {
+    if (
+      ownerTaskId &&
+      this.teardownOwners.get(tabId) !== ownerTaskId &&
+      this.tabOwners.get(tabId) !== ownerTaskId
+    ) {
+      return;
+    }
     try {
       await hideCursorOverlay(source(tabId));
     } catch (error) {
@@ -1318,7 +1325,7 @@ export class BrowserControlService {
     await this.drainPendingInputOperations(tabId);
     // Cursor cleanup must never hold the input-release or debugger-detach gate.
     // The page marker also owns a hard removal timer for the crash/stall case.
-    void this.hideCursor(tabId);
+    void this.hideCursor(tabId, taskId);
     const pressedKeys = this.pressedKeys.get(tabId)?.values() ?? [];
     try {
       await releaseInjectedInput(tabId, pressedKeys);
@@ -1753,7 +1760,7 @@ export class BrowserControlService {
     const session = await this.revalidate(taskId, expectedGeneration);
     try {
       const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
-      await this.hideCursor(session.tabId);
+      await this.hideCursor(session.tabId, session.taskId);
       session.lastCursor = undefined;
       const result = await this.sendCommand<Record<string, unknown>>(
         taskId,

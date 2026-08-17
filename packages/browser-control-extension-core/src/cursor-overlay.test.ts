@@ -21,6 +21,7 @@ describe("cursor overlay expression", () => {
     expect(expression).toContain('"y":48');
     expect(expression).toContain('"click":true');
     expect(expression).not.toContain("Runtime.evaluate");
+    expect(expression).not.toContain("candidate.remove");
   });
 
   it("rejects coordinates that could escape the page viewport contract", () => {

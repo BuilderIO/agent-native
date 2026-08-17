@@ -126,22 +126,19 @@ private final class PhantomCursorOverlay {
     }
 
     private func appKitOrigin(for quartzPoint: CGPoint) -> NSPoint? {
-        for screen in NSScreen.screens {
-            guard
-                let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
-            else { continue }
-            let displayFrame = CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
-            guard displayFrame.contains(quartzPoint) else { continue }
-            return NSPoint(
-                x: screen.frame.minX + quartzPoint.x - displayFrame.minX - 3,
-                y: screen.frame.maxY - (quartzPoint.y - displayFrame.minY) - 35
-            )
-        }
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
 
-        guard let screen = NSScreen.main else { return nil }
+        // Accessibility and NSScreen frames are both logical points. Derive a
+        // shared top-left space instead of mixing them with display pixels.
+        let globalTop = screens.map(\.frame.maxY).max() ?? 0
+        let appKitPoint = NSPoint(x: quartzPoint.x, y: globalTop - quartzPoint.y)
+        guard screens.contains(where: { $0.frame.insetBy(dx: -0.5, dy: -0.5).contains(appKitPoint) }) else {
+            return nil
+        }
         return NSPoint(
-            x: screen.frame.minX + quartzPoint.x - 3,
-            y: screen.frame.maxY - quartzPoint.y - 35
+            x: appKitPoint.x - 3,
+            y: appKitPoint.y - 35
         )
     }
 }

@@ -17,7 +17,7 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
   const id = "${CURSOR_OVERLAY_ID}";
   const candidate = document.getElementById(id);
   const existing = candidate?.getAttribute("data-agent-native-owned") === "true" ? candidate : null;
-  if (candidate && !existing) candidate.remove();
+  if (candidate && !existing) return;
   const clearTimers = node => {
     if (!node) return;
     if (node.__agentNativeCursorTimer) {
