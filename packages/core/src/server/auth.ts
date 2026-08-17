@@ -3982,23 +3982,25 @@ async function mountBetterAuthRoutes(
   // request that reaches Better Auth's consuming verification endpoint.
   app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       if (getMethod(event) === "POST") {
-        return readBody<Record<string, unknown>>(event).then((body) => {
-          const verificationURL = desktopMagicLinkVerificationUrl(event, body);
-          if (!verificationURL) {
-            setResponseStatus(event, 400);
-            return { error: "Invalid desktop magic-link" };
-          }
-          return new Response(null, {
-            status: 303,
-            headers: {
-              "cache-control": "no-store",
-              location: verificationURL.toString(),
-              "referrer-policy": "no-referrer",
-            },
-          });
-        });
+        const body = await readBody<Record<string, unknown>>(event);
+        const verificationURL = desktopMagicLinkVerificationUrl(event, body);
+        if (!verificationURL) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop magic-link" };
+        }
+        // Verify inside the same request that received the explicit user
+        // confirmation. A browser redirect would create a second network
+        // hop where link scanners, redirect handling, or a fresh serverless
+        // request could consume or lose the one-time token before the
+        // desktop callback sees the Better Auth session cookie.
+        return auth.handler(
+          new Request(verificationURL, {
+            method: "GET",
+            headers: event.headers,
+          }),
+        );
       }
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
