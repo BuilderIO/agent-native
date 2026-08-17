@@ -68,6 +68,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
+import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
@@ -76,6 +77,7 @@ import {
   groupContentCommandSearchResults,
   type CommandSearchDocumentsResponse,
 } from "./lib/content-command-search";
+import { contentLiveLocalFoldersEnabled } from "./lib/local-folder-feature";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -236,7 +238,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppSetup() {
   useDbSync();
   useNavigationState();
-  return null;
+  return contentLiveLocalFoldersEnabled ? <LocalFolderLiveSync /> : null;
 }
 
 function ThemeToggleItem() {

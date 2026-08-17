@@ -109,6 +109,11 @@ const messages = {
       "此 Blocks 欄位已在其他位置變更。你的編輯未儲存；現在顯示的是最新版本。",
     couldNotReadLocalSourceFile: "無法讀取本機來源檔案",
     couldNotSaveLocalFile: "無法儲存本機檔案",
+    localFileChangedWithUnsavedEdits:
+      "此頁面有未儲存的編輯時，磁碟上的檔案已變更。",
+    copyUnsavedText: "複製我未儲存的文字",
+    unsavedTextCopied: "已複製未儲存的文字",
+    useDiskVersion: "使用磁碟版本",
     collabConnectingReadOnly: "正在連接即時編輯器。顯示唯讀快照。",
     liveDocumentSaveBeforeSyncFailed: "即時文件無法在同步前儲存。",
     documentTitle: "檔案標題",
@@ -478,6 +483,8 @@ const messages = {
       videoDescription: "上傳或嵌入影片",
     },
     toolbar: {
+      undo: "復原",
+      redo: "重做",
       info: "資訊",
       closeUtilityPanel: "關閉面板",
       absolutePathUnavailable: "絕對路徑在此瀏覽器中不可用",

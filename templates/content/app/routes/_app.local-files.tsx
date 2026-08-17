@@ -45,6 +45,7 @@ import {
   syncLocalControlResources,
   type LocalControlResourceFiles,
 } from "@/lib/local-control-resources";
+import { rememberLiveLocalFolderSource } from "@/lib/local-folder-live-sync";
 import {
   hasInterruptedNativeFolderPickerAttempt,
   runNativeFolderPickerWithCrashSentinel,
@@ -147,18 +148,6 @@ interface LocalFolderConnectionResult {
 
 interface ManifestFolderSyncResult extends ImportContentSourceResult {
   requestedDocumentId: string | null;
-}
-
-interface RegisterLocalComponentWorkspaceResult {
-  ok: true;
-  workspace: {
-    id: string;
-    workspacePath: string;
-    componentPaths: string[];
-  };
-  componentDirs: string[];
-  componentCount: number;
-  reloadRequired: boolean;
 }
 
 interface RemoveLocalFileSourceResult {
@@ -269,7 +258,7 @@ function desktopDirectoryFromFolder(
   folder: DesktopContentFilesFolder,
   directories: SelectedDirectory[] = [],
 ): SelectedDirectory {
-  const id = folder.id ?? opaqueDesktopDirectoryId(folder.path ?? folder.name);
+  const id = folder.id ?? opaqueDesktopDirectoryId(folder.name);
   return {
     id,
     kind: "desktop",
@@ -937,6 +926,24 @@ export default function LocalFilesRoute() {
         createSourceBackedSpace: !targetSpaceId && !targetDatabaseId,
         propertyValues: workspacePropertyValues,
         truthPolicy: "source_primary",
+        connectionMetadata:
+          directory.kind === "desktop"
+            ? {
+                liveBridgeEnabled: true,
+                repository: directory.folder.repository
+                  ? { localId: directory.folder.repository.localId }
+                  : undefined,
+                workingCopy: {
+                  id: directory.id,
+                  repositoryId: directory.folder.repository?.localId,
+                  kind: directory.folder.kind ?? "persistent",
+                  name: directory.folder.name,
+                  branch: directory.folder.repository?.branch,
+                  commit: directory.folder.repository?.commit,
+                  deviceId: "agent-native-desktop",
+                },
+              }
+            : undefined,
         dryRun,
       } as never,
     );
@@ -1012,6 +1019,16 @@ export default function LocalFilesRoute() {
     if (!connection.sourceId) {
       throw new Error("The local folder connection was not created");
     }
+    if (!dryRun && refreshedDirectory.kind === "desktop") {
+      rememberLiveLocalFolderSource(
+        refreshedDirectory.folder,
+        connection.sourceId,
+        connection.filesDatabaseId,
+      );
+      await getDesktopContentFiles()?.subscribeChanges?.({
+        folderId: refreshedDirectory.id,
+      });
+    }
     const result = await callAction<ImportContentSourceResult>(
       "sync-local-folder-source" as never,
       {
@@ -1038,29 +1055,6 @@ export default function LocalFilesRoute() {
   ) {
     for (const directory of selectedDirectories) {
       if (directory.kind === "desktop") {
-        const workspacePath = directory.folder.path;
-        if (!workspacePath) continue;
-        try {
-          const result =
-            await callAction<RegisterLocalComponentWorkspaceResult>(
-              "register-local-component-workspace" as never,
-              { workspacePath } as never,
-            );
-          if (result.componentCount > 0 && showToast) {
-            toast.success(t("localFiles.localComponentsConnected"), {
-              description: t("localFiles.localComponentsConnectedDescription"),
-            });
-          }
-        } catch (error) {
-          if (showToast) {
-            toast.info(t("localFiles.localFilesLinked"), {
-              description:
-                error instanceof Error
-                  ? error.message
-                  : t("localFiles.componentPreviewsNeedBridge"),
-            });
-          }
-        }
         continue;
       }
 
@@ -1478,8 +1472,7 @@ export default function LocalFilesRoute() {
                                 ? (directory.sourceRootPath ??
                                   t("localFiles.importedSource"))
                                 : directory.kind === "desktop"
-                                  ? (directory.folder.path ??
-                                    t("localFiles.desktopFolder"))
+                                  ? t("localFiles.desktopFolder")
                                   : t("localFiles.browserFolder")}
                             </div>
                           </div>

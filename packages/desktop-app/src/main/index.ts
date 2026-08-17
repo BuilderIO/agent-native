@@ -5,7 +5,7 @@ import {
   spawnSync,
   type ChildProcess,
 } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -104,6 +104,7 @@ import {
   type DesktopContentFileWriteRequest,
   type DesktopContentFilesFolderRequest,
   type DesktopContentFilesFolder,
+  type DesktopContentFilesRepository,
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
@@ -202,6 +203,7 @@ import {
   runComputerSetupAction,
   SwiftDesktopHelperClient,
 } from "./computer-control";
+import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   DESKTOP_IDENTITY_PARTITION,
@@ -4241,6 +4243,17 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       ),
     browserExtensionPath: () =>
       fs.existsSync(extensionPath) ? extensionPath : undefined,
+    openContentWorkingCopy: ({ folder, name }) => {
+      const grant = attachTemporaryContentFilesWorkingCopy(folder, name);
+      void sendDesktopShortcutActivation({ app: "content" });
+      const { path: _path, ...safeFolder } = contentFilesFolderInfo(grant);
+      return {
+        id: grant.id,
+        name: safeFolder.name,
+        kind: "temporary",
+        repository: safeFolder.repository,
+      };
+    },
   });
   try {
     await bridge.start();
@@ -7303,6 +7316,10 @@ async function collectLocalControlResources(
 export interface ContentFilesGrant {
   id: string;
   path: string;
+  kind: "persistent" | "temporary";
+  name?: string;
+  repository?: DesktopContentFilesRepository;
+  createdAt?: string;
   sourcePrefix?: string;
   updatedAt?: string;
 }
@@ -7312,6 +7329,120 @@ interface ContentFilesStore {
   activeGrantId?: string;
   grant?: ContentFilesGrant;
   grants?: Record<string, ContentFilesGrant>;
+}
+
+const contentFilesChangeSubscribers = new Map<number, Set<string>>();
+const contentFilesWatchers = new Map<string, fs.FSWatcher>();
+const contentFilesChangeTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+
+function stopContentFilesWatcher(folderId: string): void {
+  const timer = contentFilesChangeTimers.get(folderId);
+  if (timer) clearTimeout(timer);
+  contentFilesChangeTimers.delete(folderId);
+  contentFilesWatchers.get(folderId)?.close();
+  contentFilesWatchers.delete(folderId);
+}
+
+function contentFilesChangeRevision(): string {
+  return createHash("sha256")
+    .update(`${Date.now()}:${randomUUID()}`)
+    .digest("hex");
+}
+
+function emitContentFilesChange(
+  folderId: string,
+  missing = false,
+  reason: "attached" | "changed" | "missing" = missing ? "missing" : "changed",
+): void {
+  const changedAt = new Date().toISOString();
+  for (const [webContentsId, folderIds] of contentFilesChangeSubscribers) {
+    if (!folderIds.has(folderId)) continue;
+    const subscriber = webContents.fromId(webContentsId);
+    if (!subscriber || subscriber.isDestroyed()) {
+      contentFilesChangeSubscribers.delete(webContentsId);
+      continue;
+    }
+    subscriber.send(IPC.CONTENT_FILES_CHANGED, {
+      folderId,
+      revision: contentFilesChangeRevision(),
+      changedAt,
+      ...(missing ? { missing: true } : {}),
+      reason,
+    });
+  }
+}
+
+function watchContentFilesGrant(grant: ContentFilesGrant): void {
+  if (contentFilesWatchers.has(grant.id)) return;
+  try {
+    const watcher = fs.watch(grant.path, { recursive: true }, () => {
+      const activeTimer = contentFilesChangeTimers.get(grant.id);
+      if (activeTimer) clearTimeout(activeTimer);
+      contentFilesChangeTimers.set(
+        grant.id,
+        setTimeout(() => {
+          contentFilesChangeTimers.delete(grant.id);
+          const missing = !resolveUsableContentFolder(grant.path);
+          if (missing && grant.kind === "temporary") {
+            stopContentFilesWatcher(grant.id);
+            clearContentFilesGrant(grant.id);
+          }
+          emitContentFilesChange(grant.id, missing);
+        }, 120),
+      );
+    });
+    watcher.on("error", () => {
+      if (
+        grant.kind === "temporary" &&
+        !resolveUsableContentFolder(grant.path)
+      ) {
+        stopContentFilesWatcher(grant.id);
+        clearContentFilesGrant(grant.id);
+        emitContentFilesChange(grant.id, true);
+      }
+    });
+    contentFilesWatchers.set(grant.id, watcher);
+  } catch {
+    if (grant.kind === "temporary" && !resolveUsableContentFolder(grant.path)) {
+      emitContentFilesChange(grant.id, true);
+    }
+  }
+}
+
+function subscribeContentFilesChanges(
+  event: IpcMainInvokeEvent,
+  folderId?: string,
+): DesktopContentFilesResult {
+  const grant = getContentFilesGrant(folderId);
+  if (!grant) return { ok: false, error: "No local folder is linked." };
+  const subscriberIds =
+    contentFilesChangeSubscribers.get(event.sender.id) ?? new Set<string>();
+  subscriberIds.add(grant.id);
+  contentFilesChangeSubscribers.set(event.sender.id, subscriberIds);
+  event.sender.once("destroyed", () =>
+    contentFilesChangeSubscribers.delete(event.sender.id),
+  );
+  watchContentFilesGrant(grant);
+  return { ok: true, folder: contentFilesFolderInfo(grant) };
+}
+
+function unsubscribeContentFilesChanges(
+  event: IpcMainInvokeEvent,
+  folderId?: string,
+): DesktopContentFilesResult {
+  const grant = getContentFilesGrant(folderId);
+  if (!grant) return { ok: false, error: "No local folder is linked." };
+  const subscriberIds = contentFilesChangeSubscribers.get(event.sender.id);
+  if (!subscriberIds)
+    return { ok: true, folder: contentFilesFolderInfo(grant) };
+  if (folderId) subscriberIds.delete(grant.id);
+  else subscriberIds.clear();
+  if (subscriberIds.size === 0)
+    contentFilesChangeSubscribers.delete(event.sender.id);
+  return { ok: true, folder: contentFilesFolderInfo(grant) };
 }
 
 function contentFilesStorePath(): string {
@@ -7376,6 +7507,8 @@ function normalizeContentFilesGrant(
     path.basename(folder) || folder,
   );
   const storedPrefix = firstStringValue(value.sourcePrefix)?.trim();
+  const kind = value.kind === "temporary" ? "temporary" : "persistent";
+  const name = firstStringValue(value.name)?.trim();
   const sourcePrefix =
     storedPrefix && storedPrefix !== "." && storedPrefix !== ".."
       ? storedPrefix
@@ -7383,6 +7516,24 @@ function normalizeContentFilesGrant(
   return {
     id,
     path: folder,
+    kind,
+    ...(name ? { name } : {}),
+    ...(isObject(value.repository) &&
+    typeof value.repository.localId === "string"
+      ? {
+          repository: {
+            localId: value.repository.localId,
+            ...(typeof value.repository.branch === "string"
+              ? { branch: value.repository.branch }
+              : {}),
+            ...(typeof value.repository.commit === "string"
+              ? { commit: value.repository.commit }
+              : {}),
+            ...(value.repository.detached === true ? { detached: true } : {}),
+          },
+        }
+      : {}),
+    createdAt: firstStringValue(value.createdAt),
     sourcePrefix: existing?.sourcePrefix ?? sourcePrefix,
     updatedAt: firstStringValue(value.updatedAt),
   };
@@ -7402,18 +7553,34 @@ function loadContentFilesStore(): ContentFilesStore {
     }
     const legacyGrant = normalizeContentFilesGrant(raw.grant, grants);
     if (legacyGrant) grants[legacyGrant.id] = legacyGrant;
+    let removedTemporaryGrant = false;
+    for (const [id, grant] of Object.entries(grants)) {
+      if (
+        grant.kind === "temporary" &&
+        !resolveUsableContentFolder(grant.path)
+      ) {
+        delete grants[id];
+        removedTemporaryGrant = true;
+      }
+    }
     const grantIds = Object.keys(grants);
-    if (grantIds.length === 0) return { version: 1, grants: {} };
+    if (grantIds.length === 0) {
+      const store = { version: 1 as const, grants: {} };
+      if (removedTemporaryGrant) saveContentFilesStore(store);
+      return store;
+    }
     const activeGrantId =
       firstStringValue(raw.activeGrantId) &&
       grants[firstStringValue(raw.activeGrantId)!]
         ? firstStringValue(raw.activeGrantId)
         : grantIds[0];
-    return {
+    const store: ContentFilesStore = {
       version: 1,
       activeGrantId,
       grants,
     };
+    if (removedTemporaryGrant) saveContentFilesStore(store);
+    return store;
   } catch {
     return { version: 1, grants: {} };
   }
@@ -7428,8 +7595,9 @@ function contentFilesFolderInfo(
 ): DesktopContentFilesFolder {
   return {
     id: grant.id,
-    name: path.basename(grant.path) || grant.path,
-    path: grant.path,
+    name: grant.name ?? (path.basename(grant.path) || grant.path),
+    kind: grant.kind,
+    repository: grant.repository,
     sourcePrefix: grant.sourcePrefix,
     updatedAt: grant.updatedAt,
   };
@@ -7453,11 +7621,18 @@ function contentFilesFoldersInfo(
 function getContentFilesGrant(folderId?: string): ContentFilesGrant | null {
   const store = loadContentFilesStore();
   const grants = store.grants ?? {};
-  if (folderId && grants[folderId]) return grants[folderId];
-  if (store.activeGrantId && grants[store.activeGrantId]) {
+  if (folderId) return grants[folderId] ?? null;
+  if (
+    store.activeGrantId &&
+    grants[store.activeGrantId]?.kind !== "temporary"
+  ) {
     return grants[store.activeGrantId];
   }
-  return Object.values(grants)[0] ?? null;
+  return (
+    Object.values(grants).find((grant) => grant.kind !== "temporary") ??
+    Object.values(grants)[0] ??
+    null
+  );
 }
 
 function setContentFilesGrant(folder: string): {
@@ -7474,6 +7649,11 @@ function setContentFilesGrant(folder: string): {
   const grant: ContentFilesGrant = {
     id,
     path: folder,
+    kind: existing?.kind ?? "persistent",
+    name: existing?.name,
+    repository:
+      existing?.repository ?? deriveContentFilesRepositoryIdentity(folder),
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
     sourcePrefix:
       existing?.sourcePrefix ??
       uniqueContentFilesSourcePrefix(prefixBase, grants, id),
@@ -7484,11 +7664,63 @@ function setContentFilesGrant(folder: string): {
   return { grant, grants: Object.values(grants) };
 }
 
+/**
+ * Trusted Desktop seam for an agent host that has already obtained an exact
+ * local folder reference. It creates no shared path record and requires a
+ * human-facing working-copy name.
+ */
+export function attachTemporaryContentFilesWorkingCopy(
+  folder: string,
+  name: string,
+): ContentFilesGrant {
+  const resolved = resolveUsableContentFolder(folder);
+  const displayName = name.trim();
+  if (!resolved || !displayName || displayName.includes("\0")) {
+    throw new Error("A named, existing local working copy is required.");
+  }
+  const store = loadContentFilesStore();
+  const grants = { ...(store.grants ?? {}) };
+  const id = contentFilesGrantId(resolved);
+  const existing = grants[id];
+  if (existing && existing.kind !== "temporary") {
+    throw new Error(
+      "This folder is already the persistent Content workspace; open a distinct working-copy folder.",
+    );
+  }
+  const grant: ContentFilesGrant = {
+    id,
+    path: resolved,
+    kind: "temporary",
+    name: displayName,
+    repository: deriveContentFilesRepositoryIdentity(resolved),
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    sourcePrefix:
+      existing?.sourcePrefix ??
+      uniqueContentFilesSourcePrefix(
+        contentFilesSourcePrefixBase(path.basename(resolved) || resolved),
+        grants,
+        id,
+      ),
+    updatedAt: new Date().toISOString(),
+  };
+  grants[id] = grant;
+  saveContentFilesStore({ version: 1, activeGrantId: id, grants });
+  for (const folderIds of contentFilesChangeSubscribers.values()) {
+    folderIds.add(id);
+  }
+  watchContentFilesGrant(grant);
+  emitContentFilesChange(id, false, "attached");
+  return grant;
+}
+
 function clearContentFilesGrant(folderId?: string): DesktopContentFilesResult {
   const store = loadContentFilesStore();
   const grants = { ...(store.grants ?? {}) };
   const existing = getContentFilesGrant(folderId);
-  if (existing) delete grants[existing.id];
+  if (existing) {
+    delete grants[existing.id];
+    stopContentFilesWatcher(existing.id);
+  }
   const nextGrantIds = Object.keys(grants);
   const activeGrantId =
     store.activeGrantId && grants[store.activeGrantId]
@@ -7762,14 +7994,119 @@ async function writeContentSourceFile(
   root: string,
   filePath: string,
   content: string,
+  expectedRevision?: string,
 ): Promise<string> {
   const { normalized, target } = await resolveContentSourceFilePath(root, {
     createDirectories: true,
     filePath,
   });
   assertContentSourceTextSize(normalized, content);
-  await fs.promises.writeFile(target, content, "utf-8");
+  const actualRevision = await contentSourceFileRevision(target);
+  if (expectedRevision !== undefined && actualRevision !== expectedRevision) {
+    throw new ContentFilesRevisionConflict(
+      normalized,
+      expectedRevision,
+      actualRevision,
+    );
+  }
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  const backup = `${target}.${randomUUID()}.cas-backup`;
+  try {
+    await fs.promises.writeFile(temporary, content, {
+      encoding: "utf-8",
+      flag: "wx",
+    });
+    if (expectedRevision === undefined || actualRevision === undefined) {
+      await fs.promises.rename(temporary, target);
+      return normalized;
+    }
+
+    const existingStat = await fs.promises.stat(target);
+    await fs.promises.chmod(temporary, existingStat.mode);
+    await fs.promises.rename(target, backup);
+    if (!(await waitForContentFileHandlesToClose(backup))) {
+      await fs.promises.rename(backup, target);
+      throw new ContentFilesRevisionConflict(
+        normalized,
+        expectedRevision,
+        await contentSourceFileRevision(target),
+      );
+    }
+    const claimedRevision = await contentSourceFileRevision(backup);
+    if (claimedRevision !== expectedRevision) {
+      await fs.promises.rename(backup, target);
+      throw new ContentFilesRevisionConflict(
+        normalized,
+        expectedRevision,
+        claimedRevision,
+      );
+    }
+    try {
+      // A hard link publishes the fully written inode only if the destination
+      // is still absent. If another editor recreates the path after our claim,
+      // EEXIST fails closed instead of replacing its newer file.
+      await fs.promises.link(temporary, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        await fs.promises.rename(backup, target).catch(() => undefined);
+        throw error;
+      }
+      const competingRevision = await contentSourceFileRevision(target);
+      await fs.promises.rm(backup, { force: true });
+      throw new ContentFilesRevisionConflict(
+        normalized,
+        expectedRevision,
+        competingRevision,
+      );
+    }
+    await fs.promises.rm(backup, { force: true });
+  } finally {
+    await fs.promises.rm(temporary, { force: true }).catch(() => undefined);
+  }
   return normalized;
+}
+
+async function waitForContentFileHandlesToClose(filePath: string) {
+  // macOS keeps an editor's existing descriptor attached to the inode after
+  // the path is claimed. Wait for that descriptor to close before publishing;
+  // otherwise a late write to the claimed inode could be discarded as stale.
+  if (process.platform !== "darwin") return true;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const handles = spawnSync("lsof", ["-t", "--", filePath], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (handles.status !== 0 || !handles.stdout.trim()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
+}
+
+class ContentFilesRevisionConflict extends Error {
+  constructor(
+    readonly filePath: string,
+    readonly expectedRevision: string,
+    readonly actualRevision?: string,
+  ) {
+    super("The local file changed before Content could save it.");
+  }
+}
+
+async function contentSourceFileRevision(
+  filePath: string,
+): Promise<string | undefined> {
+  await assertNoContentSymlink(filePath);
+  try {
+    const content = await fs.promises.readFile(filePath);
+    if (content.byteLength > CONTENT_SOURCE_FILE_MAX_BYTES) {
+      throw new Error("The local file is larger than 2 MB.");
+    }
+    return createHash("sha256").update(content).digest("hex");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return undefined;
+    throw err;
+  }
 }
 
 async function resolveContentSourceFilePath(
@@ -7861,14 +8198,21 @@ function normalizeContentFilesWriteRequest(
 
 function normalizeContentFileWriteRequest(
   request: DesktopContentFileWriteRequest,
-): { path: string; content: string } | null {
+): { path: string; content: string; expectedRevision?: string } | null {
   if (!isObject(request) || typeof request.content !== "string") return null;
   const filePath = normalizeContentSourcePath(
     firstStringValue(request.path) ?? "",
   );
   if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
   assertContentSourceTextSize(filePath, request.content);
-  return { path: filePath, content: request.content };
+  const expectedRevision = request.expectedRevision;
+  if (
+    expectedRevision !== undefined &&
+    !/^[a-f0-9]{64}$/i.test(expectedRevision)
+  ) {
+    return null;
+  }
+  return { path: filePath, content: request.content, expectedRevision };
 }
 
 function normalizeContentFileRevealRequest(
@@ -7912,6 +8256,7 @@ async function writeContentFilesForRequest(
       writeRoot.prefix,
       expectedPaths,
     );
+    emitContentFilesChange(grant.id);
     const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
     return {
       ok: true,
@@ -7941,7 +8286,9 @@ async function writeContentFileForRequest(
       writeRoot.folder,
       file.path,
       file.content,
+      file.expectedRevision,
     );
+    emitContentFilesChange(grant.id);
     const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
     return {
       ok: true,
@@ -7951,6 +8298,17 @@ async function writeContentFileForRequest(
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
+    if (err instanceof ContentFilesRevisionConflict) {
+      return {
+        ok: false,
+        error: err.message,
+        conflict: {
+          path: err.filePath,
+          expectedRevision: err.expectedRevision,
+          actualRevision: err.actualRevision,
+        },
+      };
+    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
@@ -7972,6 +8330,7 @@ async function deleteContentFileForRequest(
     });
     await assertNoContentSymlink(target);
     await fs.promises.rm(target, { force: true });
+    emitContentFilesChange(grant.id);
     const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
     return {
       ok: true,
@@ -8025,12 +8384,19 @@ async function readContentFilesForRequest(
     const grant = getRequiredContentFilesGrant(request.folderId);
     const root = await contentReadRoot(grant.path);
     const sources = await collectContentMarkdownFiles(root.folder, root.prefix);
+    const revisions = Object.fromEntries(
+      Object.entries(sources).map(([filePath, content]) => [
+        filePath,
+        createHash("sha256").update(content, "utf-8").digest("hex"),
+      ]),
+    );
     const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
     return {
       ok: true,
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       sources,
+      revisions,
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
@@ -10095,6 +10461,8 @@ registerContentFilesIpc({
   readContentFilesForRequest,
   revealContentFileForRequest,
   clearContentFilesGrant,
+  subscribeContentFilesChanges,
+  unsubscribeContentFilesChanges,
 });
 
 // ---------- IPC: Local app-launch shortcuts ----------

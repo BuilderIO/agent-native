@@ -78,6 +78,9 @@ export const IPC = {
   CONTENT_FILES_READ: "content-files:read",
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
+  CONTENT_FILES_SUBSCRIBE_CHANGES: "content-files:subscribe-changes",
+  CONTENT_FILES_UNSUBSCRIBE_CHANGES: "content-files:unsubscribe-changes",
+  CONTENT_FILES_CHANGED: "content-files:changed",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -327,9 +330,20 @@ export type DesktopPlanFilesResult =
 export interface DesktopContentFilesFolder {
   id?: string;
   name: string;
+  /** Persistent folders are human-selected; temporary copies are agent-opened. */
+  kind?: "persistent" | "temporary";
+  /** Derived local Git labels; no repository path is sent to the webview. */
+  repository?: DesktopContentFilesRepository;
   path?: string;
   sourcePrefix?: string;
   updatedAt?: string;
+}
+
+export interface DesktopContentFilesRepository {
+  localId: string;
+  branch?: string;
+  commit?: string;
+  detached?: boolean;
 }
 
 export interface DesktopContentFilesWriteRequest {
@@ -341,6 +355,8 @@ export interface DesktopContentFileWriteRequest {
   folderId?: string;
   path: string;
   content: string;
+  /** SHA-256 revision observed by the caller; omit for the legacy write path. */
+  expectedRevision?: string;
 }
 
 export interface DesktopContentFileRevealRequest {
@@ -361,6 +377,18 @@ export interface DesktopContentFilesClearFolderRequest {
   folderId?: string;
 }
 
+export interface DesktopContentFilesChangesRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesChange {
+  folderId: string;
+  revision: string;
+  changedAt: string;
+  missing?: boolean;
+  reason?: "attached" | "changed" | "missing";
+}
+
 export type DesktopContentFilesResult =
   | {
       ok: true;
@@ -368,6 +396,7 @@ export type DesktopContentFilesResult =
       folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
+      revisions?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
   | {
@@ -376,6 +405,11 @@ export type DesktopContentFilesResult =
       canceled?: boolean;
       folder?: DesktopContentFilesFolder;
       folders?: DesktopContentFilesFolder[];
+      conflict?: {
+        path: string;
+        expectedRevision?: string;
+        actualRevision?: string;
+      };
     };
 
 export type CodeAgentRunStatus =

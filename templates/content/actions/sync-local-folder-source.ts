@@ -19,7 +19,13 @@ import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
-import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import {
+  LOCAL_FOLDER_SOURCE_TYPE,
+  localFolderObservedRevision,
+  localFolderSourceFileIdentity,
+  localFolderSourceIdentityFromMetadata,
+  normalizeLocalFolderSourceIdentity,
+} from "./_local-folder-source.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -75,13 +81,24 @@ function sourceValues(args: {
   title: string;
   hash: string;
   metadataHash: string;
+  workingCopyId: string;
 }) {
+  const observedRevision = localFolderObservedRevision({
+    contentHash: args.hash,
+    metadataHash: args.metadataHash,
+  });
   return JSON.stringify({
     relativePath: args.path,
     extension: args.path.toLowerCase().endsWith(".mdx") ? ".mdx" : ".md",
     title: args.title,
     contentHash: args.hash,
     metadataHash: args.metadataHash,
+    observedRevision,
+    sourceFileIdentity: localFolderSourceFileIdentity({
+      workingCopyId: args.workingCopyId,
+      relativePath: args.path,
+      observedRevision,
+    }),
   });
 }
 
@@ -263,6 +280,12 @@ export default defineAction({
 
     const metadata = parseJson(target.source.metadataJson);
     const policy = truthPolicy(metadata.truthPolicy);
+    const localIdentity =
+      localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
+      normalizeLocalFolderSourceIdentity({
+        connectionId: target.source.sourceTable,
+        label: target.source.sourceName,
+      });
     const now = new Date().toISOString();
     const created: Array<{ id: string; path: string; title: string }> = [];
     const updated: Array<{ id: string; path: string; title: string }> = [];
@@ -647,6 +670,7 @@ export default defineAction({
               title: plan.file.title,
               hash: plan.incomingHash,
               metadataHash: plan.incomingMetadataHash,
+              workingCopyId: localIdentity.workingCopy.id,
             }),
             provenance: "trusted local-folder bridge",
             syncState: "linked",

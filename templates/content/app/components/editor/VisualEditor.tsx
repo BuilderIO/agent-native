@@ -816,6 +816,20 @@ interface VisualEditorProps {
    * whose type has no NFM analog (via the shared registry-block side-map).
    */
   notionPageId?: string | null;
+  onHistoryControllerChange?: (
+    controller: VisualEditorHistoryController | null,
+  ) => void;
+  onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+}
+
+export interface VisualEditorHistoryState {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface VisualEditorHistoryController {
+  undo: () => boolean;
+  redo: () => boolean;
 }
 
 export type { NotionPageLink };
@@ -2005,6 +2019,8 @@ export function VisualEditor({
   notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
+  onHistoryControllerChange,
+  onHistoryStateChange,
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
@@ -2015,6 +2031,8 @@ export function VisualEditor({
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
+  const onHistoryStateChangeRef = useRef(onHistoryStateChange);
+  onHistoryStateChangeRef.current = onHistoryStateChange;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
   const onMediaSourceCommittedRef = useRef<
@@ -2316,6 +2334,12 @@ export function VisualEditor({
       },
     },
     editable,
+    onTransaction: ({ editor }) => {
+      onHistoryStateChangeRef.current?.({
+        canUndo: editor.can().undo(),
+        canRedo: editor.can().redo(),
+      });
+    },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
@@ -2366,6 +2390,32 @@ export function VisualEditor({
       });
     },
   });
+
+  useEffect(() => {
+    if (!editor) {
+      onHistoryControllerChange?.(null);
+      return;
+    }
+    const runHistoryCommand = (command: "undo" | "redo") =>
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+          return true;
+        })
+        [command]()
+        .run();
+    onHistoryControllerChange?.({
+      undo: () => runHistoryCommand("undo"),
+      redo: () => runHistoryCommand("redo"),
+    });
+    onHistoryStateChange?.({
+      canUndo: editor.can().undo(),
+      canRedo: editor.can().redo(),
+    });
+    return () => onHistoryControllerChange?.(null);
+  }, [editor, onHistoryControllerChange, onHistoryStateChange]);
 
   const handleImageFileInputChange = useCallback(
     async (event: Event) => {

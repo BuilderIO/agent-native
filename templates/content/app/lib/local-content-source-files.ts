@@ -6,6 +6,10 @@ import {
 } from "@shared/content-source";
 
 import { getDesktopContentFiles } from "./desktop-content-files";
+import type {
+  DesktopContentFileRevision,
+  DesktopContentFilesChange,
+} from "./desktop-content-files";
 
 type PermissionState = "granted" | "denied" | "prompt";
 type LocalWritable = {
@@ -57,8 +61,18 @@ export type LocalSourceFileResult =
       path: string;
       absolutePath?: string;
       runtime: "browser" | "desktop" | "server-local";
+      revision?: DesktopContentFileRevision;
     }
-  | { ok: false; error: string; unavailable?: boolean };
+  | {
+      ok: false;
+      error: string;
+      unavailable?: boolean;
+      conflict?: {
+        path: string;
+        expectedRevision?: string;
+        actualRevision?: DesktopContentFileRevision;
+      };
+    };
 
 export type LocalSourceDocumentReadResult =
   | {
@@ -68,8 +82,22 @@ export type LocalSourceDocumentReadResult =
       document: Document;
       updatedAt: string;
       runtime: "browser" | "desktop";
+      revision?: DesktopContentFileRevision;
     }
   | { ok: false; error: string; unavailable?: boolean };
+
+export type LinkedLocalSourceChange = DesktopContentFilesChange & {
+  sourcePath: string;
+};
+
+export type LinkedLocalSourceWatchResult =
+  | { ok: true; unsubscribe(): void }
+  | { ok: false; error: string; unavailable?: boolean };
+
+export type LinkedLocalSourceWriteOptions = {
+  /** Opaque revision observed when the editor loaded the physical file. */
+  expectedRevision?: string;
+};
 
 const LOCAL_FILES_DB_NAME = "content-local-files";
 const LOCAL_FILES_DB_VERSION = 1;
@@ -295,21 +323,6 @@ async function readBrowserFile(root: LocalDirectoryHandle, filePath: string) {
   };
 }
 
-function joinDesktopAbsolutePath(folderPath: string, filePath: string) {
-  const folder = folderPath.replace(/[\\/]+$/, "");
-  const separator = folder.includes("\\") ? "\\" : "/";
-  const folderParts = folder.split(/[\\/]/).filter(Boolean);
-  const folderName = folderParts[folderParts.length - 1];
-  let relativePath = filePath;
-  if (
-    folderName === CONTENT_SOURCE_ROOT &&
-    relativePath.startsWith(`${CONTENT_SOURCE_ROOT}/`)
-  ) {
-    relativePath = relativePath.slice(CONTENT_SOURCE_ROOT.length + 1);
-  }
-  return `${folder}${separator}${relativePath.replace(/\//g, separator)}`;
-}
-
 function sourceFileContent(document: Document) {
   return serializeContentSourceDocument({
     id: document.id,
@@ -378,6 +391,7 @@ export function canWriteLinkedLocalSource(
 export async function writeDocumentToLinkedLocalSource(
   document: Document,
   source: DocumentSourceInfo | undefined = document.source,
+  options: LinkedLocalSourceWriteOptions = {},
 ): Promise<LocalSourceFileResult> {
   const filePath = normalizeSourcePath(source?.path);
   if (!filePath) {
@@ -402,15 +416,28 @@ export async function writeDocumentToLinkedLocalSource(
       folderId: desktopSource.folder.id,
       path: desktopSource.path,
       content,
+      expectedRevision: options.expectedRevision,
     });
-    if (!result.ok) return { ok: false, error: result.error };
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error,
+        unavailable: result.code === "unavailable",
+        conflict:
+          result.code === "conflict" && result.conflict
+            ? {
+                path: filePath,
+                expectedRevision: result.conflict.expectedRevision,
+                actualRevision: result.conflict.actualRevision,
+              }
+            : undefined,
+      };
+    }
     return {
       ok: true,
       path: filePath,
-      absolutePath: result.folder.path
-        ? joinDesktopAbsolutePath(result.folder.path, desktopSource.path)
-        : undefined,
       runtime: "desktop",
+      revision: result.revisions?.[desktopSource.path],
     };
   }
 
@@ -431,6 +458,71 @@ export async function writeDocumentToLinkedLocalSource(
   }
   await writeBrowserFile(browserSource.handle, browserSource.path, content);
   return { ok: true, path: filePath, runtime: "browser" };
+}
+
+/**
+ * Subscribe only through an already-authorized Desktop grant. Browser folder
+ * handles intentionally have no ambient watcher capability.
+ */
+export async function watchLinkedLocalSource(
+  source: DocumentSourceInfo | undefined,
+  onChange: (change: LinkedLocalSourceChange) => void,
+): Promise<LinkedLocalSourceWatchResult> {
+  const filePath = normalizeSourcePath(source?.path);
+  if (!filePath) {
+    return {
+      ok: false,
+      error: "This document is not linked to a source file.",
+    };
+  }
+  const desktopSource = await resolveDesktopSourceForPath(filePath);
+  if (desktopSource?.api.watchFiles) {
+    return desktopSource.api.watchFiles(
+      { folderId: desktopSource.folder.id },
+      (change) => {
+        const legacyChange = change as DesktopContentFilesChange & {
+          path?: string;
+          previousPath?: string;
+        };
+        if (
+          legacyChange.path !== desktopSource.path &&
+          legacyChange.previousPath !== desktopSource.path
+        ) {
+          return;
+        }
+        onChange({ ...change, sourcePath: filePath });
+      },
+    );
+  }
+  if (
+    !desktopSource?.api.subscribeChanges ||
+    !desktopSource.api.unsubscribeChanges ||
+    !desktopSource.api.onChange
+  ) {
+    return {
+      ok: false,
+      unavailable: true,
+      error:
+        "Live local file updates require a current Agent Native Desktop bridge.",
+    };
+  }
+  const subscribed = await desktopSource.api.subscribeChanges({
+    folderId: desktopSource.folder.id,
+  });
+  if (!subscribed.ok) return { ok: false, error: subscribed.error };
+  const removeListener = desktopSource.api.onChange((change) => {
+    if (change.folderId !== desktopSource.folder.id) return;
+    onChange({ ...change, sourcePath: filePath });
+  });
+  return {
+    ok: true,
+    unsubscribe: () => {
+      removeListener();
+      void desktopSource.api.unsubscribeChanges?.({
+        folderId: desktopSource.folder.id,
+      });
+    },
+  };
 }
 
 export async function readDocumentFromLinkedLocalSource(
@@ -471,7 +563,13 @@ export async function readDocumentFromLinkedLocalSource(
       content,
       updatedAt,
     });
-    return read.ok ? { ...read, runtime: "desktop" } : read;
+    return read.ok
+      ? {
+          ...read,
+          runtime: "desktop",
+          revision: result.revisions?.[desktopSource.path],
+        }
+      : read;
   }
 
   const browserSource = await resolveBrowserSourceForPath(filePath);
@@ -521,9 +619,7 @@ export async function localSourceAbsolutePath(
   if (!filePath) return source?.absolutePath ?? null;
   if (source?.absolutePath) return source.absolutePath;
 
-  const desktopSource = await resolveDesktopSourceForPath(filePath);
-  if (!desktopSource?.folder.path) return null;
-  return joinDesktopAbsolutePath(desktopSource.folder.path, desktopSource.path);
+  return null;
 }
 
 export async function revealLinkedLocalSourceFile(
@@ -554,9 +650,6 @@ export async function revealLinkedLocalSourceFile(
   return {
     ok: true,
     path: filePath,
-    absolutePath: result.folder.path
-      ? joinDesktopAbsolutePath(result.folder.path, desktopSource.path)
-      : undefined,
     runtime: "desktop",
   };
 }

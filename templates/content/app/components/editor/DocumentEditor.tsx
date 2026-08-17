@@ -79,8 +79,11 @@ import {
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
+import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import {
   canWriteLinkedLocalSource,
+  readDocumentFromLinkedLocalSource,
+  watchLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import { isDatabaseChoicePending } from "@/lib/optimistic-document";
@@ -106,7 +109,11 @@ import {
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
 import { VisualEditor } from "./VisualEditor";
-import type { NotionPageLink } from "./VisualEditor";
+import type {
+  NotionPageLink,
+  VisualEditorHistoryController,
+  VisualEditorHistoryState,
+} from "./VisualEditor";
 
 const TAB_ID = generateTabId();
 
@@ -607,6 +614,34 @@ function DocumentEditorBody({
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
+  const localSourceRevisionRef = useRef<DesktopContentFileRevision | undefined>(
+    undefined,
+  );
+  const [localSourceConflict, setLocalSourceConflict] = useState<{
+    diskDocument: Document;
+    diskRevision?: DesktopContentFileRevision;
+    unsavedText: string;
+  } | null>(null);
+  const editorHistoryControllerRef =
+    useRef<VisualEditorHistoryController | null>(null);
+  const [editorHistoryState, setEditorHistoryState] =
+    useState<VisualEditorHistoryState>({ canUndo: false, canRedo: false });
+  const handleHistoryStateChange = useCallback(
+    (next: VisualEditorHistoryState) => {
+      setEditorHistoryState((current) =>
+        current.canUndo === next.canUndo && current.canRedo === next.canRedo
+          ? current
+          : next,
+      );
+    },
+    [],
+  );
+  const handleHistoryControllerChange = useCallback(
+    (controller: VisualEditorHistoryController | null) => {
+      editorHistoryControllerRef.current = controller;
+    },
+    [],
+  );
   const handleDeleteDocument = useCallback(async () => {
     try {
       if (document.database) {
@@ -953,11 +988,48 @@ function DocumentEditorBody({
       };
 
       if (isLinkedLocalSource) {
+        if (!localSourceRevisionRef.current) {
+          const baseline = await readDocumentFromLinkedLocalSource(
+            document,
+            localSource,
+          );
+          if (!baseline.ok) throw new Error(baseline.error);
+          if (
+            baseline.revision &&
+            (baseline.document.content !==
+              lastSavedContentRef.current.content ||
+              baseline.document.title !== lastSavedTitleRef.current.title)
+          ) {
+            setLocalSourceConflict({
+              diskDocument: baseline.document,
+              diskRevision: baseline.revision,
+              unsavedText: localContentRef.current,
+            });
+            throw new Error(
+              "The file changed on disk before this edit could be saved.",
+            );
+          }
+          localSourceRevisionRef.current = baseline.revision;
+        }
         const result = await writeDocumentToLinkedLocalSource(
           fileFirstDocument,
           localSource,
+          { expectedRevision: localSourceRevisionRef.current },
         );
         if (!result.ok) {
+          if (result.conflict) {
+            const latest = await readDocumentFromLinkedLocalSource(
+              fileFirstDocument,
+              localSource,
+            );
+            if (latest.ok) {
+              setLocalSourceConflict({
+                diskDocument: latest.document,
+                diskRevision: latest.revision,
+                unsavedText: localContentRef.current,
+              });
+            }
+          }
           if (!localSourceWriteErrorShownRef.current) {
             toast.error(t("editor.couldNotSaveLocalFile"), {
               description: result.error,
@@ -966,6 +1038,8 @@ function DocumentEditorBody({
           }
           throw new Error(result.error);
         }
+        localSourceRevisionRef.current = result.revision;
+        setLocalSourceConflict(null);
         localSourceWriteErrorShownRef.current = false;
         setLocalContentUpdatedAt(nextSavedAt);
       }
@@ -1020,6 +1094,67 @@ function DocumentEditorBody({
   // browser with duplicate application-state requests.
   const persistDocumentUpdatesRef = useRef(persistDocumentUpdates);
   persistDocumentUpdatesRef.current = persistDocumentUpdates;
+
+  useEffect(() => {
+    if (!isLinkedLocalSourceDocument) return;
+    let active = true;
+
+    const adoptDisk = async () => {
+      const result = await readDocumentFromLinkedLocalSource(document);
+      if (!active || !result.ok) return;
+      const diskContent = result.document.content;
+      const hasUnsavedEdit =
+        localContentRef.current !== lastSavedContentRef.current.content;
+      const diskChanged =
+        diskContent !== lastSavedContentRef.current.content ||
+        result.document.title !== lastSavedTitleRef.current.title;
+      if (hasUnsavedEdit && diskChanged) {
+        setLocalSourceConflict({
+          diskDocument: result.document,
+          diskRevision: result.revision,
+          unsavedText: localContentRef.current,
+        });
+        return;
+      }
+      localSourceRevisionRef.current = result.revision;
+      if (!diskChanged) return;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
+      }
+      localTitleRef.current = result.document.title;
+      localContentRef.current = diskContent;
+      setLocalTitle(result.document.title);
+      setLocalContent(diskContent);
+      setLocalContentUpdatedAt(result.updatedAt);
+      lastSavedTitleRef.current = {
+        title: result.document.title,
+        updatedAt: result.updatedAt,
+      };
+      lastSavedContentRef.current = {
+        content: diskContent,
+        updatedAt: result.updatedAt,
+      };
+      setLocalSourceConflict(null);
+    };
+
+    void adoptDisk();
+    let stop: (() => void) | undefined;
+    void watchLinkedLocalSource(document.source, () => void adoptDisk()).then(
+      (result) => {
+        if (!active) {
+          if (result.ok) result.unsubscribe();
+          return;
+        }
+        if (result.ok) stop = result.unsubscribe;
+      },
+    );
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, [document.id, document.source, isLinkedLocalSourceDocument]);
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -1461,6 +1596,31 @@ function DocumentEditorBody({
     [editorCanEdit, queueDocumentSave],
   );
 
+  const useDiskVersion = useCallback(() => {
+    if (!localSourceConflict) return;
+    const next = localSourceConflict.diskDocument;
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+    }
+    localSourceRevisionRef.current = localSourceConflict.diskRevision;
+    localTitleRef.current = next.title;
+    localContentRef.current = next.content;
+    setLocalTitle(next.title);
+    setLocalContent(next.content);
+    setLocalContentUpdatedAt(next.updatedAt ?? new Date().toISOString());
+    lastSavedTitleRef.current = {
+      title: next.title,
+      updatedAt: next.updatedAt ?? null,
+    };
+    lastSavedContentRef.current = {
+      content: next.content,
+      updatedAt: next.updatedAt ?? null,
+    };
+    setLocalSourceConflict(null);
+  }, [localSourceConflict]);
+
   // Comments state — pending comment from text selection
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
@@ -1781,10 +1941,41 @@ function DocumentEditorBody({
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
+            canUndo={editorHistoryState.canUndo}
+            canRedo={editorHistoryState.canRedo}
+            onUndo={() => editorHistoryControllerRef.current?.undo()}
+            onRedo={() => editorHistoryControllerRef.current?.redo()}
           />
 
           {!isLocalFileDocument ? (
             <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
+          ) : null}
+
+          {localSourceConflict ? (
+            <div
+              className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-local-source-conflict
+            >
+              <span className="me-auto">
+                {t("editor.localFileChangedWithUnsavedEdits")}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(localSourceConflict.unsavedText)
+                    .then(() => toast.success(t("editor.unsavedTextCopied")))
+                }
+              >
+                {t("editor.copyUnsavedText")}
+              </Button>
+              <Button type="button" size="sm" onClick={useDiskVersion}>
+                {t("editor.useDiskVersion")}
+              </Button>
+            </div>
           ) : null}
 
           <div
@@ -2016,6 +2207,10 @@ function DocumentEditorBody({
                           notionPageLinks={notionPageLinks}
                           onOpenNotionPageLink={handleOpenNotionPageLink}
                           notionPageId={document.notionPageId}
+                          onHistoryControllerChange={
+                            handleHistoryControllerChange
+                          }
+                          onHistoryStateChange={handleHistoryStateChange}
                         />
                       );
 

@@ -21,6 +21,7 @@ let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
 let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").default;
 let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let syncManifestLocalFolder: typeof import("./sync-manifest-local-folder-source.js").default;
+let getContentDatabaseSource: typeof import("./get-content-database-source.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 beforeAll(async () => {
@@ -47,6 +48,8 @@ beforeAll(async () => {
   syncManifestLocalFolder = (
     await import("./sync-manifest-local-folder-source.js")
   ).default;
+  getContentDatabaseSource = (await import("./get-content-database-source.js"))
+    .default;
   provisionContentSpaces = (await import("./_content-spaces.js"))
     .provisionContentSpaces;
 }, 60000);
@@ -100,6 +103,25 @@ describe("local-folder Content source", () => {
       connectLocalFolder.run({
         connectionId: "desktop-folder-1",
         label: "Product docs",
+        connectionMetadata: {
+          repository: {
+            localId: "repository-teenylilthoughts",
+            providerBinding: {
+              provider: "github",
+              repositoryId: "github-repository-123",
+            },
+          },
+          workingCopy: {
+            id: "working-copy-main",
+            repositoryId: "repository-teenylilthoughts",
+            kind: "persistent",
+            name: "Product docs",
+            branch: "main",
+            commit: "abc123",
+            deviceId: "desktop-alice",
+          },
+          liveBridgeEnabled: true,
+        },
         createSourceBackedSpace: true,
         propertyValues: {
           "source-workspace-focus-property": "Imported",
@@ -118,6 +140,40 @@ describe("local-folder Content source", () => {
       .where(eq(schema.contentDatabaseSources.id, connection.sourceId));
     expect(storedSource.sourceTable).toBe("desktop-folder-1");
     expect(storedSource.metadataJson).not.toContain("/Users/");
+    expect(storedSource.metadataJson).not.toContain("working-copy-main/");
+    expect(JSON.parse(storedSource.capabilitiesJson)).toMatchObject({
+      liveWritesEnabled: true,
+    });
+    expect(JSON.parse(storedSource.metadataJson)).toMatchObject({
+      syncPolicy: "keep_in_sync",
+      localIdentity: {
+        repository: { localId: "repository-teenylilthoughts" },
+        workingCopy: {
+          id: "working-copy-main",
+          kind: "persistent",
+          localOnly: false,
+          shareable: true,
+        },
+      },
+    });
+    const sourceStatus = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseSource.run({ databaseId: connection.filesDatabaseId }),
+    );
+    expect(sourceStatus.source).toMatchObject({
+      capabilities: { liveWritesEnabled: true },
+      metadata: {
+        writeMode: "stage_only",
+        syncPolicy: "keep_in_sync",
+        liveBridgeEnabled: true,
+        localIdentity: {
+          workingCopy: {
+            id: "working-copy-main",
+            localOnly: false,
+            shareable: true,
+          },
+        },
+      },
+    });
     const [catalogMapping] = await getDb()
       .select({ documentId: schema.contentSpaceCatalogItems.documentId })
       .from(schema.contentSpaceCatalogItems)
@@ -178,6 +234,14 @@ describe("local-folder Content source", () => {
       );
     expect(sourceRows).toHaveLength(1);
     expect(sourceRows[0]!.sourceValuesJson).not.toContain("First body");
+    const firstSourceValues = JSON.parse(sourceRows[0]!.sourceValuesJson);
+    expect(firstSourceValues).toMatchObject({
+      observedRevision: expect.stringMatching(/^sha256:/),
+      sourceFileIdentity: {
+        workingCopyId: "working-copy-main",
+        relativePath: "guide.md",
+      },
+    });
 
     const second = await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({
@@ -200,6 +264,88 @@ describe("local-folder Content source", () => {
           ),
         ),
     ).resolves.toHaveLength(1);
+    const [secondSourceRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId),
+      );
+    expect(JSON.parse(secondSourceRow.sourceValuesJson)).toMatchObject({
+      observedRevision: firstSourceValues.observedRevision,
+      sourceFileIdentity: firstSourceValues.sourceFileIdentity,
+    });
+  });
+
+  it("rejects raw paths and marks temporary working copies local-only", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId: "desktop-folder-invalid-path",
+          label: "Unsafe folder",
+          connectionMetadata: {
+            workingCopy: {
+              id: "/Users/alice/worktree",
+              kind: "temporary",
+              name: "Fix local sync",
+              deviceId: "desktop-alice",
+            },
+          },
+          truthPolicy: "source_primary",
+        }),
+      ),
+    ).rejects.toThrow("opaque IDs, not paths");
+
+    const temporary = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-temporary",
+        label: "Fix local sync",
+        connectionMetadata: {
+          workingCopy: {
+            id: "working-copy-fix-local-sync",
+            kind: "temporary",
+            name: "Fix local sync",
+            deviceId: "desktop-alice",
+          },
+        },
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const [source] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, temporary.sourceId));
+    expect(JSON.parse(source.metadataJson)).toMatchObject({
+      syncPolicy: "manual",
+      localIdentity: {
+        workingCopy: {
+          kind: "temporary",
+          localOnly: true,
+          shareable: false,
+        },
+      },
+    });
+    expect(JSON.parse(source.capabilitiesJson)).toMatchObject({
+      liveWritesEnabled: false,
+    });
+    const temporaryStatus = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        getContentDatabaseSource.run({
+          databaseId: temporary.filesDatabaseId,
+        }),
+    );
+    expect(temporaryStatus.source).toMatchObject({
+      capabilities: { liveWritesEnabled: false },
+      metadata: {
+        writeMode: "stage_only",
+        syncPolicy: "manual",
+        liveBridgeEnabled: false,
+        localIdentity: {
+          workingCopy: { localOnly: true, shareable: false },
+        },
+      },
+    });
   });
 
   it("records concurrent source-primary changes for review without overwriting Content", async () => {

@@ -45,6 +45,11 @@ afterEach(async () => {
 async function createHarness(
   permissionMode: DesktopComputerPermissionMode,
   withBrowser = false,
+  openContentWorkingCopy?: (input: { folder: string; name: string }) => {
+    id: string;
+    name: string;
+    kind: "temporary";
+  },
 ): Promise<Harness> {
   const mutations: MutationOperation[] = [];
   const releaseAll = vi.fn(async () => undefined);
@@ -86,6 +91,7 @@ async function createHarness(
     permissionStatus,
     screenObserver,
     browserBridge,
+    openContentWorkingCopy,
   });
   const url = await bridge.start();
   const registration = bridge.registerRun("run-server-owned", permissionMode);
@@ -113,6 +119,37 @@ async function createHarness(
 }
 
 describe("DesktopComputerMcpBridge", () => {
+  it("opens only named local Content working copies through the trusted bridge", async () => {
+    const openContentWorkingCopy = vi.fn(({ folder, name }) => ({
+      id: "folder-opaque",
+      name,
+      kind: "temporary" as const,
+    }));
+    const harness = await createHarness(
+      "full-auto",
+      false,
+      openContentWorkingCopy,
+    );
+
+    const missingName = await harness.client.callTool({
+      name: "content_open_local_working_copy",
+      arguments: { folder: "/private/worktree" },
+    });
+    expect(missingName.isError).toBe(true);
+    expect(openContentWorkingCopy).not.toHaveBeenCalled();
+
+    const opened = await harness.client.callTool({
+      name: "content_open_local_working_copy",
+      arguments: { folder: "/private/worktree", name: "Fix local sync" },
+    });
+    expect(openContentWorkingCopy).toHaveBeenCalledWith({
+      folder: "/private/worktree",
+      name: "Fix local sync",
+    });
+    expect(JSON.stringify(opened)).not.toContain("/private/worktree");
+    expect(JSON.stringify(opened)).toContain("folder-opaque");
+  });
+
   it("requires its per-run bearer and exposes observation without model-supplied identity", async () => {
     const harness = await createHarness("full-auto");
     const unauthorized = await fetch(harness.registration.url, {

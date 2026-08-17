@@ -4,6 +4,7 @@ import {
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
   type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFilesChangesRequest,
   type DesktopContentFilesFolder,
   type DesktopContentFilesFolderRequest,
   type DesktopContentFilesResult,
@@ -43,6 +44,14 @@ export interface ContentFilesIpcDeps {
     request: DesktopContentFileRevealRequest,
   ) => Promise<DesktopContentFilesResult>;
   clearContentFilesGrant: (folderId?: string) => DesktopContentFilesResult;
+  subscribeContentFilesChanges: (
+    event: IpcMainInvokeEvent,
+    folderId?: string,
+  ) => DesktopContentFilesResult;
+  unsubscribeContentFilesChanges: (
+    event: IpcMainInvokeEvent,
+    folderId?: string,
+  ) => DesktopContentFilesResult;
 }
 
 /**
@@ -64,6 +73,8 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
     readContentFilesForRequest,
     revealContentFileForRequest,
     clearContentFilesGrant,
+    subscribeContentFilesChanges,
+    unsubscribeContentFilesChanges,
   } = deps;
 
   ipcMain.handle(
@@ -163,6 +174,30 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
       const denied = requireContentFilesWebviewAccess(event);
       if (denied) return denied;
       return clearContentFilesGrant(request.folderId);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CONTENT_FILES_SUBSCRIBE_CHANGES,
+    (
+      event: IpcMainInvokeEvent,
+      request: DesktopContentFilesChangesRequest = {},
+    ): DesktopContentFilesResult => {
+      const denied = requireContentFilesWebviewAccess(event);
+      if (denied) return denied;
+      return subscribeContentFilesChanges(event, request.folderId);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CONTENT_FILES_UNSUBSCRIBE_CHANGES,
+    (
+      event: IpcMainInvokeEvent,
+      request: DesktopContentFilesChangesRequest = {},
+    ): DesktopContentFilesResult => {
+      const denied = requireContentFilesWebviewAccess(event);
+      if (denied) return denied;
+      return unsubscribeContentFilesChanges(event, request.folderId);
     },
   );
 }
