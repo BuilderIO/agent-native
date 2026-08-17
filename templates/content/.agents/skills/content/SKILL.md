@@ -121,8 +121,8 @@ For a named intake workflow:
    when the database has no form contract and all required values have already
    been confirmed.
 8. Treat submission as complete only when the successful result includes a
-   `createdDocumentId` and verification. Return the exact `url` or `urlPath`
-   from the result. The canonical Content row route is `/page/<createdDocumentId>`;
+   stable row IDs and verified read-back. Return the exact `url` or `urlPath`
+   from the result. The canonical Content row route is `/page/<documentId>`;
    never invent a different path, slug, ID, or host.
 
 When the user supplies a complete description in one message, do not force a

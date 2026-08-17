@@ -4,9 +4,18 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { coreMessagesForLocale } from "../localization/core-messages.js";
 import defaultEnglishMessages from "../localization/default-messages.js";
 
 const clientDir = path.dirname(fileURLToPath(import.meta.url));
+const toolkitComposerDir = path.resolve(
+  clientDir,
+  "../../../toolkit/src/composer",
+);
+const toolkitContextUiDir = path.resolve(
+  clientDir,
+  "../../../toolkit/src/context-ui",
+);
 
 function walk(dir: string, out: string[] = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -41,7 +50,8 @@ function flattenMessages(value: unknown, prefix = "", out = new Set<string>()) {
   return out;
 }
 
-const englishKeys = flattenMessages(defaultEnglishMessages);
+const englishKeys = flattenMessages(coreMessagesForLocale("en-US"));
+flattenMessages(defaultEnglishMessages, "", englishKeys);
 
 function hasCatalogKey(key: string) {
   return (
@@ -61,14 +71,20 @@ describe("core i18n key coverage", () => {
     expect(defaultEnglishMessages.contextXray.snapshotsTitle).toBe("Snapshots");
   });
 
-  it("keeps literal useT keys covered by the default English catalog", () => {
+  it("keeps literal useT keys covered by the built-in English catalogs", () => {
     const missing: string[] = [];
 
-    for (const file of walk(clientDir)) {
+    for (const file of [
+      ...walk(clientDir),
+      ...walk(toolkitComposerDir),
+      ...walk(toolkitContextUiDir),
+    ]) {
       const source = fs.readFileSync(file, "utf8");
-      if (!source.includes("useT")) continue;
+      if (!source.includes("useT") && !source.includes("translate(")) continue;
 
-      for (const match of source.matchAll(/\bt\(\s*["']([^"']+)["']/g)) {
+      for (const match of source.matchAll(
+        /\b(?:t|translate)\(\s*["']([^"']+)["']/g,
+      )) {
         const key = match[1];
         if (!key || hasCatalogKey(key)) continue;
         missing.push(`${path.relative(clientDir, file)}: ${key}`);

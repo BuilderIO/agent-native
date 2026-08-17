@@ -24,7 +24,7 @@ export interface DownloadPdfArgs {
     iframe: HTMLIFrameElement;
   };
   setPngExporting: Dispatch<SetStateAction<boolean>>;
-  showPngCaptureError: (error: unknown) => void;
+  showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
   triggerBlobDownload: (blob: Blob, filename: string) => void;
 }
@@ -36,7 +36,7 @@ export async function runDownloadPdf(
     renderPngBlob,
     resolvePngCaptureTarget,
     setPngExporting,
-    showPngCaptureError,
+    showRasterCaptureError,
     t,
     triggerBlobDownload,
   }: DownloadPdfArgs,
@@ -93,9 +93,9 @@ export async function runDownloadPdf(
       height: pageHeight,
     });
     triggerBlobDownload(pdf, fallbackExportName("pdf", settings?.suffix));
-    toast.success(t("designEditor.toasts.pngDownloaded"));
+    toast.success(t("designEditor.toasts.pdfDownloaded"));
   } catch (error) {
-    showPngCaptureError(error);
+    showRasterCaptureError(error, "pdf");
   } finally {
     pngExportingRef.current = false;
     setPngExporting(false);

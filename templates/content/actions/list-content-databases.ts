@@ -1,20 +1,55 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
+import { documentDiscoveryPagination } from "./_document-discovery-query.js";
+
+const DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT = 50;
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+export class ContentDatabaseResolutionError extends Error {}
+
 export default defineAction({
   description:
-    "List the content databases the user can access (owned, shared, or org-shared — matching the sidebar) so any of them can be used as a local-table source. Optionally filters by title or excludes one database (e.g. the one being configured).",
+    "Discover one bounded page of ordinary Content databases the user can access from their live title and user-authored description. Returns stable database, document, and space IDs with explicit pagination; follow nextOffset until hasMore is false. Use exact filters before reading a selected database's schema.",
   schema: z.object({
+    spaceId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exact Content space ID to search within."),
+    databaseId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exact Content database ID to resolve."),
+    documentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exact Content database document/page ID to resolve."),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Exact live database title to resolve, case-insensitively."),
     excludeDatabaseId: z
       .string()
       .optional()
@@ -23,63 +58,43 @@ export default defineAction({
       .array(z.string())
       .optional()
       .describe("Database ids to omit from the results."),
-    query: z.string().optional().describe("Optional title search text."),
+    query: z
+      .string()
+      .optional()
+      .describe("Optional title or user-authored description search text."),
     limit: z.coerce
       .number()
       .int()
       .min(1)
       .max(50)
-      .optional()
-      .describe("Maximum number of databases to return."),
+      .default(DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT)
+      .describe("Maximum number of databases to return. Defaults to 50."),
+    offset: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe("Zero-based continuation offset."),
   }),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args): Promise<ListContentDatabasesResponse> => {
     const db = getDb();
     const query = args.query?.trim();
     const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;
+    const exactTitle = args.title?.toLowerCase();
+    const resolvesExactly = !!(
+      args.databaseId ||
+      args.documentId ||
+      exactTitle
+    );
     const excludedDatabaseIds = new Set(
       [
         args.excludeDatabaseId?.trim(),
         ...(args.excludeDatabaseIds ?? []).map((id) => id.trim()),
       ].filter((id): id is string => !!id),
     );
-    // The same access + discovery filter the sidebar uses, so the picker shows
-    // owned AND shared/org databases and never a trashed/hidden one.
-    const queryBuilder = db
-      .select({
-        id: schema.contentDatabases.id,
-        documentId: schema.contentDatabases.documentId,
-        title: schema.documents.title,
-      })
-      .from(schema.contentDatabases)
-      .innerJoin(
-        schema.documents,
-        eq(schema.contentDatabases.documentId, schema.documents.id),
-      )
-      .where(
-        and(
-          accessFilter(schema.documents, schema.documentShares),
-          isNull(schema.documents.trashedAt),
-          documentDiscoveryFilter(),
-          isNull(schema.contentDatabases.deletedAt),
-          excludedDatabaseIds.size === 1
-            ? ne(
-                schema.contentDatabases.id,
-                Array.from(excludedDatabaseIds)[0]!,
-              )
-            : undefined,
-          pattern
-            ? sql`lower(${schema.documents.title}) LIKE ${pattern} ESCAPE '\\'`
-            : undefined,
-        ),
-      )
-      .orderBy(asc(schema.documents.position));
-
-    const rows = args.limit
-      ? await queryBuilder.limit(args.limit)
-      : await queryBuilder;
-
     const localTableSources =
       excludedDatabaseIds.size > 0
         ? await db
@@ -90,39 +105,165 @@ export default defineAction({
             .from(schema.contentDatabaseSources)
             .where(eq(schema.contentDatabaseSources.sourceType, "local-table"))
         : [];
-    const localTableTargetByDatabaseId = new Map(
-      localTableSources.map((source) => [
-        source.databaseId,
-        source.sourceTable,
-      ]),
-    );
-    const sourceChainIncludesExcludedDatabase = (databaseId: string) => {
-      const seen = new Set<string>();
-      let current: string | undefined = databaseId;
-      while (current && !seen.has(current)) {
-        if (excludedDatabaseIds.has(current)) return true;
-        seen.add(current);
-        current = localTableTargetByDatabaseId.get(current);
+    const excludedDatabaseRows =
+      excludedDatabaseIds.size > 0
+        ? await db
+            .select({ id: schema.contentDatabases.id })
+            .from(schema.contentDatabases)
+            .innerJoin(
+              schema.documents,
+              eq(schema.contentDatabases.documentId, schema.documents.id),
+            )
+            .where(
+              and(
+                accessFilter(schema.documents, schema.documentShares),
+                or(
+                  inArray(
+                    schema.contentDatabases.id,
+                    Array.from(excludedDatabaseIds),
+                  ),
+                  inArray(
+                    schema.contentDatabases.documentId,
+                    Array.from(excludedDatabaseIds),
+                  ),
+                ),
+              ),
+            )
+        : [];
+    const excludedSourceChainDatabaseIds = new Set([
+      ...excludedDatabaseIds,
+      ...excludedDatabaseRows.map((row) => row.id),
+    ]);
+    let expandedSourceChain = true;
+    while (expandedSourceChain) {
+      expandedSourceChain = false;
+      for (const source of localTableSources) {
+        if (
+          excludedSourceChainDatabaseIds.has(source.sourceTable) &&
+          !excludedSourceChainDatabaseIds.has(source.databaseId)
+        ) {
+          excludedSourceChainDatabaseIds.add(source.databaseId);
+          expandedSourceChain = true;
+        }
       }
-      return false;
+    }
+
+    // The same access + discovery filter the sidebar uses, so the picker shows
+    // owned AND shared/org databases and never a trashed/hidden one. Resolve
+    // source-chain exclusions before limiting so every page is truthfully full.
+    const where = and(
+      accessFilter(schema.documents, schema.documentShares),
+      isNull(schema.documents.trashedAt),
+      documentDiscoveryFilter(),
+      or(
+        eq(schema.documents.hideFromSearch, 0),
+        isNull(schema.documents.hideFromSearch),
+      ),
+      isNull(schema.contentDatabases.deletedAt),
+      isNull(schema.contentDatabases.systemRole),
+      args.spaceId
+        ? eq(schema.contentDatabases.spaceId, args.spaceId)
+        : undefined,
+      args.databaseId
+        ? eq(schema.contentDatabases.id, args.databaseId)
+        : undefined,
+      args.documentId
+        ? eq(schema.contentDatabases.documentId, args.documentId)
+        : undefined,
+      exactTitle
+        ? sql`lower(${schema.documents.title}) = ${exactTitle}`
+        : undefined,
+      excludedSourceChainDatabaseIds.size > 0
+        ? notInArray(
+            schema.contentDatabases.id,
+            Array.from(excludedSourceChainDatabaseIds),
+          )
+        : undefined,
+      excludedDatabaseIds.size > 0
+        ? notInArray(
+            schema.contentDatabases.documentId,
+            Array.from(excludedDatabaseIds),
+          )
+        : undefined,
+      pattern
+        ? or(
+            sql`lower(${schema.documents.title}) LIKE ${pattern} ESCAPE '\\'`,
+            sql`lower(${schema.documents.description}) LIKE ${pattern} ESCAPE '\\'`,
+          )
+        : undefined,
+    );
+    const baseQuery = () =>
+      db
+        .select({
+          id: schema.contentDatabases.id,
+          documentId: schema.contentDatabases.documentId,
+          title: schema.documents.title,
+          description: schema.documents.description,
+          spaceId: schema.contentDatabases.spaceId,
+        })
+        .from(schema.contentDatabases)
+        .innerJoin(
+          schema.documents,
+          eq(schema.contentDatabases.documentId, schema.documents.id),
+        )
+        .where(where)
+        .orderBy(
+          asc(schema.documents.position),
+          asc(schema.contentDatabases.id),
+        );
+
+    // Two visible matches are sufficient to reject an exact selector without
+    // materializing every duplicate-title row.
+    const rows = resolvesExactly
+      ? await baseQuery().limit(2)
+      : await baseQuery().limit(args.limit).offset(args.offset);
+
+    if (resolvesExactly && rows.length !== 1) {
+      const selector = args.databaseId
+        ? `database ID "${args.databaseId}"`
+        : args.documentId
+          ? `document ID "${args.documentId}"`
+          : `title "${args.title?.trim()}"`;
+      throw new ContentDatabaseResolutionError(
+        rows.length === 0
+          ? `No accessible Content database matched exact ${selector}.`
+          : `Exact ${selector} is ambiguous across multiple accessible Content databases.`,
+      );
+    }
+
+    const databases = rows.map((row) => ({
+      databaseId: row.id,
+      documentId: row.documentId,
+      spaceId: row.spaceId,
+      // The document's live title (matches the sidebar) rather than the
+      // possibly-stale content_databases.title.
+      title: row.title ?? "Untitled database",
+      description: row.description,
+    }));
+
+    const totalItems = resolvesExactly
+      ? databases.length
+      : Number(
+          (
+            await db
+              .select({ count: sql<number>`count(*)` })
+              .from(schema.contentDatabases)
+              .innerJoin(
+                schema.documents,
+                eq(schema.contentDatabases.documentId, schema.documents.id),
+              )
+              .where(where)
+          )[0]?.count ?? 0,
+        );
+
+    return {
+      databases,
+      pagination: documentDiscoveryPagination({
+        offset: resolvesExactly ? 0 : args.offset,
+        limit: args.limit,
+        totalItems,
+        returnedItems: databases.length,
+      }),
     };
-
-    const databases = rows
-      // Exclusion ids may be database ids OR database document ids — the
-      // settings panel only has the document id before any source exists.
-      .filter(
-        (row) =>
-          !excludedDatabaseIds.has(row.documentId) &&
-          !sourceChainIncludesExcludedDatabase(row.id),
-      )
-      .map((row) => ({
-        databaseId: row.id,
-        documentId: row.documentId,
-        // The document's live title (matches the sidebar) rather than the
-        // possibly-stale content_databases.title.
-        title: row.title ?? "Untitled database",
-      }));
-
-    return { databases };
   },
 });

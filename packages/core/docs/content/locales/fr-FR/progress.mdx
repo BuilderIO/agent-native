@@ -233,7 +233,7 @@ Notifier me that run {{runId}} has failed.
 ## Comment ça marche {#internals}
 
 - **Portée du propriétaire** : chaque ligne comporte une colonne `owner` ; chaque requête filtre dessus. Les utilisateurs voient uniquement leurs propres courses.
-- **Intégration de sondage** — chaque mutation appelle `recordChange()` afin que les modèles utilisant [`useDbSync`](/docs/client) s'invalident automatiquement sans aucun câblage supplémentaire.
+- **Intégration de sondage** — chaque mutation appelle `recordChange()` afin que les modèles utilisant [`useDbSync`](/docs/client-data#usedbsync) s'invalident automatiquement sans aucun câblage supplémentaire.
 - **Nom de la table** — le framework dispose également d'une table `agent_runs` pour le suivi interne du cycle de vie des tours de discussion des agents. La primitive de progression utilise `progress_runs` pour séparer les deux préoccupations.
 - **Pourcentage de serrage** : les valeurs sont limitées à `[0, 100]` et arrondies à un nombre entier lors de l'écriture.
 
@@ -241,4 +241,4 @@ Notifier me that run {{runId}} has failed.
 
 - [**Notifications**](/docs/notifications) : associez-le à `manage-progress` (`action=complete`) pour indiquer à l'utilisateur la fin du travail
 - [**Automations**](/docs/automations) – fonctionnement lent du chien de garde via `run.progress.updated`
-- [**Client**](/docs/client) — `useDbSync` pour l'invalidation du cache en temps réel
+- [**Données et synchronisation**](/docs/client-data) — `useDbSync` pour l'invalidation du cache en temps réel

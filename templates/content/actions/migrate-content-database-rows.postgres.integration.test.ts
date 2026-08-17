@@ -30,6 +30,7 @@ let deleteContentDatabase: typeof import("./delete-content-database.js").default
 let restoreDocument: typeof import("./restore-document.js").default;
 let restoreContentDatabase: typeof import("./restore-content-database.js").default;
 let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
+let blocksFieldIdentity: typeof import("./_blocks-field-identity.js");
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -58,6 +59,7 @@ beforeAll(async () => {
     .default;
   permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
     .default;
+  blocksFieldIdentity = await import("./_blocks-field-identity.js");
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
@@ -196,6 +198,10 @@ async function fixture() {
 
 async function cleanupFixture(seed: Awaited<ReturnType<typeof fixture>>) {
   await getDb().transaction(async (tx: any) => {
+    await blocksFieldIdentity.deleteBlocksFieldIdentity({
+      db: tx,
+      documentId: seed.documentId,
+    });
     await tx
       .delete(schema.contentDatabaseMigrationReceipts)
       .where(
@@ -246,6 +252,85 @@ async function waitForPostgresLockWait(minimum: number) {
 const postgresSuite = POSTGRES_URL ? describe : describe.skip;
 
 postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
+  it("persists the same field identity and revision contract on PostgreSQL", async () => {
+    const seed = await fixture();
+    const propertyId = `blocks_${seed.documentId}`;
+    const now = new Date().toISOString();
+    try {
+      const first = await getDb().transaction((tx: any) =>
+        blocksFieldIdentity.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId: seed.documentId,
+          propertyId,
+          previousMarkdown: "# Before",
+          markdown: "Alpha\nBeta",
+          expectedRevision: 0,
+          now,
+        }),
+      );
+      const second = await getDb().transaction((tx: any) =>
+        blocksFieldIdentity.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId: seed.documentId,
+          propertyId,
+          previousMarkdown: "Alpha\nBeta",
+          markdown: "Beta\nAlpha edited",
+          expectedRevision: 1,
+          now: new Date().toISOString(),
+        }),
+      );
+
+      expect(second.revision).toBe(2);
+      expect(
+        second.blocks
+          .filter((block) => block.state === "live")
+          .map((block) => block.id),
+      ).toEqual([
+        first.blocks.find((block) => block.markdown === "Beta")?.id,
+        first.blocks.find((block) => block.markdown === "Alpha")?.id,
+      ]);
+      const reloaded = await blocksFieldIdentity.readBlocksFieldIdentity({
+        documentId: seed.documentId,
+        propertyId,
+        markdown: "Beta\nAlpha edited",
+      });
+      expect(reloaded.identityStatus).toBe("materialized");
+      expect(reloaded.revision).toBe(2);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
+  it("materializes distinct fields concurrently without global block-ID contention", async () => {
+    const seed = await fixture();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    try {
+      const states = await Promise.all(
+        ["first", "second"].map((suffix) =>
+          getDb().transaction((tx: any) =>
+            blocksFieldIdentity.persistBlocksFieldIdentity({
+              db: tx,
+              ownerEmail: OWNER,
+              documentId: seed.documentId,
+              propertyId: `${suffix}_${seed.documentId}`,
+              previousMarkdown: "",
+              markdown,
+              expectedRevision: 0,
+              now: new Date().toISOString(),
+            }),
+          ),
+        ),
+      );
+
+      expect(states).toHaveLength(2);
+      expect(states[0]?.blocks[0]?.id).not.toBe(states[1]?.blocks[0]?.id);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
   it("rejects stale plans before requesting an editor flush", async () => {
     const seed = await fixture();
     try {

@@ -36,8 +36,8 @@ describe("buildPrerenderPaths", () => {
   it("enumerates docs, locale docs, and static marketing pages", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/docs");
-    expect(paths).toContain("/docs/actions");
-    expect(paths).toContain("/ja-JP/docs/actions");
+    expect(paths).toContain("/docs/actions-overview");
+    expect(paths).toContain("/ja-JP/docs/actions-overview");
     expect(paths.every((page) => !isRedirectedDocsPath(page))).toBe(true);
   });
 

@@ -262,6 +262,44 @@ const messages = {
     passwordProtected: "このクリップはパスワードで保護されています",
     linkExpired: "リンクの有効期限が切れました",
     linkExpiredMessage: "作成者はこの共有リンクに有効期限を設定しました。",
+    privateClip: "非公開クリップ",
+    privateClipMessage:
+      "このクリップは非公開です。アクセスをリクエストすると、所有者に通知されます。",
+    privateClipSignedOutMessage:
+      "このクリップは非公開です。サインインするか、メールアドレスを入力してアクセスをリクエストしてください。",
+    requestAccess: "アクセスをリクエスト",
+    requestAccessDialogTitle: "アクセスをリクエスト",
+    requestAccessDialogDescription:
+      "このクリップを共有するときに、所有者があなたを確認する方法を選択してください。",
+    requestAccessSignIn: "サインインまたは登録",
+    requestAccessOr: "または",
+    requestAccessEmailLabel: "メールアドレス",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "アクセスが許可されたら、このメールアドレスでサインインしてクリップを表示します。",
+    requestAccessWithEmail: "メールでリクエスト",
+    requestAccessEmailRequired: "有効なメールアドレスを入力してください。",
+    requestingAccess: "アクセスをリクエスト中...",
+    accessRequested: "アクセスをリクエストしました",
+    accessRequestSent: "クリップの所有者に通知しました。",
+    accessRequestSentWithEmail:
+      "所有者に、このクリップを {{email}} と共有するよう依頼しました。",
+    accessRequestFailed:
+      "アクセスをリクエストできませんでした。もう一度お試しください。",
+    accessApprovalTitle: "アクセスを許可しました",
+    accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
+    accessApprovalMessage:
+      "{{email}} はこのクリップを閲覧できるようになりました。",
+    accessApprovalAlreadyMessage:
+      "{{email}} はすでにこのクリップにアクセスできます。",
+    accessApprovalErrorTitle: "アクセスを許可できませんでした",
+    accessApprovalInvalid: "このアクセスリクエストは無効か、期限切れです。",
+    accessApprovalSignInTitle: "アクセスを許可するにはサインインしてください",
+    accessApprovalSignInMessage:
+      "このリクエストを承認するには、クリップの所有者または管理者としてサインインしてください。",
+    accessApprovalOpenClip: "クリップを開く",
+    accessApprovalSignIn: "サインイン",
+    accessApprovalLoading: "アクセスを許可しています...",
     clipUnavailable: "クリップが使用できません",
     clipUnavailableMessage:
       "この録音は公開されていないか、リンクが無効です。自分のクリップの場合は、サインインしてアクセスを確認してください。",
@@ -515,10 +553,11 @@ const messages = {
     },
     roles: {
       viewer: "ビューア",
+      commenter: "コメント投稿者",
       editor: "エディタ",
       admin: "管理者",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "コメント投稿者",
       description: "視聴、コメント、リアクションができます",
     },
@@ -981,6 +1020,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     includeTranscriptDescription:
       "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
     transcriptUnavailable: "文字起こしはまだ準備できていません。",
+    agentLinkDescription:
+      "この一時リンクを使うと、会議メモを公開せずにエージェントが読めます。2時間後に期限切れになります。",
     transcript: "文字起こし",
     copyTranscript: "文字起こしをコピー",
     transcriptCopied: "文字起こしをコピーしました",
@@ -1006,8 +1047,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     pauseShortcut: "一時停止 (⌥⇧P)",
     stop: "録画を停止",
     elapsed: "経過時間",
-    cancel: "録画をキャンセル",
-    cancelShortcut: "キャンセル (⌥⇧C)",
+    cancel: "録画を破棄",
+    cancelShortcut: "破棄 (⌥⇧C)",
+    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmDescription:
+      "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
+    resume: "再開",
+    discardRecording: "録画を破棄",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",
@@ -1097,6 +1143,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     searchPrevMatch: "前の一致",
     searchNextMatch: "次の一致",
     searchClose: "検索を閉じる",
+  },
+  bulletLink: {
+    jumpToTranscript: "文字起こしの{{time}}にジャンプ",
+    noMatchingMoment: "一致する箇所が見つかりません",
   },
   editorLayout: {
     trimmed: "トリミングしました",
@@ -1560,6 +1610,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     transcriptPending: "Transcript pending (ローカライズ済み)",
     notesPending: "Notes pending (ローカライズ済み)",
     pastRecordings: "Past recordings (ローカライズ済み)",
+    loadOlder: "古いものを読み込む",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
@@ -1571,6 +1622,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarConnected: "Calendar connected (ローカライズ済み)",
     calendarDisconnected: "Calendar disconnected (ローカライズ済み)",
     calendarSettings: "Calendar settings (ローカライズ済み)",
+    calendarAccountsButton: "カレンダー",
+    connectedAccounts: "接続済みアカウント",
+    calendarConnectedLabel: "接続済み",
+    calendarNeedsReconnectLabel: "再接続が必要",
+    calendarDisconnectedLabel: "切断済み",
+    calendarStatusUnavailable: "ステータスを取得できません",
+    reconnectCalendar: "カレンダーを再接続",
+    addAnotherCalendarAccount: "別のアカウントを追加",
+    connectCalendar: "カレンダーを接続",
+    disconnectCalendarAccount: "アカウントを切断",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (ローカライズ済み)",
     disconnectGoogleCalendarTitle:

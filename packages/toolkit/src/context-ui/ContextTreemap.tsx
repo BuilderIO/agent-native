@@ -5,7 +5,9 @@ import { contextGroupFill, formatContextTokens } from "./format.js";
 import type {
   ContextSegmentViewData,
   ContextSystemSectionViewData,
+  ContextTranslate,
 } from "./types.js";
+import { fallbackContextTranslate } from "./types.js";
 
 interface TreemapDatum {
   name: string;
@@ -52,10 +54,12 @@ export function ContextTreemapView({
   segments,
   systemSections = [],
   onSelect,
+  translate = fallbackContextTranslate,
 }: {
   segments: ContextSegmentViewData[];
   systemSections?: ContextSystemSectionViewData[];
   onSelect?: (segmentId: string) => void;
+  translate?: ContextTranslate;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(0);
@@ -99,7 +103,9 @@ export function ContextTreemapView({
   if (data.length === 0) {
     return (
       <div className="flex h-52 items-center justify-center rounded-md bg-muted/30 text-xs text-muted-foreground">
-        No active segments
+        {translate("agentChat.contextXray.noActiveSegments", {
+          defaultValue: "No active segments",
+        })}
       </div>
     );
   }

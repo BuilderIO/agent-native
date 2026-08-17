@@ -19,22 +19,28 @@ const REQUIRED_CONTENT_ACTIONS = [
   "update-document",
   "move-document",
   "navigate",
+  "add-database-item",
+  "update-database-item",
   "upsert-database-item-by-key",
 ];
 
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
 
+async function loadContentActions() {
+  generateActionRegistryForProject(projectRoot);
+
+  const registryUrl =
+    pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
+      .href + `?cacheBust=${Date.now()}`;
+  const { default: modules } = await import(registryUrl);
+  return loadActionsFromStaticRegistry(modules);
+}
+
 describe("content agent card", () => {
   it(
     "advertises content domain actions from the generated static registry",
     async () => {
-      generateActionRegistryForProject(projectRoot);
-
-      const registryUrl =
-        pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
-          .href + `?cacheBust=${Date.now()}`;
-      const { default: modules } = await import(registryUrl);
-      const actions = loadActionsFromStaticRegistry(modules);
+      const actions = await loadContentActions();
       const card = generateAgentCard(
         {
           name: "Content",

@@ -43,7 +43,8 @@ describe("remote relay stores", () => {
   });
 
   it("stores only the remote device token hash on registration", async () => {
-    const { createRemoteDevice } = await loadDevicesStore();
+    const { authenticateRemoteDeviceToken, createRemoteDevice } =
+      await loadDevicesStore();
     let insertArgs: unknown[] = [];
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
@@ -71,6 +72,32 @@ describe("remote relay stores", () => {
                 device_token_hash: insertArgs[8],
                 last_seen_at: insertArgs[9],
                 status: insertArgs[10],
+                revoked_at: insertArgs[11],
+                created_at: insertArgs[12],
+                updated_at: insertArgs[13],
+              },
+            ],
+            rowsAffected: 0,
+          };
+        }
+        if (
+          sql.includes("SELECT * FROM integration_remote_devices") &&
+          sql.includes("WHERE device_token_hash = ?")
+        ) {
+          return {
+            rows: [
+              {
+                id: insertArgs[0],
+                owner_email: insertArgs[1],
+                org_id: insertArgs[2],
+                label: insertArgs[3],
+                platform: insertArgs[4],
+                app_version: insertArgs[5],
+                host_name: insertArgs[6],
+                metadata_json: insertArgs[7],
+                device_token_hash: insertArgs[8],
+                last_seen_at: insertArgs[9],
+                status: "active",
                 revoked_at: insertArgs[11],
                 created_at: insertArgs[12],
                 updated_at: insertArgs[13],
@@ -108,6 +135,9 @@ describe("remote relay stores", () => {
       expect.any(Number),
       expect.any(Number),
     ]);
+
+    const authenticated = await authenticateRemoteDeviceToken(token);
+    expect(authenticated?.id).toBe(device.id);
   });
 
   it("claims only pending commands for the polling device", async () => {

@@ -14,7 +14,7 @@ import {
 import type { ShareOrgMember } from "./share-controller-helpers.js";
 
 export type ShareVisibility = "private" | "org" | "public";
-export type ShareRole = "viewer" | "editor" | "admin";
+export type ShareRole = "viewer" | "commenter" | "editor" | "admin";
 export type ShareDialogTab = "link" | "invite" | "embed";
 
 export interface ResourceShare {
@@ -30,6 +30,7 @@ export interface ResourceSharesResponse {
   orgId: string | null;
   visibility: ShareVisibility | null;
   role?: "owner" | ShareRole;
+  agentReadable?: boolean;
   shares: ResourceShare[];
   policy?: { allowPublic: boolean; requireOrgMemberForUserShares?: boolean };
 }
@@ -84,6 +85,7 @@ export interface ShareDialogController {
     remove: string;
     noAccess: string;
     copy: string;
+    copied: string;
     embedUrl: string;
     embedCode: string;
   };
@@ -125,6 +127,7 @@ export interface ShareDialogController {
   error: unknown;
   refetch: () => unknown;
   canManage: boolean;
+  agentReadable: boolean;
 }
 
 export function useShareDialogController({
@@ -198,7 +201,7 @@ export function useShareDialogController({
   );
   const roleOptions = useMemo(
     () =>
-      (["viewer", "editor", "admin"] as const).map((value) =>
+      (["viewer", "commenter", "editor", "admin"] as const).map((value) =>
         roleOption(value, t),
       ),
     [t],
@@ -413,7 +416,6 @@ export function useShareDialogController({
       ...(hasLinkTab
         ? [{ value: "link" as const, label: t("share.link") }]
         : []),
-      { value: "invite", label: t("share.invite") },
       ...(hasEmbedTab
         ? [{ value: "embed" as const, label: t("share.embed") }]
         : []),
@@ -433,6 +435,7 @@ export function useShareDialogController({
       remove: t("share.remove"),
       noAccess: t("share.noAccess"),
       copy: t("share.copy"),
+      copied: t("share.copied"),
       embedUrl: t("share.embedUrl"),
       embedCode: t("share.embedCode"),
     },
@@ -474,6 +477,7 @@ export function useShareDialogController({
     error: sharesQuery.error ?? mutationError,
     refetch,
     canManage,
+    agentReadable: data?.agentReadable === true,
   };
 }
 
@@ -499,6 +503,7 @@ function roleOption(
 ): ShareOption<ShareRole> {
   const keys = {
     viewer: ["share.viewer", "share.viewerDescription"],
+    commenter: ["share.commenter", "share.commenterDescription"],
     editor: ["share.editor", "share.editorDescription"],
     admin: ["share.admin", "share.adminDescription"],
   } as const;

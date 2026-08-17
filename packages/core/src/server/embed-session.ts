@@ -9,6 +9,7 @@ import {
   setResponseHeader,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
@@ -82,8 +83,29 @@ export interface EmbedSessionTicket {
   expiresAt: number;
 }
 
+export type EmbedSessionTicketConsumeOutcome =
+  | "missing-ticket"
+  | "not-found"
+  | "already-consumed"
+  | "expired"
+  | "org-mismatch"
+  | "consumption-race"
+  | "invalid-row"
+  | "consumed";
+
+export interface EmbedSessionTicketConsumeDiagnostic {
+  outcome: EmbedSessionTicketConsumeOutcome;
+  ticketKey: string | null;
+  ticketRowFound: boolean;
+  consumed: boolean;
+  expired: boolean;
+  expectedOrgKey: string | null;
+  ticketOrgKey: string | null;
+}
+
 export interface ConsumeEmbedSessionTicketOptions {
   expectedOrgId?: string | null;
+  onResult?: (result: EmbedSessionTicketConsumeDiagnostic) => void;
 }
 
 export interface ConsumedEmbedSessionTicket {
@@ -223,6 +245,11 @@ function signPayload(payload: string): string {
 
 function hashTicket(ticket: string): string {
   return crypto.createHash("sha256").update(ticket).digest("hex");
+}
+
+function redactedIdentifier(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -602,9 +629,22 @@ export async function consumeEmbedSessionTicket(
   ticket: string | undefined | null,
   options: ConsumeEmbedSessionTicketOptions = {},
 ): Promise<ConsumedEmbedSessionTicket | null> {
-  if (!ticket) return null;
+  const expectedOrgKey = redactedIdentifier(options.expectedOrgId);
+  if (!ticket) {
+    options.onResult?.({
+      outcome: "missing-ticket",
+      ticketKey: null,
+      ticketRowFound: false,
+      consumed: false,
+      expired: false,
+      expectedOrgKey,
+      ticketOrgKey: null,
+    });
+    return null;
+  }
   await ensureTable();
   const ticketHash = hashTicket(ticket);
+  const ticketKey = ticketHash.slice(0, 12);
   const now = Date.now();
   const { rows } = await getDbExec().execute({
     sql:
@@ -612,14 +652,57 @@ export async function consumeEmbedSessionTicket(
       "FROM agent_native_embed_tickets WHERE ticket_hash = ?",
     args: [ticketHash],
   });
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    options.onResult?.({
+      outcome: "not-found",
+      ticketKey,
+      ticketRowFound: false,
+      consumed: false,
+      expired: false,
+      expectedOrgKey,
+      ticketOrgKey: null,
+    });
+    return null;
+  }
   const row: any = rows[0];
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
-  if (consumedAt != null) return null;
-  if (expiresAt != null && expiresAt < now) return null;
+  const ticketOrgKey = redactedIdentifier(orgId);
+  if (consumedAt != null) {
+    options.onResult?.({
+      outcome: "already-consumed",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: true,
+      expired: false,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
+  if (expiresAt != null && expiresAt < now) {
+    options.onResult?.({
+      outcome: "expired",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: true,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
   if (options.expectedOrgId && orgId && orgId !== options.expectedOrgId) {
+    options.onResult?.({
+      outcome: "org-mismatch",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
     return null;
   }
 
@@ -629,13 +712,45 @@ export async function consumeEmbedSessionTicket(
       "WHERE ticket_hash = ? AND consumed_at IS NULL",
     args: [now, ticketHash],
   });
-  if (result.rowsAffected === 0) return null;
+  if (result.rowsAffected === 0) {
+    options.onResult?.({
+      outcome: "consumption-race",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
 
   const targetPath = normalizeEmbedTargetPath(
     stringOrUndefined(row.target_path ?? row.targetPath),
   );
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
-  if (!targetPath || !ownerEmail || expiresAt == null) return null;
+  if (!targetPath || !ownerEmail || expiresAt == null) {
+    options.onResult?.({
+      outcome: "invalid-row",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: true,
+      expired: false,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
+
+  options.onResult?.({
+    outcome: "consumed",
+    ticketKey,
+    ticketRowFound: true,
+    consumed: true,
+    expired: false,
+    expectedOrgKey,
+    ticketOrgKey,
+  });
 
   return {
     ownerEmail,
@@ -721,7 +836,7 @@ function isHttpsRequest(event: H3Event): boolean {
     }
     const url = event.url?.toString?.() ?? "";
     if (url.startsWith("https://")) return true;
-    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    const appUrl = getAppConfig().app.url ?? "";
     if (appUrl.startsWith("https://")) return true;
   } catch {
     // ignore

@@ -2,14 +2,13 @@ import type {
   AgentNativeConfig,
   AgentNativeFirstRunOnboardingMode,
 } from "../../config.js";
+import { injectedAgentNativeConfig } from "../app-config.js";
 
 const FIRST_RUN_ONBOARDING_ENV_KEY = "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING";
 const FIRST_RUN_ONBOARDING_SKIP_INTEGRATIONS_ENV_KEY =
   "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING_SKIP_INTEGRATIONS";
 
 type FirstRunOnboardingEnv = Record<string, string | boolean | undefined>;
-
-declare const __AGENT_NATIVE_APP_CONFIG__: AgentNativeConfig | undefined;
 
 function isEnabled(value: string | boolean | undefined): boolean {
   return (
@@ -55,10 +54,4 @@ export function resolveFirstRunOnboardingMode(
       : configured;
   }
   return "off";
-}
-
-function injectedAgentNativeConfig(): AgentNativeConfig {
-  return typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
-    ? {}
-    : __AGENT_NATIVE_APP_CONFIG__;
 }

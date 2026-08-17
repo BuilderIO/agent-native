@@ -233,7 +233,7 @@ mode: agentic
 ## 它是如何工作的 {#internals}
 
 - **所有者范围** — 每行都有一个 `owner` 列；每个查询都会对其进行过滤。用户只能看到自己的跑步。
-- **轮询集成** - 每个突变都会调用 `recordChange()`，因此使用 [`useDbSync`](/docs/client) 的模板会自动失效，无需任何额外的接线。
+- **轮询集成** - 每个突变都会调用 `recordChange()`，因此使用 [`useDbSync`](/docs/client-data#usedbsync) 的模板会自动失效，无需任何额外的接线。
 - **表名称** — 该框架还有一个 `agent_runs` 表，用于内部代理聊天回合生命周期跟踪。进度原语使用 `progress_runs` 将两个关注点分开。
 - **百分比限制** — 值被限制为 `[0, 100]` 并在写入时四舍五入为整数。
 
@@ -241,4 +241,4 @@ mode: agentic
 
 - [**Notifications**](/docs/notifications) — 与 `manage-progress` (`action=complete`) 配对，告诉用户工作何时完成
 - [**Automations**](/docs/automations) — 看门狗通过 `run.progress.updated` 缓慢运行
-- [**Client**](/docs/client) — `useDbSync` 用于实时缓存失效
+- [**数据与同步**](/docs/client-data) — `useDbSync` 用于实时缓存失效

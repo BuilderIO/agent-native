@@ -520,20 +520,18 @@ function ResultCard({
         selected ? "bg-accent/70" : "hover:bg-muted/50",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">
-            {title}
-          </div>
-        </div>
-        <Badge variant="outline" className="shrink-0">
+      <div className="truncate text-sm font-medium text-foreground">
+        {title}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+        <span>
           {result.messageCount}{" "}
           {result.messageCount === 1 ? "message" : "messages"}
-        </Badge>
-      </div>
-      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        </span>
+        <span aria-hidden="true">·</span>
         <span className="min-w-0 truncate">{result.ownerEmail}</span>
-        <span className="shrink-0">{formatRelativeDate(result.updatedAt)}</span>
+        <span aria-hidden="true">·</span>
+        <span>{formatRelativeDate(result.updatedAt)}</span>
       </div>
     </button>
   );
@@ -1621,31 +1619,6 @@ export default function ThreadDebugRoute() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {failures.length} loaded{" "}
-                  {failures.length === 1 ? "run" : "runs"}
-                </span>
-                <span>·</span>
-                <span>
-                  {failuresData?.access?.scope ??
-                    t("dispatch.pages.threadDebugCurrentScope", {
-                      defaultValue: "current scope",
-                    })}
-                </span>
-                {failurePatterns.slice(0, 3).map((pattern) => (
-                  <Badge key={pattern.label} variant="outline">
-                    {pattern.count} {pattern.label}
-                  </Badge>
-                ))}
-                {failuresData?.partial ? (
-                  <Badge variant="outline">
-                    {t("dispatch.pages.threadDebugPartialResults", {
-                      defaultValue: "Partial results",
-                    })}
-                  </Badge>
-                ) : null}
-              </div>
               {unavailableFailureSources.length > 0 ? (
                 <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
                   <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -1660,6 +1633,15 @@ export default function ThreadDebugRoute() {
                       )
                       .join(", ")}
                   </span>
+                </div>
+              ) : null}
+              {failuresData?.partial ? (
+                <div className="mt-2">
+                  <Badge variant="outline">
+                    {t("dispatch.pages.threadDebugPartialResults", {
+                      defaultValue: "Partial results",
+                    })}
+                  </Badge>
                 </div>
               ) : null}
             </section>

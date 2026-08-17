@@ -237,7 +237,7 @@ conversation itself belongs in the AgentSidebar composer.
 
 When the same route is embedded as an MCP App, submitted
 `sendToAgentChat()` calls are forwarded to the host chat where supported; see
-[Client](/docs/client#sendtoagentchat) for the MCP App bridge behavior.
+[Agent Chat](/docs/client-agent-chat#sendtoagentchat) for the MCP App bridge behavior.
 
 If you want a loading state, use the `useSendToAgentChat()` hook — it returns both `send` and `isGenerating`:
 
@@ -294,7 +294,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-Type-safe arguments come from the zod schema in your `defineAction()`. See [Actions](/docs/actions) for the full action system.
+Type-safe arguments come from the zod schema in your `defineAction()`. See [Actions](/docs/actions-overview) for the full action system.
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -352,7 +352,7 @@ The user sees a chat button in the header, can open it, and can talk to the agen
 
 ## What's next
 
-- [**Actions**](/docs/actions) — `defineAction()` and `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` and `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selection, navigation, view-screen
 - [**Agent Resources**](/docs/agent-resources) — what the Resources tab contains (skills, memory, MCP servers, scheduled jobs)
 - [**Voice Input**](/docs/voice-input) — the microphone in the chat composer

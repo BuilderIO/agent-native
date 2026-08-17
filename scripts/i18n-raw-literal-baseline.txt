@@ -5,7 +5,12 @@ packages/docs/app/components/blocks/badge.tsx|A small status/label chip for the 
 packages/docs/app/components/blocks/banner.tsx|A compact, full-width, single-line announcement strip for the top of a page or section — beta, deprecated, moved. Tones: info, decision, risk, warning, success.
 packages/docs/app/components/blocks/cards.tsx|Feature name
 packages/docs/app/components/blocks/comparison.tsx|A side-by-side comparison of two to four options, e.g. Before/After or Option A/Option B.
+packages/docs/app/components/blocks/image.tsx|An image, full width or aligned left/right with paired markdown text, an optional caption, and a hover-to-expand popup.
+packages/docs/app/components/blocks/media-layout.tsx|Close preview
+packages/docs/app/components/blocks/media-layout.tsx|Media preview
 packages/docs/app/components/blocks/notice.tsx|A bold, filled alert card with an icon and optional title, for something a reader must not skim past. Tones: info, decision, risk, warning, success.
+packages/docs/app/components/blocks/signature.tsx|Describe the parameter.
+packages/docs/app/components/blocks/signature.tsx|Function signature
 packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
 packages/docs/app/components/blocks/steps.tsx|Step title
 packages/docs/app/components/docBlocks.tsx|| Extract

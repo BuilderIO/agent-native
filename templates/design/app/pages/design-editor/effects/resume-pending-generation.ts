@@ -99,8 +99,14 @@ export function runResumePendingGeneration({
   let cancelled = false;
   void (async () => {
     const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+    // A reference screenshot already answers the questions the intake flow
+    // asks. Spending the one turn that can see the image on a questionnaire
+    // means the turn that writes HTML never sees it.
+    const hasReferenceImages = images.length > 0;
     const shouldSkipQuestions =
-      pending.skipQuestions === true || shouldExploreVariants;
+      pending.skipQuestions === true ||
+      shouldExploreVariants ||
+      hasReferenceImages;
     const designSystemContext = await loadDesignSystemGenerationContext(
       pendingDesignSystemId,
     );
@@ -125,8 +131,16 @@ export function runResumePendingGeneration({
         : shouldExploreVariants
           ? designVariantGenerationDirectives(id, pendingDesignSystemId)
           : shouldSkipQuestions
-            ? designGenerationDirectives(id, pendingDesignSystemId)
-            : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
+            ? designGenerationDirectives(
+                id,
+                pendingDesignSystemId,
+                images.length,
+              )
+            : designIntakeQuestionDirectives(
+                id,
+                pendingDesignSystemId,
+                images.length,
+              )),
     ].join("\n");
 
     clearGenerationCompleteTimer();

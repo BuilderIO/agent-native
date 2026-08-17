@@ -87,6 +87,10 @@ const ALLOWLIST_EXACT = new Set([
   // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
+  // Public deployment identity/configuration. These select the app origin and
+  // explicitly registered SSO clients; they are not user credentials.
+  "APP_URL",
+  "IDENTITY_SSO_APP_REGISTRY_JSON",
   // Notion OAuth app configuration. These identify the app itself; unlike
   // NOTION_API_KEY, they do not grant access to a user's workspace content.
   "NOTION_CLIENT_ID",

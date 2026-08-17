@@ -23,7 +23,7 @@ export interface DownloadAllScreensPdfArgs {
   overviewScreens: OverviewScreen[];
   pngExportingRef: RefObject<boolean>;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
-  showPngCaptureError: (error: unknown) => void;
+  showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
   triggerBlobDownload: (blob: Blob, filename: string) => void;
 }
@@ -36,7 +36,7 @@ export async function runDownloadAllScreensPdf({
   overviewScreens,
   pngExportingRef,
   setPngExporting,
-  showPngCaptureError,
+  showRasterCaptureError,
   t,
   triggerBlobDownload,
 }: DownloadAllScreensPdfArgs) {
@@ -108,7 +108,7 @@ export async function runDownloadAllScreensPdf({
     triggerBlobDownload(pdf, fallbackExportName("pdf", "all-screens"));
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
   } catch (error) {
-    showPngCaptureError(error);
+    showRasterCaptureError(error, "pdf");
   } finally {
     pngExportingRef.current = false;
     setPngExporting(false);

@@ -102,8 +102,8 @@ describe("desktop passive-access regressions", () => {
     expect(runDetail).not.toContain("code-agents-session-details");
     expect(runDetail).not.toContain("TokenUsageMeter");
     expect(runDetail).not.toContain("Open Task workspace");
-    expect(agent).toContain('code-agents-rail-label">Chats');
-    expect(agent).not.toContain('code-agents-rail-label">Tasks');
+    expect(agent).toContain("<ChatFirstChatHistory");
+    expect(agent).toContain("chatFirstNavigation?.onOpenChats");
   });
 
   it("retries a missing-provider chat after Builder connects", () => {
@@ -111,13 +111,13 @@ describe("desktop passive-access regressions", () => {
     const connectFlow = between(
       agent,
       "const connectBuilderProvider = useCallback(async () =>",
-      "useEffect(() => {\n    if (!isActive || !host.getRemoteConnectorStatus)",
+      "  const connectLocalRuntime = useCallback(",
     );
 
     expect(connectFlow).toContain('modelSelection.model === "auto"');
     expect(connectFlow).toContain("hasMissingCredentialSignal(");
     expect(connectFlow).toContain("await host.retryRun({");
-    expect(connectFlow).toContain("setSelectedRunId(retryResult.run.id)");
+    expect(connectFlow).toContain("selectRun(retryResult.run.id)");
     expect(agent).toContain(
       "const hasCredentialGap = providerBlocked && hasCredentialHistory",
     );
@@ -190,6 +190,33 @@ describe("desktop passive-access regressions", () => {
     expect(runner).toContain('phase: "missing-credentials"');
   });
 
+  it("starts empty desktop app creation from the framework workspace", () => {
+    const main = source("./index.ts");
+    const repository = between(
+      main,
+      "function resolveRepositoryRoot(",
+      "function touchCodeAgentRunRecord(",
+    );
+    const creation = between(
+      main,
+      "async function createDesktopAppFromPrompt(",
+      "const lastDesktopAppRuntimeStatus",
+    );
+
+    expect(repository).toContain(
+      'IS_DEV ? path.resolve(__dirname, "../../../..") : undefined',
+    );
+    expect(creation).toContain(
+      "const appCreationCwd = resolveRepositoryRoot(appsRoot);",
+    );
+    expect(creation).toContain("cwd: appCreationCwd");
+    expect(creation).toContain(
+      "const requestedName = requestedDesktopAppName(prompt);",
+    );
+    expect(creation).toContain("requestedName ??");
+    expect(main).toContain("includeWorkspaceApps: !isDesktopAppCreation");
+  });
+
   it("only marks the local Codex provider configured after authentication", () => {
     const main = source("./index.ts");
     const providerStatus = between(
@@ -211,5 +238,25 @@ describe("desktop passive-access regressions", () => {
     expect(modelList).toContain('statusLabel: "ChatGPT subscription"');
     expect(modelList).toContain('statusLabel: "Claude subscription"');
     expect(modelList).not.toContain('engine: "auto"');
+  });
+
+  it("closes both desktop bridges during update preparation and quit", () => {
+    const main = source("./index.ts");
+    const closeLifecycle = between(
+      main,
+      "async function closeDesktopComputerMcpBridge(): Promise<void> {",
+      "function isShellIdentityIpc(",
+    );
+
+    expect(closeLifecycle).toContain("if (computerBridge)");
+    expect(closeLifecycle).toContain("computerBridge.close()");
+    expect(closeLifecycle).toContain("if (browserBridge)");
+    expect(closeLifecycle).toContain("browserBridge.close()");
+    expect(closeLifecycle).toContain("Promise.allSettled(closePromises)");
+    expect(closeLifecycle).not.toContain("} else {");
+    expect(closeLifecycle).toContain(
+      "prepareForUpdate: closeDesktopComputerMcpBridge",
+    );
+    expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
   });
 });

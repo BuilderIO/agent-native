@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -589,11 +590,8 @@ export function resolveRunSoftTimeoutMs(
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return clampHosted(Math.max(0, overrideMs));
   }
-  const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
-  }
+  const configured = getAppConfig().agent.runSoftTimeoutMs;
+  if (configured !== undefined) return clampHosted(configured);
   // A background-function run uses the full background budget by default; the
   // foreground default (40s) is unchanged.
   if (background) {
@@ -605,21 +603,17 @@ export function resolveRunSoftTimeoutMs(
 }
 
 export function resolveCompletedRunRetentionMs(): number {
-  const envValue = process.env.AGENT_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_COMPLETED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.completedRunRetentionMs ??
+    DEFAULT_COMPLETED_RUN_RETENTION_MS
+  );
 }
 
 export function resolveErroredRunRetentionMs(): number {
-  const envValue = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_ERRORED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.erroredRunRetentionMs ??
+    DEFAULT_ERRORED_RUN_RETENTION_MS
+  );
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -675,6 +669,13 @@ function terminalReasonForRun(
   abortReason: string | undefined,
   completionError: unknown,
 ): string {
+  if (
+    finalStatus !== "aborted" &&
+    completionError &&
+    terminalEvent?.type === "auto_continue"
+  ) {
+    return "completion_error";
+  }
   if (terminalEvent?.type === "auto_continue") {
     return terminalEvent.reason || "auto_continue";
   }
@@ -1238,12 +1239,15 @@ export function startRun(
   // false-stale-reap zombie scenario where the reaper flipped the row while
   // this isolate was briefly unable to heartbeat (DB latency / GC pause).
   let lastAbortCheck = Date.now() - 3000;
-  // A read failure here used to be indistinguishable from "not aborted" —
-  // exactly the coerced-to-false pattern that lets a real Stop go unseen for
-  // the rest of the run. Count consecutive failures like the heartbeat-write
-  // handler above; past the same threshold, fail closed (self-abort with a
-  // reason outside TURN_ENDING_ABORT_REASONS/RECOVERABLE_ABORT_REASONS, so it
-  // surfaces as a typed error) instead of silently retrying forever.
+  // A read failure here is not "not aborted" — but it is not grounds to kill
+  // the run either. This check is only a cross-isolate backstop: the outage
+  // that hides a Stop from us hides it from every other reader too, so
+  // self-aborting delivers nobody's Stop any sooner while destroying in-flight
+  // work in the far more common case where nobody pressed Stop at all. Fail
+  // open and stay bounded by the soft timeout, no-progress backstop, and
+  // iteration/token limits — none of which touch the DB. Report the outage to
+  // Sentry (once at the threshold, then ~once a minute) so a long unreadable
+  // window is visible and its duration is queryable instead of silent.
   let consecutiveAbortCheckFailures = 0;
   const checkSqlAbort = () => {
     const now = Date.now();
@@ -1270,7 +1274,11 @@ export function startRun(
       })
       .catch((error) => {
         consecutiveAbortCheckFailures += 1;
-        if (consecutiveAbortCheckFailures >= 3) {
+        // 3 ticks ≈ 9s of unreadability, then every 20 ticks ≈ 60s.
+        if (
+          consecutiveAbortCheckFailures === 3 ||
+          consecutiveAbortCheckFailures % 20 === 0
+        ) {
           captureError(error, {
             route: "/_agent-native/agent-chat",
             tags: {
@@ -1279,11 +1287,12 @@ export function startRun(
               consecutiveFailures: String(consecutiveAbortCheckFailures),
             },
             aiTraceId: runId,
-            extra: { runId, threadId },
+            extra: {
+              runId,
+              threadId,
+              unreadableForMs: consecutiveAbortCheckFailures * 3000,
+            },
           });
-          if (!abort.signal.aborted) {
-            abortInMemoryRun(run, "abort_check_unavailable");
-          }
         }
       });
   };
@@ -1633,13 +1642,18 @@ export function startRun(
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"
               ? terminalEventForCompletion.event
-              : terminalEventForCompletion?.event.type === "auto_continue"
+              : terminalEventForCompletion?.event.type === "auto_continue" &&
+                  run.continuationTerminalEvent
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
                   // is recoverable: the partial turn is in agent_run_events and
-                  // the continuation run will re-attempt the thread_data save.
+                  // the handed-off continuation run will re-attempt the
+                  // thread_data save.
                   // Even though the completion save failed (finalStatus stays
                   // "errored" for SQL/diagnostics), re-emit the auto_continue so
-                  // the client resumes instead of seeing a dead chat.
+                  // the client resumes instead of seeing a dead chat. A
+                  // pending auto_continue without this handoff marker is not
+                  // recoverable: advertising it makes the client poll a dead
+                  // run until it reports background_run_lost.
                   terminalEventForCompletion.event
                 : {
                     type: "error",

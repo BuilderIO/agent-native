@@ -10,19 +10,23 @@
  *      identity assertion server-to-server.
  *
  * The browser never receives a JWT, password, or reusable identity assertion.
- * The default-off Desktop flag still gates only the packaged Canary path;
- * ordinary browser federation remains controlled by the client's explicit
+ * The device-local Desktop setting controls whether the parent login surface
+ * appears. The per-user Desktop flag still gates session fan-out; ordinary
+ * browser federation remains controlled by the client's explicit
  * identity-hub configuration.
  */
 
 import { signA2AToken } from "@agent-native/core/a2a";
 import {
-  getFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
-  normalizeFeatureFlagRules,
 } from "@agent-native/core/feature-flags";
 import { getOrgDomain } from "@agent-native/core/org";
-import { getH3App, getSession } from "@agent-native/core/server";
+import {
+  getH3App,
+  getSession,
+  hasGoogleAuthIdentity,
+} from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
 import type { H3Event } from "h3";
@@ -44,12 +48,12 @@ import {
 
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
-const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 
 export function isDesktopWorkspaceSsoRequest(
   userAgent: string | undefined,
 ): boolean {
-  return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+  return DESKTOP_SSO_USER_AGENT.test(userAgent ?? "");
 }
 
 function getRequestUrl(event: H3Event): string {
@@ -103,16 +107,8 @@ async function resolveOrgDomain(
 }
 
 export async function canAttemptWorkspaceSso(): Promise<boolean> {
-  const stored = await getFeatureFlagRules(
-    DESKTOP_WORKSPACE_SSO_FLAG.key,
-    {},
-  ).catch(() => null);
-  if (!stored) return false;
-  const rules = normalizeFeatureFlagRules(stored);
-  if (rules.mode === "off") return false;
-  if (rules.mode === "on") return true;
-  return (
-    rules.emails.length > 0 || rules.orgIds.length > 0 || rules.percentage > 0
+  return hasActiveFeatureFlagRollout(DESKTOP_WORKSPACE_SSO_FLAG.key).catch(
+    () => false,
   );
 }
 
@@ -333,6 +329,9 @@ export const tokenHandler = defineEventHandler(
       name: identity.name,
       orgDomain: identity.orgDomain,
     });
+    const identityAuthProvider = (await hasGoogleAuthIdentity(identity.email))
+      ? "google"
+      : undefined;
     let assertion: string;
     try {
       assertion = await signA2AToken(
@@ -346,6 +345,9 @@ export const tokenHandler = defineEventHandler(
           extraClaims: {
             email: claims.email,
             ...(claims.name ? { name: claims.name } : {}),
+            ...(identityAuthProvider
+              ? { identity_auth_provider: identityAuthProvider }
+              : {}),
             scope: IDENTITY_SCOPE,
             jti: identity.jti,
             redirect_uri: redirectUri,

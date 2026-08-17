@@ -27,6 +27,8 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -310,6 +312,7 @@ async function performActionFetch<T>(
   if (browserSessionId) {
     headers["X-Agent-Native-Session-Id"] = browserSessionId;
   }
+  headers[ANALYTICS_CLIENT_PLATFORM_HEADER] = getAnalyticsClientPlatform();
   const init: RequestInit = {
     method,
     headers,

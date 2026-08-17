@@ -9,7 +9,7 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Update a document comment. Resolving or reopening a comment applies to the full thread.",
+    "Update a document comment. Comment text supports inline Markdown without headings. Resolving or reopening a comment applies to the full thread.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
@@ -43,7 +43,7 @@ export default defineAction({
     ) {
       await assertAccess("document", comment.documentId, "editor");
     } else {
-      await assertAccess("document", comment.documentId, "viewer");
+      await assertAccess("document", comment.documentId, "commenter");
     }
 
     const updatedAt = new Date().toISOString();

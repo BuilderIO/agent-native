@@ -406,7 +406,7 @@ Tres cosas a tener en cuenta:
 
 - **Desactivar la caché no hace que el SSR se personalice.** Las cookies se siguen eliminando antes de renderizar y los loaders SSR siguen viendo la rama anónima. Los datos por usuario deben seguir resolviéndose en el cliente. Esta variable controla únicamente la _duración_ de la caché.
 - **Es una configuración de toda la implementación, no por ruta, por diseño.** Una anulación de caché por ruta o por solicitud es la forma en que la carga útil de un visitante termina en la entrada de CDN compartida de otro visitante, así que el framework no ofrece una — `guard:ssr-cache-shell` lo garantiza.
-- **Para datos frescos tras una mutación, prefiere las actions en lugar de desactivar la caché.** Los datos de la aplicación pertenecen a [Actions](/docs/actions), se leen desde el cliente con `useActionQuery` / `useActionMutation` y se mantienen actualizados mediante el polling de `useDbSync()`; nada de eso pasa por la caché de la shell SSR. Mantén los loaders SSR renderizando la shell pública, y recurre a esta variable solo cuando realmente quieras que los datos del loader estén más frescos.
+- **Para datos frescos tras una mutación, prefiere las actions en lugar de desactivar la caché.** Los datos de la aplicación pertenecen a [Actions](/docs/actions-overview), se leen desde el cliente con `useActionQuery` / `useActionMutation` y se mantienen actualizados mediante el polling de `useDbSync()`; nada de eso pasa por la caché de la shell SSR. Mantén los loaders SSR renderizando la shell pública, y recurre a esta variable solo cuando realmente quieras que los datos del loader estén más frescos.
 
 ## Variables de entorno {#environment-variables}
 

@@ -31,6 +31,7 @@ import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
 import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
 import {
   makeSeekable,
   normalizeTimelineToMp4,
@@ -144,7 +145,7 @@ export async function fetchProviderBytes(
  * Ensure a single recording's stored media is seekable. Owner-scoped: pass the
  * resolved owner email so the DB lookup can only touch that owner's rows.
  */
-export async function ensureRecordingSeekable(params: {
+async function ensureRecordingSeekableInternal(params: {
   recordingId: string;
   ownerEmail: string;
   force?: boolean;
@@ -281,6 +282,7 @@ export async function ensureRecordingSeekable(params: {
       videoUrl: upload.url,
       videoFormat: outputFormat,
       videoSizeBytes: seekable.bytes.byteLength,
+      mediaUpdatedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -339,4 +341,22 @@ export async function ensureRecordingSeekable(params: {
     changed: true,
     videoUrl: upload.url,
   };
+}
+
+export async function ensureRecordingSeekable(params: {
+  recordingId: string;
+  ownerEmail: string;
+  force?: boolean;
+  normalizeTimeline?: boolean;
+}): Promise<EnsureSeekableResult> {
+  const result = await ensureRecordingSeekableInternal(params);
+  if (result.changed || result.status === "already-optimized") {
+    await clearSeekableRepairPending(params.recordingId).catch((err) => {
+      console.warn("[ensure-seekable-video] failed to clear pending marker", {
+        recordingId: params.recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+  return result;
 }

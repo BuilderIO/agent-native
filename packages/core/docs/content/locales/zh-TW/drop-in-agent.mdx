@@ -228,7 +228,7 @@ sendToAgentChat({
 
 當嵌入相同的路由作為 MCP App 時，提交
 `sendToAgentChat()` 呼叫將轉發至支援的聊天主機；參見
-[Client](/docs/client#sendtoagentchat) 用於 MCP 應用橋接行為。
+[Agent 聊天](/docs/client-agent-chat#sendtoagentchat) 用於 MCP 應用橋接行為。
 
 如果您想要載入狀態，請使用 `useSendToAgentChat()` 鉤子 - 它返回 `send` 和 `isGenerating`：
 
@@ -279,7 +279,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-型別安全參數來自 `defineAction()` 中的 zod 模式。完整的動作系統請參見 [Actions](/docs/actions)。
+型別安全參數來自 `defineAction()` 中的 zod 模式。完整的動作系統請參見 [Actions](/docs/actions-overview)。
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## 下一步是什麼
 
-- [**Actions**](/docs/actions) — `defineAction()` 和 `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` 和 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 選取、導覽、檢視螢幕
 - [**代理資源**](/docs/agent-resources) —“代理資源”分頁包含的內容（skills、記憶、MCP 伺服器、計畫作業）
 - [**Voice Input**](/docs/voice-input) — 聊天編輯器中的麥克風

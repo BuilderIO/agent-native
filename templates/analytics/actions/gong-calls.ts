@@ -583,6 +583,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args, ctx) => {
     const requestOptions = ctx?.signal ? { signal: ctx.signal } : undefined;
     if (args.users) {

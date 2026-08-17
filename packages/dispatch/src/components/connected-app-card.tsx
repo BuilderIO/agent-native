@@ -31,7 +31,6 @@ export function ConnectedAppCard({
           campaign: "product",
           content: "dispatch_app",
         })}
-        target="_blank"
         rel="noopener noreferrer"
         showNewTabOption
       />

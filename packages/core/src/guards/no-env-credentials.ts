@@ -63,6 +63,10 @@ const ALLOWLIST_EXACT = new Set([
   "AWS_LAMBDA_FUNCTION_NAME",
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
+  // Public deployment identity/configuration. These select the app origin and
+  // explicitly registered SSO clients; they are not user credentials.
+  "APP_URL",
+  "IDENTITY_SSO_APP_REGISTRY_JSON",
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
   "NOTION_STATE_SECRET",

@@ -44,6 +44,9 @@ describe("ChatFirstPrimaryNavigation", () => {
     expect(activeTab?.textContent).toContain("Integrations");
     expect(activeTab?.className).toContain("bg-sidebar-accent");
     expect(activeTab?.className).not.toContain("border-sidebar-foreground/45");
+    expect(
+      container.querySelector('[role="tab"][aria-selected="false"]')?.className,
+    ).toContain("code-agents-primary-new-chat");
     const searchButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent?.includes("Search"),
     );
@@ -79,5 +82,76 @@ describe("ChatFirstPrimaryNavigation", () => {
     expect(handlers.integrations).toHaveBeenCalledOnce();
     expect(handlers.scheduled).toHaveBeenCalledOnce();
     expect(handlers.search).toHaveBeenCalledOnce();
+  });
+
+  it("can keep New chat in a sticky shell above the scrolling navigation", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+          stickyNewChat
+        />,
+      );
+    });
+
+    const shell = container.querySelector(
+      ".code-agents-primary-new-chat-shell",
+    );
+    expect(shell).not.toBeNull();
+    expect(shell?.textContent).toContain("New chat");
+    expect(
+      container.querySelector('[role="tablist"]')?.textContent,
+    ).not.toContain("New chat");
+    expect(container.querySelector(".code-agents-nav-list")).not.toBeNull();
+  });
+
+  it("keeps collapsed New chat icon-only with an accessible tooltip", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          collapsed
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          stickyNewChat
+        />,
+      );
+    });
+
+    const newChat = container.querySelector<HTMLButtonElement>(
+      ".code-agents-primary-new-chat",
+    );
+    expect(newChat).not.toBeNull();
+    expect(newChat?.querySelector("span")?.className).toContain("sr-only");
+    expect(newChat?.getAttribute("aria-label")).toBe("New chat");
+    expect(newChat?.getAttribute("title")).toBe("New chat");
+  });
+
+  it("keeps every collapsed primary action icon-only and accessible", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          collapsed
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+        />,
+      );
+    });
+
+    for (const label of ["New chat", "Integrations", "Scheduled", "Search"]) {
+      const control = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+      expect(control).not.toBeNull();
+      expect(control?.getAttribute("title")).toBe(label);
+      expect(control?.className).toContain("justify-center");
+      expect(control?.className).toContain("px-0");
+      expect(control?.querySelector("span")?.className).toContain("sr-only");
+    }
   });
 });

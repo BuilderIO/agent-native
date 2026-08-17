@@ -7,12 +7,13 @@
  *
  *   - `identity_sso_flow_state` binds state to the exact app, client,
  *     authority, callback, and PKCE challenge. State is single-use.
- *   - `identity_sso_jti` remains a defence-in-depth replay guard for the
- *     server-to-server assertion. The assertion is never sent through the
- *     browser; the one-time authorization code is the only browser credential.
+ *   - `identity_sso_jti` is the legacy-named shared replay guard for short-lived
+ *     server-to-server assertions, including identity SSO and privileged A2A
+ *     mutations.
  *
- * Uses the same portable raw-SQL pattern as the other framework stores. DDL is
- * additive and lazy, and PostgreSQL creation goes through the DDL guard.
+ * Uses the same portable raw-SQL pattern as the other framework stores. Local
+ * development may initialize these tables lazily; production release
+ * migrations own their creation before serverless requests are served.
  */
 
 import { randomBytes } from "node:crypto";
@@ -22,12 +23,16 @@ import {
   intType,
   isConnectionError,
   isPostgres,
+  isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
+const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+export const CANONICAL_IDENTITY_SSO_HUB_URL =
+  "https://dispatch.agent-native.com";
 const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://analytics.agent-native.com",
   "https://assets.agent-native.com",
@@ -58,28 +63,70 @@ const CODE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
+const CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS = new Set(
+  [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].filter(
+    (origin) => origin !== CANONICAL_IDENTITY_SSO_HUB_URL,
+  ),
+);
+
 // ---------------------------------------------------------------------------
 // Feature switch — this module is intentionally dependency-light because the
 // auth guard and the route handler both import the same pure switch.
 // ---------------------------------------------------------------------------
 
+function configuredAppOrigin(): string | undefined {
+  for (const raw of [
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.VITE_APP_URL,
+    process.env.VITE_BETTER_AUTH_URL,
+    process.env.URL,
+    process.env.DEPLOY_PRIME_URL,
+    process.env.DEPLOY_URL,
+  ]) {
+    const value = raw?.trim();
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+    } catch (error) {
+      void error;
+    }
+  }
+  return undefined;
+}
+
 export function getIdentityHubUrl(): string | undefined {
   const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    if (
-      u.protocol !== "https:" &&
-      !(u.protocol === "http:" && LOCALHOST_HOSTS.has(u.hostname))
-    ) {
+  if (raw) {
+    try {
+      const u = new URL(raw);
+      if (
+        u.protocol !== "https:" &&
+        !(u.protocol === "http:" && LOCALHOST_HOSTS.has(u.hostname))
+      ) {
+        return undefined;
+      }
+      if (u.username || u.password || u.search || u.hash) return undefined;
+      return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
+    } catch (error) {
+      void error;
       return undefined;
     }
-    if (u.username || u.password || u.search || u.hash) return undefined;
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
-  } catch (error) {
-    void error;
-    return undefined;
   }
+
+  // Canonical hosted apps are all registered with Dispatch already. Keep
+  // self-hosted deployments opt-in, and never make Dispatch federate to itself.
+  const appOrigin = configuredAppOrigin();
+  return isCanonicalIdentitySsoClientOrigin(appOrigin)
+    ? CANONICAL_IDENTITY_SSO_HUB_URL
+    : undefined;
+}
+
+export function isIdentitySsoExplicitlyEnabled(): boolean {
+  return Boolean(
+    process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim() && getIdentityHubUrl(),
+  );
 }
 
 export function isIdentitySsoEnabled(): boolean {
@@ -90,6 +137,10 @@ export function isDesktopSsoCanaryUserAgent(
   userAgent: string | undefined,
 ): boolean {
   return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+}
+
+export function isDesktopSsoUserAgent(userAgent: string | undefined): boolean {
+  return DESKTOP_SSO_USER_AGENT.test(userAgent ?? "");
 }
 
 export function isCanonicalAgentNativeAppOrigin(
@@ -113,6 +164,12 @@ export function isCanonicalAgentNativeAppOrigin(
   }
 }
 
+export function isCanonicalIdentitySsoClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
+}
+
 export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
@@ -121,12 +178,27 @@ export function isCanonicalAgentNativeAppRequest(
   return isCanonicalAgentNativeAppOrigin(`https://${host}`);
 }
 
+export function isCanonicalIdentitySsoClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  if (!host || forwardedProtocol !== "https") return false;
+  return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
+}
+
 /**
  * The conditional login entry is the only browser UI this feature adds. It
- * stays byte-for-byte absent when the direct web federation env is unset.
+ * stays byte-for-byte absent on canonical hosted apps, even though those
+ * origins may use the backend flow for packaged Desktop. Explicitly
+ * configured noncanonical deployments may opt in to the browser entry.
  */
 export function identitySsoLoginButtonHtml(): string {
-  if (!isIdentitySsoEnabled()) return "";
+  if (
+    isCanonicalIdentitySsoClientOrigin(configuredAppOrigin()) ||
+    !isIdentitySsoExplicitlyEnabled()
+  ) {
+    return "";
+  }
   return (
     `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
     `href="/_agent-native/identity/login" ` +
@@ -187,6 +259,9 @@ function buildIdentitySsoJtiCreateSql(): string {
 }
 
 async function ensureTable(): Promise<void> {
+  // Release migrations own schema in production serverless functions. A
+  // request must not turn a missing migration into request-time DDL.
+  if (isProductionServerlessFunctionRuntime()) return;
   if (!_initPromise) {
     _initPromise = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();
@@ -392,7 +467,9 @@ export async function consumeSsoState(
  * guarantee, and refusing a login is safer than accepting an unverifiable
  * replay boundary.
  */
-export async function isJtiReplayed(jti: string | undefined): Promise<boolean> {
+export async function consumeOneTimeJti(
+  jti: string | undefined,
+): Promise<boolean> {
   if (!jti) return true;
   try {
     await ensureTable();
@@ -422,3 +499,5 @@ export async function isJtiReplayed(jti: string | undefined): Promise<boolean> {
     return true;
   }
 }
+
+export const isJtiReplayed = consumeOneTimeJti;

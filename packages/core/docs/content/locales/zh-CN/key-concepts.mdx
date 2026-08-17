@@ -351,7 +351,7 @@ graph LR
 - **CLI：** `pnpm action fetch-data --source=signups`，用于脚本编写和代理开发循环。
 - **MCP 工具 / A2A 工具：** 当 MCP 服务器或 A2A 启用时，同一个 action 也会出现在那里。
 
-每一个消费者调用的都是同一个底层函数，因此只需要编写和维护一份实现。完整参考请见 [Actions](/docs/actions)。
+每一个消费者调用的都是同一个底层函数，因此只需要编写和维护一份实现。完整参考请见 [Actions](/docs/actions-overview)。
 
 ## 实时同步 {#polling-sync}
 
@@ -489,6 +489,10 @@ UI 会在路由变化时写入这条数据；代理在采取任何行动之前�
 ### [情境意识](/docs/context-awareness)
 
 深入介绍导航状态、view-screen 和 navigate 命令。
+
+### [同步内部机制](/docs/client-sync-internals)
+
+实时同步背后的变更版本机制，用于同步自定义的 `useQuery`。
 
 ### [Skills指南](/docs/skills-guide)
 

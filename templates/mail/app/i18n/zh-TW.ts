@@ -467,6 +467,10 @@ const messages = {
     when: "當",
     lastRun: "上次執行：",
     automationsDescription: "使用 AI 自動處理新收件箱郵件的規則。",
+    allowAutomationSends: "允許自動化自動傳送郵件",
+    allowAutomationSendsDescription:
+      "預設為關閉。需要自動化每次傳送郵件時不必請求核准時，請開啟此選項。",
+    automationSendSettingSaveFailed: "無法儲存自動郵件傳送設定。",
     loadingModels: "正在載入模型",
     newRule: "新建規則",
     noAutomationRules: "還沒有自動化規則。",

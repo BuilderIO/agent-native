@@ -6,6 +6,11 @@ const messages = {
     ...messagesByLocale["pt-BR"].designEditor,
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode ver e adicionar comentários de revisão",
+    toasts: {
+      ...messagesByLocale["pt-BR"].designEditor.toasts,
+      pdfExportError: "Não foi possível exportar PDF",
+      pdfDownloaded: "PDF baixado",
+    },
     nodeRewrite: {
       composerTitle: "Pergunte ou altere a seleção",
       send: "Enviar",
@@ -58,7 +63,7 @@ const messages = {
     sendToAgent: "Enviar ao agente",
     sendingToAgent: "Enviando ao agente…",
     enterToPost:
-      "Pressione Enter para publicar · Shift+Enter para uma nova linha",
+      "Pressione Enter para publicar · Shift Enter para uma nova linha",
     post: "Publicar",
     posting: "Publicando…",
     postFailed: "Não foi possível publicar este comentário",

@@ -120,6 +120,7 @@ export interface FeatureConfig {
   clipsEnabled: boolean;
   meetingsEnabled: boolean;
   voiceEnabled: boolean;
+  voiceCleanupEnabled: boolean;
   launchAtLoginEnabled: boolean;
   autoHidePopoverEnabled: boolean;
   meetingTranscriptionMode: "manual" | "ask" | "auto";

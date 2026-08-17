@@ -16,10 +16,13 @@ const source = readFileSync(
 describe("SlideEditor layout overflow warning", () => {
   afterEach(cleanup);
 
-  it("renders as plain amber text above the slide, not overlapping it", () => {
+  it("renders as a soft card above the slide, not overlapping it", () => {
     render(
       <SlideOverflowWarning
         verticalOverflow={59}
+        warningLabel="Layout overflows"
+        overflowDetails="Vertical overflow: 59px"
+        overflowDetailsLabel="Show overflow details"
         isAskingAgentToFix={false}
         dismissLabel="Dismiss layout warning"
         onFix={() => {}}
@@ -29,18 +32,21 @@ describe("SlideEditor layout overflow warning", () => {
 
     const status = screen.getByRole("status");
     expect(status.className).toContain("text-foreground");
-    expect(status.className).toContain("border-foreground/40");
+    expect(status.className).toContain("bg-card");
+    expect(status.className).toContain("shadow-sm");
+    expect(status.className).not.toContain("border");
     expect(status.className).toContain("-top-12");
-    expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
+    expect(screen.getByText("Layout overflows")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Show overflow details" }),
+    ).toBeTruthy();
   });
 
-  it("can be dismissed until the slide content changes", () => {
-    expect(source).toContain(
-      "dismissedOverflowWarningKey !== overflowWarningKey",
-    );
-    expect(source).toContain(
-      "setDismissedOverflowWarningKey(overflowWarningKey)",
-    );
+  it("persists dismissal per slide revision until the content is updated", () => {
+    expect(source).toContain("readClientAppState");
+    expect(source).toContain("setClientAppState");
+    expect(source).toContain("slides-layout-warning-dismissed:");
+    expect(source).toContain("dismissedOverflowWarningHash");
     expect(source).toContain("hashSlideContent(slide.content)");
   });
 
@@ -53,6 +59,9 @@ describe("SlideEditor layout overflow warning", () => {
       <div onPointerDown={onCanvasPointerDown} onClick={onCanvasClick}>
         <SlideOverflowWarning
           verticalOverflow={59}
+          warningLabel="Layout overflows"
+          overflowDetails="Vertical overflow: 59px"
+          overflowDetailsLabel="Show overflow details"
           isAskingAgentToFix={false}
           dismissLabel="Dismiss layout warning"
           onFix={() => {}}

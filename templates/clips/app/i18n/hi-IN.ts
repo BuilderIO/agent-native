@@ -254,6 +254,41 @@ const messages = {
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
     linkExpired: "लिंक की अवधि समाप्त हो",
     linkExpiredMessage: "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
+    privateClip: "निजी क्लिप",
+    privateClipMessage:
+      "यह क्लिप निजी है। पहुंच का अनुरोध करें और मालिक को सूचित किया जाएगा।",
+    privateClipSignedOutMessage:
+      "यह क्लिप निजी है। पहुंच का अनुरोध करने के लिए साइन इन करें या अपना ईमेल दर्ज करें।",
+    requestAccess: "पहुंच का अनुरोध करें",
+    requestAccessDialogTitle: "पहुंच का अनुरोध करें",
+    requestAccessDialogDescription:
+      "चुनें कि क्लिप साझा करते समय मालिक आपकी पहचान कैसे करे।",
+    requestAccessSignIn: "साइन इन या साइन अप करें",
+    requestAccessOr: "या",
+    requestAccessEmailLabel: "ईमेल पता",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "पहुंच मिलने के बाद क्लिप देखने के लिए इसी ईमेल से साइन इन करें।",
+    requestAccessWithEmail: "ईमेल से अनुरोध करें",
+    requestAccessEmailRequired: "मान्य ईमेल पता दर्ज करें।",
+    requestingAccess: "पहुंच का अनुरोध किया जा रहा है...",
+    accessRequested: "पहुंच का अनुरोध किया गया",
+    accessRequestSent: "क्लिप के मालिक को सूचित कर दिया गया है।",
+    accessRequestSentWithEmail:
+      "मालिक से यह क्लिप {{email}} के साथ साझा करने को कहा गया है।",
+    accessRequestFailed: "पहुंच का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
+    accessApprovalTitle: "पहुंच दे दी गई",
+    accessApprovalAlreadyTitle: "पहुंच पहले से दी गई है",
+    accessApprovalMessage: "{{email}} अब इस क्लिप को देख सकते हैं।",
+    accessApprovalAlreadyMessage: "{{email}} के पास इस क्लिप की पहुंच पहले से है।",
+    accessApprovalErrorTitle: "पहुंच नहीं दी जा सकी",
+    accessApprovalInvalid: "यह पहुंच अनुरोध अमान्य या समाप्त हो चुका है।",
+    accessApprovalSignInTitle: "पहुंच देने के लिए साइन इन करें",
+    accessApprovalSignInMessage:
+      "इस अनुरोध को मंजूर करने के लिए क्लिप मालिक या एडमिन के रूप में साइन इन करें।",
+    accessApprovalOpenClip: "क्लिप खोलें",
+    accessApprovalSignIn: "साइन इन करें",
+    accessApprovalLoading: "पहुंच दी जा रही है...",
     clipUnavailable: "क्लिप अनुपलब्ध",
     clipUnavailableMessage:
       "यह रिकॉर्डिंग सार्वजनिक नहीं है, या लिंक अमान्य है. यदि यह आपकी क्लिप है, तो पहुंच जांचने के लिए साइन इन करें।",
@@ -503,10 +538,11 @@ const messages = {
     },
     roles: {
       viewer: "दर्शक",
+      commenter: "टिप्पणीकार",
       editor: "संपादक",
       admin: "व्यवस्थापक",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "टिप्पणीकार",
       description: "देख, टिप्पणी और प्रतिक्रिया कर सकते हैं",
     },
@@ -962,6 +998,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     includeTranscriptDescription:
       "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
     transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
+    agentLinkDescription:
+      "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
@@ -987,8 +1025,13 @@ Clips में उपयोगकर्ताओं को दिखने व�
     pauseShortcut: "रोकें (⌥⇧P)",
     stop: "रिकॉर्डिंग बंद करें",
     elapsed: "बीता समय",
-    cancel: "रिकॉर्डिंग रद्द करें",
-    cancelShortcut: "रद्द करें (⌥⇧C)",
+    cancel: "रिकॉर्डिंग हटाएं",
+    cancelShortcut: "हटाएं (⌥⇧C)",
+    discardConfirmTitle: "क्या इस रिकॉर्डिंग को हटाना है?",
+    discardConfirmDescription:
+      "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
+    resume: "फिर शुरू करें",
+    discardRecording: "रिकॉर्डिंग हटाएं",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",
@@ -1074,6 +1117,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     searchPrevMatch: "पिछला मिलान",
     searchNextMatch: "अगला मिलान",
     searchClose: "खोज बंद करें",
+  },
+  bulletLink: {
+    jumpToTranscript: "प्रतिलेख में {{time}} पर जाएं",
+    noMatchingMoment: "कोई मेल खाता क्षण नहीं मिला",
   },
   editorLayout: {
     trimmed: "ट्रिम किया गया",
@@ -1531,6 +1578,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     transcriptPending: "Transcript pending (स्थानीयकृत)",
     notesPending: "Notes pending (स्थानीयकृत)",
     pastRecordings: "Past recordings (स्थानीयकृत)",
+    loadOlder: "पुराने लोड करें",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
@@ -1542,6 +1590,16 @@ Clips में उपयोगकर्ताओं को दिखने व�
     calendarConnected: "Calendar connected (स्थानीयकृत)",
     calendarDisconnected: "Calendar disconnected (स्थानीयकृत)",
     calendarSettings: "Calendar settings (स्थानीयकृत)",
+    calendarAccountsButton: "कैलेंडर",
+    connectedAccounts: "कनेक्ट किए गए खाते",
+    calendarConnectedLabel: "कनेक्टेड",
+    calendarNeedsReconnectLabel: "पुनः कनेक्ट करना आवश्यक",
+    calendarDisconnectedLabel: "डिस्कनेक्टेड",
+    calendarStatusUnavailable: "स्थिति उपलब्ध नहीं",
+    reconnectCalendar: "कैलेंडर को फिर से कनेक्ट करें",
+    addAnotherCalendarAccount: "दूसरा खाता जोड़ें",
+    connectCalendar: "कैलेंडर कनेक्ट करें",
+    disconnectCalendarAccount: "एक खाता डिस्कनेक्ट करें",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (स्थानीयकृत)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (स्थानीयकृत)",

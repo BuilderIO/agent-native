@@ -15,6 +15,7 @@ import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -57,6 +58,10 @@ import {
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import {
+  linkDefaultWorkspaceSkills,
+  removeCopiedFrameworkSkills,
+} from "./workspacify.js";
 
 export {
   CANVAS_REFERENCE_MD,
@@ -2066,6 +2071,21 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           if (!entry.isDirectory()) continue;
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
+            const preserved = new Set([
+              ...removeCopiedFrameworkSkills(appDir, {
+                workspaceRoot: state.workspaceRoot,
+              }),
+              ...linkDefaultWorkspaceSkills(appDir, state.workspaceRoot),
+            ]);
+            if (preserved.size > 0) {
+              console.warn(
+                `[skills] Preserved app-local framework-named skills in ${appDir}: ${[
+                  ...preserved,
+                ].join(
+                  ", ",
+                )}. Migrate them explicitly before inheriting workspace copies.`,
+              );
+            }
             setupAgentSymlinks(appDir);
             refreshCopiedClaudeSkills(appDir);
           }
@@ -2446,8 +2466,7 @@ function prVisualRecapWorkflowDisplayPath(): string {
   return path.join(".github", "workflows", "pr-visual-recap.yml");
 }
 
-const PR_VISUAL_RECAP_DOCS_URL =
-  "https://www.agent-native.com/docs/pr-visual-recap";
+const PR_VISUAL_RECAP_DOCS_URL = docsUrl("pr-visual-recap");
 
 function prVisualRecapInstallCommand(): string {
   return "npx @agent-native/core@latest skills add visual-recap --with-github-action";
@@ -4132,8 +4151,13 @@ function runSkillsStatusOrUpdate(
   const scaffoldChanged = update
     ? updateScaffoldGuidanceStates(scaffoldBefore, parsed.dryRun)
     : [];
-  if (update && !parsed.dryRun && scaffoldChanged.length > 0) {
-    repairScaffoldAgentLinks(scaffoldChanged);
+  if (update && !parsed.dryRun) {
+    const workspaceStates = scaffoldBefore.filter(
+      (state) => state.workspaceRoot && state.sharedPackageDir,
+    );
+    if (scaffoldChanged.length > 0 || workspaceStates.length > 0) {
+      repairScaffoldAgentLinks([...scaffoldChanged, ...workspaceStates]);
+    }
   }
   const skillAfter =
     update && !parsed.dryRun

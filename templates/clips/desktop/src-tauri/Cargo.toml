@@ -143,6 +143,9 @@ screencapturekit = { version = "2.0.0", features = ["macos_15_0"] }
 # AudioBufferList type so we can hand SCK's CMSampleBuffer audio bytes to
 # AVAudioPCMBuffer for the speech recognizer.
 objc2-core-audio-types = "0.3"
+# Pure-Rust RNNoise-derived microphone denoising for the realtime
+# ScreenCaptureKit mixer. Keep the CLI/dasp features out of the desktop bundle.
+nnnoiseless = { version = "0.5.2", default-features = false }
 # `metal` builds whisper.cpp's ggml-metal backend and links it in (the sys
 # crate's build script embeds the compiled metallib, so no app-bundle/runtime
 # asset changes are needed). Without it, whisper.cpp decode runs CPU-only.

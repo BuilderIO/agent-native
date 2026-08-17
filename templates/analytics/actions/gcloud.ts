@@ -56,6 +56,7 @@ export default defineAction({
       .describe("Additional Cloud Monitoring filter expression"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["BIGQUERY_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS_JSON"],

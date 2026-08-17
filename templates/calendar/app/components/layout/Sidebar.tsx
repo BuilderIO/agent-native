@@ -5,6 +5,7 @@ import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCalendar,
   IconSettings,
@@ -77,6 +78,7 @@ import {
   useRemoveOverlayPerson,
   useUpdateOverlayPersonColor,
 } from "@/hooks/use-overlay-people";
+import { useSettings } from "@/hooks/use-settings";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
   CALENDAR_COLORS,
@@ -200,6 +202,8 @@ function MiniCalendar({
 }) {
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(selectedDate));
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { data: settings } = useSettings();
+  const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
   // Sync viewMonth when selectedDate changes to a different month
   useEffect(() => {
@@ -211,8 +215,8 @@ function MiniCalendar({
   const days = useMemo(() => {
     const monthStart = startOfMonth(viewMonth);
     const monthEnd = endOfMonth(viewMonth);
-    const calStart = startOfWeek(monthStart);
-    const calEnd = endOfWeek(monthEnd);
+    const calStart = startOfWeek(monthStart, { weekStartsOn });
+    const calEnd = endOfWeek(monthEnd, { weekStartsOn });
 
     const result: Date[] = [];
     let current = calStart;
@@ -221,9 +225,11 @@ function MiniCalendar({
       current = addDays(current, 1);
     }
     return result;
-  }, [viewMonth]);
+  }, [viewMonth, weekStartsOn]);
 
-  const weekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const weekdays = getWeekdayOrder(weekStartsOn).map(
+    (day) => ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][day],
+  );
 
   return (
     <div className="px-3 py-3">

@@ -3,6 +3,7 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { cn } from "../lib/utils";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
+import { Skeleton } from "./ui/skeleton";
 
 export function appAvailabilityLabel(value?: string) {
   switch (value) {
@@ -68,11 +69,11 @@ export function AppResourceEffectiveStack({
   if (isLoading && !context) {
     return (
       <div className="mt-3 rounded-lg border bg-muted/20 p-3">
-        <div className="h-3 w-44 animate-pulse rounded bg-muted-foreground/10" />
+        <Skeleton className="h-3 w-44" />
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <div className="h-20 animate-pulse rounded-md bg-muted-foreground/10" />
-          <div className="h-20 animate-pulse rounded-md bg-muted-foreground/10" />
-          <div className="h-20 animate-pulse rounded-md bg-muted-foreground/10" />
+          <Skeleton className="h-20 rounded-md" />
+          <Skeleton className="h-20 rounded-md" />
+          <Skeleton className="h-20 rounded-md" />
         </div>
       </div>
     );
@@ -99,7 +100,11 @@ export function AppResourceEffectiveStack({
             {resource.path}
           </div>
         </div>
-        <Badge variant="outline">{appAvailabilityLabel(availability)}</Badge>
+        {isLoading ? (
+          <Skeleton className="h-6 w-24 rounded-full" />
+        ) : (
+          <Badge variant="outline">{appAvailabilityLabel(availability)}</Badge>
+        )}
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">

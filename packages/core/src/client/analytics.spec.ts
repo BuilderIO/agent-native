@@ -216,6 +216,7 @@ describe("browser analytics pageviews", () => {
         referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
         title: "Inbox",
         navigation_type: "load",
+        client_platform: "web",
         llm_connection: "builder",
         llm_connection_configured: true,
         llm_engine: "builder",
@@ -225,6 +226,35 @@ describe("browser analytics pageviews", () => {
     });
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(getCookie()).toContain(`an_aid=${body.anonymousId}`);
+  });
+
+  it("uses the configured native client platform for every pageview", async () => {
+    installBrowser("https://mail.agent-native.com/inbox");
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({ clientPlatform: "electron" });
+    await tick();
+
+    const body = JSON.parse(String(analyticsCalls[0]?.[1].body));
+    expect(body.properties.client_platform).toBe("electron");
+  });
+
+  it("detects a host-provided mobile platform marker", async () => {
+    installBrowser("https://chat.agent-native.com/chat");
+    (
+      window as Window & { __AGENT_NATIVE_HOST_PLATFORM__?: string }
+    ).__AGENT_NATIVE_HOST_PLATFORM__ = "mobile";
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+
+    const body = JSON.parse(String(analyticsCalls[0]?.[1].body));
+    expect(body.properties.client_platform).toBe("mobile");
   });
 
   it("can skip the authenticated engine-status probe on public routes", async () => {
@@ -290,6 +320,49 @@ describe("browser analytics pageviews", () => {
     );
     expect(replayMock.stopSessionReplay).toHaveBeenCalled();
     expect(sentryMock.captureException).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps exception context in first-party analytics but omits it from Amplitude", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Renderer failed"), {
+      tags: { route: "/api/run", status_code: 500 },
+      extra: { request_id: "request-1", runId: "run-1" },
+    });
+    await tick();
+
+    const firstPartyException = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "$exception");
+    expect(firstPartyException?.properties).toMatchObject({
+      exceptionTags: { route: "/api/run", status_code: "500" },
+      exceptionExtra: { request_id: "request-1", runId: "run-1" },
+    });
+
+    const amplitudeException = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "$exception",
+    );
+    expect(amplitudeException?.[1]).toMatchObject({
+      exceptionType: "Error",
+      exceptionMessage: "Renderer failed",
+    });
+    expect(amplitudeException?.[1]).not.toHaveProperty("exceptionTags");
+    expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
   it("accepts the first-party public key and endpoint at configure time", async () => {

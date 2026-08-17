@@ -2,6 +2,10 @@ import { getOrgContext } from "@agent-native/core/org";
 import { createAgentChatPlugin } from "@agent-native/core/server";
 
 import { dispatchActions } from "../../actions/index.js";
+import {
+  workspaceAppActionRouteAuth,
+  WORKSPACE_APPS_ACTION_PATH,
+} from "../lib/workspace-app-action-auth.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -13,6 +17,10 @@ const INITIAL_TOOL_NAMES = [
   "list-workspace-resources",
   "create-workspace-resource",
   "update-workspace-resource",
+  "import-agent",
+  "import-agent-pack",
+  "list-agent-pack",
+  "connect-external-agent",
   "list-vault-secrets",
   "request-vault-secret",
   "create-vault-secret",
@@ -49,6 +57,8 @@ export default createAgentChatPlugin({
   // a build-time-generated `.generated/actions-registry.ts` (the latter is a
   // template-only construct that the Vite plugin emits next to actions/).
   actions: dispatchActions,
+  actionRouteAuth: workspaceAppActionRouteAuth,
+  actionRoutePublicPaths: [WORKSPACE_APPS_ACTION_PATH],
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the central dispatch for this workspace.
 
@@ -62,6 +72,15 @@ Use the standard workspace primitives:
 - Read and update resources like AGENTS.md, LEARNINGS.md, jobs/*.md, agents/*.md, and remote-agents/*.json when appropriate.
 - Use recurring jobs for scheduled behavior.
 - Use custom agent profiles in agents/*.md for local spawned work and remote-agents/*.json for remote A2A apps.
+- For a Claude-style Markdown or JSON agent setup, use import-agent so the
+  profile is normalized into agents/<slug>.md. Never import credentials, hooks,
+  shell commands, or local environment settings.
+- For a folder of agent instructions, references, or skills, use
+  import-agent-pack. It preserves the text files under agents/<slug>/ and
+  creates the normalized profile alongside them. Use list-agent-pack to inspect
+  the pack before editing or handing it off to an app.
+- For an existing HTTP/A2A endpoint, use connect-external-agent and let the
+  normal A2A/MCP connection flow handle authentication.
 - You receive a compact available-apps block with sibling workspace app names and descriptions. Use it to pick the right A2A target, and call list-connected-agents or tool-search only when you need fresh details.
 - Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
 - When answering whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.

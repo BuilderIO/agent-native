@@ -15,6 +15,7 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -147,8 +148,6 @@ const EN_AUTH_COPY = {
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
-  runLocally: "Run Locally",
-  runLocallySentence: "Run locally",
   openSource: "100% free and open source",
   useOwnGoogleClient: "Use your own Google OAuth client:",
   copyCommand: "Copy command",
@@ -263,8 +262,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本地登录…",
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
-    runLocally: "本地运行",
-    runLocallySentence: "本地运行",
     openSource: "100% 免费且开源",
     useOwnGoogleClient: "使用你自己的 Google OAuth 客户端：",
     copyCommand: "复制命令",
@@ -367,8 +364,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本機登入…",
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
-    runLocally: "在本機執行",
-    runLocallySentence: "在本機執行",
     openSource: "100% 免費且開源",
     useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
     copyCommand: "複製指令",
@@ -475,8 +470,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed:
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
-    runLocally: "Ejecutar localmente",
-    runLocallySentence: "Ejecutar localmente",
     openSource: "100% gratis y de código abierto",
     useOwnGoogleClient: "Usa tu propio cliente de Google OAuth:",
     copyCommand: "Copiar comando",
@@ -589,8 +582,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Connexion locale…",
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
-    runLocally: "Exécuter localement",
-    runLocallySentence: "Exécuter localement",
     openSource: "100 % gratuit et open source",
     useOwnGoogleClient: "Utilisez votre propre client Google OAuth :",
     copyCommand: "Copier la commande",
@@ -704,8 +695,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Lokale Anmeldung…",
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
-    runLocally: "Lokal ausführen",
-    runLocallySentence: "Lokal ausführen",
     openSource: "100 % kostenlos und Open Source",
     useOwnGoogleClient: "Eigenen Google-OAuth-Client verwenden:",
     copyCommand: "Befehl kopieren",
@@ -817,8 +806,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "ローカルでサインイン中…",
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
-    runLocally: "ローカルで実行",
-    runLocallySentence: "ローカルで実行",
     openSource: "100% 無料でオープンソース",
     useOwnGoogleClient: "自分の Google OAuth クライアントを使用:",
     copyCommand: "コマンドをコピー",
@@ -930,8 +917,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "로컬로 로그인하는 중…",
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
-    runLocally: "로컬에서 실행",
-    runLocallySentence: "로컬에서 실행",
     openSource: "100% 무료 오픈 소스",
     useOwnGoogleClient: "내 Google OAuth 클라이언트 사용:",
     copyCommand: "명령 복사",
@@ -1040,8 +1025,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Entrando localmente…",
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
-    runLocally: "Executar localmente",
-    runLocallySentence: "Executar localmente",
     openSource: "100% grátis e open source",
     useOwnGoogleClient: "Use seu próprio cliente Google OAuth:",
     copyCommand: "Copiar comando",
@@ -1151,8 +1134,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
-    runLocally: "लोकल चलाएं",
-    runLocallySentence: "लोकल चलाएं",
     openSource: "100% मुफ्त और open source",
     useOwnGoogleClient: "अपना Google OAuth client उपयोग करें:",
     copyCommand: "कमांड कॉपी करें",
@@ -1259,8 +1240,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
-    runLocally: "تشغيل محليًا",
-    runLocallySentence: "تشغيل محليًا",
     openSource: "مجاني ومفتوح المصدر 100%",
     useOwnGoogleClient: "استخدم عميل Google OAuth الخاص بك:",
     copyCommand: "نسخ الأمر",
@@ -1490,6 +1469,7 @@ export interface OnboardingHtmlOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
   /**
@@ -1535,6 +1515,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
   const builderPreviewLocalDevEnabled = isBuilderPreviewLocalDevEnabled();
   const localeInitScript = getLocaleInitScript();
+  const embeddedAuthInitScript = `(function() {
+  try {
+    var params = new URLSearchParams(window.location.search || "");
+    if (params.get("embedded") === "1" || window.self !== window.top) {
+      document.documentElement.setAttribute("data-agent-native-embedded", "1");
+    }
+  } catch (error) {
+    void error;
+  }
+})();`;
 
   const marketing: AuthMarketingContent | undefined =
     opts.marketing ??
@@ -1552,7 +1542,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           features: marketing.features,
         }
       : undefined;
-  const runLocalCommand = marketing?.runLocalCommand?.trim();
   const signupLocalModeNote =
     isAgentNativeHostedHost(opts.requestHost) &&
     marketing?.signupLocalModeNote?.command.trim()
@@ -1658,12 +1647,15 @@ ${localeMenuItemsHtml}
       </div>`
     : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const embeddedAuthCss = identitySsoHtml
+    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
+    : "";
   const localDevHtml = `
   <div class="local-dev-signin" id="local-dev-signin" hidden>
     <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
     <p class="local-dev-description" id="local-dev-description">
       <span${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</span>
-      <a class="local-dev-help" id="local-dev-help" href="https://www.agent-native.com/docs/authentication#local-development-sign-in" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
+      <a class="local-dev-help" id="local-dev-help" href="${docsUrl("authentication", { hash: "local-development-sign-in" })}" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
     </p>
     <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
     <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
@@ -1794,44 +1786,6 @@ ${localeMenuItemsHtml}
     gap: 0.75rem;
     margin-top: 2rem;
   }
-  .run-local-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 2.25rem;
-    padding: 0.5rem 0.875rem;
-    background: rgba(255,255,255,0.08);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 8px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .run-local-button:hover {
-    background: rgba(255,255,255,0.12);
-    border-color: rgba(255,255,255,0.24);
-  }
-  .run-local-panel {
-    max-width: 480px;
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    background: rgba(20,20,20,0.86);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
-    box-shadow: 0 14px 36px rgba(0,0,0,0.28);
-  }
-  .run-local-panel[hidden] { display: none; }
-  .run-local-panel code {
-    display: block;
-    overflow-x: auto;
-    padding-bottom: 0.125rem;
-    color: #e5e5e5;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-    font-size: 0.75rem;
-    line-height: 1.5;
-    white-space: nowrap;
-  }
   .copy-run-local {
     margin-top: 0.625rem;
     padding: 0.375rem 0.625rem;
@@ -1881,19 +1835,11 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
           ? `      <ul class="feature-list">\n${marketing!.features.map((f, index) => `        <li data-marketing-feature-index="${index}">${esc(f)}</li>`).join("\n")}\n      </ul>\n`
           : ""
       }      <div class="marketing-actions">
-${runLocalCommand ? `        <button type="button" class="run-local-button" id="run-local-button" aria-expanded="false" aria-controls="run-local-panel" onclick="__anToggleRunLocalCommand()"${i18nAttr("runLocally")}>${esc(t("runLocally"))}</button>\n` : ""}        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
+        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
         <span${i18nAttr("openSource")}>${esc(t("openSource"))}</span>
       </a>
       </div>
-${
-  runLocalCommand
-    ? `      <div class="run-local-panel" id="run-local-panel" hidden data-command="${esc(runLocalCommand)}">
-        <code>${esc(runLocalCommand)}</code>
-        <button type="button" class="copy-run-local" id="copy-run-local" onclick="__anCopyRunLocalCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
-      </div>\n`
-    : ""
-}
     </div>
   </div>
   <div class="form-panel">`
@@ -2072,6 +2018,7 @@ ${
 <head>
 <meta charset="UTF-8">
 <script data-agent-native-locale-init>${localeInitScript}</script>
+<script data-agent-native-embedded-init>${embeddedAuthInitScript}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${hasMarketing ? esc(marketing!.appName) + " — " + esc(t("pageTitleSignIn")) : esc(t("pageTitleWelcome"))}</title>
 <link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
@@ -2621,6 +2568,7 @@ ${marketingStyles}
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
   body.simplified-auth .local-note { display: none !important; }
+${embeddedAuthCss}
 </style>
 </head>
 <body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
@@ -4279,24 +4227,8 @@ ${
 }
 ${starfieldScript}
 ${
-  runLocalCommand || signupLocalModeNote
+  signupLocalModeNote
     ? `
-  function __anSetRunLocalCommandOpen(open) {
-    var panel = document.getElementById('run-local-panel');
-    var button = document.getElementById('run-local-button');
-    if (!panel || !button) return;
-    if (open) {
-      panel.removeAttribute('hidden');
-    } else {
-      panel.setAttribute('hidden', '');
-    }
-    button.setAttribute('aria-expanded', String(open));
-  }
-  function __anToggleRunLocalCommand() {
-    var panel = document.getElementById('run-local-panel');
-    if (!panel) return;
-    __anSetRunLocalCommandOpen(panel.hasAttribute('hidden'));
-  }
   function __anCopyCommandFromPanel(panelId, buttonId) {
     var panel = document.getElementById(panelId);
     var button = document.getElementById(buttonId);
@@ -4311,13 +4243,10 @@ ${
       navigator.clipboard.writeText(command).then(markCopied).catch(function() {});
     }
   }
-  function __anCopyRunLocalCommand() {
-    __anCopyCommandFromPanel('run-local-panel', 'copy-run-local');
-  }
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
-  }`
+  `
     : ""
 }
 </script>

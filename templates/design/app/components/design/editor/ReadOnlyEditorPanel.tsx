@@ -5,7 +5,7 @@ export function ReadOnlyEditorPanel({
   description,
 }: {
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
@@ -13,9 +13,11 @@ export function ReadOnlyEditorPanel({
         <IconLock className="size-5" />
       </div>
       <p className="text-sm font-medium text-foreground">{title}</p>
-      <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
-        {description}
-      </p>
+      {description ? (
+        <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { H3Event } from "h3";
 import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
 
+import { getAppConfig } from "../../app-config/index.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import type {
@@ -28,7 +29,7 @@ let _whatsappUnverifiedWarned = false;
  * be verified (C2 in the webhook security audit).
  */
 function shouldRefuseWhenSecretMissing(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  if (getAppConfig().integrations.allowUnverifiedWebhooks) return false;
   return process.env.NODE_ENV === "production";
 }
 

@@ -30,7 +30,7 @@ describe("settings loading placeholders", () => {
     const status = container.querySelector('[role="status"]');
     expect(status?.getAttribute("aria-busy")).toBe("true");
     expect(container.textContent).toBe("");
-    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(5);
+    expect(container.querySelectorAll("[data-shape]")).toHaveLength(9);
   });
 
   it("renders the configured number of row controls", async () => {

@@ -168,6 +168,39 @@ React-Widgets benötigt, verwenden Sie [Generative UI](/docs/generative-ui): Es 
 Alpine/Tailwind-UI inline, kann App-Zustand und Slot-Kontext lesen und ausgewählte Werte an den Chat
 zurückschicken.
 
+### Request-bezogene Action-Oberflächen
+
+Verwende `resolveActionSurface`, wenn der ausgewählte Agent oder Thread nur
+eine serverseitig autorisierte Teilmenge nativer Actions sehen darf. Der
+Callback läuft für jede interaktive Chat-Anfrage nach `prepareRequest`. Die
+zurückgegebenen Namen bilden eine harte Allowlist: Nicht enthaltene Actions
+fehlen in Provider-Schemas, Ausführungs-Registry, Plan-Modus-Vorladung und der
+Suche über `tool-search`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+Eine leere Liste stellt keine nativen Actions bereit. Unbekannte Namen lassen
+die Anfrage fehlschlagen, statt den Zugriff zu erweitern. Alle erlaubten
+Actions werden direkt mit der ersten Modellanfrage geladen; `tool-search` wird
+nur ausdrücklich hinzugefügt, wenn Suche innerhalb des bereits autorisierten
+Katalogs gewünscht ist. Der Callback begrenzt ausschließlich den interaktiven
+Agentenchat, nicht HTTP, MCP, A2A, Jobs oder Trigger. In der lokalen Entwicklung
+übernehmen Standard-Framework-Hinweise und gestartete Sub-Agenten dieselbe
+Oberfläche. Vertrauenswürdige Shell-Tools werden automatisch auf die
+anfragegefilterte Sandbox reduziert, da eine unbeschränkte Shell keine harte
+Action-Grenze durchsetzen kann.
+
 ## Native Inline-UI {#native-inline-ui}
 
 Verwenden Sie diese, wenn Ihre Aktionen strukturierte Daten zurückgeben — eine Liste von Einträgen, einen Diagramm-Datensatz, eine Statuszusammenfassung — die als echte UI-Komponente im Chat-Thread gerendert werden sollen, anstatt als reine Textbeschreibung. Sie definieren einen `chatUI`-Renderer auf der Aktion, und Agent-Native rendert ihn als First-Party-React-Komponente: keine iFrames, kein separater Rendering-Pfad.
@@ -558,7 +591,7 @@ Tool-Ergebnis-Metadaten. Beginnen Sie dort beim Verdrahten eines externen Agente
 
 <Cards>
 
-### [Aktionen](/docs/actions)
+### [Aktionen](/docs/actions-overview)
 
 Die Operation einmal definieren. Jede obige Oberfläche ruft dieselbe auf.
 

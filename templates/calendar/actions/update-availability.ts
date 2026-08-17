@@ -8,16 +8,27 @@ import {
   updateBookingUsername,
 } from "../server/handlers/booking-usernames.js";
 import type { AvailabilityConfig } from "../shared/api.js";
+import { availabilitySlotsOverlap } from "../shared/availability-schedule.js";
 
 const timeSlotSchema = z.object({
   start: z.string(),
   end: z.string(),
 });
 
-const dayScheduleSchema = z.object({
-  enabled: z.boolean(),
-  slots: z.array(timeSlotSchema),
-});
+const dayScheduleSchema = z
+  .object({
+    enabled: z.boolean(),
+    slots: z.array(timeSlotSchema),
+  })
+  .superRefine((day, ctx) => {
+    if (availabilitySlotsOverlap(day.slots)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slots"],
+        message: "Availability windows must not overlap",
+      });
+    }
+  });
 
 const availabilitySchema = z.object({
   timezone: z.string(),

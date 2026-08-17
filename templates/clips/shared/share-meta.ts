@@ -17,6 +17,19 @@ export type ClipsShareMetaRecording = {
   animatedThumbnailUrl?: string | null;
 };
 
+export type PreferredThumbnailVariant = "still" | "animated";
+
+export function preferredThumbnailVariant(
+  recording: Pick<
+    ClipsShareMetaRecording,
+    "thumbnailUrl" | "animatedThumbnailUrl"
+  > | null,
+): PreferredThumbnailVariant | null {
+  if (recording?.thumbnailUrl?.trim()) return "still";
+  if (recording?.animatedThumbnailUrl?.trim()) return "animated";
+  return null;
+}
+
 export function hasGeneratedTitle(title: string | null | undefined): boolean {
   const trimmed = (title ?? "").trim();
   return Boolean(
@@ -51,9 +64,12 @@ export function clipsShareDescription(
 export function preferredSocialImage(
   recording: ClipsShareMetaRecording | null,
 ): string | undefined {
-  return (
-    recording?.thumbnailUrl || recording?.animatedThumbnailUrl || undefined
-  );
+  const variant = preferredThumbnailVariant(recording);
+  return variant === "still"
+    ? recording?.thumbnailUrl?.trim()
+    : variant === "animated"
+      ? recording?.animatedThumbnailUrl?.trim()
+      : undefined;
 }
 
 function absoluteUrl(value: string, origin: string | null): string {

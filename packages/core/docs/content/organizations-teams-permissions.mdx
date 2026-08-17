@@ -264,7 +264,7 @@ const { role } = useAppRole("coach");
 `useAppRoles`, `useAppRole`, and `useSetAppMemberRole` are progressive
 disclosure only. Every guarded operation re-resolves the role on the server, so
 a client that shows the wrong affordance still cannot perform the operation.
-See [Actions → Authorization](/docs/actions#authorize) for how `authorize`
+See [Actions → Authorization](/docs/actions-access-control#authorize) for how `authorize`
 differs from `needsApproval` and from row-level access guards.
 
 ## Resource permissions (sharing RBAC)

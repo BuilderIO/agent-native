@@ -598,7 +598,7 @@ export default function HomepageNew() {
                 Read the framework guide
               </ArrowLink>
               <ArrowLink
-                to={localizedPath("/docs/actions")}
+                to={localizedPath("/docs/actions-overview")}
                 location="homepage_new_agentic_core"
                 variant="secondary"
               >

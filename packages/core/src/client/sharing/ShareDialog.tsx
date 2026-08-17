@@ -6,28 +6,25 @@ import {
   Picker,
   Status,
   TextArea,
-  TextField,
 } from "@agent-native/toolkit/design-system";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
   IconCheck,
-  IconCode,
   IconCopy,
-  IconLink,
   IconLock,
-  IconMail,
   IconTrash,
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { cn } from "../utils.js";
+import { AgentShareSection } from "./AgentShareSection.js";
 import {
   useShareDialogController,
   type ResourceShare,
   type ShareDialogController,
   type ShareDialogPerson,
-  type ShareDialogTab,
   type ShareVisibility,
 } from "./useShareDialogController.js";
 
@@ -72,18 +69,12 @@ const VIS_ICONS: Record<ShareVisibility, typeof IconLock> = {
   public: IconWorld,
 };
 
-const TAB_ICONS: Record<ShareDialogTab, typeof IconLink> = {
-  link: IconLink,
-  invite: IconMail,
-  embed: IconCode,
-};
-
 /**
  * Framework share dialog. Drop into any template via
  * `<ShareDialog open onClose resourceType resourceId />`. Passing `shareUrl`
  * lights up a Link tab with a copy field; passing `embedUrl` lights up an
- * Embed tab. With neither prop, renders a single Invite + general-access
- * panel (Google-Docs-lite).
+ * Embed tab. People access stays on the primary sharing surface so the same
+ * Google-Docs-style flow works whether or not a link or embed is available.
  */
 export function ShareDialog({
   open,
@@ -113,7 +104,11 @@ export function ShareDialog({
       onOpenChange={controller.onOpenChange}
       title={
         <span
-          className="truncate !text-base !leading-normal !tracking-normal !text-inherit"
+          className={cn(
+            controller.tabsEnabled
+              ? "sr-only"
+              : "truncate !text-base !leading-normal !tracking-normal !text-inherit",
+          )}
           title={controller.title}
         >
           {controller.title}
@@ -124,28 +119,26 @@ export function ShareDialog({
       className="!top-4 !z-[2010] !block !max-h-none !w-[calc(100vw-2rem)] !max-w-lg !translate-y-0 !gap-0 !overflow-visible !rounded-xl !border-border !bg-popover !p-0 !text-popover-foreground !shadow-2xl sm:!top-1/2 sm:!-translate-y-1/2"
       aria-label={controller.title}
     >
-      <div className="px-5 pt-0 pb-3">
-        {controller.ownerLabel ? (
+      {!controller.tabsEnabled && controller.ownerLabel ? (
+        <div className="px-5 pt-0 pb-3">
           <div className="truncate text-xs text-muted-foreground">
             {controller.ownerLabel}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {controller.tabsEnabled ? (
         <div
           role="tablist"
           aria-label={controller.labels.shareOptions}
-          className="mx-5 mt-1 flex gap-1 border-b border-border"
+          className="mx-5 mt-1 flex gap-1 rounded-xl bg-muted/70 p-1"
         >
           {controller.tabs.map((tab) => {
-            const Icon = TAB_ICONS[tab.value];
             return (
               <TabTrigger
                 key={tab.value}
                 active={controller.activeTab === tab.value}
                 onClick={() => controller.setActiveTab(tab.value)}
-                icon={<Icon size={14} strokeWidth={1.75} />}
                 label={tab.label}
               />
             );
@@ -166,6 +159,12 @@ export function ShareDialog({
         {controller.tabsEnabled && controller.activeTab === "embed"
           ? (embedTabContent ?? <DefaultEmbedBody controller={controller} />)
           : null}
+        <AgentShareSection
+          enabled={controller.agentReadable}
+          resourceType={resourceType}
+          resourceId={resourceId}
+          className="mt-4"
+        />
       </div>
     </DesignSystemDialog>
   );
@@ -174,12 +173,10 @@ export function ShareDialog({
 function TabTrigger({
   active,
   onClick,
-  icon,
   label,
 }: {
   active: boolean;
   onClick: () => void;
-  icon: ReactNode;
   label: string;
 }) {
   return (
@@ -189,14 +186,13 @@ function TabTrigger({
       aria-pressed={active}
       onPress={onClick}
       className={cn(
-        "inline-flex !h-auto items-center gap-1.5 !rounded-none border-b-2 !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-transparent active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0 [&_svg]:!size-auto",
+        "min-w-0 flex-1 !rounded-lg !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-background/70 active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0",
         active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground",
+          ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+          : "text-muted-foreground hover:text-foreground",
       )}
     >
-      {icon}
-      {label}
+      <span className="block truncate">{label}</span>
     </ActionButton>
   );
 }
@@ -210,9 +206,17 @@ function LinkTab({
 }) {
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      <ShareCopyRow
+        label={controller.labels.shareLink}
+        value={controller.shareUrl!}
+        copyLabel={controller.labels.copy}
+        copiedLabel={controller.labels.copied}
+        onCopy={(value) => controller.copy("share-link", value)}
+        className="mb-4"
+      />
       <div>
-        <div className="mb-2 text-sm font-semibold">
+        <div className="mb-2 text-xs font-medium text-muted-foreground">
           {controller.labels.generalAccess}
         </div>
         <div className="flex items-center gap-3">
@@ -224,18 +228,13 @@ function LinkTab({
           </span>
           <div className="min-w-0 flex-1">
             <VisibilitySelect controller={controller} />
-            <div className="mt-0.5 text-xs text-muted-foreground">
+            <div className="sr-only text-xs text-muted-foreground">
               {controller.visibility.description}
             </div>
           </div>
         </div>
       </div>
-      <CopyField
-        field="share-link"
-        label={controller.labels.shareLink}
-        value={controller.shareUrl!}
-        controller={controller}
-      />
+      <InviteTab controller={controller} showVisibility={false} />
       {extras}
     </div>
   );
@@ -251,79 +250,101 @@ function InviteTab({
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
     <div className="space-y-4">
-      {controller.canManage ? (
-        <div className="space-y-2">
-          <div className="flex items-stretch gap-2">
-            <input
-              type="email"
-              placeholder={controller.labels.addPeopleByEmail}
-              value={controller.invite.email}
-              onChange={(event) =>
-                controller.invite.setEmail(event.currentTarget.value)
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter") controller.invite.submit();
-              }}
-              autoComplete="off"
-              className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-            />
-            <RoleSelect controller={controller} />
+      {showVisibility ? (
+        <div>
+          <div className="mb-2 text-sm font-semibold">
+            {controller.labels.generalAccess}
           </div>
-          {controller.invite.showNotifyPeople ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={controller.invite.notifyPeople}
-                  onChange={(event) =>
-                    controller.invite.setNotifyPeople(
-                      event.currentTarget.checked,
-                    )
-                  }
-                  className="h-4 w-4 rounded border-input accent-primary"
-                />
-                {controller.labels.notifyPeople}
-              </label>
-              {controller.invite.notifyPeople ? (
-                <ActionButton
-                  type="button"
-                  emphasis="ghost"
-                  aria-expanded={controller.invite.messageOpen}
-                  onPress={() =>
-                    controller.invite.setMessageOpen(
-                      !controller.invite.messageOpen,
-                    )
-                  }
-                  className="!h-auto !rounded-sm !px-1 !py-0.5 text-xs font-medium !text-foreground underline decoration-border underline-offset-2 hover:!bg-accent hover:!text-accent-foreground active:!scale-100"
-                >
-                  {controller.invite.messageOpen
-                    ? controller.labels.hideMessage
-                    : controller.labels.addMessage}
-                </ActionButton>
-              ) : null}
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+            >
+              <Icon size={16} strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <VisibilitySelect controller={controller} />
+              <div className="sr-only text-xs text-muted-foreground">
+                {controller.visibility.description}
+              </div>
             </div>
-          ) : null}
-          {controller.invite.showNotifyPeople &&
-          controller.invite.notifyPeople &&
-          controller.invite.messageOpen ? (
-            <TextArea
-              aria-label={controller.labels.addMessage}
-              placeholder={controller.labels.messagePlaceholder}
-              value={controller.invite.message}
-              onChange={(value) => controller.invite.setMessage(value)}
-              maxLength={500}
-              rows={3}
-              className="min-h-20 resize-y text-sm"
-            />
-          ) : null}
+          </div>
         </div>
       ) : null}
 
-      <div>
-        <div className="mb-2 text-sm font-semibold">
+      <div className="space-y-4">
+        <div className="text-sm font-semibold">
           {controller.labels.peopleWithAccess}
         </div>
-        <ul className="flex flex-col gap-1 list-none p-0 m-0">
+        {controller.canManage ? (
+          <div className="space-y-2">
+            <div className="flex items-stretch gap-2">
+              <input
+                type="email"
+                placeholder={controller.labels.addPeopleByEmail}
+                value={controller.invite.email}
+                onChange={(event) =>
+                  controller.invite.setEmail(event.currentTarget.value)
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") controller.invite.submit();
+                }}
+                autoComplete="off"
+                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+              />
+              <RoleSelect controller={controller} />
+            </div>
+            {controller.invite.showNotifyPeople ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={controller.invite.notifyPeople}
+                    onChange={(event) =>
+                      controller.invite.setNotifyPeople(
+                        event.currentTarget.checked,
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input accent-primary"
+                  />
+                  {controller.labels.notifyPeople}
+                </label>
+                {controller.invite.notifyPeople ? (
+                  <ActionButton
+                    type="button"
+                    emphasis="ghost"
+                    aria-expanded={controller.invite.messageOpen}
+                    onPress={() =>
+                      controller.invite.setMessageOpen(
+                        !controller.invite.messageOpen,
+                      )
+                    }
+                    className="!h-auto !rounded-sm !px-1 !py-0.5 text-xs font-medium !text-foreground underline decoration-border underline-offset-2 hover:!bg-accent hover:!text-accent-foreground active:!scale-100"
+                  >
+                    {controller.invite.messageOpen
+                      ? controller.labels.hideMessage
+                      : controller.labels.addMessage}
+                  </ActionButton>
+                ) : null}
+              </div>
+            ) : null}
+            {controller.invite.showNotifyPeople &&
+            controller.invite.notifyPeople &&
+            controller.invite.messageOpen ? (
+              <TextArea
+                aria-label={controller.labels.addMessage}
+                placeholder={controller.labels.messagePlaceholder}
+                value={controller.invite.message}
+                onChange={(value) => controller.invite.setMessage(value)}
+                maxLength={500}
+                rows={3}
+                className="min-h-20 resize-y text-sm"
+              />
+            ) : null}
+          </div>
+        ) : null}
+
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
           {controller.people.map((person) => (
             <PersonRow
               key={person.key}
@@ -340,28 +361,6 @@ function InviteTab({
           ) : null}
         </ul>
       </div>
-
-      {showVisibility ? (
-        <div>
-          <div className="mb-2 text-sm font-semibold">
-            {controller.labels.generalAccess}
-          </div>
-          <div className="flex items-center gap-3">
-            <span
-              aria-hidden
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-            >
-              <Icon size={16} strokeWidth={1.75} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <VisibilitySelect controller={controller} />
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {controller.visibility.description}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -422,11 +421,12 @@ function DefaultEmbedBody({
 }) {
   return (
     <div className="space-y-3">
-      <CopyField
-        field="embed-url"
+      <ShareCopyRow
         label={controller.labels.embedUrl}
         value={controller.embedUrl!}
-        controller={controller}
+        copyLabel={controller.labels.copy}
+        copiedLabel={controller.labels.copied}
+        onCopy={(value) => controller.copy("embed-url", value)}
       />
       <CopyField
         field="embed-code"
@@ -467,15 +467,7 @@ function CopyField({
             aria-label={label}
             className="flex-1 h-20 text-xs font-mono"
           />
-        ) : (
-          <TextField
-            readOnly
-            value={value}
-            onChange={() => undefined}
-            aria-label={label}
-            className="flex-1 min-w-0 text-xs font-mono"
-          />
-        )}
+        ) : null}
         <IconButton
           emphasis="outline"
           size="compact"
@@ -497,7 +489,12 @@ function RoleSelect({ controller }: { controller: ShareDialogController }) {
       options={controller.invite.roleOptions}
       value={controller.invite.role}
       onChange={(value) => {
-        if (value === "viewer" || value === "editor" || value === "admin") {
+        if (
+          value === "viewer" ||
+          value === "commenter" ||
+          value === "editor" ||
+          value === "admin"
+        ) {
           controller.invite.setRole(value);
         }
       }}

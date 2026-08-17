@@ -41,6 +41,10 @@ import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
+import {
+  isRetryableSessionReadErrorMessage,
+  isTransientStartupPollResponse,
+} from "./qa-standalone-chat-dev-smoke-readiness";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -368,7 +372,7 @@ async function waitForUnauthenticatedPollReady(
 ): Promise<void> {
   const deadline = Date.now() + 180_000;
   let lastError = "dev port has not accepted a request";
-  let transientStartupFailures = 0;
+  let transientResponses = 0;
 
   while (Date.now() < deadline) {
     if (running.isClosed()) {
@@ -400,28 +404,19 @@ async function waitForUnauthenticatedPollReady(
     const body = await response.text();
     if (response.status === 401) {
       log(
-        `startup poll reached HTTP 401 after ${transientStartupFailures} transient startup failure(s)`,
+        `startup poll reached HTTP 401 after ${transientResponses} transient response(s)`,
       );
       return;
     }
-    if (response.status === 503) {
-      transientStartupFailures += 1;
-      lastError = `startup poll HTTP 503 (${transientStartupFailures} transient response(s))`;
-      await sleep(100);
-      continue;
-    }
-    if (
-      response.status === 500 &&
-      body.includes('"message":"socket hang up"')
-    ) {
-      transientStartupFailures += 1;
-      lastError = `startup poll HTTP 500 socket hang up (${transientStartupFailures} transient response(s))`;
+    if (isTransientStartupPollResponse(response.status, body)) {
+      transientResponses += 1;
+      lastError = `startup poll HTTP ${response.status} (${transientResponses} transient response(s))`;
       await sleep(100);
       continue;
     }
 
     throw new Error(
-      `Expected unauthenticated startup poll to return HTTP 401 after transient 503s, ` +
+      `Expected unauthenticated startup poll to return HTTP 401 after transient startup responses, ` +
         `got HTTP ${response.status}: ${body.slice(0, 300)}`,
     );
   }
@@ -517,7 +512,10 @@ async function startDev(): Promise<RunningDev> {
       const retryable =
         !authLocked &&
         (message.includes("database is locked") ||
-          message.includes("SQLITE_BUSY"));
+          message.includes("SQLITE_BUSY") ||
+          message.includes("The database connection is not open") ||
+          message.includes("database connection is not open") ||
+          message.includes("socket hang up"));
       if (!retryable || attempt === devStartAttempts - 1) throw err;
       log(
         `dev startup race (attempt ${attempt + 1}/${devStartAttempts}), retrying…`,
@@ -815,7 +813,7 @@ async function readAuthenticatedSessionEmail(
       const message = err instanceof Error ? err.message : String(err);
       const retryable =
         isTransientDevServerError(err) ||
-        message.includes("expected authenticated session");
+        isRetryableSessionReadErrorMessage(message);
       if (!retryable || attempt === attempts - 1) throw err;
       log(
         `session read not ready (attempt ${attempt + 1}/${attempts}), retrying…`,
@@ -1007,6 +1005,16 @@ async function runBrowserSmoke(
   // Warmup covers `/` + auto-login + Vite quiet + authenticated session.
   log("warmup: auto-login, Vite dep quiet, authenticated /");
   await waitForAuthenticatedShell(page, baseUrl, running);
+
+  log("warmup: /agent dependencies and Vite dep quiet");
+  await gotoAndWaitForAgentPage(
+    page,
+    running,
+    "/agent",
+    browserErrors,
+    httpErrors,
+  );
+  await waitForViteDepsQuiet(running.viteReload, running.logs);
 
   browserErrors.length = 0;
   httpErrors.length = 0;

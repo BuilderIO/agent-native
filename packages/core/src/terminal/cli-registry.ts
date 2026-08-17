@@ -38,6 +38,11 @@ export const CLI_REGISTRY: Record<string, CliEntry> = {
     installPackage: "opencode-ai",
     stripEnv: [],
   },
+  pi: {
+    label: "Pi",
+    installPackage: "",
+    stripEnv: [],
+  },
 };
 
 /** Check if a command name is in the CLI_REGISTRY allowlist */

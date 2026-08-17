@@ -14,8 +14,25 @@ export interface DesktopStartupDependencies {
   logWarning: (message: string, error: unknown) => void;
 }
 
+export interface DesktopStartupStep {
+  start: () => Promise<unknown>;
+  isShuttingDown: () => boolean;
+  abort?: () => Promise<void>;
+}
+
 export function resolveDesktopSsoBrokerStatePath(userDataPath: string): string {
   return path.join(userDataPath, "desktop-sso.json");
+}
+
+export async function runDesktopStartupStep({
+  start,
+  isShuttingDown,
+  abort,
+}: DesktopStartupStep): Promise<boolean> {
+  await start();
+  if (!isShuttingDown()) return true;
+  await abort?.();
+  return false;
 }
 
 export function initializeDesktopStartup({

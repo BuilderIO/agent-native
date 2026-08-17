@@ -217,6 +217,27 @@ describe("applyOperation — add-slide", () => {
     ]);
   });
 
+  it("keeps transition, animations, and image data on a duplicated slide", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      afterSlideId: "s1",
+      fields: {
+        content: "<p>Copy</p>",
+        transition: "fade",
+        animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+        imageUrl: "https://example.com/slide.png",
+        imageLoading: true,
+      },
+    });
+    const copy = deck.slides[1];
+    expect(copy.transition).toBe("fade");
+    expect(copy.animations).toHaveLength(1);
+    expect(copy.imageUrl).toBe("https://example.com/slide.png");
+    expect(copy.imageLoading).toBeUndefined();
+  });
+
   it("is idempotent — duplicate delivery is silently ignored", () => {
     const deck = {
       slides: [

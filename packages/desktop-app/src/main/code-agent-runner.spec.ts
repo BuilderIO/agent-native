@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { dispatchCodeAgentRunnerCommand } from "./code-agent-runner-dispatch.js";
 import {
+  isCodeAgentRunnerInFlight,
   resolveCodeAgentRunnerInvocation,
   runCodeAgentRunnerWithSignal,
 } from "./code-agent-runner.js";
@@ -17,6 +18,25 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("isCodeAgentRunnerInFlight", () => {
+  it("keeps a run live while its child process is still starting", () => {
+    const activeRunIds = new Set<string>();
+    const startingRunIds = new Set(["task-1"]);
+
+    expect(
+      isCodeAgentRunnerInFlight("task-1", activeRunIds, startingRunIds),
+    ).toBe(true);
+    expect(
+      isCodeAgentRunnerInFlight("task-2", activeRunIds, startingRunIds),
+    ).toBe(false);
+
+    activeRunIds.add("task-2");
+    expect(
+      isCodeAgentRunnerInFlight("task-2", activeRunIds, startingRunIds),
+    ).toBe(true);
+  });
 });
 
 describe("resolveCodeAgentRunnerInvocation", () => {
@@ -75,6 +95,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
 
   it("uses the built core CLI when development artifacts are available", () => {
     const repoRoot = createTempRoot();
+    const worktreePath = createTempRoot();
     const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
     fs.mkdirSync(path.dirname(localCli), { recursive: true });
     fs.writeFileSync(localCli, "");
@@ -86,20 +107,43 @@ describe("resolveCodeAgentRunnerInvocation", () => {
           resourcesPath: "/ignored/resources",
           electronPath: "/ignored/electron",
           repoRoot,
+          cwd: worktreePath,
         },
         "run",
         "task-1",
       ),
     ).toEqual({
       command: "node",
-      args: ["packages/core/dist/cli/index.js", "code", "run", "task-1"],
-      cwd: repoRoot,
+      args: [localCli, "code", "run", "task-1"],
+      cwd: worktreePath,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     });
   });
 
+  it("uses the packaged resource directory unless a run worktree is provided", () => {
+    const root = createTempRoot();
+    const resourcesPath = path.join(root, "resources");
+    const repoRoot = path.join(root, "source-checkout");
+    const worktreePath = path.join(root, "worktree");
+
+    const invocation = resolveCodeAgentRunnerInvocation(
+      {
+        appIsPackaged: true,
+        resourcesPath,
+        electronPath: path.join(root, "electron"),
+        repoRoot,
+        cwd: worktreePath,
+      },
+      "run",
+      "task-worktree",
+    );
+
+    expect(invocation.cwd).toBe(worktreePath);
+  });
+
   it("preserves the pnpm development fallback when core has not been built", () => {
     const repoRoot = createTempRoot();
+    const worktreePath = createTempRoot();
 
     expect(
       resolveCodeAgentRunnerInvocation(
@@ -108,6 +152,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
           resourcesPath: "/ignored/resources",
           electronPath: "/ignored/electron",
           repoRoot,
+          cwd: worktreePath,
         },
         "approve-always",
         "task-2",
@@ -115,6 +160,8 @@ describe("resolveCodeAgentRunnerInvocation", () => {
     ).toEqual({
       command: "pnpm",
       args: [
+        "--dir",
+        repoRoot,
         "--filter",
         "@agent-native/core",
         "exec",
@@ -124,7 +171,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
         "approve-always",
         "task-2",
       ],
-      cwd: repoRoot,
+      cwd: worktreePath,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     });
   });
@@ -152,9 +199,9 @@ describe("resolveCodeAgentRunnerInvocation", () => {
     expect(invocation.command).toBe(pnpm);
     expect(invocation.cwd).toBe(repoRoot);
     expect(invocation.args.slice(0, 3)).toEqual([
+      "--dir",
+      repoRoot,
       "--filter",
-      "@agent-native/core",
-      "exec",
     ]);
   });
 });

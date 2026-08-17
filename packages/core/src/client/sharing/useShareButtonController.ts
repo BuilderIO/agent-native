@@ -14,7 +14,7 @@ import {
 } from "./share-controller-helpers.js";
 
 export type ShareButtonVisibility = "private" | "org" | "public";
-export type ShareButtonRole = "viewer" | "editor" | "admin";
+export type ShareButtonRole = "viewer" | "commenter" | "editor" | "admin";
 
 export interface ShareButtonShare {
   id: string;
@@ -29,6 +29,7 @@ export interface ShareButtonSharesResponse {
   orgId: string | null;
   visibility: ShareButtonVisibility | null;
   role?: "owner" | ShareButtonRole;
+  agentReadable?: boolean;
   shares: ShareButtonShare[];
   policy?: {
     allowPublic: boolean;
@@ -62,6 +63,7 @@ export interface ShareButtonControllerOptions {
     onValueChange?: (value: string) => void;
   };
   shareUrl?: string;
+  allowedRoles?: readonly ShareButtonRole[];
   hideInSearchControl?: {
     checked: boolean;
     pending?: boolean;
@@ -256,6 +258,12 @@ export function useShareButtonController(
   // Keep draft and optimistic state in the controller so closing and reopening
   // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
+  useEffect(() => {
+    const allowedRoles = options.allowedRoles;
+    if (!allowedRoles || allowedRoles.includes(role)) return;
+    const fallbackRole = allowedRoles[0];
+    if (fallbackRole) setRole(fallbackRole);
+  }, [options.allowedRoles, role]);
   const [notifyPeople, setNotifyPeople] = useState(true);
   const [shareMessage, setShareMessage] = useState("");
   const [messageOpen, setMessageOpen] = useState(false);

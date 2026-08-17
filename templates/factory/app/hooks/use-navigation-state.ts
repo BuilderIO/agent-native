@@ -72,6 +72,7 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
+  if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/factory")) return "factory";
   if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
     return "agent";
@@ -86,7 +87,7 @@ function pathForView(view?: string): string {
     case "chat":
     case "home":
     case "ask":
-      return "/";
+      return "/chat";
     case "database":
       return "/database";
     case "extensions":
@@ -95,6 +96,8 @@ function pathForView(view?: string): string {
       return "/observability";
     case "factory":
       return "/factory";
+    case "agents":
+      return "/agents";
     case "agent":
       return "/settings/agent";
     case "settings":
@@ -111,7 +114,7 @@ function pathForCommand(command: any): string {
   if (path !== "/") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
 }
 
 function routerPath(path: string): string {
@@ -125,5 +128,7 @@ function routerPath(path: string): string {
 }
 
 function isChatPath(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/chat/");
+  return (
+    pathname === "/" || pathname === "/chat" || pathname.startsWith("/chat/")
+  );
 }

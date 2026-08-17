@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, roleSatisfies } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -27,6 +27,13 @@ import {
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
+}
+
+function canCommentRole(role: string) {
+  return roleSatisfies(
+    role as Parameters<typeof roleSatisfies>[0],
+    "commenter",
+  );
 }
 
 function canManageRole(role: string) {
@@ -161,6 +168,7 @@ export default defineAction({
       visibility: doc.visibility,
       source: serializeDocumentSource(doc),
       accessRole: access.role,
+      canComment: canCommentRole(access.role),
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
       database: database

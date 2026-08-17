@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { docsUrl } from "../../shared/docs-url.js";
 import {
   MCP_CONNECT_GUIDES,
   MCP_CONNECT_MCP_URL_TEMPLATE,
@@ -42,6 +43,7 @@ import {
   // The dialog is intentionally reused here so the Agent page remains a thin
   // host for the existing MCP management flow.
 } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import { McpServerDetail } from "../resources/McpServerDetail.js";
 import type { ResourceView } from "../resources/ResourcesPanel.js";
 import {
@@ -142,14 +144,15 @@ function EmptySlot({ label }: { label: string }) {
 }
 
 export const AGENT_RESOURCE_DOCS_HREF: Record<ResourceView, string> = {
-  files: "https://agent-native.com/docs/agent-resources#resources-tab",
-  instructions: "https://agent-native.com/docs/agent-resources#agents-md",
-  agents: "https://agent-native.com/docs/agent-resources#custom-agents",
-  memory: "https://agent-native.com/docs/agent-resources#memory",
-  skills: "https://agent-native.com/docs/skills-guide",
-  learnings: "https://agent-native.com/docs/agent-resources#memory",
-  "remote-agents":
-    "https://agent-native.com/docs/agent-resources#remote-vs-custom-agents",
+  files: docsUrl("agent-resources", { hash: "resources-tab" }),
+  instructions: docsUrl("agent-resources", { hash: "agents-md" }),
+  agents: docsUrl("agent-resources", { hash: "custom-agents" }),
+  memory: docsUrl("agent-resources", { hash: "memory" }),
+  skills: docsUrl("skills-guide"),
+  learnings: docsUrl("agent-resources", { hash: "memory" }),
+  "remote-agents": docsUrl("agent-resources", {
+    hash: "remote-vs-custom-agents",
+  }),
 };
 
 const RESOURCE_TAB_COPY: Record<
@@ -298,11 +301,17 @@ export function ConnectionsTab({
       <div
         key={key}
         className={cn(
-          "group/connection-row py-4 transition-colors first:pt-5 last:pb-5",
+          "group/connection-row border-b border-border/60 py-3.5 transition-colors last:border-b-0",
           selected && "bg-accent/20",
         )}
       >
         <div className="flex items-start gap-3">
+          <McpIntegrationLogo
+            name={server.name}
+            logoUrl=""
+            integrationId={server.name.toLowerCase()}
+            className="size-8 rounded-md"
+          />
           <button
             type="button"
             onClick={() => setSelectedServer(selected ? null : server)}
@@ -312,11 +321,16 @@ export function ConnectionsTab({
               <span className="truncate text-sm font-medium text-foreground">
                 {server.name}
               </span>
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {server.scope === "user"
+                  ? t("mcpIntegrations.personal")
+                  : t("mcpIntegrations.sharedWithWorkspace")}
+              </span>
             </div>
-            <code className="mt-1 block truncate text-[11px] text-muted-foreground">
+            <code className="mt-0.5 block truncate text-[11px] text-muted-foreground">
               {server.url}
             </code>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-2">
               <ServerStatus server={server} />
               {server.description && (
                 <span className="truncate text-[11px] text-muted-foreground/70">
@@ -325,6 +339,9 @@ export function ConnectionsTab({
               )}
             </div>
           </button>
+          <span className="hidden shrink-0 self-center text-xs font-medium text-foreground/70 sm:inline">
+            Manage
+          </span>
           {canDelete && (
             <button
               type="button"
@@ -351,7 +368,7 @@ export function ConnectionsTab({
   return (
     <AgentTabFrame
       title="Agent integrations"
-      description="Tools and services this agent can reach, grouped by where they are configured."
+      description="Tools and services this agent can reach, grouped by personal or workspace access."
       actions={
         <button
           type="button"
@@ -391,10 +408,18 @@ export function ConnectionsTab({
         ) : (
           <div className="space-y-6">
             {[
-              { label: "Personal", servers: data?.user ?? [] },
-              { label: "Organization", servers: data?.org ?? [] },
+              {
+                scope: "user" as const,
+                label: t("mcpIntegrations.personal"),
+                servers: data?.user ?? [],
+              },
+              {
+                scope: "org" as const,
+                label: t("mcpIntegrations.sharedWithWorkspace"),
+                servers: data?.org ?? [],
+              },
             ].map((section) => (
-              <section key={section.label} className="space-y-2">
+              <section key={section.scope} className="space-y-2">
                 <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
                   {section.label}
                 </h2>
@@ -405,11 +430,15 @@ export function ConnectionsTab({
                 ) : (
                   <AgentEmptyState
                     icon={IconPlugConnected}
-                    title={`No ${section.label.toLowerCase()} agent integrations yet`}
+                    title={
+                      section.scope === "user"
+                        ? "No personal agent integrations yet"
+                        : "No workspace-shared agent integrations yet"
+                    }
                     description={
-                      section.label === "Personal"
+                      section.scope === "user"
                         ? "Connect a service to give the agent access to it."
-                        : "Organization agent integrations shared with this workspace will appear here."
+                        : "Agent integrations shared with this workspace will appear here."
                     }
                   />
                 )}
@@ -439,8 +468,8 @@ interface AccessUrls {
 }
 
 export const AGENT_ACCESS_DOCS_HREF = {
-  mcp: "https://agent-native.com/docs/mcp-protocol",
-  a2a: "https://agent-native.com/docs/a2a-protocol",
+  mcp: docsUrl("mcp-protocol"),
+  a2a: docsUrl("a2a-protocol"),
 } as const;
 
 interface CopyFieldProps {

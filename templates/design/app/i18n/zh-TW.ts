@@ -64,7 +64,7 @@ const messages = {
     commentMode: "評論",
     sendToAgent: "傳送給代理",
     sendingToAgent: "正在傳送給代理…",
-    enterToPost: "按 Enter 發布 · 按 Shift+Enter 換行",
+    enterToPost: "按 Enter 發布 · 按 Shift Enter 換行",
     post: "發布",
     posting: "正在發布…",
     postFailed: "無法發布這則評論",
@@ -966,6 +966,8 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfExportError: "無法匯出 PDF",
+      pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
@@ -1274,6 +1276,8 @@ const messages = {
     otherSourcesDescription: "從網站、程式碼、檔案或現有設計系統連接。",
     chooseSourcePrompt: "選擇一個來源進行設定",
     continue: "繼續生成",
+    starting: "正在啟動…",
+    githubIndexStarted: "GitHub 索引已開始",
     title: "設定您的設計系統",
     description:
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
@@ -1285,6 +1289,8 @@ const messages = {
     websiteUrl: "網站 URL",
     add: "新增",
     githubRepository: "GitHub 儲存庫",
+    githubRef: "分支、標籤或提交（選用）",
+    githubPaths: "檔案或資料夾，以逗號分隔（選用）",
     privateRepoPrefix: "私人倉庫需要一個細粒度的權杖，另存為",
     privateRepoSuffix: "具有內容讀取權限。",
     localCodeFiles: "連接程式碼檔案",
@@ -1327,6 +1333,8 @@ const messages = {
       enterGithub: "在新增之前輸入 GitHub 儲存庫 URL。",
       githubUrl:
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
+      githubIndex:
+        "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
     sections: {
@@ -1447,6 +1455,7 @@ const messages = {
       logos: "標誌",
       assets: "資產",
       savedCount: "已儲存 {{count}} 個",
+      namedTokens: "具名代幣",
       colorLabels: {
         primary: "基本的",
         secondary: "中學",

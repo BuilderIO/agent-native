@@ -261,9 +261,11 @@ describe("account-deep-dive action", () => {
       contactCount: 1,
       gongCallCount: 1,
       transcriptCount: 1,
+      productUsageIncluded: false,
       gaps: [],
     });
-    expect(result.guidance).toContain("Fusion-style deal deep dive");
+    expect(result.guidance).toContain("does not include product usage");
+    expect(result.guidance).toContain("account-health checks");
   });
 
   it("honors string false for transcript loading from GET query params", async () => {

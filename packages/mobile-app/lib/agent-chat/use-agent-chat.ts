@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
+import { trackMobileEvent } from "@/lib/analytics";
+
 import {
   abortRun,
   AgentChatError,
@@ -81,7 +83,7 @@ export interface AgentChatController {
   approve: (approvalKey: string) => void;
   deny: (approvalKey?: string) => void;
   retry: () => void;
-  newChat: () => void;
+  newChat: (baseUrl?: string) => void;
   /** Open a thread; pass its origin app base URL for cross-app threads. */
   openThread: (threadId: string, baseUrl?: string) => void;
   clearAuthRequired: () => void;
@@ -140,6 +142,17 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     ) => {
       const currentGeneration = ++activeGenerationRef.current;
       const activeThreadId = currentThreadId ?? threadId;
+      void trackMobileEvent(
+        "agent_chat_turn_started",
+        {
+          chat_surface: "mobile",
+          thread_id: activeThreadId,
+          turn_kind: extra.approvedToolCalls?.length ? "approval" : "message",
+          has_attachments: Boolean(extra.attachments?.length),
+          reference_count: extra.references?.length ?? 0,
+        },
+        baseUrlRef.current,
+      );
       const committed = stateRef.current.messages;
       const history = committed
         .map((message) => ({
@@ -227,6 +240,15 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         };
 
         if (turn.runId) runIdsRef.current.set(assistantId, turn.runId);
+        void trackMobileEvent(
+          "agent_chat_run_started",
+          {
+            chat_surface: "mobile",
+            thread_id: activeThreadId,
+            ...(turn.runId ? { run_id: turn.runId } : {}),
+          },
+          baseUrlRef.current,
+        );
         buffered = { ...buffered, runId: turn.runId };
         dirty = true;
 
@@ -385,12 +407,11 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     setTimeout(() => void runTurn(prompt), 0);
   }, [runTurn]);
 
-  const newChat = useCallback(() => {
+  const newChat = useCallback((nextBaseUrl = DEFAULT_CHAT_BASE_URL) => {
     activeGenerationRef.current++;
     liveTurnRef.current?.abort();
     setThreadId(newThreadId());
-    // New chats always start on the chat app.
-    setBaseUrl(DEFAULT_CHAT_BASE_URL);
+    setBaseUrl(nextBaseUrl);
     lastPromptRef.current = null;
     setState({
       messages: [],

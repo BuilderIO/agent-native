@@ -27,6 +27,9 @@ describe("buildExtensionHtml", () => {
     expect(EXTENSION_IFRAME_CSP).not.toContain("frame-ancestors *");
     expect(EXTENSION_FRAME_ANCESTORS).toContain("https://*.agent-native.com");
     expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://agent-workspace.builder.io",
+    );
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
       "https://*.claudemcpcontent.com",
     );
     expect(EXTENSION_FRAME_ANCESTORS).toContain(
@@ -70,6 +73,21 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("res.status !== 405");
     expect(html).toContain("retryMethod === 'GET'");
     expect(html).toContain("_appendActionQuery(path, params)");
+  });
+
+  it("hides x-cloak content until Alpine boots", () => {
+    // Extension content is a body snippet, so it cannot supply this rule
+    // itself. Without it an `x-cloak` overlay covers the whole extension
+    // until the deferred Alpine CDN script resolves — and forever if it
+    // never does.
+    const html = buildExtensionHtml(
+      '<div x-cloak class="fixed inset-0">Alerts</div>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("[x-cloak] { display: none !important; }");
   });
 
   it("routes extension navigate calls through the app-state command endpoint", () => {

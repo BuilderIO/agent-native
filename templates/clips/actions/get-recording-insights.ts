@@ -60,12 +60,13 @@ export default defineAction({
 
     // Same definition as `countedViewCondition`, applied to rows already in
     // memory so this action keeps its single viewer-row read. One row per
-    // person, so this is the distinct-viewer count, not the view total.
-    const countedViewers = viewerRows.filter(isCountedViewerRow).length;
+    // person, so this is the distinct-viewer count, not the view total. Rows
+    // that have not met the view threshold are still useful in the Views tab,
+    // but must not lower the counted-view completion rate.
+    const countedViewerRows = viewerRows.filter(isCountedViewerRow);
+    const countedViewers = countedViewerRows.length;
     const uniqueViewers = new Set(
-      viewerRows
-        .filter(isCountedViewerRow)
-        .map((v) => v.viewerEmail ?? `anon:${v.id}`),
+      countedViewerRows.map((v) => v.viewerEmail ?? `anon:${v.id}`),
     ).size;
 
     // Mirrors `countRecordingViews`: `recording_views` only exists from
@@ -75,12 +76,12 @@ export default defineAction({
     const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
     const completionRate =
-      viewerRows.length === 0
+      countedViewerRows.length === 0
         ? 0
-        : viewerRows.reduce(
+        : countedViewerRows.reduce(
             (acc, v) => acc + clampCompletionPct(v.completedPct),
             0,
-          ) / viewerRows.length;
+          ) / countedViewerRows.length;
 
     // Drop-off: 100 buckets across the video's duration.
     // Use the recording's duration as the denominator.

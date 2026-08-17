@@ -104,8 +104,8 @@ function DevOverlayPanel({ onClose }: { onClose: () => void }) {
   const shortcutHint =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent)
-      ? "Cmd+Ctrl+A"
-      : "Ctrl+Alt+A";
+      ? "Cmd Ctrl A"
+      : "Ctrl Alt A";
 
   return (
     <TooltipProvider delayDuration={200}>

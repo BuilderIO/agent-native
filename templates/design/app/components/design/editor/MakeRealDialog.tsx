@@ -27,7 +27,7 @@ export interface DesignMigrationResult {
   cta?: {
     kind: string;
     label: string;
-    description: string;
+    description?: string;
     connectUrl?: string;
     primaryAction: string;
   };
@@ -62,7 +62,9 @@ export function MakeRealDialog({
                 <IconRocket className="size-5 text-muted-foreground" />
                 {result.cta.label}
               </DialogTitle>
-              <DialogDescription>{result.cta.description}</DialogDescription>
+              {result.cta.description ? (
+                <DialogDescription>{result.cta.description}</DialogDescription>
+              ) : null}
             </DialogHeader>
             <DialogFooter className="flex-col gap-2 sm:flex-row">
               <Button
