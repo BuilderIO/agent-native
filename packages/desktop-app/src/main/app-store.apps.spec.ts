@@ -45,6 +45,15 @@ describe("desktop app mode defaults", () => {
     expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(false);
   });
 
+  it("uses the default for an existing preferences file without a choice", () => {
+    fs.writeFileSync(
+      path.join(electronState.userData, "desktop-app-preferences.json"),
+      JSON.stringify({ appModeDefaultsVersion: 1 }),
+    );
+
+    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(true);
+  });
+
   it("removes the generic chat starter from an existing desktop config", () => {
     const initialApps = loadApps();
     fs.writeFileSync(
