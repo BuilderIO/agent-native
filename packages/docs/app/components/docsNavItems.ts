@@ -605,7 +605,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "publicAgentWeb",
         slug: "agent-web-surfaces",
       },
-      { id: "database", labelKey: "database", slug: "database" },
       {
         id: "internationalization",
         labelKey: "internationalization",

@@ -11,7 +11,7 @@ Os aplicativos nativos do agente usam [Nitro](https://nitro.build) internamente,
 
 Todo aplicativo implantado precisa de um banco de dados SQL persistente. No desenvolvimento local, o agente nativo recorre a um arquivo SQLite em `data/app.db`; isso é conveniente em sua máquina, mas não é durável em contêineres, visualizações ou ambientes sem servidor onde o sistema de arquivos pode ser redefinido.
 
-Defina `DATABASE_URL` em seu provedor de implantação antes de promover um aplicativo para produção. O agente nativo usa Drizzle para esquema e consultas, portanto, a camada de dados é portátil em back-ends SQL compatíveis com Drizzle e a estrutura detecta automaticamente o dialeto do URL. Consulte [Database](/docs/database#production) para obter a lista de adaptadores e detalhes do dialeto.
+Defina `DATABASE_URL` em seu provedor de implantação antes de promover um aplicativo para produção. O agente nativo usa Drizzle para esquema e consultas, portanto, a camada de dados é portátil em back-ends SQL compatíveis com Drizzle e a estrutura detecta automaticamente o dialeto do URL. Consulte [Database](/docs/server-database#production) para obter a lista de adaptadores e detalhes do dialeto.
 
 Use `DATABASE_AUTH_TOKEN` somente quando seu provedor de banco de dados exigir um token separado, como Turso/libSQL. Para espaços de trabalho, todos os aplicativos herdam a raiz `DATABASE_URL` por padrão; defina `<APP_NAME>_DATABASE_URL` quando um aplicativo deve usar um banco de dados diferente.
 
@@ -428,7 +428,7 @@ Três coisas a ter em mente:
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Segredo HMAC compartilhado e dedicado de 32 caracteres ou mais para a retransmissão segura da autorização do Builder para prévias. Defina o mesmo valor na implantação de callback corporativa aprovada e nas implantações de prévia somente quando a autorização precisar ser salva em um banco de dados de prévia isolado.                                                                                                                           |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Lista separada por vírgulas de origens de prévia confiáveis e exatas, exclusiva do callback corporativo (por exemplo, `https://0123456789abcdef01234567--content.netlify.app`). Defina-a somente na implantação do callback corporativo. As origens da Netlify devem usar um permalink imutável e específico da implantação com um ID hexadecimal de 24 caracteres; aliases mutáveis `deploy-preview-*`, curingas e sufixos de domínio são rejeitados. |
 
-Variáveis de conexão de banco de dados (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` por aplicativo) residem em [Database](/docs/database#production).
+Variáveis de conexão de banco de dados (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` por aplicativo) residem em [Database](/docs/server-database#production).
 
 ### Configuração sensível de produção {#env-required-prod}
 
@@ -582,7 +582,7 @@ Os aplicativos nativos do agente armazenam todo o estado em SQL com Drizzle e si
 
 ## Próximos passos
 
-- [**Database**](/docs/database#production) — escolha um backend SQL persistente antes da primeira implantação em produção
+- [**Database**](/docs/server-database#production) — escolha um backend SQL persistente antes da primeira implantação em produção
 - [**Security**](/docs/security) — a lista de verificação de produção e os sinalizadores opcionais mencionados nesta página
 - [**Authentication**](/docs/authentication) — credenciais OAuth e variáveis de ambiente para o modo de autenticação escolhido
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — o modelo de espaço de trabalho por trás da compilação de origem única do `deploy`

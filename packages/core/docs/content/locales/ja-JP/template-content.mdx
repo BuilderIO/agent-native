@@ -655,7 +655,7 @@ export const ImpactCounterInputs = {
 - **`app/components/editor/`** — Tiptap エディター。新しいノード タイプを `extensions/` の下に追加し、それを `DocumentEditor.tsx` に登録します。バブル ツールバー、スラッシュ メニュー、ホバー プレビューはすべて編集できるコンポーネント ファイルです。
 - **`.agents/skills/`** — エージェントが行動する前に読むガイダンス。新しい機能 (CMS パブリッシュ パイプラインなど) を追加する場合は、エージェントが正しく使用できるように、新しいスキル フォルダーに `SKILL.md` をドロップします。既存の skills: `document-editing`、`notion-integration`、`real-time-sync`、`delegate-to-agent`、`storing-data`、`self-modifying-code`、`security`、`frontend-design`、`create-skill`、`capture-learnings`。
 - **`AGENTS.md`** — アクション チートシートと共通タスクの表を含むトップレベルのエージェント ガイド。主要な機能を追加するたびに更新して、エージェントが探索せずにその機能を検出できるようにします。
-- **`server/db/schema.ts`** — データ モデル。ここに列またはテーブルを追加します。コンテンツ テンプレートには `db:push` スクリプトがありません。これは、起動時に実行される厳密に追加的な移行に依存しています。 `server/db/schema.ts` を編集し、一致する追加移行を作成すると、次回アプリが起動するときに変更が適用されます。スキーマの更新では、既存のテーブルや列を削除したり、名前を変更したり、破壊的に変更したりしてはなりません (ガイドラインについては、[Database](/docs/database#migrations) を参照してください)。
+- **`server/db/schema.ts`** — データ モデル。ここに列またはテーブルを追加します。コンテンツ テンプレートには `db:push` スクリプトがありません。これは、起動時に実行される厳密に追加的な移行に依存しています。 `server/db/schema.ts` を編集し、一致する追加移行を作成すると、次回アプリが起動するときに変更が適用されます。スキーマの更新では、既存のテーブルや列を削除したり、名前を変更したり、破壊的に変更したりしてはなりません (ガイドラインについては、[Database](/docs/server-database#migrations) を参照してください)。
 - **`shared/notion-markdown.ts`** — マークダウンから Notion ブロックへの変換。 Notion を往復する必要がある新しいブロック タイプを追加する場合は、これを拡張します。
 
 エージェントはこれらすべての変更を自分で行うことができます。エージェントに「ドキュメントにタグ列を追加してサイドバーに公開する」ように依頼すると、スキーマの更新、移行、UI の接続、およびアクションの作成が行われます。

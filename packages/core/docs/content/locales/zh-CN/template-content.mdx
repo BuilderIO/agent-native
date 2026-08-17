@@ -650,7 +650,7 @@ The browser **Local files** picker can read and write `.md` and `.mdx` files on
 - **`app/components/editor/`** — Tiptap 编辑器。在`extensions/`下添加新的节点类型，并在`DocumentEditor.tsx`中注册。气泡工具栏、斜杠菜单和悬停预览都是您可以编辑的组件文件。
 - **`.agents/skills/`** — 代理在行动前阅读的指南。如果您添加新功能（例如，CMS 发布管道），请将 `SKILL.md` 放入新技能文件夹中，以便代理正确使用它。现有skills：`document-editing`、`notion-integration`、`real-time-sync`、`delegate-to-agent`、`storing-data`、`self-modifying-code`、`security`、`frontend-design`、`create-skill`、`capture-learnings`。
 - **`AGENTS.md`** — 带有操作备忘单和常见任务表的顶级代理指南。每当您添加主要功能时更新它，以便代理无需探索即可发现它。
-- **`server/db/schema.ts`** — 数据模型。此处添加列或表。内容模板没有 `db:push` 脚本；它依赖于在启动时运行的严格附加迁移。编辑 `server/db/schema.ts`，编写匹配的附加迁移，并在下次应用启动时应用更改 - 架构更新绝不能删除、重命名或破坏性地更改现有表或列（有关准则，请参阅 [Database](/docs/database#migrations)）。
+- **`server/db/schema.ts`** — 数据模型。此处添加列或表。内容模板没有 `db:push` 脚本；它依赖于在启动时运行的严格附加迁移。编辑 `server/db/schema.ts`，编写匹配的附加迁移，并在下次应用启动时应用更改 - 架构更新绝不能删除、重命名或破坏性地更改现有表或列（有关准则，请参阅 [Database](/docs/server-database#migrations)）。
 - **`shared/notion-markdown.ts`** — 降价到 Notion 块的转换。如果您添加需要通过 Notion 往返的新块类型，请扩展此功能。
 
 代理可以自行进行所有这些更改 - 要求它“向文档添加标签列并将其公开在侧边栏中”，它将更新架构、迁移、连接 UI 并编写操作。

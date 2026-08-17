@@ -11,7 +11,7 @@ description: "Nitro プリセット (Node.js、Vercel、Netlify、Cloudflare、A
 
 デプロイされたすべてのアプリには、永続的な SQL データベースが必要です。ローカル開発では、エージェントネイティブは `data/app.db` の SQLite ファイルにフォールバックします。これはマシンでは便利ですが、ファイルシステムがリセットされる可能性のあるコンテナ、プレビュー、またはサーバーレス環境では耐久性がありません。
 
-アプリを運用環境に昇格させる前に、デプロイプロバイダーで `DATABASE_URL` を設定します。エージェントネイティブはスキーマとクエリに Drizzle を使用するため、データ層は Drizzle 互換の SQL バックエンド間で移植可能であり、フレームワークは URL から方言を自動検出します。アダプターのリストと方言の詳細については、[Database](/docs/database#production) を参照してください。
+アプリを運用環境に昇格させる前に、デプロイプロバイダーで `DATABASE_URL` を設定します。エージェントネイティブはスキーマとクエリに Drizzle を使用するため、データ層は Drizzle 互換の SQL バックエンド間で移植可能であり、フレームワークは URL から方言を自動検出します。アダプターのリストと方言の詳細については、[Database](/docs/server-database#production) を参照してください。
 
 データベース プロバイダーが Turso/libSQL などの別のトークンを必要とする場合にのみ、`DATABASE_AUTH_TOKEN` を使用してください。ワークスペースの場合、すべてのアプリはデフォルトでルート `DATABASE_URL` を継承します。 1 つのアプリが別のデータベースを使用する必要がある場合は、`<APP_NAME>_DATABASE_URL` を設定します。
 
@@ -428,7 +428,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | プレビューに安全な Builder 認証リレー専用の、32 文字以上の共有 HMAC シークレット。認証を分離されたプレビュー データベースに保存する必要がある場合に限り、承認済みの企業コールバック デプロイメントとプレビュー デプロイメントの両方に同じ値を設定します。                                                                                                                                                     |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 企業コールバック専用の、完全一致する信頼済みプレビューオリジンをカンマ区切りで指定する許可リスト（例: `https://0123456789abcdef01234567--content.netlify.app`）。企業コールバックのデプロイメントにのみ設定します。Netlify オリジンには 24 桁の 16 進 ID を含む、不変かつデプロイ固有のパーマリンクが必要です。変更可能な `deploy-preview-*` エイリアス、ワイルドカード、ドメインサフィックスは拒否されます。 |
 
-データベース接続変数 (`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`) は [Database](/docs/database#production) に存在します。
+データベース接続変数 (`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`) は [Database](/docs/server-database#production) に存在します。
 
 ### 本番環境に関わる設定 {#env-required-prod}
 
@@ -581,7 +581,7 @@ export default createAgentChatPlugin({
 
 ## 次のステップ
 
-- [**Database**](/docs/database#production) — 最初の本番デプロイ前に永続 SQL バックエンドを選択します
+- [**Database**](/docs/server-database#production) — 最初の本番デプロイ前に永続 SQL バックエンドを選択します
 - [**Security**](/docs/security) — このページで参照されている本番チェックリストとオプトイン フラグ
 - [**Authentication**](/docs/authentication) — 選択した認証モードの OAuth 資格情報と環境変数
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` の単一オリジン ビルドを支えるワークスペース モデル

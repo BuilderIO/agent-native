@@ -11,7 +11,7 @@ description: "انشر تطبيقات الوكيل الأصلية على أي ن
 
 يحتاج كل تطبيق منشور إلى قاعدة بيانات SQL مستمرة. في التطوير المحلي، يعود Agent-Native إلى ملف SQLite في `data/app.db`؛ وهو مناسب لجهازك، ولكنه ليس دائمًا في الحاويات أو المعاينات أو البيئات التي لا تحتوي على خادم حيث يمكن إعادة ضبط نظام الملفات.
 
-قم بتعيين `DATABASE_URL` في موفر النشر الخاص بك قبل ترقية التطبيق إلى مرحلة الإنتاج. يستخدم Agent-native Drizzle للمخطط والاستعلامات، وبالتالي تكون طبقة البيانات قابلة للنقل عبر واجهات SQL الخلفية المتوافقة مع Drizzle ويكتشف إطار العمل اللهجة تلقائيًا من URL. راجع [Database](/docs/database#production) للحصول على قائمة المحولات وتفاصيل اللهجات.
+قم بتعيين `DATABASE_URL` في موفر النشر الخاص بك قبل ترقية التطبيق إلى مرحلة الإنتاج. يستخدم Agent-native Drizzle للمخطط والاستعلامات، وبالتالي تكون طبقة البيانات قابلة للنقل عبر واجهات SQL الخلفية المتوافقة مع Drizzle ويكتشف إطار العمل اللهجة تلقائيًا من URL. راجع [Database](/docs/server-database#production) للحصول على قائمة المحولات وتفاصيل اللهجات.
 
 استخدم `DATABASE_AUTH_TOKEN` فقط عندما يطلب موفر قاعدة البيانات رمزًا مميزًا منفصلاً، مثل Turso/libSQL. بالنسبة لمساحات العمل، تكتسب جميع التطبيقات الجذر `DATABASE_URL` افتراضيًا؛ قم بتعيين `<APP_NAME>_DATABASE_URL` عندما يجب أن يستخدم أحد التطبيقات قاعدة بيانات مختلفة.
 
@@ -428,7 +428,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | سر HMAC مشترك ومخصص مكوّن من 32 حرفاً أو أكثر لترحيل تفويض Builder بأمان إلى المعاينات. عيّن القيمة نفسها في نشر رد الاتصال المؤسسي المعتمد وعمليات نشر المعاينة فقط عندما يجب أن يصل التفويض إلى قاعدة بيانات معاينة معزولة.                                                                                                                                                                                         |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | قائمة سماح مفصولة بفواصل ومخصّصة لرد الاتصال المؤسسي، وتحتوي على أصول المعاينة الموثوقة المطابقة تماماً (مثلاً `https://0123456789abcdef01234567--content.netlify.app`). عيّنها فقط في نشر رد الاتصال المؤسسي. يجب أن تستخدم أصول Netlify رابطاً دائماً غير قابل للتغيير وخاصاً بالنشر مع معرّف من 24 رقماً سداسياً عشرياً؛ وتُرفض الأسماء المستعارة القابلة للتغيير `deploy-preview-*` وأحرف البدل ولاحقات النطاقات. |
 
-متغيرات اتصال قاعدة البيانات (`DATABASE_URL`، `DATABASE_AUTH_TOKEN`، `<APP_NAME>_DATABASE_URL` لكل تطبيق) موجودة في [Database](/docs/database#production).
+متغيرات اتصال قاعدة البيانات (`DATABASE_URL`، `DATABASE_AUTH_TOKEN`، `<APP_NAME>_DATABASE_URL` لكل تطبيق) موجودة في [Database](/docs/server-database#production).
 
 ### إعدادات حساسة للإنتاج {#env-required-prod}
 
@@ -577,7 +577,7 @@ export default createAgentChatPlugin({
 
 ## الخطوات التالية
 
-- [**Database**](/docs/database#production) — اختر قاعدة بيانات SQL دائمة قبل أول نشر للإنتاج
+- [**Database**](/docs/server-database#production) — اختر قاعدة بيانات SQL دائمة قبل أول نشر للإنتاج
 - [**Security**](/docs/security) — قائمة تحقق الإنتاج والعلامات الاختيارية المشار إليها في هذه الصفحة
 - [**Authentication**](/docs/authentication) — بيانات اعتماد OAuth ومتغيرات البيئة لوضع المصادقة الذي تختاره
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — نموذج مساحة العمل وراء بنية `deploy` ذات الأصل الواحد

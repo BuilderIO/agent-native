@@ -165,7 +165,7 @@ Framework अपनाना मुख्यतः इसलिए valuable ह�
 
 ## SQL में Data {#data-in-sql}
 
-सारा application state Drizzle ORM के ज़रिए एक SQL database में रहता है। Schemas provider-agnostic हैं; supported databases, `DATABASE_URL` config, और portability नियम [Database](/docs/database) में हैं।
+सारा application state Drizzle ORM के ज़रिए एक SQL database में रहता है। Schemas provider-agnostic हैं; supported databases, `DATABASE_URL` config, और portability नियम [Database](/docs/server-database) में हैं।
 
 Core SQL स्टोर auto-created हैं और हर template में उपलब्ध हैं:
 
@@ -464,7 +464,7 @@ Framework embedded agent को ऐप के source code तक ambient access 
 
 दो architectural नियम ऐप्स को databases और hosts के बीच portable बनाए रखते हैं:
 
-- **Database-agnostic.** Schemas `@agent-native/core/db/schema` के साथ लिखें और reads/writes Drizzle के portable query DSL के साथ, ताकि वही code किसी भी supported provider पर चले। Raw SQL का उपयोग केवल additive migrations या one-off maintenance के लिए करें, जिसे parameterized और dialect-agnostic रखा गया हो। देखें [Database](/docs/database)।
+- **Database-agnostic.** Schemas `@agent-native/core/db/schema` के साथ लिखें और reads/writes Drizzle के portable query DSL के साथ, ताकि वही code किसी भी supported provider पर चले। Raw SQL का उपयोग केवल additive migrations या one-off maintenance के लिए करें, जिसे parameterized और dialect-agnostic रखा गया हो। देखें [Database](/docs/server-database)।
 - **Hosting-agnostic.** Server Nitro पर चलता है और किसी भी deployment target के लिए compile होता है। Server routes या plugins में कभी भी Node-specific APIs (`fs`, `child_process`, `path`) का उपयोग न करें, और कभी भी persistent server process मान कर न चलें। Serverless और edge stateless होते हैं, इसलिए सारा state SQL में रखें। देखें [Deployment](/docs/deployment)।
 
 ## Agent Resources {#workspace}

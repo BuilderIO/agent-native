@@ -653,7 +653,7 @@ export const ImpactCounterInputs = {
 - **`app/components/editor/`** — Tiptap 편집기. `extensions/` 아래에 새로운 노드 유형을 추가하고 `DocumentEditor.tsx`에 등록합니다. 풍선 도구 모음, 슬래시 메뉴 및 마우스 오버 미리보기는 모두 편집할 수 있는 구성요소 파일입니다.
 - **`.agents/skills/`** — 에이전트가 행동하기 전에 읽는 지침입니다. 새 기능(예: CMS 게시 파이프라인)을 추가하는 경우 에이전트가 올바르게 사용할 수 있도록 `SKILL.md`를 새 기술 폴더에 놓습니다. 기존 skills: `document-editing`, `notion-integration`, `real-time-sync`, `delegate-to-agent`, `storing-data`, `self-modifying-code`, `security`, `frontend-design`, `create-skill`, `capture-learnings`.
 - **`AGENTS.md`** — 작업 치트시트와 일반 작업 표가 포함된 최상위 에이전트 가이드입니다. 상담원이 탐색하지 않고도 발견할 수 있도록 주요 기능을 추가할 때마다 업데이트하세요.
-- **`server/db/schema.ts`** — 데이터 모델. 여기에 열이나 테이블을 추가하세요. 콘텐츠 템플릿에는 `db:push` 스크립트가 없습니다. 시작 시 실행되는 추가 마이그레이션에 엄격하게 의존합니다. `server/db/schema.ts`를 편집하고 일치하는 추가 마이그레이션을 작성하면 다음에 앱이 부팅될 때 변경 사항이 적용됩니다. 스키마 업데이트는 절대 기존 테이블이나 열을 삭제하거나 이름을 바꾸거나 파괴적으로 변경해서는 안 됩니다(지침은 [Database](/docs/database#migrations) 참조).
+- **`server/db/schema.ts`** — 데이터 모델. 여기에 열이나 테이블을 추가하세요. 콘텐츠 템플릿에는 `db:push` 스크립트가 없습니다. 시작 시 실행되는 추가 마이그레이션에 엄격하게 의존합니다. `server/db/schema.ts`를 편집하고 일치하는 추가 마이그레이션을 작성하면 다음에 앱이 부팅될 때 변경 사항이 적용됩니다. 스키마 업데이트는 절대 기존 테이블이나 열을 삭제하거나 이름을 바꾸거나 파괴적으로 변경해서는 안 됩니다(지침은 [Database](/docs/server-database#migrations) 참조).
 - **`shared/notion-markdown.ts`** — 마크다운에서 Notion 블록으로의 변환. Notion를 통해 왕복해야 하는 새로운 블록 유형을 추가하는 경우 이를 확장하세요.
 
 에이전트는 이러한 모든 변경 작업을 자체적으로 수행할 수 있습니다. "문서에 태그 열을 추가하고 사이드바에 표시"하도록 요청하면 스키마를 업데이트하고, 마이그레이션하고, UI를 연결하고, 작업을 작성합니다.

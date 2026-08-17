@@ -11,7 +11,7 @@ Agent-Native 應用程式在底層使用 [Nitro](https://nitro.build)，這意�
 
 每個部署的應用程式都需要一個持久的 SQL 資料庫。在本機開發中，agent-native 回退到 `data/app.db` 處的 SQLite 檔案；這在您的電腦上很方便，但在可以重設檔案系統的容器、預覽或無伺服器環境中並不持久。
 
-在將應用推廣到正式環境環境之前，在部署提供者中設定 `DATABASE_URL`。 Agent-Native 使用 Drizzle 進行架構和查詢，因此資料層可跨 Drizzle 相容的 SQL 後端移植，並且框架會自動偵測 URL 的方言。有關轉接器清單和方言詳細資訊，請參閱 [Database](/docs/database#production)。
+在將應用推廣到正式環境環境之前，在部署提供者中設定 `DATABASE_URL`。 Agent-Native 使用 Drizzle 進行架構和查詢，因此資料層可跨 Drizzle 相容的 SQL 後端移植，並且框架會自動偵測 URL 的方言。有關轉接器清單和方言詳細資訊，請參閱 [Database](/docs/server-database#production)。
 
 僅當您的資料庫提供者需要單獨的權杖（例如 Turso/libSQL）時才使用 `DATABASE_AUTH_TOKEN`。對於工作區，所有應用預設繼承根`DATABASE_URL`；當一個應用程式應使用不同的資料庫時設定 `<APP_NAME>_DATABASE_URL`。
 
@@ -428,7 +428,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用於預覽安全的 Builder 授權中繼的專用 32+ 字元共用 HMAC 金鑰。只有當授權結果必須寫入隔離的預覽資料庫時，才在核准的企業回呼部署和預覽部署上設定相同的值。                                                                                                                                  |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 僅供企業回呼使用、以逗號分隔的精確可信預覽來源允許清單（例如 `https://0123456789abcdef01234567--content.netlify.app`）。僅在企業回呼部署中設定。Netlify 來源必須使用包含 24 位十六進位 ID、不可變且特定於部署的永久連結；可變的 `deploy-preview-*` 別名、萬用字元和網域尾碼都會遭到拒絕。 |
 
-資料庫連線變數（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每個應用程式 `<APP_NAME>_DATABASE_URL`）位於 [Database](/docs/database#production) 中。
+資料庫連線變數（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每個應用程式 `<APP_NAME>_DATABASE_URL`）位於 [Database](/docs/server-database#production) 中。
 
 ### 正式環境敏感設定 {#env-required-prod}
 
@@ -573,7 +573,7 @@ Agent-Native 應用程式透過 Drizzle 將所有狀態儲存在 SQL 中，並�
 
 ## 下一步
 
-- [**Database**](/docs/database#production) — 在首次生產部署前選擇持久化 SQL 後端
+- [**Database**](/docs/server-database#production) — 在首次生產部署前選擇持久化 SQL 後端
 - [**Security**](/docs/security) — 本頁提到的生產檢查清單和選用旗標
 - [**Authentication**](/docs/authentication) — 所選驗證模式的 OAuth 憑證和環境變數
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` 單一來源建置背後的工作區模型

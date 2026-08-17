@@ -170,7 +170,7 @@ Adotar o framework é valioso principalmente pelo que você deixa de precisar co
 
 ## Dados em SQL {#data-in-sql}
 
-Todo o estado da aplicação reside em um banco de dados SQL via Drizzle ORM. Os schemas são agnósticos de provedor; os bancos de dados suportados, a configuração de `DATABASE_URL` e as regras de portabilidade estão em [Database](/docs/database).
+Todo o estado da aplicação reside em um banco de dados SQL via Drizzle ORM. Os schemas são agnósticos de provedor; os bancos de dados suportados, a configuração de `DATABASE_URL` e as regras de portabilidade estão em [Database](/docs/server-database).
 
 As stores SQL do Core são criadas automaticamente e estão disponíveis em todo template:
 
@@ -469,7 +469,7 @@ O framework não concede ao agente incorporado acesso ambiente ao código-fonte 
 
 Duas regras arquiteturais mantêm os aplicativos portáteis entre bancos de dados e hosts:
 
-- **Agnóstico de banco de dados.** Escreva schemas com `@agent-native/core/db/schema` e leituras/gravações com o DSL de query portátil do Drizzle, para que o mesmo código rode em qualquer provedor suportado. Use SQL bruto apenas para migrações aditivas ou manutenção pontual, mantendo-o parametrizado e agnóstico de dialeto. Consulte [Database](/docs/database).
+- **Agnóstico de banco de dados.** Escreva schemas com `@agent-native/core/db/schema` e leituras/gravações com o DSL de query portátil do Drizzle, para que o mesmo código rode em qualquer provedor suportado. Use SQL bruto apenas para migrações aditivas ou manutenção pontual, mantendo-o parametrizado e agnóstico de dialeto. Consulte [Database](/docs/server-database).
 - **Agnóstico de hosting.** O servidor roda sobre Nitro e compila para qualquer destino de implantação. Nunca use APIs específicas do Node (`fs`, `child_process`, `path`) em rotas ou plugins do servidor, e nunca assuma um processo de servidor persistente. Serverless e edge são stateless, então mantenha todo o estado em SQL. Consulte [Deployment](/docs/deployment).
 
 ## Recursos do Agente {#workspace}

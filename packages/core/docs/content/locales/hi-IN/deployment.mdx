@@ -11,7 +11,7 @@ description: "Nitro प्रीसेट के साथ किसी भी �
 
 प्रत्येक तैनात ऐप को एक सतत SQL डेटाबेस की आवश्यकता होती है। स्थानीय विकास में, एजेंट-नेटिव `data/app.db` पर SQLite फ़ाइल पर वापस आ जाता है; यह आपकी मशीन पर सुविधाजनक है, लेकिन यह कंटेनर, पूर्वावलोकन, या सर्वर रहित वातावरण में टिकाऊ नहीं है जहां फ़ाइल सिस्टम को रीसेट किया जा सकता है।
 
-किसी ऐप को उत्पादन के लिए प्रचारित करने से पहले अपने परिनियोजन प्रदाता में `DATABASE_URL` सेट करें। एजेंट-नेटिव स्कीमा और प्रश्नों के लिए Drizzle का उपयोग करता है, इसलिए डेटा परत Drizzle-संगत SQL बैकएंड में पोर्टेबल है और फ्रेमवर्क URL से बोली का स्वतः पता लगाता है। एडॉप्टर सूची और बोली विवरण के लिए [Database](/docs/database#production) देखें।
+किसी ऐप को उत्पादन के लिए प्रचारित करने से पहले अपने परिनियोजन प्रदाता में `DATABASE_URL` सेट करें। एजेंट-नेटिव स्कीमा और प्रश्नों के लिए Drizzle का उपयोग करता है, इसलिए डेटा परत Drizzle-संगत SQL बैकएंड में पोर्टेबल है और फ्रेमवर्क URL से बोली का स्वतः पता लगाता है। एडॉप्टर सूची और बोली विवरण के लिए [Database](/docs/server-database#production) देखें।
 
 `DATABASE_AUTH_TOKEN` का उपयोग केवल तभी करें जब आपके डेटाबेस प्रदाता को एक अलग टोकन की आवश्यकता हो, जैसे Turso/libSQL। कार्यस्थानों के लिए, सभी ऐप्स को डिफ़ॉल्ट रूप से रूट `DATABASE_URL` प्राप्त होता है; जब एक ऐप को अलग डेटाबेस का उपयोग करना चाहिए तो `<APP_NAME>_DATABASE_URL` सेट करें।
 
@@ -428,7 +428,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | पूर्वावलोकन-सुरक्षित Builder प्राधिकरण रिले के लिए समर्पित, साझा 32+ वर्णों का HMAC रहस्य। स्वीकृत कॉर्पोरेट कॉलबैक परिनियोजन और पूर्वावलोकन परिनियोजन पर समान मान केवल तभी सेट करें, जब प्राधिकरण को एक अलग पूर्वावलोकन डेटाबेस में सहेजना हो।                                                                                                                                                               |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | केवल कॉर्पोरेट कॉलबैक के लिए, सटीक विश्वसनीय पूर्वावलोकन origins की कॉमा से अलग की गई allowlist (उदाहरण: `https://0123456789abcdef01234567--content.netlify.app`)। इसे केवल कॉर्पोरेट कॉलबैक परिनियोजन पर सेट करें। Netlify origins को 24-हेक्स ID वाला अपरिवर्तनीय, परिनियोजन-विशिष्ट permalink उपयोग करना होगा; परिवर्तनशील `deploy-preview-*` aliases, वाइल्डकार्ड और डोमेन प्रत्यय अस्वीकार किए जाते हैं। |
 
-डेटाबेस कनेक्शन वेरिएबल (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, प्रति-ऐप `<APP_NAME>_DATABASE_URL`) [Database](/docs/database#production) में रहते हैं।
+डेटाबेस कनेक्शन वेरिएबल (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, प्रति-ऐप `<APP_NAME>_DATABASE_URL`) [Database](/docs/server-database#production) में रहते हैं।
 
 ### उत्पादन-संवेदनशील कॉन्फ़िगरेशन {#env-required-prod}
 
@@ -579,7 +579,7 @@ export default createAgentChatPlugin({
 
 ## आगे क्या है
 
-- [**Database**](/docs/database#production) — पहले production deploy से पहले persistent SQL backend चुनें
+- [**Database**](/docs/server-database#production) — पहले production deploy से पहले persistent SQL backend चुनें
 - [**Security**](/docs/security) — इस पेज पर बताए गए production checklist और opt-in flags
 - [**Authentication**](/docs/authentication) — चुने गए auth mode के OAuth credentials और environment variables
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` के single-origin build के पीछे का workspace model

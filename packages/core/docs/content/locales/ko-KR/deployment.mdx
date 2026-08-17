@@ -11,7 +11,7 @@ description: "Nitro 사전 설정(Node.js, Vercel, Netlify, Cloudflare, AWS 등)
 
 배포된 모든 앱에는 영구 SQL 데이터베이스가 필요합니다. 로컬 개발에서 에이전트 네이티브는 `data/app.db`의 SQLite 파일로 대체됩니다. 이는 컴퓨터에서는 편리하지만 파일 시스템을 재설정할 수 있는 컨테이너, 미리 보기 또는 서버리스 환경에서는 내구성이 없습니다.
 
-앱을 프로덕션으로 승격하기 전에 배포 공급자에서 `DATABASE_URL`를 설정하세요. 에이전트 네이티브는 스키마 및 쿼리에 Drizzle를 사용하므로 데이터 계층은 Drizzle 호환 SQL 백엔드 간에 이식 가능하며 프레임워크는 URL에서 방언을 자동 감지합니다. 어댑터 목록 및 방언 세부정보는 [Database](/docs/database#production)를 참조하세요.
+앱을 프로덕션으로 승격하기 전에 배포 공급자에서 `DATABASE_URL`를 설정하세요. 에이전트 네이티브는 스키마 및 쿼리에 Drizzle를 사용하므로 데이터 계층은 Drizzle 호환 SQL 백엔드 간에 이식 가능하며 프레임워크는 URL에서 방언을 자동 감지합니다. 어댑터 목록 및 방언 세부정보는 [Database](/docs/server-database#production)를 참조하세요.
 
 Turso/libSQL와 같이 데이터베이스 공급자가 별도의 토큰을 요구하는 경우에만 `DATABASE_AUTH_TOKEN`를 사용하세요. 작업 영역의 경우 모든 앱은 기본적으로 루트 `DATABASE_URL`를 상속합니다. 하나의 앱이 다른 데이터베이스를 사용해야 하는 경우 `<APP_NAME>_DATABASE_URL`를 설정하세요.
 
@@ -428,7 +428,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 미리 보기에서 안전한 Builder 권한 부여 릴레이를 위한 전용 32자 이상의 공유 HMAC 비밀입니다. 권한 부여 결과가 격리된 미리 보기 데이터베이스에 저장되어야 할 때만 승인된 기업 콜백 배포와 미리 보기 배포 양쪽에 동일한 값을 설정하세요.                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 기업 콜백 전용으로, 정확히 일치하는 신뢰할 수 있는 미리 보기 origin을 쉼표로 구분한 허용 목록입니다(예: `https://0123456789abcdef01234567--content.netlify.app`). 기업 콜백 배포에만 설정하세요. Netlify origin은 24자리 16진수 ID를 포함한 변경 불가능한 배포별 영구 링크를 사용해야 합니다. 변경 가능한 `deploy-preview-*` 별칭, 와일드카드, 도메인 접미사는 거부됩니다. |
 
-데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/database#production)에 있습니다.
+데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/server-database#production)에 있습니다.
 
 ### 프로덕션에 민감한 구성 {#env-required-prod}
 
@@ -579,7 +579,7 @@ export default createAgentChatPlugin({
 
 ## 다음 단계
 
-- [**Database**](/docs/database#production) — 첫 프로덕션 배포 전에 영구 SQL 백엔드를 선택합니다
+- [**Database**](/docs/server-database#production) — 첫 프로덕션 배포 전에 영구 SQL 백엔드를 선택합니다
 - [**Security**](/docs/security) — 이 페이지에서 언급한 프로덕션 체크리스트와 선택적 플래그입니다
 - [**Authentication**](/docs/authentication) — 선택한 인증 모드의 OAuth 자격 증명과 환경 변수입니다
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy`의 단일 오리진 빌드 기반이 되는 워크스페이스 모델입니다

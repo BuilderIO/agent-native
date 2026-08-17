@@ -171,7 +171,7 @@ Adopter le framework est utile surtout pour ce que vous arrêtez de devoir const
 
 ## Données en SQL {#data-in-sql}
 
-Tout l'état de l'application vit dans une base de données SQL via Drizzle ORM. Les schémas sont indépendants du fournisseur ; les bases de données prises en charge, la configuration `DATABASE_URL` et les règles de portabilité se trouvent dans [Database](/docs/database).
+Tout l'état de l'application vit dans une base de données SQL via Drizzle ORM. Les schémas sont indépendants du fournisseur ; les bases de données prises en charge, la configuration `DATABASE_URL` et les règles de portabilité se trouvent dans [Database](/docs/server-database).
 
 Les magasins SQL Core sont créés automatiquement et disponibles dans chaque template :
 
@@ -470,7 +470,7 @@ Le framework n'accorde pas à l'agent intégré un accès ambiant au code source
 
 Deux règles architecturales garantissent la portabilité des applications entre bases de données et hébergeurs :
 
-- **Indépendant de la base de données.** Écrivez les schémas avec `@agent-native/core/db/schema` et les lectures/écritures avec le DSL de requête portable de Drizzle, afin que le même code s'exécute sur n'importe quel fournisseur pris en charge. N'utilisez du SQL brut que pour des migrations additives ou de la maintenance ponctuelle, en le gardant paramétré et indépendant du dialecte. Voir [Database](/docs/database).
+- **Indépendant de la base de données.** Écrivez les schémas avec `@agent-native/core/db/schema` et les lectures/écritures avec le DSL de requête portable de Drizzle, afin que le même code s'exécute sur n'importe quel fournisseur pris en charge. N'utilisez du SQL brut que pour des migrations additives ou de la maintenance ponctuelle, en le gardant paramétré et indépendant du dialecte. Voir [Database](/docs/server-database).
 - **Indépendant de l'hébergement.** Le serveur s'exécute sur Nitro et se compile vers n'importe quelle cible de déploiement. N'utilisez jamais d'API spécifiques à Node (`fs`, `child_process`, `path`) dans les routes ou plugins serveur, et ne supposez jamais un processus serveur persistant. Serverless et edge sont sans état, gardez donc tout l'état dans SQL. Voir [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

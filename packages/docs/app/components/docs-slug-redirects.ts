@@ -10,6 +10,9 @@
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   "database-adapters": "deployment",
+  // database.mdx was a near-duplicate of the Server section's own database
+  // page; the Server version is the complete one (adds scoping + sync).
+  database: "server-database",
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",
