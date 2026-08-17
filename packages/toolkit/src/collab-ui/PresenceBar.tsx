@@ -247,7 +247,7 @@ function AgentEditingChip({
         alignItems: "center",
         gap: showDot ? 4 : 0,
         height: integrated ? "auto" : 20,
-        padding: integrated ? 0 : "0 8px",
+        padding: integrated ? "0 0 0 2px" : "0 8px",
         borderRadius: integrated ? 0 : 9999,
         backgroundColor: integrated ? "transparent" : `${AGENT_COLOR}20`,
         color: AGENT_COLOR,

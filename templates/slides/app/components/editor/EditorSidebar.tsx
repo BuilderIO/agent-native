@@ -17,11 +17,12 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
-import { useRef, useEffect } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import { AddSlidePopover } from "@/components/editor/AddSlidePopover";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import {
@@ -29,16 +30,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Slide } from "@/context/DeckContext";
+import { defaultSlideContent, type Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
 import type { DesignSystemData } from "../../../shared/api";
+import { isSlideTextEditingTarget } from "./slide-text-targets";
 
 interface EditorSidebarProps {
   slides: Slide[];
   activeSlideId: string;
   deckId: string;
+  deckTitle: string;
   onSelectSlide: (id: string) => void;
   /** Viewer-role decks get thumbnails only: no add, duplicate, or delete. */
   readOnly?: boolean;
@@ -54,6 +57,27 @@ interface EditorSidebarProps {
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
   onSelectGeneratingSlide?: () => void;
+  /** The slide just inserted via the toolbar's New Slide button — the rail
+   *  anchors the "describe this slide" popover to that slide's thumbnail
+   *  once it mounts. Owned by the parent since the button that sets it now
+   *  lives in the toolbar, outside this component. */
+  describeSlideId: string | null;
+  /** Clears `describeSlideId` in the parent when the popover closes. */
+  onCloseDescribe: () => void;
+  /** Reports add-slide generation state up so the toolbar's New Slide button
+   *  can disable itself while a request is in flight. */
+  onAddSlideGeneratingChange?: (generating: boolean) => void;
+  /** Resolves once a just-inserted blank slide has actually reached the
+   *  server, so the agent's update-slide request can't race the add-slide
+   *  persistence. */
+  onAwaitAddSlidePersisted?: () => Promise<void>;
+  /** Removes a blank placeholder slide whose persistence ultimately failed,
+   *  so a flaky save doesn't leave a stray empty slide in the deck. */
+  onRemoveFailedSlide?: (slideId: string) => void;
+  /** Submits the add-slide agent request. Owned by the parent (rather than
+   *  this component's own useAgentGenerating() call) so the run stays
+   *  correctly scoped and trackable across a sidebar remount. */
+  addSlideAgentSubmit: (message: string, context: string) => void;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -198,7 +222,12 @@ function SortableSlideThumb({
         type="button"
         {...(readOnly ? {} : attributes)}
         {...(readOnly ? {} : listeners)}
-        onClick={onSelect}
+        onClick={(event) => {
+          // Safari does not focus a button on click, and the slide copy/paste
+          // and delete shortcuts are scoped to a focused thumbnail.
+          event.currentTarget.focus();
+          onSelect();
+        }}
         onFocus={onSelect}
         aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
         aria-current={isActive ? "true" : undefined}
@@ -307,6 +336,7 @@ export default function EditorSidebar({
   slides,
   activeSlideId,
   deckId,
+  deckTitle,
   onSelectSlide,
   readOnly = false,
   slidePresence,
@@ -316,7 +346,17 @@ export default function EditorSidebar({
   generatingSlide,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
+  describeSlideId,
+  onCloseDescribe,
+  onAddSlideGeneratingChange,
+  onAwaitAddSlidePersisted,
+  onRemoveFailedSlide,
+  addSlideAgentSubmit,
 }: EditorSidebarProps) {
+  const t = useT();
+  const [describeAnchorEl, setDescribeAnchorEl] =
+    useState<HTMLButtonElement | null>(null);
+  const [thumbnailListScrolled, setThumbnailListScrolled] = useState(false);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const measurementsRef = useRef(
     new Map<
@@ -325,6 +365,7 @@ export default function EditorSidebar({
     >(),
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const aiEditedSlideIds = new Set(
     (recentEdits ?? [])
       .filter((edit) => edit.isAgent)
@@ -392,6 +433,11 @@ export default function EditorSidebar({
   }, [deckId, aspectRatio]);
 
   useEffect(() => {
+    setDescribeAnchorEl(null);
+    setThumbnailListScrolled(false);
+  }, [deckId]);
+
+  useEffect(() => {
     return () => {
       if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
       for (const key of DECK_FIT_STATE_KEYS) {
@@ -411,20 +457,40 @@ export default function EditorSidebar({
       } else {
         slideButtonRefs.current.delete(slideId);
       }
+      // The new-slide prompt anchors to the just-created slide's thumbnail,
+      // which doesn't exist yet at click time — pick it up as soon as it mounts.
+      // Center it in the scroll area first so the prompt has room on-screen
+      // instead of opening off the bottom edge when the new slide lands there.
+      if (node && slideId === describeSlideId) {
+        node.scrollIntoView({ block: "center" });
+        setDescribeAnchorEl(node);
+      }
     },
-    [],
+    [describeSlideId],
   );
+
+  const describeSlideIndex = describeSlideId
+    ? slides.findIndex((s) => s.id === describeSlideId)
+    : -1;
 
   // Arrow key navigation for slides
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      // Don't intercept if user is typing in an input/textarea or contenteditable
+      // Text editing and selected canvas objects own arrow keys. The marker
+      // query also covers a transient focus loss after a native selection.
       const tag = (e.target as HTMLElement)?.tagName;
       if (
         tag === "INPUT" ||
         tag === "TEXTAREA" ||
-        (e.target as HTMLElement)?.isContentEditable
+        isSlideTextEditingTarget(
+          e.target,
+          document.activeElement,
+          document.querySelector(
+            '[contenteditable="true"], [data-editing-block="true"]',
+          ),
+        ) ||
+        document.querySelector('[data-slide-element-selected="true"]')
       )
         return;
 
@@ -454,40 +520,96 @@ export default function EditorSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
-      <div className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2">
-        <SortableContext
-          items={slides.map((s) => s.id)}
-          strategy={verticalListSortingStrategy}
+      <div
+        className="relative min-h-0 flex-1"
+        data-slides-thumbnail-scroll={
+          thumbnailListScrolled ? "scrolled" : "top"
+        }
+      >
+        <div
+          className="h-full min-h-0 space-y-1 overflow-y-auto overscroll-contain p-2"
+          onScroll={(event) => {
+            setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
+          }}
         >
-          {slides.map((slide, index) => (
-            <SortableSlideThumb
-              key={slide.id}
-              slide={slide}
-              index={index}
-              isActive={slide.id === activeSlideId}
-              onSelect={() => onSelectSlide(slide.id)}
-              readOnly={readOnly}
-              registerButtonRef={registerSlideButton}
-              presenceUsers={slidePresence?.get(slide.id) ?? []}
+          <SortableContext
+            items={slides.map((s) => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {slides.map((slide, index) => (
+              <SortableSlideThumb
+                key={slide.id}
+                slide={slide}
+                index={index}
+                isActive={slide.id === activeSlideId}
+                onSelect={() => onSelectSlide(slide.id)}
+                readOnly={readOnly}
+                registerButtonRef={registerSlideButton}
+                presenceUsers={slidePresence?.get(slide.id) ?? []}
+                aspectRatio={aspectRatio}
+                designSystem={designSystem}
+                aiEditing={aiEditedSlideIds.has(slide.id)}
+                onOverflowChange={(info) =>
+                  handleSlideOverflowChange(slide, info)
+                }
+              />
+            ))}
+          </SortableContext>
+          {generatingSlide && (
+            <GeneratingSlideSkeleton
+              index={generatingSlide.index}
               aspectRatio={aspectRatio}
               designSystem={designSystem}
-              aiEditing={aiEditedSlideIds.has(slide.id)}
-              onOverflowChange={(info) =>
-                handleSlideOverflowChange(slide, info)
-              }
+              selected={generatingSlideSelected}
+              onSelect={onSelectGeneratingSlide}
             />
-          ))}
-        </SortableContext>
-        {generatingSlide && (
-          <GeneratingSlideSkeleton
-            index={generatingSlide.index}
-            aspectRatio={aspectRatio}
-            designSystem={designSystem}
-            selected={generatingSlideSelected}
-            onSelect={onSelectGeneratingSlide}
-          />
-        )}
+          )}
+        </div>
       </div>
+      {describeSlideId && describeSlideIndex !== -1 && describeAnchorEl && (
+        <AddSlidePopover
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              onCloseDescribe();
+              setDescribeAnchorEl(null);
+            }
+          }}
+          anchorRef={{ current: describeAnchorEl }}
+          placement="right"
+          deckId={deckId}
+          deckTitle={deckTitle}
+          activeSlideId={describeSlideId}
+          activeSlideIndex={describeSlideIndex}
+          slideCount={slides.length}
+          targetSlideId={describeSlideId}
+          agentSubmit={async (message, context) => {
+            onAddSlideGeneratingChange?.(true);
+            try {
+              await onAwaitAddSlidePersisted?.();
+            } catch (error) {
+              console.error("Failed to persist new slide:", error);
+              onAddSlideGeneratingChange?.(false);
+              // The popover already closed (AddSlidePopover doesn't wait on
+              // this async callback), so the typed prompt is gone either
+              // way. Only remove the placeholder if it's still untouched —
+              // the save retries take long enough that the user could have
+              // started editing it directly on the canvas in the meantime,
+              // and deleting it would destroy that work.
+              const current = slides.find((s) => s.id === describeSlideId);
+              if (
+                current?.content === defaultSlideContent.blank &&
+                !current.notes
+              ) {
+                onRemoveFailedSlide?.(describeSlideId);
+              }
+              toast.error(t("editorSidebar.newSlideSaveFailed"));
+              return;
+            }
+            addSlideAgentSubmit(message, context);
+          }}
+        />
+      )}
     </div>
   );
 }

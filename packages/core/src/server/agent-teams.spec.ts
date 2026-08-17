@@ -61,6 +61,44 @@ describe("agent teams message queue", () => {
     ).toHaveLength(2);
   }, 30_000);
 
+  it("scopes task reads and controls by owner and organization", async () => {
+    const { getTask, listTasks, sendToTask } = await import("./agent-teams.js");
+    appState.set("agent-task:private", {
+      taskId: "private",
+      threadId: "thread-private",
+      ownerEmail: "alice@example.com",
+      orgId: "org-a",
+      description: "private work",
+      status: "running",
+      preview: "",
+      summary: "",
+      currentStep: "",
+      createdAt: Date.now(),
+    });
+
+    await expect(
+      getTask("private", {
+        ownerEmail: "alice@example.com",
+        orgId: "org-a",
+      }),
+    ).resolves.toMatchObject({ taskId: "private" });
+    await expect(
+      getTask("private", {
+        ownerEmail: "mallory@example.com",
+        orgId: "org-a",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      listTasks({ ownerEmail: "alice@example.com", orgId: "org-a" }),
+    ).resolves.toHaveLength(1);
+    await expect(
+      sendToTask("private", "read this", {
+        ownerEmail: "mallory@example.com",
+        orgId: "org-a",
+      }),
+    ).resolves.toEqual({ ok: false, error: "Task not found" });
+  });
+
   it("drains queued messages into the next tool result once", async () => {
     const { sendToTask, _agentTeamsQueueForTests } =
       await import("./agent-teams.js");

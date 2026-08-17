@@ -63,6 +63,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "agentSurfaces",
         slug: "agent-surfaces",
       },
+      { id: "faq", labelKey: "faq", slug: "faq" },
+    ],
+  },
+  {
+    id: "apps",
+    titleKey: "templatesSection",
+    // Do not add new templates here directly. The public-facing template list
+    // is the strict allow-list in `packages/shared-app-config/templates.ts`
+    // (entries with `hidden: false`). The CI guard enforces this.
+    items: [
       {
         id: "cloneable-saas",
         labelKey: "templatesOverview",
@@ -73,490 +83,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "pureAgentApps",
         slug: "pure-agent-apps",
       },
-      { id: "faq", labelKey: "faq", slug: "faq" },
-    ],
-  },
-  {
-    id: "core-architecture",
-    titleKey: "coreArchitecture",
-    items: [
-      {
-        id: "server-section",
-        labelKey: "server",
-        children: [
-          {
-            id: "server-overview",
-            labelKey: "serverOverview",
-            slug: "server-overview",
-          },
-          {
-            id: "server-database",
-            labelKey: "database",
-            slug: "server-database",
-          },
-          {
-            id: "server-middleware",
-            labelKey: "serverMiddleware",
-            slug: "server-middleware",
-          },
-          {
-            id: "server-plugins",
-            labelKey: "serverPlugins",
-            slug: "server-plugins",
-          },
-          {
-            id: "server-routes",
-            labelKey: "serverRoutes",
-            slug: "server-routes",
-          },
-        ],
-      },
-      {
-        id: "client-section",
-        labelKey: "client",
-        children: [
-          {
-            id: "client-overview",
-            labelKey: "clientOverview",
-            slug: "client-overview",
-          },
-          {
-            id: "client-data",
-            labelKey: "clientDataSync",
-            slug: "client-data",
-          },
-          {
-            id: "client-agent-chat",
-            labelKey: "clientAgentChat",
-            slug: "client-agent-chat",
-          },
-          {
-            id: "client-routing",
-            labelKey: "routing",
-            slug: "client-routing",
-          },
-          {
-            id: "client-advanced",
-            labelKey: "clientAdvanced",
-            slug: "client-advanced",
-          },
-          {
-            id: "client-sync-internals",
-            labelKey: "clientSyncInternals",
-            slug: "client-sync-internals",
-          },
-          {
-            id: "client-entry-points",
-            labelKey: "clientEntryPoints",
-            slug: "client-entry-points",
-          },
-        ],
-      },
-      { id: "actions", labelKey: "actions", slug: "actions" },
-      {
-        id: "human-approval",
-        labelKey: "humanApproval",
-        slug: "human-approval",
-      },
-      {
-        id: "agent-web-surfaces",
-        labelKey: "publicAgentWeb",
-        slug: "agent-web-surfaces",
-      },
-      { id: "database", labelKey: "database", slug: "database" },
-      {
-        id: "internationalization",
-        labelKey: "internationalization",
-        slug: "internationalization",
-      },
-      {
-        id: "local-file-mode",
-        labelKey: "localFileMode",
-        slug: "local-file-mode",
-      },
-      { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
-      {
-        id: "environment-variables",
-        labelKey: "environmentVariables",
-        slug: "environment-variables",
-      },
-      { id: "progress", labelKey: "progress", slug: "progress" },
-      {
-        id: "agents-group",
-        labelKey: "agents",
-        draft: true,
-        children: [
-          {
-            id: "agents-overview",
-            labelKey: "agentsOverview",
-            slug: "agents",
-            draft: true,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "data-auth-governance",
-    titleKey: "dataAuthGovernance",
-    items: [
-      {
-        id: "authentication",
-        labelKey: "authentication",
-        slug: "authentication",
-      },
-      { id: "multi-tenancy", labelKey: "multiTenancy", slug: "multi-tenancy" },
-      {
-        id: "organizations-teams-permissions",
-        labelKey: "organizationsTeamsPermissions",
-        slug: "organizations-teams-permissions",
-      },
-      {
-        id: "security",
-        labelKey: "securityDataScoping",
-        slug: "security",
-      },
-      { id: "sharing", labelKey: "sharingPrivacy", slug: "sharing" },
-      {
-        id: "tracking",
-        labelKey: "trackingAnalytics",
-        slug: "tracking",
-      },
-      { id: "audit-log", labelKey: "auditLog", slug: "audit-log" },
-      {
-        id: "doctor",
-        labelKey: "doctorCodeChecks",
-        slug: "doctor",
-      },
-      { id: "observability", labelKey: "observability", slug: "observability" },
-      {
-        id: "observational-memory",
-        labelKey: "observationalMemory",
-        slug: "observational-memory",
-      },
-      { id: "evals", labelKey: "ciEvalGate", slug: "evals" },
-    ],
-  },
-  {
-    id: "using-your-agent",
-    titleKey: "usingYourAgent",
-    items: [
-      {
-        id: "using-your-agent-overview",
-        labelKey: "usingYourAgentOverview",
-        slug: "using-your-agent",
-      },
-      {
-        id: "context-awareness",
-        labelKey: "contextAwareness",
-        slug: "context-awareness",
-      },
-      {
-        id: "agent-mentions",
-        labelKey: "agentMentions",
-        slug: "agent-mentions",
-      },
-      { id: "voice-input", labelKey: "voiceInput", slug: "voice-input" },
-      { id: "drop-in-agent", labelKey: "dropInAgent", slug: "drop-in-agent" },
-      { id: "components", labelKey: "componentApi", slug: "components" },
-      {
-        id: "native-chat-ui",
-        labelKey: "nativeChatUi",
-        slug: "native-chat-ui",
-      },
-      {
-        id: "generative-ui",
-        labelKey: "generativeUi",
-        slug: "generative-ui",
-      },
-      {
-        id: "real-time-collaboration",
-        labelKey: "realTimeCollaboration",
-        slug: "real-time-collaboration",
-      },
-    ],
-  },
-  {
-    id: "agent-resources",
-    titleKey: "agentResources",
-    items: [
-      {
-        id: "agent-resources-overview",
-        labelKey: "agentResourcesOverview",
-        slug: "agent-resources",
-      },
-      { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
-      {
-        id: "agent-teams",
-        labelKey: "customAgentsTeams",
-        slug: "agent-teams",
-      },
-      {
-        id: "workspace-management",
-        labelKey: "workspaceGovernance",
-        slug: "workspace-management",
-      },
-      {
-        id: "recurring-jobs",
-        labelKey: "recurringJobs",
-        slug: "recurring-jobs",
-      },
-      { id: "automations", labelKey: "automations", slug: "automations" },
-      { id: "extensions", labelKey: "extensions", slug: "extensions" },
-      {
-        id: "data-programs",
-        labelKey: "dataPrograms",
-        slug: "data-programs",
-      },
-      {
-        id: "multi-app-workspace",
-        labelKey: "multiAppWorkspaces",
-        slug: "multi-app-workspace",
-      },
-      {
-        id: "onboarding",
-        labelKey: "onboardingApiKeys",
-        slug: "onboarding",
-      },
-    ],
-  },
-  {
-    id: "integrations",
-    titleKey: "integrations",
-    items: [
-      {
-        id: "integration-directory",
-        labelKey: "integrations",
-        slug: "integrations",
-      },
-      { id: "messaging", labelKey: "messaging", slug: "messaging" },
-      {
-        id: "messaging-recipes",
-        labelKey: "messagingRecipes",
-        slug: "messaging-recipes",
-      },
-      {
-        id: "messaging-internals",
-        labelKey: "messagingInternals",
-        slug: "messaging-internals",
-      },
-      { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
-      { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
-      { id: "mcp-clients", labelKey: "mcpClients", slug: "mcp-clients" },
-      { id: "http-api", labelKey: "httpApi", slug: "http-api" },
-      {
-        id: "mcp-protocol",
-        labelKey: "mcpServer",
-        slug: "mcp-protocol",
-      },
-      {
-        id: "external-agents",
-        labelKey: "externalAgents",
-        slug: "external-agents",
-      },
-      {
-        id: "external-agents-catalog",
-        labelKey: "externalAgentsCatalog",
-        slug: "external-agents-catalog",
-      },
-      { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
-      { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
-      { id: "notifications", labelKey: "notifications", slug: "notifications" },
-      {
-        id: "automation-connectors",
-        labelKey: "automationConnectors",
-        slug: "automation-connectors",
-      },
-      {
-        id: "workspace-connections",
-        labelKey: "workspaceConnections",
-        slug: "workspace-connections",
-      },
-    ],
-  },
-  {
-    id: "build-apps",
-    titleKey: "buildApps",
-    items: [
-      {
-        id: "creating-templates",
-        labelKey: "creatingTemplates",
-        slug: "creating-templates",
-      },
-      {
-        id: "syncing-template-changes",
-        labelKey: "syncingTemplateChanges",
-        slug: "syncing-template-changes",
-      },
-      {
-        id: "writing-agent-instructions",
-        labelKey: "writingAgentInstructions",
-        slug: "writing-agent-instructions",
-      },
-      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
-      { id: "frames", labelKey: "frames", slug: "frames" },
-    ],
-  },
-  {
-    id: "toolkits",
-    titleKey: "agentNativeToolkit",
-    items: [
-      {
-        id: "agent-native-toolkit",
-        labelKey: "toolkitOverview",
-        slug: "agent-native-toolkit",
-      },
-      {
-        id: "toolkit-ui",
-        labelKey: "toolkitUiPrimitives",
-        slug: "toolkit-ui",
-      },
-      {
-        id: "custom-design-system",
-        labelKey: "customDesignSystem",
-        slug: "custom-design-system",
-      },
-      {
-        id: "toolkit-editors-canvases",
-        labelKey: "toolkitEditorsCanvases",
-        slug: "toolkit-editors-canvases",
-      },
-      {
-        id: "toolkit-context-knowledge",
-        labelKey: "toolkitContextKnowledge",
-        slug: "toolkit-context-knowledge",
-      },
-      {
-        id: "toolkit-feature-kits",
-        labelKey: "featureKits",
-        children: [
-          {
-            id: "toolkit-sharing",
-            labelKey: "toolkitSharing",
-            slug: "toolkit-sharing",
-          },
-          {
-            id: "toolkit-collaboration",
-            labelKey: "toolkitCollaboration",
-            slug: "toolkit-collaboration",
-          },
-          {
-            id: "toolkit-history",
-            labelKey: "toolkitHistory",
-            slug: "toolkit-history",
-          },
-          {
-            id: "toolkit-comments-review",
-            labelKey: "toolkitCommentsReview",
-            slug: "toolkit-comments-review",
-          },
-          {
-            id: "toolkit-observability",
-            labelKey: "toolkitObservability",
-            slug: "toolkit-observability",
-          },
-        ],
-      },
-      {
-        id: "toolkit-app-chrome",
-        labelKey: "appChrome",
-        children: [
-          {
-            id: "toolkit-settings",
-            labelKey: "toolkitSettings",
-            slug: "toolkit-settings",
-          },
-          {
-            id: "toolkit-org-team",
-            labelKey: "toolkitOrgTeam",
-            slug: "toolkit-org-team",
-          },
-          {
-            id: "toolkit-setup-connections",
-            labelKey: "toolkitSetupConnections",
-            slug: "toolkit-setup-connections",
-          },
-          {
-            id: "toolkit-command-navigation",
-            labelKey: "toolkitCommandNavigation",
-            slug: "toolkit-command-navigation",
-          },
-          {
-            id: "toolkit-resources",
-            labelKey: "toolkitResources",
-            slug: "toolkit-resources",
-          },
-          {
-            id: "toolkit-agent-ux",
-            labelKey: "toolkitAgentUx",
-            slug: "toolkit-agent-ux",
-          },
-        ],
-      },
-      {
-        id: "toolkit-capability-packages",
-        labelKey: "capabilityPackages",
-        children: [
-          {
-            id: "toolkit-capability-packages-overview",
-            labelKey: "capabilityPackagesOverview",
-            slug: "toolkit-capability-packages",
-          },
-          {
-            id: "package-lifecycle",
-            labelKey: "packageLifecycle",
-            slug: "package-lifecycle",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "advanced-runtime",
-    titleKey: "advancedRuntime",
-    items: [
-      {
-        id: "code-agents-ui",
-        labelKey: "agentNativeCodeUi",
-        slug: "code-agents-ui",
-      },
-      {
-        id: "harness-agents",
-        labelKey: "harnessAgents",
-        slug: "harness-agents",
-      },
-      {
-        id: "sandbox-adapters",
-        labelKey: "adapters",
-        slug: "sandbox-adapters",
-      },
-      { id: "cli-adapters", labelKey: "cliAdapters", slug: "cli-adapters" },
-      { id: "processors", labelKey: "processors", slug: "processors" },
-      {
-        id: "durable-resume",
-        labelKey: "durableResume",
-        slug: "durable-resume",
-      },
-      {
-        id: "durable-background-runs",
-        labelKey: "durableBackgroundRuns",
-        slug: "durable-background-runs",
-      },
-      {
-        id: "blueprint-installer",
-        labelKey: "blueprintInstaller",
-        slug: "blueprint-installer",
-      },
-    ],
-  },
-  {
-    id: "templates",
-    titleKey: "templatesSection",
-    // Do not add new templates here directly. The public-facing template list
-    // is the strict allow-list in `packages/shared-app-config/templates.ts`
-    // (entries with `hidden: false`). The CI guard enforces this.
-    items: [
       {
         id: "chat-group",
         labelKey: "chat",
@@ -954,6 +480,516 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-forms-developers",
           },
         ],
+      },
+    ],
+  },
+  {
+    id: "core-architecture",
+    titleKey: "coreArchitecture",
+    items: [
+      {
+        id: "server-section",
+        labelKey: "server",
+        children: [
+          {
+            id: "server-overview",
+            labelKey: "serverOverview",
+            slug: "server-overview",
+          },
+          {
+            id: "server-database",
+            labelKey: "database",
+            slug: "server-database",
+          },
+          {
+            id: "server-middleware",
+            labelKey: "serverMiddleware",
+            slug: "server-middleware",
+          },
+          {
+            id: "server-plugins",
+            labelKey: "serverPlugins",
+            slug: "server-plugins",
+          },
+          {
+            id: "server-routes",
+            labelKey: "serverRoutes",
+            slug: "server-routes",
+          },
+        ],
+      },
+      {
+        id: "client-section",
+        labelKey: "client",
+        children: [
+          {
+            id: "client-overview",
+            labelKey: "clientOverview",
+            slug: "client-overview",
+          },
+          {
+            id: "client-data",
+            labelKey: "clientDataSync",
+            slug: "client-data",
+          },
+          {
+            id: "client-agent-chat",
+            labelKey: "clientAgentChat",
+            slug: "client-agent-chat",
+          },
+          {
+            id: "client-routing",
+            labelKey: "routing",
+            slug: "client-routing",
+          },
+          {
+            id: "client-advanced",
+            labelKey: "clientAdvanced",
+            slug: "client-advanced",
+          },
+          {
+            id: "client-sync-internals",
+            labelKey: "clientSyncInternals",
+            slug: "client-sync-internals",
+          },
+          {
+            id: "client-entry-points",
+            labelKey: "clientEntryPoints",
+            slug: "client-entry-points",
+          },
+        ],
+      },
+      {
+        id: "actions-section",
+        labelKey: "actions",
+        children: [
+          {
+            id: "actions-overview",
+            labelKey: "actionsOverview",
+            slug: "actions-overview",
+          },
+          {
+            id: "actions-defining",
+            labelKey: "actionsDefining",
+            slug: "actions-defining",
+          },
+          {
+            id: "actions-access-control",
+            labelKey: "actionsAccessControl",
+            slug: "actions-access-control",
+          },
+          {
+            id: "actions-run-context",
+            labelKey: "actionsRunContext",
+            slug: "actions-run-context",
+          },
+          {
+            id: "actions-other-surfaces",
+            labelKey: "actionsOtherSurfaces",
+            slug: "actions-other-surfaces",
+          },
+          {
+            id: "actions-advanced",
+            labelKey: "actionsAdvanced",
+            slug: "actions-advanced",
+          },
+        ],
+      },
+      {
+        id: "human-approval",
+        labelKey: "humanApproval",
+        slug: "human-approval",
+      },
+      {
+        id: "agent-web-surfaces",
+        labelKey: "publicAgentWeb",
+        slug: "agent-web-surfaces",
+      },
+      { id: "database", labelKey: "database", slug: "database" },
+      {
+        id: "internationalization",
+        labelKey: "internationalization",
+        slug: "internationalization",
+      },
+      {
+        id: "local-file-mode",
+        labelKey: "localFileMode",
+        slug: "local-file-mode",
+      },
+      { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
+      { id: "deployment", labelKey: "deployment", slug: "deployment" },
+      {
+        id: "environment-variables",
+        labelKey: "environmentVariables",
+        slug: "environment-variables",
+      },
+      { id: "progress", labelKey: "progress", slug: "progress" },
+      {
+        id: "agents-group",
+        labelKey: "agents",
+        draft: true,
+        children: [
+          {
+            id: "agents-overview",
+            labelKey: "agentsOverview",
+            slug: "agents",
+            draft: true,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "data-auth-governance",
+    titleKey: "dataAuthGovernance",
+    items: [
+      {
+        id: "authentication",
+        labelKey: "authentication",
+        slug: "authentication",
+      },
+      { id: "multi-tenancy", labelKey: "multiTenancy", slug: "multi-tenancy" },
+      {
+        id: "organizations-teams-permissions",
+        labelKey: "organizationsTeamsPermissions",
+        slug: "organizations-teams-permissions",
+      },
+      {
+        id: "security",
+        labelKey: "securityDataScoping",
+        slug: "security",
+      },
+      { id: "sharing", labelKey: "sharingPrivacy", slug: "sharing" },
+      {
+        id: "tracking",
+        labelKey: "trackingAnalytics",
+        slug: "tracking",
+      },
+      { id: "audit-log", labelKey: "auditLog", slug: "audit-log" },
+      {
+        id: "doctor",
+        labelKey: "doctorCodeChecks",
+        slug: "doctor",
+      },
+      { id: "observability", labelKey: "observability", slug: "observability" },
+      {
+        id: "observational-memory",
+        labelKey: "observationalMemory",
+        slug: "observational-memory",
+      },
+      { id: "evals", labelKey: "ciEvalGate", slug: "evals" },
+    ],
+  },
+  {
+    id: "using-your-agent",
+    titleKey: "usingYourAgent",
+    items: [
+      {
+        id: "using-your-agent-overview",
+        labelKey: "usingYourAgentOverview",
+        slug: "using-your-agent",
+      },
+      {
+        id: "context-awareness",
+        labelKey: "contextAwareness",
+        slug: "context-awareness",
+      },
+      {
+        id: "agent-mentions",
+        labelKey: "agentMentions",
+        slug: "agent-mentions",
+      },
+      { id: "voice-input", labelKey: "voiceInput", slug: "voice-input" },
+      { id: "drop-in-agent", labelKey: "dropInAgent", slug: "drop-in-agent" },
+      { id: "components", labelKey: "componentApi", slug: "components" },
+      {
+        id: "native-chat-ui",
+        labelKey: "nativeChatUi",
+        slug: "native-chat-ui",
+      },
+      {
+        id: "generative-ui",
+        labelKey: "generativeUi",
+        slug: "generative-ui",
+      },
+      {
+        id: "real-time-collaboration",
+        labelKey: "realTimeCollaboration",
+        slug: "real-time-collaboration",
+      },
+    ],
+  },
+  {
+    id: "agent-resources",
+    titleKey: "agentResources",
+    items: [
+      {
+        id: "agent-resources-overview",
+        labelKey: "agentResourcesOverview",
+        slug: "agent-resources",
+      },
+      { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
+      {
+        id: "agent-teams",
+        labelKey: "customAgentsTeams",
+        slug: "agent-teams",
+      },
+      {
+        id: "workspace-management",
+        labelKey: "workspaceGovernance",
+        slug: "workspace-management",
+      },
+      {
+        id: "recurring-jobs",
+        labelKey: "recurringJobs",
+        slug: "recurring-jobs",
+      },
+      { id: "automations", labelKey: "automations", slug: "automations" },
+      { id: "extensions", labelKey: "extensions", slug: "extensions" },
+      {
+        id: "data-programs",
+        labelKey: "dataPrograms",
+        slug: "data-programs",
+      },
+      {
+        id: "multi-app-workspace",
+        labelKey: "multiAppWorkspaces",
+        slug: "multi-app-workspace",
+      },
+      {
+        id: "onboarding",
+        labelKey: "onboardingApiKeys",
+        slug: "onboarding",
+      },
+    ],
+  },
+  {
+    id: "integrations",
+    titleKey: "integrations",
+    items: [
+      {
+        id: "integration-directory",
+        labelKey: "integrations",
+        slug: "integrations",
+      },
+      { id: "messaging", labelKey: "messaging", slug: "messaging" },
+      {
+        id: "messaging-recipes",
+        labelKey: "messagingRecipes",
+        slug: "messaging-recipes",
+      },
+      {
+        id: "messaging-internals",
+        labelKey: "messagingInternals",
+        slug: "messaging-internals",
+      },
+      { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
+      { id: "portal", labelKey: "portal", slug: "portal" },
+      { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
+      { id: "mcp-clients", labelKey: "mcpClients", slug: "mcp-clients" },
+      { id: "http-api", labelKey: "httpApi", slug: "http-api" },
+      {
+        id: "mcp-protocol",
+        labelKey: "mcpServer",
+        slug: "mcp-protocol",
+      },
+      {
+        id: "external-agents",
+        labelKey: "externalAgents",
+        slug: "external-agents",
+      },
+      {
+        id: "external-agents-catalog",
+        labelKey: "externalAgentsCatalog",
+        slug: "external-agents-catalog",
+      },
+      { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
+      { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
+      { id: "notifications", labelKey: "notifications", slug: "notifications" },
+      {
+        id: "automation-connectors",
+        labelKey: "automationConnectors",
+        slug: "automation-connectors",
+      },
+      {
+        id: "workspace-connections",
+        labelKey: "workspaceConnections",
+        slug: "workspace-connections",
+      },
+    ],
+  },
+  {
+    id: "build-apps",
+    titleKey: "buildApps",
+    items: [
+      {
+        id: "creating-templates",
+        labelKey: "creatingTemplates",
+        slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
+      },
+      {
+        id: "writing-agent-instructions",
+        labelKey: "writingAgentInstructions",
+        slug: "writing-agent-instructions",
+      },
+      { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
+      { id: "frames", labelKey: "frames", slug: "frames" },
+    ],
+  },
+  {
+    id: "toolkits",
+    titleKey: "agentNativeToolkit",
+    items: [
+      {
+        id: "agent-native-toolkit",
+        labelKey: "toolkitOverview",
+        slug: "agent-native-toolkit",
+      },
+      {
+        id: "toolkit-ui",
+        labelKey: "toolkitUiPrimitives",
+        slug: "toolkit-ui",
+      },
+      {
+        id: "custom-design-system",
+        labelKey: "customDesignSystem",
+        slug: "custom-design-system",
+      },
+      {
+        id: "toolkit-editors-canvases",
+        labelKey: "toolkitEditorsCanvases",
+        slug: "toolkit-editors-canvases",
+      },
+      {
+        id: "toolkit-context-knowledge",
+        labelKey: "toolkitContextKnowledge",
+        slug: "toolkit-context-knowledge",
+      },
+      {
+        id: "toolkit-feature-kits",
+        labelKey: "featureKits",
+        children: [
+          {
+            id: "toolkit-sharing",
+            labelKey: "toolkitSharing",
+            slug: "toolkit-sharing",
+          },
+          {
+            id: "toolkit-collaboration",
+            labelKey: "toolkitCollaboration",
+            slug: "toolkit-collaboration",
+          },
+          {
+            id: "toolkit-history",
+            labelKey: "toolkitHistory",
+            slug: "toolkit-history",
+          },
+          {
+            id: "toolkit-comments-review",
+            labelKey: "toolkitCommentsReview",
+            slug: "toolkit-comments-review",
+          },
+          {
+            id: "toolkit-observability",
+            labelKey: "toolkitObservability",
+            slug: "toolkit-observability",
+          },
+        ],
+      },
+      {
+        id: "toolkit-app-chrome",
+        labelKey: "appChrome",
+        children: [
+          {
+            id: "toolkit-settings",
+            labelKey: "toolkitSettings",
+            slug: "toolkit-settings",
+          },
+          {
+            id: "toolkit-org-team",
+            labelKey: "toolkitOrgTeam",
+            slug: "toolkit-org-team",
+          },
+          {
+            id: "toolkit-setup-connections",
+            labelKey: "toolkitSetupConnections",
+            slug: "toolkit-setup-connections",
+          },
+          {
+            id: "toolkit-command-navigation",
+            labelKey: "toolkitCommandNavigation",
+            slug: "toolkit-command-navigation",
+          },
+          {
+            id: "toolkit-resources",
+            labelKey: "toolkitResources",
+            slug: "toolkit-resources",
+          },
+          {
+            id: "toolkit-agent-ux",
+            labelKey: "toolkitAgentUx",
+            slug: "toolkit-agent-ux",
+          },
+        ],
+      },
+      {
+        id: "toolkit-capability-packages",
+        labelKey: "capabilityPackages",
+        children: [
+          {
+            id: "toolkit-capability-packages-overview",
+            labelKey: "capabilityPackagesOverview",
+            slug: "toolkit-capability-packages",
+          },
+          {
+            id: "package-lifecycle",
+            labelKey: "packageLifecycle",
+            slug: "package-lifecycle",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "advanced-runtime",
+    titleKey: "advancedRuntime",
+    items: [
+      {
+        id: "code-agents-ui",
+        labelKey: "agentNativeCodeUi",
+        slug: "code-agents-ui",
+      },
+      {
+        id: "harness-agents",
+        labelKey: "harnessAgents",
+        slug: "harness-agents",
+      },
+      {
+        id: "sandbox-adapters",
+        labelKey: "adapters",
+        slug: "sandbox-adapters",
+      },
+      { id: "cli-adapters", labelKey: "cliAdapters", slug: "cli-adapters" },
+      { id: "processors", labelKey: "processors", slug: "processors" },
+      {
+        id: "durable-resume",
+        labelKey: "durableResume",
+        slug: "durable-resume",
+      },
+      {
+        id: "durable-background-runs",
+        labelKey: "durableBackgroundRuns",
+        slug: "durable-background-runs",
+      },
+      {
+        id: "blueprint-installer",
+        labelKey: "blueprintInstaller",
+        slug: "blueprint-installer",
       },
     ],
   },

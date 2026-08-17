@@ -765,7 +765,7 @@ describe("SSE replay render pacing", () => {
     await eventLoopTurn;
 
     expect(firstResultAfterEventLoopAdvance).not.toBeNull();
-    expect(firstResultAfterEventLoopAdvance!).toBeLessThan(textEvents.length);
+    expect(firstResultAfterEventLoopAdvance).toBeLessThan(4);
     expect(results).toHaveLength(textEvents.length + 1);
     expect(results.at(-1)?.content).toEqual([
       {
@@ -955,6 +955,42 @@ describe("SSE replay render pacing", () => {
         activity: true,
       }),
     ]);
+  });
+
+  it("marks pending delegated calls as nonterminal presentation work", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-pending",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-pending",
+            status: "pending",
+            taskId: "remote-task-1",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "agent:Analytics",
+          result: "Remote agent task is still pending",
+          structuredMeta: { agentPending: true },
+        }),
+      ]),
+    );
   });
 
   it("correlates concurrent same-name agent activity by call id", async () => {

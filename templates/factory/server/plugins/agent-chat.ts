@@ -1,4 +1,5 @@
 import { getOrgContext } from "@agent-native/core/org";
+import "@agent-native/dispatch/server";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
@@ -32,6 +33,14 @@ const INITIAL_TOOL_NAMES = [
   "list-triage-rules",
   "get-triage-config",
   "navigate",
+  "list-workspace-apps",
+  "list-workspace-resources",
+  "create-workspace-resource",
+  "update-workspace-resource",
+  "import-agent",
+  "import-agent-pack",
+  "list-agent-pack",
+  "start-workspace-app-creation",
 ];
 
 const options = {

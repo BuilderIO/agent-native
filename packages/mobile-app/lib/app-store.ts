@@ -6,6 +6,15 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "agent-native:apps";
+const APP_ORDER_STORAGE_KEY = "agent-native:apps:order";
+
+export type AppOrderReadResult =
+  | { ok: true; ids: string[] }
+  | { ok: false; reason: "invalid" | "unavailable" };
+
+export type AppOrderWriteResult =
+  | { ok: true }
+  | { ok: false; reason: "unavailable" | "write-failed" };
 
 const listeners = new Set<() => void>();
 
@@ -101,6 +110,42 @@ export async function getApps(): Promise<AppConfig[]> {
 export async function saveApps(apps: AppConfig[]): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(apps));
   emit();
+}
+
+export async function readAppOrder(): Promise<AppOrderReadResult> {
+  try {
+    const raw = await AsyncStorage.getItem(APP_ORDER_STORAGE_KEY);
+    if (!raw) return { ok: true, ids: [] };
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return { ok: false, reason: "invalid" };
+    return {
+      ok: true,
+      ids: [
+        ...new Set(
+          parsed.filter(
+            (id): id is string =>
+              typeof id === "string" && id.trim().length > 0,
+          ),
+        ),
+      ],
+    };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+export async function writeAppOrder(
+  ids: readonly string[],
+): Promise<AppOrderWriteResult> {
+  try {
+    await AsyncStorage.setItem(
+      APP_ORDER_STORAGE_KEY,
+      JSON.stringify([...new Set(ids.filter((id) => id.trim().length > 0))]),
+    );
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "write-failed" };
+  }
 }
 
 export async function addApp(app: AppConfig): Promise<void> {

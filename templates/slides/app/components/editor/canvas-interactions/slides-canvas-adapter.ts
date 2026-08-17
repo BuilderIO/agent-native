@@ -151,8 +151,11 @@ export function resolveSlidesCanvasPointerIntent({
   ) {
     return "move-object-perimeter";
   }
+  // The interior of an editable text object belongs to native text selection.
+  // Only the measured outer edge is reserved for moving the selected object.
+  if (targetIsEditableText) return "edit-text";
   if (hasSelectedObject && targetWithinSelectedObject) {
     return "move-object-body";
   }
-  return targetIsEditableText ? "edit-text" : "none";
+  return "none";
 }

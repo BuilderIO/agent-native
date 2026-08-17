@@ -1553,7 +1553,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -3658,16 +3658,57 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
-// Netlify's hard limit is 250MB unzipped per function; a bundle this far under
-// it still leaves room for growth, and today's server functions land near 70MB
-// once the dead weight is out. Apps that legitimately ship the browser runtime
-// get its ~85MB on top, so the budget stays a regression signal rather than a
-// tax on Chromium-backed templates.
+// Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
+// for packaging variance so a passing guard does not sit on the platform edge.
 const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
+const NETLIFY_FUNCTION_HARD_LIMIT_BYTES = 240 * 1024 * 1024;
 const NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES = 100 * 1024 * 1024;
+// Clips intentionally ships ffmpeg-static for server-side frame extraction,
+// WebM seekability, filmstrips, and audio-only transcription. Keep that known
+// runtime payload separate from the ordinary bundle-growth budget.
+const NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES = 80 * 1024 * 1024;
+
+function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
+  if (!fs.existsSync(functionDir)) return false;
+  const binaryName = FFMPEG_STATIC_BINARY_NAMES[0];
+  return fs.existsSync(
+    path.join(
+      functionDir,
+      "node_modules",
+      FFMPEG_STATIC_PACKAGE_NAME,
+      binaryName,
+    ),
+  );
+}
+
+function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
+  return fs.existsSync(
+    path.join(
+      functionDir,
+      "node_modules",
+      "@sparticuz",
+      "chromium",
+      "bin",
+      "chromium.br",
+    ),
+  );
+}
+
+function netlifyFunctionSizeBudget(functionDir: string): number {
+  const allowance =
+    (hasBundledServerlessBrowserRuntime(functionDir)
+      ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0) +
+    (hasBundledFfmpegStaticRuntime(functionDir)
+      ? NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0);
+  return Math.min(
+    NETLIFY_FUNCTION_SIZE_BUDGET_BYTES + allowance,
+    NETLIFY_FUNCTION_HARD_LIMIT_BYTES,
+  );
+}
 
 function reportNetlifyFunctionSizes(
-  projectCwd: string,
   internalDir: string,
   failures: string[],
 ): void {
@@ -3695,12 +3736,8 @@ function reportNetlifyFunctionSizes(
       .join(", ")}) — ${toMb(total)}MB uploaded in total.`,
   );
 
-  const budget =
-    NETLIFY_FUNCTION_SIZE_BUDGET_BYTES +
-    (findServerlessBrowserRuntimeConsumer(projectCwd)
-      ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
-      : 0);
   for (const fn of functions) {
+    const budget = netlifyFunctionSizeBudget(fn.dir);
     if (fn.size <= budget) continue;
     // node_modules is always the biggest child and names nothing useful; the
     // packages inside it are what a regression actually adds.
@@ -3949,7 +3986,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
     }
   }
 
-  reportNetlifyFunctionSizes(projectCwd, internalDir, failures);
+  reportNetlifyFunctionSizes(internalDir, failures);
 
   if (failures.length > 0) {
     throw new Error(

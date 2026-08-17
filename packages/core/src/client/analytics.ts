@@ -2,10 +2,15 @@ import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
 import {
+  ANALYTICS_CLIENT_PLATFORM_PROPERTY,
+  type AnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
+import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
@@ -121,6 +126,8 @@ export type ErrorCaptureConfigOptions = {
 };
 
 export type ConfigureTrackingOptions = {
+  /** Platform attribution attached to every event emitted by this client. */
+  clientPlatform?: AnalyticsClientPlatform;
   /**
    * Agent Native first-party analytics public key. This mirrors hosted
    * analytics SDKs where consumers pass the key at setup time instead of
@@ -171,6 +178,7 @@ type TrackingIdentity = {
 };
 
 let _getDefaultProps: GetDefaultProps | null = null;
+let _configuredAnalyticsClientPlatform: AnalyticsClientPlatform | null = null;
 let _agentNativeAnalyticsPublicKey: string | null = null;
 let _agentNativeAnalyticsEndpoint: string | null = null;
 let _amplitudeInitialized = false;
@@ -1233,6 +1241,9 @@ export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
 }
 
 export function configureTracking(options: ConfigureTrackingOptions): void {
+  if (options.clientPlatform) {
+    _configuredAnalyticsClientPlatform = options.clientPlatform;
+  }
   const publicKey = options.key || options.publicKey;
   if (publicKey) {
     _agentNativeAnalyticsPublicKey = publicKey;
@@ -1342,6 +1353,19 @@ function exceptionEventProperties(
     ...(event.tags ? { exceptionTags: event.tags } : {}),
     ...(event.extra ? { exceptionExtra: event.extra } : {}),
   };
+}
+
+function amplitudeEventProperties(
+  name: string,
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  if (name !== AGENT_NATIVE_EXCEPTION_EVENT_NAME) return properties;
+  const {
+    exceptionTags: _exceptionTags,
+    exceptionExtra: _exceptionExtra,
+    ...stableProperties
+  } = properties;
+  return stableProperties;
 }
 
 /**
@@ -1767,7 +1791,12 @@ function resolveProps(
   for (const [key, value] of Object.entries(replayProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
-  return applyTrackingIdentity(enriched);
+  return {
+    ...applyTrackingIdentity(enriched),
+    [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: getAnalyticsClientPlatform(
+      _configuredAnalyticsClientPlatform ?? undefined,
+    ),
+  };
 }
 
 function sessionReplayTrackingProperties(): Record<string, unknown> {
@@ -1935,12 +1964,13 @@ export function trackEvent(
   if (typeof window === "undefined") return;
   ensureSentry();
   const props = resolveProps(name, params);
+  const amplitudeProps = amplitudeEventProperties(name, props);
   window.gtag?.("event", name.replace(/\s+/g, "_"), props);
   if (ensureAmplitude()) {
-    _amplitudeModule?.track(name, props);
+    _amplitudeModule?.track(name, amplitudeProps);
   } else if (_amplitudeApiKey) {
     if (_pendingAmplitudeEvents.length < 100) {
-      _pendingAmplitudeEvents.push([name, props]);
+      _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }
   }
   sendAgentNativeAnalytics(name, props);

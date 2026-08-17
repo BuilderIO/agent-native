@@ -7,6 +7,11 @@ const messages = {
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:
       "Peut consulter et ajouter des commentaires de révision",
+    toasts: {
+      ...messagesByLocale["fr-FR"].designEditor.toasts,
+      pdfExportError: "Impossible d’exporter le PDF",
+      pdfDownloaded: "PDF téléchargé",
+    },
     nodeRewrite: {
       composerTitle: "Questionner ou modifier la sélection",
       send: "Envoyer",
@@ -59,7 +64,7 @@ const messages = {
     sendToAgent: "Envoyer à l’agent",
     sendingToAgent: "Envoi à l’agent…",
     enterToPost:
-      "Appuyez sur Entrée pour publier · Maj+Entrée pour insérer une nouvelle ligne",
+      "Appuyez sur Entrée pour publier · Maj Entrée pour insérer une nouvelle ligne",
     post: "Publier",
     posting: "Publication…",
     postFailed: "Impossible de publier ce commentaire",

@@ -20,4 +20,22 @@ describe("meeting share popover", () => {
     expect(source).toContain('t("shareMeeting.includeTranscriptDescription")');
     expect(source).toContain('t("shareMeeting.transcriptUnavailable")');
   });
+
+  it("offers a separate temporary agent link for private meetings", () => {
+    expect(source).toContain('useActionMutation("create-agent-resource-link")');
+    expect(source).toContain('resourceType: "meeting"');
+    expect(source).toContain("contextUrl");
+    expect(source).toContain('t("shareDialog.shareWithAgents")');
+    expect(source).toContain('t("shareMeeting.agentLinkDescription")');
+    expect(source).toContain('t("shareDialog.retryAgentLink")');
+    expect(source).toContain(
+      "const visibleAgentLink = isPublic ? shareUrl : agentLink;",
+    );
+    expect(source).not.toContain("!isPublic ? (");
+  });
+
+  it("keeps individual access in the primary share surface", () => {
+    expect(source).toContain("<SharePeopleTab");
+    expect(source).not.toContain('value="invite"');
+  });
 });

@@ -68,10 +68,13 @@ import {
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
+import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
   executeAgentToolCall,
+  filterActionsByAllowedNames,
+  readPersistedActionSurface,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
@@ -180,6 +183,10 @@ import {
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import {
+  ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
+  normalizeAnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
   handleSharedThreadRequest,
@@ -198,7 +205,7 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { getSession } from "./auth.js";
+import { getSession, registerAuthPublicPaths } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import {
   getH3App,
@@ -207,6 +214,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
@@ -368,6 +376,25 @@ export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
 export { buildPublicAgentA2ASkills };
 export { assembleA2AFinalResponse };
+export function buildLeanSystemPrompt(input: {
+  basePrompt: string;
+  resources: string;
+  additionalFramework?: string;
+  cacheSplit?: string;
+  extra?: string;
+  modelOverlay?: string;
+  runtimeContext?: string;
+}): string {
+  return (
+    input.basePrompt +
+    (input.additionalFramework ?? "") +
+    (input.cacheSplit ?? "") +
+    input.resources +
+    (input.extra ?? "") +
+    (input.modelOverlay ?? "") +
+    (input.runtimeContext ?? "")
+  );
+}
 export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
@@ -473,6 +500,65 @@ export function buildLeanRunPolicyPrompt(
   return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
 }
 
+export function filterPromptActionsToSurface(
+  actions: Record<string, ActionEntry>,
+  allowedActionNames?: readonly string[],
+): Record<string, ActionEntry> {
+  if (!allowedActionNames) return actions;
+  return filterActionsByAllowedNames(
+    actions,
+    allowedActionNames.filter((name) => actions[name]),
+  );
+}
+
+/** Keep late-bound sandbox and data-program bridges on the current request's
+ * authorized registry instead of the plugin's process-wide action catalog. */
+export function filterRuntimeActionsToSurface(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return filterPromptActionsToSurface(
+    actions,
+    getRequestRunContext()?.allowedActionNames,
+  );
+}
+
+/** Remove framework guidance for tools that the request surface does not
+ * expose. The default framework prompt is line-oriented, so dropping the
+ * affected instruction keeps unrelated behavioral guidance intact without
+ * teaching the model names it cannot call. */
+export function filterFrameworkPromptToSurface(
+  prompt: string,
+  actions: Record<string, ActionEntry>,
+  allowedActionNames?: readonly string[],
+): string {
+  if (!allowedActionNames) return prompt;
+  const allowedNames = new Set(allowedActionNames);
+  const deniedPatterns = Object.keys(actions)
+    .filter((name) => !allowedNames.has(name))
+    .sort((a, b) => b.length - a.length)
+    .map((name) => {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^a-z0-9-])${escaped}(?=$|[^a-z0-9-])`);
+    });
+  if (deniedPatterns.length === 0) return prompt;
+  return prompt
+    .split("\n")
+    .filter((line) => !deniedPatterns.some((pattern) => pattern.test(line)))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
+}
+
+export function resolveProductionCodeExecutionForActionSurface(
+  mode: "off" | "sandboxed" | "trusted",
+  hasRequestScopedSurface: boolean,
+): "off" | "sandboxed" | "trusted" {
+  // A trusted shell can reach action routes outside the native registry, so it
+  // cannot uphold a hard per-request allowlist. Keep sandboxed run-code, whose
+  // bridge is filtered against the current request, as the safe equivalent.
+  return hasRequestScopedSurface && mode === "trusted" ? "sandboxed" : mode;
+}
+
 /**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
  * value is recent invocation timestamps within the rolling window. Stale
@@ -558,6 +644,7 @@ export function createAgentChatPlugin(
       // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
+      const hostedHarnessConfig = await loadHostedHarnessConfig();
       // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
         (env === "development" || env === "test") &&
@@ -1278,6 +1365,19 @@ export function createAgentChatPlugin(
             : rawEnvCodeExec === "off"
               ? "off"
               : (options?.codeExecution?.production ?? "off");
+      const effectiveProdCodeExec =
+        resolveProductionCodeExecutionForActionSurface(
+          resolvedProdCodeExec,
+          Boolean(options?.resolveActionSurface),
+        );
+      if (
+        resolvedProdCodeExec === "trusted" &&
+        effectiveProdCodeExec !== "trusted"
+      ) {
+        console.warn(
+          "[agent-native] Request-scoped action surfaces disable trusted shell tools; using sandboxed code execution instead.",
+        );
+      }
 
       // Forward-declaration for the production code-execution bridge supplier.
       // Must come before the code entries are created so their closures can capture it.
@@ -1291,14 +1391,14 @@ export function createAgentChatPlugin(
         await loadRunCodeToolEntries(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
-          () => prodRunCodeToolActions,
+          () => filterRuntimeActionsToSurface(prodRunCodeToolActions),
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
         await loadRunCodeToolEntries(
           // Lean prompt mode intentionally exposes a much smaller action
           // surface; keep sandbox appAction() calls scoped to that same surface.
-          () => leanRunCodeToolActions,
+          () => filterRuntimeActionsToSurface(leanRunCodeToolActions),
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
 
@@ -1332,9 +1432,12 @@ export function createAgentChatPlugin(
       // use a late-binding supplier so devRunCodeTool can reference the
       // devActions registry once it is built below (see devHandler block).
       const devRunCodeTool: Record<string, ActionEntry> = canToggle
-        ? await loadRunCodeToolEntries(() => devRunCodeToolActions, {
-            bridgeTools: options?.codeExecution?.bridgeTools,
-          })
+        ? await loadRunCodeToolEntries(
+            () => filterRuntimeActionsToSurface(devRunCodeToolActions),
+            {
+              bridgeTools: options?.codeExecution?.bridgeTools,
+            },
+          )
         : {};
 
       // Registry `generateCorpusToolsPrompt` (below) reads from to decide what
@@ -1344,7 +1447,7 @@ export function createAgentChatPlugin(
         ...templateScripts,
         ...(canToggle
           ? devRunCodeTool
-          : resolvedProdCodeExec !== "off"
+          : effectiveProdCodeExec !== "off"
             ? runCodeTool
             : {}),
       };
@@ -2195,6 +2298,52 @@ export function createAgentChatPlugin(
           "cli",
         ) + corpusToolsPrompt;
 
+      const filterPromptActionsForRequest = (
+        actions: Record<string, ActionEntry>,
+      ): Record<string, ActionEntry> => {
+        return filterPromptActionsToSurface(
+          actions,
+          getRequestRunContext()?.allowedActionNames,
+        );
+      };
+
+      const resolveRequestActionsPrompt = (mode: "tool" | "cli"): string => {
+        const allowedNames = getRequestRunContext()?.allowedActionNames;
+        if (!allowedNames) {
+          return mode === "tool" ? prodActionsPrompt : devActionsPrompt;
+        }
+        const promptActions = filterPromptActionsForRequest(
+          mode === "tool"
+            ? templateScripts
+            : { ...discoveredActions, ...templateScripts },
+        );
+        const promptCorpus =
+          filterPromptActionsForRequest(corpusPromptRegistry);
+        return (
+          generateActionsPrompt(promptActions, mode) +
+          (loadCorpusToolsInitially
+            ? generateCorpusToolsPrompt(promptCorpus)
+            : "")
+        );
+      };
+
+      const leanActionsPrompt =
+        prodActionsPrompt +
+        (a2aAgentDelegationEnabled
+          ? generateActionsPrompt(callAgentScript, "tool")
+          : "");
+      const resolveRequestLeanActionsPrompt = (): string => {
+        const allowedNames = getRequestRunContext()?.allowedActionNames;
+        if (!allowedNames) return leanActionsPrompt;
+        return generateActionsPrompt(
+          filterPromptActionsForRequest({
+            ...templateScripts,
+            ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
+          }),
+          "tool",
+        );
+      };
+
       // Build system prompts — dynamic functions that pre-load resources per-request.
       // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
       // Custom systemPrompt from options overrides the framework default entirely.
@@ -2207,20 +2356,43 @@ export function createAgentChatPlugin(
       // `nativeActionsInDev` or `leanPrompt`), the dev prompt's "invoke
       // template actions via bash" guidance is wrong — use the prod prompt
       // + tool-format action list instead, same as production.
-      const devNative = options?.nativeActionsInDev === true || leanPrompt;
-      const devPrompt = devNative
-        ? prodPrompt
-        : (options?.devSystemPrompt
-            ? options.devSystemPrompt +
-              (options?.systemPrompt ??
-                (lazyContext
-                  ? PROD_FRAMEWORK_PROMPT_COMPACT
-                  : PROD_FRAMEWORK_PROMPT))
-            : lazyContext
-              ? DEV_FRAMEWORK_PROMPT_COMPACT
-              : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+      const devNative =
+        options?.nativeActionsInDev === true ||
+        leanPrompt ||
+        Boolean(options?.resolveActionSurface);
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
+      const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
+        Object.fromEntries(
+          Object.entries(prodActions).filter(
+            ([name]) => !templateScripts[name] && !mcpActionEntries[name],
+          ),
+        );
+
+      const resolveRequestBasePrompt = (): string =>
+        (options?.systemPrompt ??
+          filterFrameworkPromptToSurface(
+            lazyContext ? PROD_FRAMEWORK_PROMPT_COMPACT : PROD_FRAMEWORK_PROMPT,
+            getFrameworkPromptActions(),
+            getRequestRunContext()?.allowedActionNames,
+          )) + resolveRequestActionsPrompt("tool");
+
+      const resolveRequestLeanPrompt = (): string =>
+        (options?.systemPrompt ?? "") + resolveRequestLeanActionsPrompt();
+
+      const resolveRequestDevPrompt = (): string => {
+        if (devNative) return resolveRequestBasePrompt();
+        const frameworkPrompt = options?.devSystemPrompt
+          ? options.devSystemPrompt +
+            (options?.systemPrompt ??
+              (lazyContext
+                ? PROD_FRAMEWORK_PROMPT_COMPACT
+                : PROD_FRAMEWORK_PROMPT))
+          : lazyContext
+            ? DEV_FRAMEWORK_PROMPT_COMPACT
+            : DEV_FRAMEWORK_PROMPT;
+        return frameworkPrompt + resolveRequestActionsPrompt("cli");
+      };
 
       if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
@@ -2497,6 +2669,12 @@ export function createAgentChatPlugin(
       }
       if (Object.keys(httpActions).length > 0) {
         const { mountActionRoutes } = await import("./action-routes.js");
+        if (options?.actionRoutePublicPaths?.length) {
+          registerAuthPublicPaths(
+            options.actionRoutePublicPaths,
+            getH3App(nitroApp),
+          );
+        }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
           getUserNameFromEvent,
@@ -2874,7 +3052,7 @@ export function createAgentChatPlugin(
         getOwner: () => requireCurrentRunOwner("spawn or manage sub-agents"),
         getSystemPrompt: () =>
           getRequestRunContext()?.systemPrompt ?? basePrompt,
-        getActions: buildSubAgentActions,
+        getActions: () => filterRuntimeActionsToSurface(buildSubAgentActions()),
         getEngine: () => {
           const runCtx = getRequestRunContext();
           // Sub-agents must inherit the parent run's resolved key so
@@ -2981,9 +3159,11 @@ export function createAgentChatPlugin(
         ...mcpActionEntries,
         // Sandboxed run-code for hosted production when enabled, and for the
         // app-rendered production-style handler in local dev.
-        ...(canToggle || resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+        ...(canToggle || effectiveProdCodeExec !== "off" ? runCodeTool : {}),
         // Full coding tools in production when mode is "trusted".
-        ...(!canToggle ? prodCodingTools : {}),
+        ...(!canToggle && effectiveProdCodeExec === "trusted"
+          ? prodCodingTools
+          : {}),
       });
 
       mountRealtimeVoiceRoutes(nitroApp, prodActions, {
@@ -3035,7 +3215,9 @@ export function createAgentChatPlugin(
         // Otherwise templates with a minimal prompt can advertise sandboxed
         // execution in the system prompt while the actual tool registry omits
         // it.
-        ...(canToggle || resolvedProdCodeExec !== "off" ? leanRunCodeTool : {}),
+        ...(canToggle || effectiveProdCodeExec !== "off"
+          ? leanRunCodeTool
+          : {}),
       });
       leanRunCodeToolActions = leanActions;
 
@@ -3055,12 +3237,6 @@ export function createAgentChatPlugin(
       // Lean mode: use only the template's systemPrompt + actions list.
       // Skip resource loading and schema block — those add DB round-trips
       // and tokens that minimal/voice apps don't need.
-      const leanActionsPrompt =
-        prodActionsPrompt +
-        (a2aAgentDelegationEnabled
-          ? generateActionsPrompt(callAgentScript, "tool")
-          : "");
-      const leanBasePrompt = (options?.systemPrompt ?? "") + leanActionsPrompt;
       const anonymousReadOnlyPrompt =
         (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
         generateActionsPrompt(
@@ -3069,6 +3245,26 @@ export function createAgentChatPlugin(
           lazyContext ? effectiveInitialToolNames : undefined,
         ) +
         "\n\nYou are answering from a public shared page. Treat the visible resource as read-only: do not create, edit, delete, comment on, share, or otherwise mutate app data. If the user asks for a change, describe what you would change or suggest signing in to edit.";
+      const resolveAnonymousReadOnlyPrompt = (): string => {
+        if (!getRequestRunContext()?.allowedActionNames) {
+          return anonymousReadOnlyPrompt;
+        }
+        return (
+          (options?.systemPrompt ??
+            filterFrameworkPromptToSurface(
+              PROD_FRAMEWORK_PROMPT_COMPACT,
+              getFrameworkPromptActions(),
+              getRequestRunContext()?.allowedActionNames,
+            )) +
+          generateActionsPrompt(
+            filterPromptActionsForRequest(
+              filterReadOnlyActions(templateScripts),
+            ),
+            "tool",
+          ) +
+          "\n\nYou are answering from a public shared page. Treat the visible resource as read-only: do not create, edit, delete, comment on, share, or otherwise mutate app data. If the user asks for a change, describe what you would change or suggest signing in to edit."
+        );
+      };
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
       // owner + user API key onto the AsyncLocalStorage run context so
@@ -3258,8 +3454,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
       // System-prompt note appended when production code execution is enabled.
       const prodCodeExecPromptNote =
-        !canToggle && resolvedProdCodeExec !== "off"
-          ? resolvedProdCodeExec === "trusted"
+        !canToggle && effectiveProdCodeExec !== "off"
+          ? effectiveProdCodeExec === "trusted"
             ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use tool-orchestration for short bounded fan-out or reduction over read-only tools. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
             : "\n\n<code-execution-mode>Sandboxed code execution is enabled. Use tool-orchestration for short bounded fan-out, joins, and reduction over read-only tools. Use run-code when you need its broader provider/web helpers, workspace staging, or durable background execution. In either tool, authenticated calls go through the provided host globals and results should be reduced before printing.</code-execution-mode>"
           : "";
@@ -3268,12 +3464,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
+          const requestActionsPrompt = resolveRequestActionsPrompt("tool");
+          const requestLeanActionsPrompt = resolveRequestLeanActionsPrompt();
+          const requestBasePrompt = resolveRequestBasePrompt();
+          const requestLeanPrompt = resolveRequestLeanPrompt();
           const runtimeContext = runtimeContextForEvent(event);
           const codeEditingSurfaceRestriction = shouldBlockInProductCodeEditing(
             event,
           )
             ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
             : "";
+          const hostedHarnessRuntime =
+            getRequestRunContext()?.hostedHarnessRuntime;
+          const hostedHarnessPromptNote = hostedHarnessRuntime
+            ? hostedHarnessSystemPrompt(hostedHarnessRuntime)
+            : "";
+          const requestProdCodeExecPromptNote = hostedHarnessRuntime
+            ? ""
+            : prodCodeExecPromptNote;
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
           // Stable-first ordering: base prompt / schema / extra come before
@@ -3287,26 +3495,40 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
-              prodCodeExecPromptNote,
+              `${requestProdCodeExecPromptNote}${hostedHarnessPromptNote ? `\n\n${hostedHarnessPromptNote}` : ""}`,
+            );
+            const resources = await loadResourcesForPrompt(
+              owner,
+              true,
+              options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
             );
             await emitContextXraySystemSections(event, {
-              frameworkPrompt: leanBasePrompt.slice(
+              frameworkPrompt: requestLeanPrompt.slice(
                 0,
-                Math.max(0, leanBasePrompt.length - leanActionsPrompt.length),
+                Math.max(
+                  0,
+                  requestLeanPrompt.length - requestLeanActionsPrompt.length,
+                ),
               ),
-              actionsPrompt: leanActionsPrompt,
+              actionsPrompt: requestLeanActionsPrompt,
               additionalFramework: leanRunPolicyPrompt,
+              resources,
               extra,
               modelOverlay,
               runtimeContext,
             });
             return setSystemPromptOnContext(
-              leanBasePrompt +
-                leanRunPolicyPrompt +
-                SYSTEM_PROMPT_CACHE_SPLIT +
-                extra +
-                modelOverlay +
+              buildLeanSystemPrompt({
+                basePrompt: requestLeanPrompt,
+                additionalFramework: leanRunPolicyPrompt,
+                cacheSplit: SYSTEM_PROMPT_CACHE_SPLIT,
+                resources,
+                extra,
+                modelOverlay,
                 runtimeContext,
+              }),
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -3322,26 +3544,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           await emitContextXraySystemSections(event, {
-            frameworkPrompt: basePrompt.slice(
+            frameworkPrompt: requestBasePrompt.slice(
               0,
-              Math.max(0, basePrompt.length - prodActionsPrompt.length),
+              Math.max(
+                0,
+                requestBasePrompt.length - requestActionsPrompt.length,
+              ),
             ),
-            actionsPrompt: prodActionsPrompt,
+            actionsPrompt: requestActionsPrompt,
             resources,
             schemaBlock,
             extra,
             modelOverlay,
             runtimeContext,
             additionalFramework:
-              codeEditingSurfaceRestriction + prodCodeExecPromptNote,
+              codeEditingSurfaceRestriction +
+              requestProdCodeExecPromptNote +
+              (hostedHarnessPromptNote ? `\n\n${hostedHarnessPromptNote}` : ""),
           });
           return setSystemPromptOnContext(
-            basePrompt +
+            requestBasePrompt +
               SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
-              prodCodeExecPromptNote +
+              requestProdCodeExecPromptNote +
+              (hostedHarnessPromptNote
+                ? `\n\n${hostedHarnessPromptNote}`
+                : "") +
               extra +
               modelOverlay +
               runtimeContext,
@@ -3349,6 +3579,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         },
         model: options?.model,
         appId: options?.appId,
+        hostedHarnessConfig,
         apiKey: options?.apiKey,
         ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
@@ -3408,6 +3639,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message,
           };
         },
+        resolveActionSurface: options?.resolveActionSurface,
         skipFilesContext,
         initialToolNames: effectiveInitialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
@@ -3446,13 +3678,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
+                const requestAnonymousPrompt = resolveAnonymousReadOnlyPrompt();
                 await emitContextXraySystemSections(event, {
-                  frameworkPrompt: anonymousReadOnlyPrompt,
+                  frameworkPrompt: requestAnonymousPrompt,
                   extra,
                   runtimeContext: runtimeContextForEvent(event),
                 });
                 return setSystemPromptOnContext(
-                  anonymousReadOnlyPrompt +
+                  requestAnonymousPrompt +
                     extra +
                     runtimeContextForEvent(event),
                 );
@@ -3463,6 +3696,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...resolveInteractiveAgentRunOptions(options),
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
+              resolveActionSurface: options?.resolveActionSurface,
               skipFilesContext: true,
               initialToolNames: effectiveInitialToolNames,
               onEngineResolved: (engine, model) => {
@@ -3564,6 +3798,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           actions: devActions,
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
+            const requestActionsPrompt = resolveRequestActionsPrompt(
+              devNative ? "tool" : "cli",
+            );
+            const requestLeanActionsPrompt = resolveRequestLeanActionsPrompt();
+            const requestLeanPrompt = resolveRequestLeanPrompt();
+            const requestDevPrompt = resolveRequestDevPrompt();
             const runtimeContext = runtimeContextForEvent(event);
             const modelOverlay = resolveModelOverlay();
             // Stable-first ordering: runtimeContext (day-granular) is
@@ -3571,18 +3811,35 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                true,
+                options?.appId,
+                undefined,
+                { disabledFrameworkGroups },
+              );
               await emitContextXraySystemSections(event, {
-                frameworkPrompt: leanBasePrompt.slice(
+                frameworkPrompt: requestLeanPrompt.slice(
                   0,
-                  Math.max(0, leanBasePrompt.length - leanActionsPrompt.length),
+                  Math.max(
+                    0,
+                    requestLeanPrompt.length - requestLeanActionsPrompt.length,
+                  ),
                 ),
-                actionsPrompt: leanActionsPrompt,
+                actionsPrompt: requestLeanActionsPrompt,
+                resources,
                 extra,
                 modelOverlay,
                 runtimeContext,
               });
               return setSystemPromptOnContext(
-                leanBasePrompt + extra + modelOverlay + runtimeContext,
+                buildLeanSystemPrompt({
+                  basePrompt: requestLeanPrompt,
+                  resources,
+                  extra,
+                  modelOverlay,
+                  runtimeContext,
+                }),
               );
             }
             const resources = await loadResourcesForPrompt(
@@ -3597,16 +3854,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ? ""
                 : await buildSchemaBlock(owner, databaseToolsMode);
             await emitContextXraySystemSections(event, {
-              frameworkPrompt: devNative
-                ? basePrompt.slice(
-                    0,
-                    Math.max(0, basePrompt.length - prodActionsPrompt.length),
-                  )
-                : devPrompt.slice(
-                    0,
-                    Math.max(0, devPrompt.length - devActionsPrompt.length),
-                  ),
-              actionsPrompt: devNative ? prodActionsPrompt : devActionsPrompt,
+              frameworkPrompt: requestDevPrompt.slice(
+                0,
+                Math.max(
+                  0,
+                  requestDevPrompt.length - requestActionsPrompt.length,
+                ),
+              ),
+              actionsPrompt: requestActionsPrompt,
               resources,
               schemaBlock,
               extra,
@@ -3614,7 +3869,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runtimeContext,
             });
             return setSystemPromptOnContext(
-              devPrompt +
+              requestDevPrompt +
                 resources +
                 schemaBlock +
                 extra +
@@ -3647,6 +3902,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             return options?.prepareRequest?.(details);
           },
+          resolveActionSurface: options?.resolveActionSurface,
           skipFilesContext,
           initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
@@ -3847,7 +4103,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // just told, and filtering to the full set would only add a
                 // tool-search schema with nothing new for it to find.
                 return {
-                  baseSystemPrompt: basePrompt,
+                  baseSystemPrompt: filterFrameworkPromptToSurface(
+                    basePrompt,
+                    prodActions,
+                    payload.allowedActionNames,
+                  ),
                   actions: buildSubAgentActions(),
                   engine,
                   model,
@@ -5724,10 +5984,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // separate agent surface such as Builder or the dev frame.
             const blockInProductCodeEditing =
               shouldBlockInProductCodeEditing(event);
+            const hostedHarnessRequest =
+              getHeader(event, "x-agent-native-hosted-harness") === "1";
             const handler =
               ownerContext.anonymous && anonymousHandler
                 ? anonymousHandler
-                : !blockInProductCodeEditing && currentDevMode && devHandler
+                : !hostedHarnessRequest &&
+                    !blockInProductCodeEditing &&
+                    currentDevMode &&
+                    devHandler
                   ? devHandler
                   : prodHandler;
             return handler(event);
@@ -5973,6 +6238,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // is already consumed, so the handler reads this instead.
             (event as any).context = (event as any).context ?? {};
             (event as any).context.__agentChatBackgroundBody = workerBody;
+            const persistedClientPlatform = normalizeAnalyticsClientPlatform(
+              workerBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD],
+            );
+            if (persistedClientPlatform) {
+              (event as any).context[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] =
+                persistedClientPlatform;
+            }
 
             // Durable owner context: this self-dispatch is cookieless (HMAC-only).
             // Resolve the owner from the persisted run row, never the request
@@ -5980,7 +6252,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // helper expands that owner into the same user/org AsyncLocalStorage
             // context the foreground request uses, so credential and data scoping
             // stay aligned.
-            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            const persistedSurface = readPersistedActionSurface(
+              workerBody,
+              "__resolvedActionSurface",
+            );
+            await seedBackgroundAgentRunOwnerContext(
+              event,
+              prepared.runId,
+              persistedSurface?.orgId,
+            );
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);

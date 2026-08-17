@@ -8,10 +8,15 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { track } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/core/client/markdown";
 import {
   useAcceptInvitation,
   useJoinByDomain,
@@ -29,6 +34,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -95,7 +101,6 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
-  IconShare3,
   IconLink,
   IconWorld,
   IconSun,
@@ -976,30 +981,35 @@ function safeDecodeURIComponent(value: string): string {
 }
 
 function renderCommentMessage(message: string) {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
+  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
   const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(message)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(message.slice(lastIndex, match.index));
-    }
     const label = match[1] ?? "";
     const email = safeDecodeURIComponent(match[2] ?? "");
-    parts.push(
-      <span
-        key={`${email}-${match.index}`}
-        className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-        title={email}
-      >
-        <IconAt className="size-3" />
-        <span className="truncate">{label || email}</span>
-      </span>,
-    );
-    lastIndex = pattern.lastIndex;
+    protectedSpans.push({
+      source: match[0],
+      label: label || email,
+      title: email,
+    });
   }
-  if (lastIndex < message.length) parts.push(message.slice(lastIndex));
-  return parts.length > 0 ? parts : message;
+  return (
+    <InlineMarkdown
+      content={message}
+      inline
+      protectedSpans={protectedSpans}
+      renderProtectedSpan={(span, children) => (
+        <span
+          key={span.source}
+          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+          title={span.title}
+        >
+          <IconAt className="size-3" />
+          <span className="truncate">{children}</span>
+        </span>
+      )}
+    />
+  );
 }
 
 function CommentAvatar({
@@ -6183,11 +6193,18 @@ function PlanShareControl({
   }, []);
 
   const copyPublishedUrl = useCallback(
-    (url: string) => {
-      void navigator.clipboard.writeText(url).then(
-        () => toast.success(t("plansPage.share.linkCopied")),
-        () => toast.error(t("plansPage.share.copyFailed")),
-      );
+    async (url: string) => {
+      try {
+        if (!(await writeClipboardText(url))) {
+          toast.error(t("plansPage.share.copyFailed"));
+          return false;
+        }
+        toast.success(t("plansPage.share.linkCopied"));
+        return true;
+      } catch {
+        toast.error(t("plansPage.share.copyFailed"));
+        return false;
+      }
     },
     [t],
   );
@@ -6249,8 +6266,7 @@ function PlanShareControl({
         }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        trigger="icon"
-        triggerClassName="pointer-events-auto size-8"
+        triggerClassName="pointer-events-auto h-8 px-2"
         onOpenChange={onOpenChange}
       />
     );
@@ -6266,22 +6282,13 @@ function PlanShareControl({
         if (!open) setAuthPrompt(null);
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="pointer-events-auto size-8"
-              aria-label={t("plansPage.share.shareAria", { noun })}
-            >
-              <IconShare3 className="size-4" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("plansPage.share.share", { noun })}</TooltipContent>
-      </Tooltip>
+      <PopoverTrigger asChild>
+        <ShareTrigger
+          label={t("plansPage.share.share", { noun })}
+          aria-label={t("plansPage.share.shareAria", { noun })}
+          className="pointer-events-auto"
+        />
+      </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
@@ -6335,22 +6342,16 @@ function PlanShareControl({
           </div>
         ) : effectivePublishedUrl ? (
           <div className="space-y-3">
-            <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/35 px-2.5 py-2">
-              <IconLink className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {effectivePublishedUrl}
-              </span>
-            </div>
+            <ShareCopyRow
+              value={effectivePublishedUrl}
+              label={t("plansPage.share.linkLabel", { noun: Noun })}
+              description={t("plansPage.share.hostedCopy", { noun })}
+              copyLabel={t("plansPage.loggedOut.copy")}
+              copiedLabel={t("plansPage.loggedOut.copied")}
+              onCopy={copyPublishedUrl}
+              className="rounded-md border border-border bg-muted/35 px-2.5 py-2"
+            />
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => copyPublishedUrl(effectivePublishedUrl)}
-              >
-                <IconCopy className="size-3.5" />
-                {t("plansPage.loggedOut.copy")}
-              </Button>
               <Button
                 type="button"
                 size="sm"
@@ -6364,10 +6365,7 @@ function PlanShareControl({
                     {t("plansPage.share.updating")}
                   </>
                 ) : (
-                  <>
-                    <IconRefresh className="size-3.5" />
-                    {t("plansPage.share.updateLink")}
-                  </>
+                  t("plansPage.share.updateLink")
                 )}
               </Button>
               <Button type="button" size="sm" asChild>
@@ -6376,7 +6374,6 @@ function PlanShareControl({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <IconExternalLink className="size-3.5" />
                   {t("plansPage.share.openHostedPlan")}
                 </a>
               </Button>
@@ -6395,10 +6392,7 @@ function PlanShareControl({
                 {t("plansPage.share.creatingLink")}
               </>
             ) : (
-              <>
-                <IconLink className="size-4" />
-                {t("plansPage.share.createShareableLink")}
-              </>
+              t("plansPage.share.createShareableLink")
             )}
           </Button>
         )}
@@ -9066,9 +9060,9 @@ function CommentThreadMessage({
             </p>
           )}
         </div>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+        <div className="mt-1 text-sm leading-6">
           {renderCommentMessage(comment.message)}
-        </p>
+        </div>
       </div>
       {action}
     </div>

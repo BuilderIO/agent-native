@@ -84,6 +84,7 @@ export default defineAction({
       orgId: access.resource.orgId ?? null,
       visibility: access.resource.visibility ?? "private",
       role: access.role,
+      agentReadable: Boolean(reg.agentReadable),
       shares: shares.map((s: any) => ({
         id: s.id,
         principalType: s.principalType,

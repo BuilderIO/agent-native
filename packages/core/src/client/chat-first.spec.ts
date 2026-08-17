@@ -58,6 +58,32 @@ describe("chat-first preference", () => {
     ).toEqual(["content", "design", "mail", "calendar", "clips", "brain"]);
   });
 
+  it("allows a host to provide its own default app order", () => {
+    expect(
+      orderChatFirstAppIds(
+        [
+          "brain",
+          "mail",
+          "calendar",
+          "design",
+          "clips",
+          "content",
+          "analytics",
+        ],
+        { pinnedIds: [], orderedIds: [] },
+        ["mail", "calendar", "design", "clips", "content", "analytics"],
+      ),
+    ).toEqual([
+      "mail",
+      "calendar",
+      "design",
+      "clips",
+      "content",
+      "analytics",
+      "brain",
+    ]);
+  });
+
   it("defaults to enabled and persists an explicit opt-out", () => {
     const storage = createStorage();
 

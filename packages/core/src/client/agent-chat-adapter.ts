@@ -10,6 +10,7 @@ import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../agent/types.js";
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
@@ -20,10 +21,16 @@ import {
   clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
+import {
+  createRunStreamToken,
+  preemptRunStream,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
 import {
   AgentAutoContinueSignal,
   INTERRUPTED_TOOL_RESULT,
@@ -36,6 +43,10 @@ import {
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import {
+  isDelegatedAgentToolCall,
+  isToolCallInFlight,
+} from "./tool-display.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 export type AgentChatSurfaceKind =
@@ -132,6 +143,10 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
+// Budget for everything actually said in the thread — every user ask and every
+// assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
+// tool args/results those turns produced. See limitPriorMessagesForRequest.
+const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
@@ -974,21 +989,34 @@ function limitPriorMessagesForRequest<
 >(messages: readonly T[]): T[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES);
   const kept: T[] = [];
-  let totalChars = 0;
+  let words = 0;
+  let payload = 0;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const cost = estimateHistoryMessageCost(message);
-    if (kept.length > 0 && totalChars + cost > MAX_HISTORY_TOTAL_CHARS) {
-      break;
-    }
-    kept.push(message);
-    totalChars += cost;
+    // What was said is cheap and cannot be re-derived; what a tool returned is
+    // ~97% of a tool-heavy turn and can always be re-read. Pricing both against
+    // one budget let a single read-heavy turn evict the whole conversation, so
+    // the agent re-derived the same answer and re-asked the same question.
+    const wordCost = messageTextForHistory(message).length;
+    if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
+    const payloadCost = estimateHistoryMessageCost(message) - wordCost;
+    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const content = affordsPayload
+      ? message.content
+      : message.content.filter((part) => part.type === "text");
+    if (!content.length) continue;
+    kept.push(affordsPayload ? message : { ...message, content });
+    words += wordCost;
+    if (affordsPayload) payload += payloadCost;
   }
 
   kept.reverse();
-  while (kept.length > 0 && kept[0].role !== "user") {
+  // Stop before emptying: this rule exists to start history on a user turn for
+  // providers that require it, not to license sending no history at all. It was
+  // the last step that turned an over-budget turn into a blank conversation.
+  while (kept.length > 1 && kept[0].role !== "user") {
     kept.shift();
   }
   return kept;
@@ -1135,7 +1163,7 @@ function describeContinuationAdvance(
       }
       continue;
     }
-    if (part.activity === true) {
+    if (part.activity === true && !isDelegatedAgentToolCall(part)) {
       work.add(`preparing ${part.toolName}`);
       stall ??= { kind: "preparing", toolName: part.toolName };
     } else {
@@ -1166,12 +1194,7 @@ function describeContinuationAdvance(
  * must not count this against the stalled/empty continuation budgets.
  */
 export function hasInFlightToolCall(content: ContentPart[]): boolean {
-  return content.some(
-    (part) =>
-      part.type === "tool-call" &&
-      part.result === undefined &&
-      part.activity !== true,
-  );
+  return content.some((part) => isToolCallInFlight(part));
 }
 
 /**
@@ -1276,6 +1299,29 @@ function snapshotContent(content: ContentPart[]): ContentPart[] {
       ? { ...part }
       : { ...part, args: { ...part.args } },
   );
+}
+
+function hasMissingFinalResponseAfterTool(content: ContentPart[]): boolean {
+  const warning = appendMissingFinalResponseWarning(snapshotContent(content));
+  return warning?.errorCode === "final_response_missing_after_tool";
+}
+
+function missingFinalResponseWarningFromResult(
+  result: ChatModelRunResult,
+): { message: string } | null {
+  const metadata = result.metadata as { custom?: unknown } | undefined;
+  const custom = metadata?.custom;
+  if (!custom || typeof custom !== "object") return null;
+  const warning = (custom as Record<string, unknown>).runWarning;
+  if (!warning || typeof warning !== "object") return null;
+  const warningRecord = warning as Record<string, unknown>;
+  if (warningRecord.errorCode !== "final_response_missing_after_tool") {
+    return null;
+  }
+  return {
+    message:
+      typeof warningRecord.message === "string" ? warningRecord.message : "",
+  };
 }
 
 function stableJson(value: unknown): string {
@@ -1749,6 +1795,8 @@ export interface CreateAgentChatAdapterOptions {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
   effortRef?: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
@@ -1836,6 +1884,8 @@ export function createAgentChatAdapter(
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
+  const harnessRef = options?.harnessRef;
+  const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
@@ -1940,7 +1990,9 @@ export function createAgentChatAdapter(
       // Queued turns carry the model/engine/effort they were composed with.
       // The refs track the live picker, so without this a queue that flushes
       // after the user switches models runs under the wrong one.
-      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+      const runConfigSelection = (
+        key: "model" | "engine" | "effort" | "harness",
+      ) => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
             ? (runConfig.custom as Record<string, unknown>)[key]
@@ -1952,6 +2004,9 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const harness = hostedHarnessRef?.current
+        ? (runConfigSelection("harness") ?? harnessRef?.current)
+        : undefined;
       const requestedTurnId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2033,7 +2088,19 @@ export function createAgentChatAdapter(
             activeRun.runId === runId)
         );
       };
+      // The adapter's own stream outranks AssistantChat's reconnect fallback:
+      // when it attaches to a run, any reconnect reader folding the same run
+      // must stop writing UI state or both folds render at once.
+      const streamOwnershipToken = createRunStreamToken(`adapter:${turnId}`);
+      const takeRunStreamOwnership = () => {
+        if (threadId && runId) {
+          preemptRunStream(threadId, runId, streamOwnershipToken);
+        }
+      };
       const settleTerminalChatRun = () => {
+        if (threadId && runId) {
+          releaseRunStream(threadId, runId, streamOwnershipToken);
+        }
         if (!ownsActiveRunState()) return;
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);
@@ -2399,11 +2466,14 @@ export function createAgentChatAdapter(
         } catch {
           // Analytics session unavailable — traces just lose replay linkage.
         }
+        headers[ANALYTICS_CLIENT_PLATFORM_HEADER] =
+          getAnalyticsClientPlatform();
         // Surface hint — the server uses this to keep code-editing dev tools
         // out of the app-rendered sidebar. The outer dev frame passes
         // "dev-frame" explicitly; the reusable in-product chat defaults to
         // "app" even when it is running in Desktop or inside a preview iframe.
         headers["x-agent-native-surface"] = surface;
+        if (harness) headers["x-agent-native-hosted-harness"] = "1";
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,
@@ -2445,6 +2515,7 @@ export function createAgentChatAdapter(
                 reconnectRes.headers.get("X-Dispatch-Mode"),
               );
 
+              takeRunStreamOwnership();
               for await (const result of readSSEStream(
                 reconnectRes.body,
                 content,
@@ -2452,7 +2523,9 @@ export function createAgentChatAdapter(
                 tabId,
                 (seq, isProgress) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq, isProgress);
+                  if (threadId && runId) {
+                    updateActiveRunSeq(threadId, runId, seq, isProgress);
+                  }
                 },
                 runId,
                 currentSSEOptions(),
@@ -2831,7 +2904,7 @@ export function createAgentChatAdapter(
         // persistently unattachable run still terminates loudly).
         const followAttachOnce = async function* (): AsyncGenerator<
           ChatModelRunResult,
-          "completed" | "aborted" | "detached" | "gone",
+          "completed" | "client_continue" | "aborted" | "detached" | "gone",
           unknown
         > {
           if (!runId) return "gone";
@@ -2850,6 +2923,8 @@ export function createAgentChatAdapter(
             updateCurrentRunDispatchMode(
               eventsRes.headers.get("X-Dispatch-Mode"),
             );
+            takeRunStreamOwnership();
+            let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               eventsRes.body,
               content,
@@ -2857,7 +2932,9 @@ export function createAgentChatAdapter(
               tabId,
               (seq, isProgress) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq, isProgress);
+                if (threadId && runId) {
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
+                }
               },
               runId,
               currentSSEOptions({
@@ -2867,10 +2944,38 @@ export function createAgentChatAdapter(
               }),
             )) {
               const nextResult = withRequestModeMetadata(result);
+              if (
+                isDurableBackgroundDispatch() &&
+                missingFinalResponseWarningFromResult(nextResult)
+              ) {
+                missingFinalResponseResult = nextResult;
+                continue;
+              }
               if (isTerminalChatModelRunResult(nextResult)) {
                 settleTerminalChatRun();
               }
               yield nextResult;
+            }
+            if (missingFinalResponseResult) {
+              const warning = missingFinalResponseWarningFromResult(
+                missingFinalResponseResult,
+              );
+              const lastContentPart = content.at(-1);
+              if (
+                warning?.message &&
+                lastContentPart?.type === "text" &&
+                lastContentPart.text === warning.message
+              ) {
+                content.pop();
+              }
+              if (continueAfterMissingFinalResponse()) {
+                await delay(250, abortSignal);
+                return "client_continue";
+              }
+              settleTerminalChatRun();
+              yield missingFinalResponseResult;
+              clearActiveRun();
+              return "completed";
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
@@ -3214,6 +3319,13 @@ export function createAgentChatAdapter(
                     continue;
                   }
                 }
+                if (
+                  hasMissingFinalResponseAfterTool(content) &&
+                  continueAfterMissingFinalResponse()
+                ) {
+                  await delay(250, abortSignal);
+                  return "client_continue";
+                }
                 yield* emitBackgroundTerminalOutcome(active);
                 return "completed";
               }
@@ -3242,6 +3354,9 @@ export function createAgentChatAdapter(
               }
               const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
+              if (attach === "client_continue") {
+                return "client_continue";
+              }
               if (attach === "completed" || attach === "aborted") {
                 return "completed";
               }
@@ -3635,6 +3750,21 @@ export function createAgentChatAdapter(
           };
         };
 
+        const continueAfterMissingFinalResponse = (): boolean => {
+          const continuation = prepareAutoContinuation(
+            new AgentAutoContinueSignal({ reason: "stream_ended" }),
+          );
+          if (!continuation.ok) return false;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:auto-continue", {
+                detail: { tabId },
+              }),
+            );
+          }
+          return true;
+        };
+
         while (true) {
           try {
             runId = null;
@@ -3660,6 +3790,7 @@ export function createAgentChatAdapter(
                   ...(model ? { model } : {}),
                   ...(engine ? { engine } : {}),
                   ...(effort ? { effort } : {}),
+                  ...(harness ? { harness: { runtime: harness } } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),
@@ -3909,6 +4040,8 @@ export function createAgentChatAdapter(
               setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
+            takeRunStreamOwnership();
+            let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               res.body,
               content,
@@ -3917,17 +4050,45 @@ export function createAgentChatAdapter(
               (seq, isProgress) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq, isProgress);
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
                 }
               },
               runId,
               currentSSEOptions(),
             )) {
               const nextResult = withRequestModeMetadata(result);
+              if (
+                isDurableBackgroundDispatch() &&
+                missingFinalResponseWarningFromResult(nextResult)
+              ) {
+                missingFinalResponseResult = nextResult;
+                continue;
+              }
               if (isTerminalChatModelRunResult(nextResult)) {
                 settleTerminalChatRun();
               }
               yield nextResult;
+            }
+
+            if (isDurableBackgroundDispatch() && missingFinalResponseResult) {
+              const warning = missingFinalResponseWarningFromResult(
+                missingFinalResponseResult,
+              );
+              const lastContentPart = content.at(-1);
+              if (
+                warning?.message &&
+                lastContentPart?.type === "text" &&
+                lastContentPart.text === warning.message
+              ) {
+                content.pop();
+              }
+              if (continueAfterMissingFinalResponse()) {
+                continue;
+              }
+              settleTerminalChatRun();
+              yield missingFinalResponseResult;
+              clearActiveRun();
+              return;
             }
 
             // Run completed normally — clear active run state

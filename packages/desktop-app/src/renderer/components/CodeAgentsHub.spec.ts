@@ -17,6 +17,7 @@ import {
   dispatchControlPlaneUrlParams,
   dispatchControlPlaneTitle,
   filterDesktopApps,
+  mergeDesktopAppLists,
   isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
   orderDesktopApps,
@@ -214,16 +215,34 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
-  it("keeps the chat-first composer narrower than its apps grid", () => {
+  it("keeps the chat-first chat column aligned and narrower than its apps grid", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
-    expect(shellCss).toContain("width: min(100%, 750px) !important;");
+    expect(shellCss).toContain(
+      "width: min(100%, var(--code-agents-chat-max)) !important;",
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-provider-gate\s*\{[\s\S]*?align-self: center;[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
     expect(shellCss).toMatch(
       /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
     );
   });
 
-  it("keeps the chat-first rail collapse control beside settings", () => {
+  it("keeps all visible chat-first app surfaces mounted in the main view", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("<ChatFirstSurfaceContent");
+    expect(hubSource).toContain("tabs={visibleChatFirstSurfaceTabs}");
+    expect(hubSource).toContain(
+      "activeTabId={visibleActiveChatFirstSurfaceTabId}",
+    );
+  });
+
+  it("keeps the chat-first rail collapse control at the bottom of the rail", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
@@ -236,10 +255,11 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'desktop-chat-first-rail-settings"\n                      onClick',
+      'desktop-chat-first-rail-settings"\n                    onClick',
     );
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
+    expect(hubSource).toContain("data-chat-first-rail-collapse");
     expect(hubSource).toContain("setChatFirstRailCollapsed(true)");
     expect(hubSource).not.toContain(
       '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
@@ -250,8 +270,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
     );
     expect(shellCss).toContain("code-agents-primary-new-chat-shell");
-    expect(shellCss).toMatch(
-      /\.code-agents-rail--collapsed[\s\S]*\.code-agents-nav-list\s*>\s*button/,
+    expect(shellCss).toContain(
+      ".desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-link",
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(
@@ -259,6 +279,10 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
+    expect(shellCss).toContain("height: 100%;");
+    expect(shellCss).toContain("min-height: 0;");
+    expect(shellCss).toContain("z-index: 1;");
+    expect(shellCss).toContain("[data-chat-first-rail-collapse]");
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
@@ -297,6 +321,44 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ]);
   });
 
+  it("keeps local apps first while adding each workspace app once", () => {
+    const merged = mergeDesktopAppLists(
+      [{ id: "mail" }, { id: "personal-notes" }],
+      [{ id: "team-ops" }, { id: "mail" }],
+    );
+
+    expect(merged.map((app) => app.id)).toEqual([
+      "mail",
+      "personal-notes",
+      "team-ops",
+    ]);
+  });
+
+  it("uses the Electron default app order before the remaining catalog", () => {
+    const ordered = orderDesktopApps(
+      [
+        { id: "brain", enabled: true },
+        { id: "analytics", enabled: true },
+        { id: "content", enabled: true },
+        { id: "design", enabled: true },
+        { id: "mail", enabled: true },
+        { id: "calendar", enabled: true },
+        { id: "clips", enabled: true },
+      ],
+      { pinnedIds: [], orderedIds: [] },
+    );
+
+    expect(ordered.map((app) => app.id)).toEqual([
+      "mail",
+      "calendar",
+      "design",
+      "clips",
+      "content",
+      "analytics",
+      "brain",
+    ]);
+  });
+
   it("renders the desktop apps grid controls in the hub source", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
@@ -306,6 +368,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("Search apps");
     expect(hubSource).toContain("desktop-apps-grid__search");
     expect(hubSource).toContain("desktop-app-card__body");
+    expect(hubSource).toContain(
+      "data-app-id={app.id}\n                  onClick={() => onOpenApp(app)}",
+    );
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
     expect(hubSource).toContain("Open in browser");
@@ -316,6 +381,22 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).not.toContain("desktop-apps-grid__summary");
     expect(hubSource).toContain("layout={chatFirstAppLayout}");
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
+  });
+
+  it("keeps normal app opens embedded and makes browser opening explicit", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain(
+      'terminalPreferences.enabled ? "side" : "main"',
+    );
+    expect(hubSource).toContain("<AppWebview");
+    expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
+    expect(hubSource).toContain(
+      "void window.electronAPI.shell.openExternal(url)",
+    );
   });
 
   it("keeps full-page settings on the shared query and theme contracts", () => {
@@ -340,9 +421,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "utf8",
     );
 
-    expect(hubSource).toContain(
-      "suppressChatFirstUnavailableNotice={chatFirstMode}",
-    );
+    expect(hubSource).toContain("suppressChatFirstUnavailableNotice");
     expect(hubSource).toContain('error: "Desktop bridge is not available."');
   });
 

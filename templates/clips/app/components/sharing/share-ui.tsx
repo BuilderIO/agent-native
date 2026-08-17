@@ -4,9 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
-  IconCheck,
-  IconCopy,
   IconLock,
   IconSend2,
   IconTrash,
@@ -82,8 +81,8 @@ export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "admin", label: "Admin" },
 ];
 
-export function copyToClipboard(value: string): void {
-  void writeClipboardText(value);
+export function copyToClipboard(value: string): Promise<boolean> {
+  return writeClipboardText(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,43 +272,24 @@ export function CopyField({
   label,
   value,
   disabled,
+  description,
 }: {
   label: string;
   value: string;
   disabled?: boolean;
+  description?: string;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    if (disabled) return;
-    copyToClipboard(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  };
   return (
-    <div>
-      {label ? (
-        <ShareSectionLabel className="mb-1">{label}</ShareSectionLabel>
-      ) : null}
-      <div className="flex items-stretch gap-2">
-        <Input
-          readOnly
-          value={value}
-          className="flex-1 h-9 font-mono text-xs"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={copy}
-          aria-label={t("shareUi.copy")}
-          disabled={disabled}
-          className="h-9 w-9"
-        >
-          {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        </Button>
-      </div>
-    </div>
+    <ShareCopyRow
+      label={label}
+      value={value}
+      description={description}
+      disabled={disabled}
+      copyLabel={t("shareUi.copy")}
+      copiedLabel={t("recordRoute.linkCopied")}
+      onCopy={copyToClipboard}
+    />
   );
 }
 

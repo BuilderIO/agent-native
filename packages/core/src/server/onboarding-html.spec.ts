@@ -99,6 +99,16 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
+    it("canonical hosted login pages omit the browser SSO option", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      const html = getOnboardingHtml();
+
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
+    });
+
     it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
@@ -112,6 +122,13 @@ describe("getOnboardingHtml", () => {
       expect(html).toContain("params.set('return', __anResumeHref())");
       expect(html).toContain(
         "identity.addEventListener('click', __anStartIdentitySso)",
+      );
+      expect(html).toContain("data-agent-native-embedded-init");
+      expect(html).toContain(
+        'params.get("embedded") === "1" || window.self !== window.top',
+      );
+      expect(html).toContain(
+        'html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }',
       );
       // Exactly one rendered element — not duplicated across layout branches.
       expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
@@ -236,7 +253,7 @@ describe("getOnboardingHtml", () => {
     expect(() => new Function(resetScript!)).not.toThrow();
   });
 
-  it("keeps the auth script valid when marketing includes a local run command", () => {
+  it("does not render a run-local CTA in the auth marketing panel", () => {
     const html = getOnboardingHtml({
       googleOnly: true,
       marketing: {
@@ -249,7 +266,10 @@ describe("getOnboardingHtml", () => {
 
     const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
     expect(onboardingScript).toBeTruthy();
-    expect(html).toContain('onclick="__anToggleRunLocalCommand()"');
+    expect(html).not.toContain('id="run-local-button"');
+    expect(html).not.toContain('id="run-local-panel"');
+    expect(html).not.toContain("Run Locally");
+    expect(html).not.toContain("function __anCopyRunLocalCommand()");
     expect(html).toContain('onclick="signInWithGoogle()"');
     expect(() => new Function(onboardingScript!)).not.toThrow();
   });
@@ -625,6 +645,19 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
 
       expect(html).toContain('class="marketing-panel"');
       expect(html).toContain(BUILT_IN_AUTH_MARKETING[slug]!.appName);
+    }
+  });
+
+  it("omits the run-local CTA from Mail and Calendar auth pages", () => {
+    for (const slug of ["mail", "calendar"]) {
+      const html = getOnboardingHtml({
+        requestHost: `${slug}.agent-native.com`,
+        googleOnly: true,
+      });
+
+      expect(html).not.toContain('id="run-local-button"');
+      expect(html).not.toContain('id="run-local-panel"');
+      expect(html).not.toContain("Run Locally");
     }
   });
 

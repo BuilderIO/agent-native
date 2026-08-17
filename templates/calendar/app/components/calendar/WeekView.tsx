@@ -107,6 +107,7 @@ interface WeekViewProps {
   ) => void;
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
+  weekStartsOn?: 0 | 1;
 }
 
 // [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
@@ -559,6 +560,7 @@ export const WeekView = memo(function WeekView({
   onDraftCreate,
   onDraftDiscard,
   isLoading = false,
+  weekStartsOn = 0,
 }: WeekViewProps) {
   const t = useT();
   const workingLocationLabels = useMemo(
@@ -606,8 +608,14 @@ export const WeekView = memo(function WeekView({
   }, []);
 
   const { prefs } = useViewPreferences();
-  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const weekEnd = useMemo(() => endOfWeek(selectedDate), [selectedDate]);
+  const weekStart = useMemo(
+    () => startOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
+  const weekEnd = useMemo(
+    () => endOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
   // Stable day/hour arrays — recomputed only when the week or weekend
   // visibility actually changes, so memoized children (event buttons) don't
   // see a new array identity on every drag/focus re-render.
@@ -1408,7 +1416,7 @@ export const WeekView = memo(function WeekView({
 
                 {/* Skeleton events when loading */}
                 {isLoading &&
-                  WEEK_SKELETONS[dayIndex]?.map(
+                  WEEK_SKELETONS[day.getDay()]?.map(
                     ([startHour, startMin, duration, widthPct], i) => {
                       const topPx =
                         ((startHour - START_HOUR) * 60 + startMin) *

@@ -297,6 +297,7 @@ const messages = {
     creatingLink: "リンクを作成中...",
     createShareLink: "共有リンクを作成",
     copyLink: "リンクをコピー",
+    copied: "コピーしました",
     openSharedLink: "共有リンクを開く",
     anyoneWithLink:
       "このリンクを持つ人は誰でもこのプレゼンテーションを表示できます。",
@@ -511,11 +512,16 @@ const messages = {
     generatingSlide: "正在生成幻灯片",
     uploadFailed: "上传失败",
     uploadAttachedFileFailed: "无法上传附加文件。",
+    newSlideSaveFailed:
+      "新しいスライドを保存できませんでした。もう一度お試しください。",
     addSlides: "添加幻灯片",
     addEmptySlide: "添加空白幻灯片",
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
+    newSlide: "新しいスライド",
+    closeAddSlides: "閉じる",
+    describeThisSlide: "このスライドを説明してください",
   },
   presentation: {
     loadFailed: "このプレゼンテーションを読み込めませんでした。",
@@ -555,6 +561,10 @@ const messages = {
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
+    layoutOverflowWarning: "レイアウトがはみ出しています",
+    layoutOverflowDetails: "はみ出しの詳細を表示",
+    layoutOverflowVertical: "垂直方向のはみ出し: {{pixels}}px",
+    layoutOverflowHorizontal: "水平方向のはみ出し: {{pixels}}px",
     dismissLayoutWarning: "レイアウト警告を閉じる",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
@@ -590,6 +600,10 @@ const messages = {
     sourceUnavailableDescription:
       "Builderは最新のソース結果を読み込めませんでした。",
     sourceOpenInBuilder: "Builderで開く",
+    syncSource: "ソースを同期",
+    syncingSource: "ソースを同期中...",
+    syncStarted: "デザインシステムの同期を開始しました",
+    syncFailed: "デザインシステムを同期できませんでした",
     loadFailed:
       "このデザインシステムを読み込めませんでした。閉じてもう一度お試しください。",
     otherSources: "その他",
@@ -622,6 +636,8 @@ const messages = {
     websitePlaceholder: "example.com または Nike",
     add: "追加",
     githubRepository: "コードを接続: GitHub リポジトリ",
+    githubRef: "ブランチ、タグ、コミット（任意）",
+    githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
     codeFiles: "コードファイルを接続",
     codeFilesDrop:
       "CSS、Tailwind 設定、テーマファイル、design.md — ドロップまたはクリック",

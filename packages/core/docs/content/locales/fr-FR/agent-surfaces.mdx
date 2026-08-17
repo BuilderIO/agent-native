@@ -169,6 +169,38 @@ widget React prédéfini, utilisez [Generative UI](/docs/generative-ui) : il aff
 dans un bac à sable intégré, peut lire l'état de l'application et le contexte de l'emplacement, et peut renvoyer
 les valeurs sélectionnées vers le chat.
 
+### Surfaces d’actions limitées à la requête
+
+Utilisez `resolveActionSurface` lorsque l’agent ou le fil sélectionné ne doit
+exposer qu’un sous-ensemble d’actions natives autorisé par le serveur. Le
+callback s’exécute pour chaque requête de chat interactif après
+`prepareRequest`. Les noms retournés forment une liste d’autorisation stricte :
+les actions omises sont absentes des schémas du fournisseur, du registre
+d’exécution, du préchargement du mode Plan et de la recherche `tool-search`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+Une liste vide n’expose aucune action native. Un nom inconnu fait échouer la
+requête au lieu d’élargir l’accès. Toutes les actions autorisées sont chargées
+dès la première requête au modèle ; ajoutez explicitement `tool-search`
+uniquement pour rechercher dans le catalogue déjà autorisé. Le callback limite
+seulement le chat interactif, pas HTTP, MCP, A2A, les jobs ou les triggers. En
+outre, les consignes par défaut du framework et les sous-agents lancés héritent
+de la même surface. Les outils shell de confiance sont automatiquement ramenés
+au bac à sable filtré par requête, car un shell sans restriction ne peut pas
+appliquer une frontière d’actions stricte.
+
 ## Interface utilisateur native intégrée {#native-inline-ui}
 
 Utilisez cette surface lorsque vos actions renvoient des données structurées — une liste d'enregistrements, un jeu de données de graphique, un résumé d'état — qui doivent s'afficher en tant que vrai composant d'interface dans le fil de chat plutôt qu'une simple description textuelle. Vous définissez un renderer `chatUI` sur l'action, et Agent-Native l'affiche en tant que composant React de premier niveau : pas d'iframe, pas de chemin de rendu séparé.
@@ -557,7 +589,7 @@ métadonnées de résultat d'outil `chatUI`. Commencez là lors du câblage d'un
 
 <Cards>
 
-### [Actions](/docs/actions)
+### [Actions](/docs/actions-overview)
 
 Définissez l'opération une fois. Chaque surface ci-dessus appelle la même.
 

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatSurface,
+  consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
@@ -285,6 +286,20 @@ describe("AgentPanel header overflow actions", () => {
     }
   });
 
+  it("consumes the pending menu focus restore for the sibling overlay", () => {
+    const pendingOverlayRef = { current: true };
+    const event = { preventDefault: vi.fn() };
+
+    consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, event);
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(pendingOverlayRef.current).toBe(false);
+
+    const secondEvent = { preventDefault: vi.fn() };
+    consumeAgentPanelOverlayFocusRestore(pendingOverlayRef, secondEvent);
+    expect(secondEvent.preventDefault).not.toHaveBeenCalled();
+  });
+
   it("keeps width and full-view actions out of the icon row", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
@@ -308,6 +323,10 @@ describe("AgentPanel header overflow actions", () => {
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
     expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(overflowMenu).toContain("onCloseAutoFocus");
+    expect(
+      overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
+    ).toBeGreaterThanOrEqual(3);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
     expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
@@ -330,6 +349,16 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
+  });
+
+  it("keeps per-app chat headers stable while switching app surfaces", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}",
+    );
   });
 });
 

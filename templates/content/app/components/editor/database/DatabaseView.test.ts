@@ -224,6 +224,9 @@ describe("database preview property saves", () => {
     expect(source).toMatch(
       /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
     );
+    expect(source).toMatch(
+      /<VisualEditor[\s\S]*?onChange=\{handleContentChange\}[\s\S]*?onSaveContent=\{handleContentSaveNow\}/,
+    );
   });
 
   it("does not refetch Content after the document mutation patches its caches", () => {

@@ -306,6 +306,7 @@ const messages = {
     creatingLink: "Création du lien...",
     createShareLink: "Créer un lien de partage",
     copyLink: "Copier le lien",
+    copied: "Copié",
     openSharedLink: "Ouvrir le lien partagé",
     anyoneWithLink:
       "Toute personne disposant de ce lien peut voir cette présentation.",
@@ -530,11 +531,16 @@ const messages = {
     generatingSlide: "Generando diapositiva",
     uploadFailed: "Error al subir",
     uploadAttachedFileFailed: "No se pudo subir el archivo adjunto.",
+    newSlideSaveFailed:
+      "Impossible d'enregistrer la nouvelle diapositive. Veuillez réessayer.",
     addSlides: "Añadir diapositivas",
     addEmptySlide: "Añadir diapositiva vacía",
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
+    newSlide: "Nouvelle diapositive",
+    closeAddSlides: "Fermer",
+    describeThisSlide: "Décrivez cette diapositive",
   },
   presentation: {
     loadFailed: "Impossible de charger cette présentation.",
@@ -576,6 +582,10 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    layoutOverflowWarning: "La mise en page déborde",
+    layoutOverflowDetails: "Afficher les détails du débordement",
+    layoutOverflowVertical: "Débordement vertical : {{pixels}} px",
+    layoutOverflowHorizontal: "Débordement horizontal : {{pixels}} px",
     dismissLayoutWarning: "Ignorer l’avertissement de mise en page",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
@@ -611,6 +621,10 @@ const messages = {
     sourceUnavailableDescription:
       "Builder n'a pas pu charger les derniers résultats de la source.",
     sourceOpenInBuilder: "Ouvrir dans Builder",
+    syncSource: "Synchroniser la source",
+    syncingSource: "Synchronisation de la source...",
+    syncStarted: "Synchronisation du système de design lancée",
+    syncFailed: "Impossible de synchroniser le système de design",
     loadFailed:
       "Impossible de charger ce système de design. Fermez-le et réessayez.",
     otherSources: "Autre",
@@ -644,6 +658,8 @@ const messages = {
     websitePlaceholder: "example.com ou Nike",
     add: "Ajouter",
     githubRepository: "Connecter le code : dépôt GitHub",
+    githubRef: "Branche, tag ou commit (facultatif)",
+    githubPaths: "Fichiers ou dossiers, séparés par des virgules (facultatif)",
     codeFiles: "Connecter des fichiers de code",
     codeFilesDrop:
       "CSS, configuration Tailwind, fichiers de thème, design.md — déposer ou cliquer",

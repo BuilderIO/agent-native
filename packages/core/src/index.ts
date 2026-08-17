@@ -9,6 +9,8 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentActionSurface,
+  type AgentActionSurfaceDetails,
   type ActionTool,
   type ScriptTool,
   type AgentMessage,
@@ -24,6 +26,9 @@ export {
 } from "./agent/index.js";
 export {
   defineAction,
+  ActionContractError,
+  isActionContractError,
+  type ActionContractErrorOptions,
   AgentActionStopError,
   isAgentActionStopError,
   type ActionDefinition,
@@ -153,6 +158,7 @@ export {
   evaluateFeatureFlag,
   getFeatureFlagDefinition,
   getFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
   listFeatureFlags,
   registerFeatureFlags,

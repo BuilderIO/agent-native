@@ -46,11 +46,13 @@ export default function CodeAgentsAppIcon({
   name,
   icon,
   color,
+  monochrome = false,
 }: {
   id: string;
   name: string;
   icon?: string;
   color?: string;
+  monochrome?: boolean;
 }) {
   const normalized = `${id} ${name}`.toLowerCase();
   const Icon =
@@ -66,7 +68,7 @@ export default function CodeAgentsAppIcon({
   const hue = 20 + (Math.abs(hash) % 320);
   return (
     <span
-      className="desktop-app-icon"
+      className={`desktop-app-icon${monochrome ? " desktop-app-icon--monochrome" : ""}`}
       style={
         {
           "--desktop-app-icon-color":

@@ -3854,6 +3854,20 @@ function DesignEditor() {
       readPendingGeneration(id, { allowUntimestamped: true }),
     [id],
   );
+  // The intake turn carries the prompt, screenshots, and design system, but is
+  // forced to stop after asking questions. The continuation is what actually
+  // generates, so it has to carry them again or the design is built blind.
+  const getQuestionFlowGenerationBrief = useCallback(() => {
+    const pending = readPendingGeneration(id, { allowUntimestamped: true });
+    if (!pending) return null;
+    const files = pending.files ?? [];
+    return {
+      prompt: pending.prompt,
+      designSystemId: pending.designSystemId,
+      images: imageAttachmentsFromUploadedFiles(files),
+      uploadedFileContext: formatUploadedFileContext(files),
+    };
+  }, [id]);
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -3867,6 +3881,7 @@ function DesignEditor() {
     continuationTabId: generationChatTabId,
     onContinue: handleQuestionFlowContinue,
     getModelSelection: getQuestionFlowModelSelection,
+    getGenerationBrief: getQuestionFlowGenerationBrief,
   });
   const pendingQuestionsVisible = Boolean(
     pendingQuestions && pendingQuestions.length > 0,
@@ -4258,8 +4273,6 @@ function DesignEditor() {
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
-  const [shareLinkCopied, setShareLinkCopied] = useState(false);
-  const shareLinkCopiedResetRef = useRef<number | null>(null);
   const [, setPatchProof] = useState<PatchProofState | null>(null);
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
@@ -4976,13 +4989,6 @@ function DesignEditor() {
     if (!id || typeof window === "undefined") return undefined;
     return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
   }, [id]);
-  useEffect(() => {
-    return () => {
-      if (shareLinkCopiedResetRef.current !== null) {
-        window.clearTimeout(shareLinkCopiedResetRef.current);
-      }
-    };
-  }, []);
   const {
     designSystems,
     defaultSystem,
@@ -6077,8 +6083,14 @@ function DesignEditor() {
     let cancelled = false;
     void (async () => {
       const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+      // A reference screenshot already answers the questions the intake flow
+      // asks. Spending the one turn that can see the image on a questionnaire
+      // means the turn that writes HTML never sees it.
+      const hasReferenceImages = images.length > 0;
       const shouldSkipQuestions =
-        pending.skipQuestions === true || shouldExploreVariants;
+        pending.skipQuestions === true ||
+        shouldExploreVariants ||
+        hasReferenceImages;
       const designSystemContext = await loadDesignSystemGenerationContext(
         pendingDesignSystemId,
       );
@@ -6103,8 +6115,16 @@ function DesignEditor() {
           : shouldExploreVariants
             ? designVariantGenerationDirectives(id, pendingDesignSystemId)
             : shouldSkipQuestions
-              ? designGenerationDirectives(id, pendingDesignSystemId)
-              : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
+              ? designGenerationDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                )
+              : designIntakeQuestionDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                )),
       ].join("\n");
 
       clearGenerationCompleteTimer();
@@ -24272,27 +24292,6 @@ function DesignEditor() {
     }
   }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
 
-  const handleCopyShareLink = useCallback(async () => {
-    if (!editorShareUrl) return;
-    try {
-      if (!(await writeClipboardText(editorShareUrl))) {
-        toast.error(t("designEditor.toasts.clipboardBlocked"));
-        return;
-      }
-      setShareLinkCopied(true);
-      if (shareLinkCopiedResetRef.current !== null) {
-        window.clearTimeout(shareLinkCopiedResetRef.current);
-      }
-      shareLinkCopiedResetRef.current = window.setTimeout(() => {
-        setShareLinkCopied(false);
-        shareLinkCopiedResetRef.current = null;
-      }, 1400);
-      toast.success("Share link copied" /* i18n-ignore share copy toast */);
-    } catch {
-      toast.error(t("designEditor.toasts.clipboardBlocked"));
-    }
-  }, [editorShareUrl, t]);
-
   const hasPendingVisualStyleEdits =
     pendingVisualStyleEdits.length > 0 || pendingLiveNonStyleEdits.length > 0;
   usePendingLiveEditUnloadGuard(hasPendingVisualStyleEdits);
@@ -25019,25 +25018,41 @@ function DesignEditor() {
     ],
   );
 
-  const showPngCaptureError = useCallback(
-    (error: unknown) => {
+  const showRasterCaptureError = useCallback(
+    (error: unknown, format: "png" | "pdf" = "png") => {
       if (error instanceof PngCaptureError) {
+        if (format === "pdf") {
+          toast.error(t("designEditor.toasts.pdfExportError"));
+          return;
+        }
+        const copy = {
+          externalPreview:
+            "designEditor.toasts.pngLivePreviewUnavailable" as const,
+          readOnlyPreview:
+            "designEditor.toasts.pngReadOnlyUnavailable" as const,
+          blobFailed: "designEditor.toasts.pngCreateError" as const,
+          noPreview: "designEditor.toasts.openScreenPng" as const,
+        };
         const key =
           error.code === "external-preview"
-            ? "designEditor.toasts.pngLivePreviewUnavailable"
+            ? copy.externalPreview
             : error.code === "read-only-preview"
-              ? "designEditor.toasts.pngReadOnlyUnavailable"
+              ? copy.readOnlyPreview
               : error.code === "blob-failed"
-                ? "designEditor.toasts.pngCreateError"
-                : "designEditor.toasts.openScreenPng";
+                ? copy.blobFailed
+                : copy.noPreview;
         toast.error(t(key));
         return;
       }
-      console.error("PNG capture failed:", error);
+      console.error(`${format.toUpperCase()} capture failed:`, error);
       toast.error(
         error instanceof Error
           ? error.message
-          : t("designEditor.toasts.pngExportError"),
+          : t(
+              format === "pdf"
+                ? "designEditor.toasts.pdfExportError"
+                : "designEditor.toasts.pngExportError",
+            ),
       );
     },
     [t],
@@ -25060,7 +25075,7 @@ function DesignEditor() {
         triggerBlobDownload(blob, fallbackExportName(format, settings?.suffix));
         toast.success(t("designEditor.toasts.pngDownloaded"));
       } catch (error) {
-        showPngCaptureError(error);
+        showRasterCaptureError(error);
       } finally {
         pngExportingRef.current = false;
         setPngExporting(false);
@@ -25069,7 +25084,7 @@ function DesignEditor() {
     [
       fallbackExportName,
       renderPngBlob,
-      showPngCaptureError,
+      showRasterCaptureError,
       t,
       triggerBlobDownload,
     ],
@@ -25129,9 +25144,9 @@ function DesignEditor() {
           height: pageHeight,
         });
         triggerBlobDownload(pdf, fallbackExportName("pdf", settings?.suffix));
-        toast.success(t("designEditor.toasts.pngDownloaded"));
+        toast.success(t("designEditor.toasts.pdfDownloaded"));
       } catch (error) {
-        showPngCaptureError(error);
+        showRasterCaptureError(error, "pdf");
       } finally {
         pngExportingRef.current = false;
         setPngExporting(false);
@@ -25149,7 +25164,7 @@ function DesignEditor() {
   /** One PDF page per overview screen, each rasterized at its own authored
    * width/height (see createMultiPageRasterPdf) instead of the single active
    * artboard handleDownloadPdf captures. Mirrors handleDownloadPdf's busy-state
-   * guard and error handling — showPngCaptureError's messaging is about the
+   * guard and error handling — showRasterCaptureError's messaging is about the
    * underlying raster capture step, which this shares with the single-page
    * path, not the PDF assembly step. */
   const handleDownloadAllScreensPdf = useCallback(async () => {
@@ -25221,7 +25236,7 @@ function DesignEditor() {
       triggerBlobDownload(pdf, fallbackExportName("pdf", "all-screens"));
       toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
     } catch (error) {
-      showPngCaptureError(error);
+      showRasterCaptureError(error, "pdf");
     } finally {
       pngExportingRef.current = false;
       setPngExporting(false);
@@ -25232,7 +25247,7 @@ function DesignEditor() {
     canvasFrameGeometryById,
     fallbackExportName,
     overviewScreens,
-    showPngCaptureError,
+    showRasterCaptureError,
     t,
     triggerBlobDownload,
   ]);
@@ -25262,13 +25277,13 @@ function DesignEditor() {
               : "designEditor.toasts.pngClipboardWriteError";
         toast.error(t(key));
       } else {
-        showPngCaptureError(error);
+        showRasterCaptureError(error);
       }
     } finally {
       pngExportingRef.current = false;
       setPngExporting(false);
     }
-  }, [renderPngBlob, showPngCaptureError, t]);
+  }, [renderPngBlob, showRasterCaptureError, t]);
 
   const resolveLiveFigmaSvgSource = useCallback(
     (targetFileId: string | undefined): LiveFigmaSvgSource | null => {
@@ -25789,32 +25804,6 @@ function DesignEditor() {
         >
           <IconClipboard className="size-3.5" />
           {"Copy agent prompt" /* i18n-ignore share send action */}
-        </Button>
-      </div>
-    </div>
-  );
-  const shareLinkFooter = (
-    <div className="mt-3 space-y-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
-      <p className="text-[11px] leading-4 text-muted-foreground">
-        {t("review.shareLinkDescription")}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          onClick={() => void handleCopyShareLink()}
-          disabled={!editorShareUrl}
-          className="h-8 min-w-[8.75rem] gap-1.5 rounded-md px-3 text-[12px]"
-        >
-          {shareLinkCopied ? (
-            <IconCheck className="size-3.5" />
-          ) : (
-            <IconClipboard className="size-3.5" />
-          )}
-          {
-            shareLinkCopied
-              ? "Copied" /* i18n-ignore share copy action copied */
-              : "Copy share link" /* i18n-ignore share copy action */
-          }
         </Button>
       </div>
     </div>
@@ -30703,7 +30692,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⌘+
+            {"Cmd Plus" /* i18n-ignore shortcut key label */}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -30712,7 +30701,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⌘−
+            {"Cmd Minus" /* i18n-ignore shortcut key label */}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -31055,8 +31044,6 @@ function DesignEditor() {
                   description: t("designEditor.commenterRoleDescription"),
                 },
               }}
-              showShareLinks={false}
-              shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"

@@ -26,6 +26,7 @@ import {
   lt,
   gte,
   lte,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -48,8 +49,22 @@ import {
 } from "../server/lib/calendar-event-meetings.js";
 import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
+import { meetingRowHasContent } from "./lib/meeting-content.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** SQL mirror of `meetingRowHasContent`. Keep history filtering consistent. */
+function meetingHasContentFilter() {
+  return or(
+    isNotNull(schema.meetings.recordingId),
+    isNotNull(schema.meetings.actualStart),
+    isNotNull(schema.meetings.actualEnd),
+    sql`trim(${schema.meetings.summaryMd}) <> ''`,
+    sql`trim(${schema.meetings.userNotesMd}) <> ''`,
+    ne(schema.meetings.bulletsJson, "[]"),
+    ne(schema.meetings.actionItemsJson, "[]"),
+  )!;
+}
 
 export default defineAction({
   description:
@@ -64,6 +79,11 @@ export default defineAction({
     recordedOnly: booleanParam
       .default(false)
       .describe("Only return persisted meetings that have a linked recording."),
+    hasContent: booleanParam
+      .default(false)
+      .describe(
+        "Only return persisted meetings that contain a recording, completed capture, notes, a summary, bullets, or action items.",
+      ),
     includeLiveCalendar: booleanParam
       .default(true)
       .describe(
@@ -109,8 +129,9 @@ export default defineAction({
     // slice(offset, offset + limit) at the end. To make that final slice
     // correct we must fetch enough rows from BOTH sources to cover the whole
     // offset + limit window before merging — fetching only `limit` would drop
-    // events once offset > 0 or the calendar is large. Keep the hard caps
-    // (500 persisted, 250 live) so a huge calendar can't blow up the request.
+    // events once offset > 0 or the calendar is large. Keep the live-event cap
+    // so a huge calendar can't blow up the request. Persisted history needs
+    // the full sentinel window so pages remain available after 500 rows.
     const windowCount = args.offset + args.limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
@@ -160,6 +181,9 @@ export default defineAction({
     if (args.recordedOnly) {
       whereClauses.push(isNotNull(schema.meetings.recordingId));
     }
+    if (args.hasContent) {
+      whereClauses.push(meetingHasContentFilter());
+    }
 
     const orderBy =
       args.view === "upcoming"
@@ -175,7 +199,7 @@ export default defineAction({
       .from(schema.meetings)
       .where(and(...whereClauses))
       .orderBy(...orderBy)
-      .limit(Math.min(500, windowCount))
+      .limit(windowCount + 1)
       .offset(0);
 
     // Add a derived `summaryPreview` (first ~100 chars of summaryMd) so the
@@ -383,13 +407,7 @@ export default defineAction({
       if (
         liveEventEmitted &&
         meeting.source === "calendar" &&
-        !meeting.recordingId &&
-        !meeting.actualStart &&
-        !meeting.actualEnd &&
-        !(meeting.summaryMd ?? "").trim() &&
-        !(meeting.userNotesMd ?? "").trim() &&
-        (meeting.bulletsJson ?? "[]") === "[]" &&
-        (meeting.actionItemsJson ?? "[]") === "[]"
+        !meetingRowHasContent(meeting)
       ) {
         continue;
       }
@@ -407,6 +425,10 @@ export default defineAction({
 
     const meetings = combined.slice(args.offset, args.offset + args.limit);
 
-    return { meetings, calendarErrors };
+    return {
+      meetings,
+      calendarErrors,
+      hasMore: combined.length > args.offset + args.limit,
+    };
   },
 });

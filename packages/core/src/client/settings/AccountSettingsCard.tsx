@@ -1,9 +1,15 @@
 import {
   ActionButton,
   Avatar,
+  IconButton,
   TextField,
 } from "@agent-native/toolkit/design-system";
-import { IconCamera, IconCheck, IconLock } from "@tabler/icons-react";
+import {
+  IconCamera,
+  IconCheck,
+  IconLock,
+  IconPencil,
+} from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
@@ -13,6 +19,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
@@ -261,23 +272,26 @@ export function AccountSettingsForm({
     "idle",
   );
   const [name, setName] = useState("");
-  const nameEditedRef = useRef(false);
+  const [savedName, setSavedName] = useState("");
+  const [isEditingName, setIsEditingName] = useState(false);
+  const nameFieldEditedRef = useRef(false);
 
+  const profileName = profileQuery.data?.name || session?.name || "";
   const displayName =
-    profileQuery.data?.name ||
-    session?.name ||
-    email ||
-    t("settings.profileSignedOut");
+    name || profileName || email || t("settings.profileSignedOut");
 
   useEffect(() => {
-    nameEditedRef.current = false;
+    nameFieldEditedRef.current = false;
+    setIsEditingName(false);
+    setName("");
+    setSavedName("");
   }, [email]);
 
   useEffect(() => {
-    if (nameEditedRef.current) return;
-    const nextName = profileQuery.data?.name || session?.name;
-    if (nextName) setName(nextName);
-  }, [profileQuery.data?.name, session?.name]);
+    if (nameFieldEditedRef.current) return;
+    setName(profileName);
+    setSavedName(profileName);
+  }, [email, profileName]);
 
   const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -297,9 +311,39 @@ export function AccountSettingsForm({
 
   const handleProfileSave = () => {
     const nextName = name.trim();
-    if (!nextName || !email) return;
-    updateProfile.mutate({ name: nextName });
+    if (!nextName || !email || nextName === savedName.trim()) return;
+    updateProfile.mutate(
+      { name: nextName },
+      {
+        onSuccess: (profile) => {
+          setName(profile.name);
+          setSavedName(profile.name);
+          nameFieldEditedRef.current = false;
+          setIsEditingName(false);
+        },
+      },
+    );
   };
+
+  const handleProfileEdit = () => {
+    updateProfile.reset();
+    nameFieldEditedRef.current = false;
+    setName(savedName);
+    setIsEditingName(true);
+  };
+
+  const handleProfileCancel = () => {
+    updateProfile.reset();
+    nameFieldEditedRef.current = false;
+    setName(savedName);
+    setIsEditingName(false);
+  };
+
+  const canSaveName =
+    !!email &&
+    !updateProfile.isPending &&
+    !!name.trim() &&
+    name.trim() !== savedName.trim();
 
   const profileStatus =
     photoStatus === "saved" ? (
@@ -370,34 +414,62 @@ export function AccountSettingsForm({
           )
         }
         control={
-          <div className="flex w-full items-center gap-2 sm:w-80">
-            <TextField
-              id="agent-native-profile-name"
-              value={name}
-              onChange={(value) => {
-                nameEditedRef.current = true;
-                updateProfile.reset();
-                setName(value);
-              }}
-              placeholder={t("settings.profileNamePlaceholder")}
-              disabled={!email || updateProfile.isPending}
-              aria-label={t("settings.profileNameLabel")}
-              className="min-w-0 flex-1"
-            />
-            <ActionButton
-              type="button"
-              intent="primary"
-              emphasis="solid"
-              size="compact"
-              pending={updateProfile.isPending}
-              disabled={!email || updateProfile.isPending || !name.trim()}
-              onPress={handleProfileSave}
-            >
-              {updateProfile.isPending
-                ? t("settings.profileSaving")
-                : t("settings.profileSave")}
-            </ActionButton>
-          </div>
+          isEditingName ? (
+            <div className="flex w-full items-center gap-2 sm:w-80">
+              <TextField
+                id="agent-native-profile-name"
+                value={name}
+                onChange={(value) => {
+                  nameFieldEditedRef.current = true;
+                  updateProfile.reset();
+                  setName(value);
+                }}
+                placeholder={t("settings.profileNamePlaceholder")}
+                disabled={!email || updateProfile.isPending}
+                autoFocus
+                aria-label={t("settings.profileNameLabel")}
+                className="min-w-0 flex-1"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") handleProfileCancel();
+                }}
+              />
+              <ActionButton
+                type="button"
+                intent="primary"
+                emphasis="solid"
+                size="compact"
+                pending={updateProfile.isPending}
+                disabled={!canSaveName}
+                onPress={handleProfileSave}
+              >
+                {updateProfile.isPending
+                  ? t("settings.profileSaving")
+                  : t("settings.profileSave")}
+              </ActionButton>
+            </div>
+          ) : (
+            <div className="flex w-full items-center justify-end gap-2 sm:w-80">
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                {displayName}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <IconButton
+                    type="button"
+                    intent="neutral"
+                    emphasis="ghost"
+                    size="compact"
+                    icon={<IconPencil size={14} />}
+                    label={t("settings.profileNameEdit")}
+                    title={t("settings.profileNameEdit")}
+                    disabled={!email}
+                    onPress={handleProfileEdit}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>{t("settings.profileNameEdit")}</TooltipContent>
+              </Tooltip>
+            </div>
+          )
         }
       />
       <SettingsRow

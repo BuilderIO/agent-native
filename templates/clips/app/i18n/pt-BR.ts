@@ -262,6 +262,41 @@ const messages = {
     linkExpired: "O link expirou",
     linkExpiredMessage:
       "O criador definiu uma expiração neste link de compartilhamento.",
+    privateClip: "Clipe privado",
+    privateClipMessage:
+      "Este clipe é privado. Solicite acesso e o proprietário será notificado.",
+    privateClipSignedOutMessage:
+      "Este clipe é privado. Faça login ou informe seu e-mail para solicitar acesso.",
+    requestAccess: "Solicitar acesso",
+    requestAccessDialogTitle: "Solicitar acesso",
+    requestAccessDialogDescription:
+      "Escolha como o proprietário deve identificar você ao compartilhar este clipe.",
+    requestAccessSignIn: "Entrar ou criar conta",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Endereço de e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Depois que o acesso for concedido, entre com este e-mail para ver o clipe.",
+    requestAccessWithEmail: "Solicitar por e-mail",
+    requestAccessEmailRequired: "Informe um endereço de e-mail válido.",
+    requestingAccess: "Solicitando acesso...",
+    accessRequested: "Acesso solicitado",
+    accessRequestSent: "O proprietário do clipe foi notificado.",
+    accessRequestSentWithEmail:
+      "Pedimos ao proprietário que compartilhe este clipe com {{email}}.",
+    accessRequestFailed: "Não foi possível solicitar acesso. Tente novamente.",
+    accessApprovalTitle: "Acesso concedido",
+    accessApprovalAlreadyTitle: "Acesso já concedido",
+    accessApprovalMessage: "{{email}} agora pode ver este clipe.",
+    accessApprovalAlreadyMessage: "{{email}} já tem acesso a este clipe.",
+    accessApprovalErrorTitle: "Não foi possível conceder acesso",
+    accessApprovalInvalid: "Esta solicitação de acesso é inválida ou expirou.",
+    accessApprovalSignInTitle: "Entre para permitir o acesso",
+    accessApprovalSignInMessage:
+      "Entre como proprietário ou administrador do clipe para aprovar esta solicitação.",
+    accessApprovalOpenClip: "Abrir clipe",
+    accessApprovalSignIn: "Entrar",
+    accessApprovalLoading: "Concedendo acesso...",
     clipUnavailable: "Clipe indisponível",
     clipUnavailableMessage:
       "Esta gravação não é pública ou o link é inválido. Se for o seu clipe, faça login para verificar o acesso.",
@@ -993,6 +1028,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     includeTranscriptDescription:
       "Qualquer pessoa com acesso a esta reunião pode ler a transcrição completa.",
     transcriptUnavailable: "A transcrição ainda não está pronta.",
+    agentLinkDescription:
+      "Este link temporário permite que os agentes leiam estas notas da reunião sem torná-las públicas. Ele expira após duas horas.",
     transcript: "Transcrição",
     copyTranscript: "Copiar transcrição",
     transcriptCopied: "Transcrição copiada",
@@ -1019,8 +1056,13 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     pauseShortcut: "Pausar (⌥⇧P)",
     stop: "Parar gravação",
     elapsed: "Tempo decorrido",
-    cancel: "Cancelar gravação",
-    cancelShortcut: "Cancelar (⌥⇧C)",
+    cancel: "Descartar gravação",
+    cancelShortcut: "Descartar (⌥⇧C)",
+    discardConfirmTitle: "Descartar esta gravação?",
+    discardConfirmDescription:
+      "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
+    resume: "Retomar",
+    discardRecording: "Descartar gravação",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",
@@ -1110,6 +1152,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     searchPrevMatch: "Correspondência anterior",
     searchNextMatch: "Próxima correspondência",
     searchClose: "Fechar pesquisa",
+  },
+  bulletLink: {
+    jumpToTranscript: "Ir para {{time}} na transcrição",
+    noMatchingMoment: "Nenhum momento correspondente encontrado",
   },
   editorLayout: {
     trimmed: "Recortado",
@@ -1561,6 +1607,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
+    loadOlder: "Carregar mais antigos",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
@@ -1572,6 +1619,16 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendários",
+    connectedAccounts: "Contas conectadas",
+    calendarConnectedLabel: "Conectado",
+    calendarNeedsReconnectLabel: "Precisa ser reconectado",
+    calendarDisconnectedLabel: "Desconectado",
+    calendarStatusUnavailable: "Status indisponível",
+    reconnectCalendar: "Reconectar calendário",
+    addAnotherCalendarAccount: "Adicionar outra conta",
+    connectCalendar: "Conectar calendário",
+    disconnectCalendarAccount: "Desconectar uma conta",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",

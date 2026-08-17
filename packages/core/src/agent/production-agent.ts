@@ -20,6 +20,7 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
@@ -42,7 +43,9 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
+import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
+  assertRequestActionSurfaceIsolation,
   getRequestRunContext,
   ensureRequestRunContext,
   getRequestContext,
@@ -51,6 +54,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
@@ -115,6 +119,10 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import {
+  filterHostedHarnessToolNames,
+  normalizeHostedHarnessRuntime,
+} from "./harness/hosted.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -762,6 +770,101 @@ export type ScriptEntry = ActionEntry;
 
 export type AgentExecutionMode = "act" | "plan";
 
+export interface AgentActionSurface {
+  allowedActionNames: readonly string[];
+}
+
+export interface AgentActionSurfaceDetails {
+  event: any;
+  ownerEmail: string | null;
+  orgId: string | null;
+  threadId?: string;
+  mode: AgentExecutionMode;
+  internalContinuation: boolean;
+  availableActionNames: readonly string[];
+}
+
+function hasOwn(
+  value: unknown,
+  propertyName: string,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.prototype.hasOwnProperty.call(value, propertyName)
+  );
+}
+
+/** Read a persisted allowlist while preserving legacy absence and failing
+ * closed when the field is present but malformed. */
+export function readPersistedAllowedActionNames(
+  value: unknown,
+): string[] | undefined {
+  if (!hasOwn(value, "allowedActionNames")) return undefined;
+  const names = value.allowedActionNames;
+  if (
+    !Array.isArray(names) ||
+    !names.every((name) => typeof name === "string")
+  ) {
+    return [];
+  }
+  return [...new Set(names)];
+}
+
+export interface PersistedActionSurface {
+  orgId: string | null;
+  allowedActionNames: string[];
+}
+
+/** Read a nested persisted action surface. An absent envelope is legacy;
+ * a present but invalid envelope is an explicit org-less, empty surface. */
+export function readPersistedActionSurface(
+  value: unknown,
+  propertyName: string,
+): PersistedActionSurface | undefined {
+  if (!hasOwn(value, propertyName)) return undefined;
+  const surface = value[propertyName];
+  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
+  if (!hasOwn(surface, "orgId")) {
+    return { orgId: null, allowedActionNames: [] };
+  }
+  const orgId = surface.orgId;
+  if (
+    orgId !== null &&
+    (typeof orgId !== "string" || orgId.trim().length === 0)
+  ) {
+    return { orgId: null, allowedActionNames: [] };
+  }
+  return { orgId, allowedActionNames };
+}
+
+export function filterActionsByAllowedNames(
+  actions: Record<string, ActionEntry>,
+  allowedActionNames: readonly string[],
+): Record<string, ActionEntry> {
+  const allowedNames = [...new Set(allowedActionNames)];
+  const unknownNames = allowedNames.filter(
+    (name) => !Object.prototype.hasOwnProperty.call(actions, name),
+  );
+  if (unknownNames.length > 0) {
+    throw new Error(
+      `resolveActionSurface returned unknown action name(s): ${unknownNames.join(", ")}`,
+    );
+  }
+  const filtered = Object.fromEntries(
+    allowedNames.map((name) => [name, actions[name]!]),
+  );
+
+  // `attachToolSearch` closes over the registry it was originally attached to.
+  // Rebind it to this request's filtered registry so explicitly allowing
+  // `tool-search` cannot disclose actions that the resolver omitted.
+  if (filtered[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+
+  return filtered;
+}
+
 export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
@@ -1068,6 +1171,8 @@ export interface ProductionAgentOptions {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+  /** Static app capability for the hosted tools-only harness picker. */
+  hostedHarnessConfig?: AgentNativeHarnessSetting;
   /** Default effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -1109,6 +1214,15 @@ export interface ProductionAgentOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }>;
+  /**
+   * Resolve the exact action registry exposed to one interactive agent-chat
+   * request. Returned names are a hard allowlist: omitted actions are absent
+   * from both the provider schemas and the searchable registry. When set, all
+   * allowed actions are loaded directly on the first model request.
+   */
+  resolveActionSurface?: (
+    details: AgentActionSurfaceDetails,
+  ) => AgentActionSurface | Promise<AgentActionSurface>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -2182,6 +2296,8 @@ export interface AgentLoopUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   model: string;
+  /** Number of provider model-stream attempts, including retries. */
+  llmCalls?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -4711,6 +4827,7 @@ export async function runAgentLoop(opts: {
           providerOptions: opts.providerOptions,
         };
 
+        usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -6606,7 +6723,7 @@ export async function runAgentLoop(opts: {
       // the user-visible turn.
       if (opts.ownerEmail) {
         const compactThreadId = opts.threadId;
-        void maybeCompactThread({
+        const compaction = maybeCompactThread({
           threadId: compactThreadId,
           ownerEmail: opts.ownerEmail,
           orgId: opts.orgId ?? null,
@@ -6617,6 +6734,15 @@ export async function runAgentLoop(opts: {
             err instanceof Error ? err.message : String(err),
           );
         });
+        // This pass has to finish a streaming model call before it writes, and
+        // it starts after the turn's `done` event — on a host that freezes the
+        // isolate once the response settles, an unregistered promise is simply
+        // killed, so the thread never accrues the memory that would spare the
+        // next turn. Hand it to the platform keep-alive where there is one;
+        // long-lived hosts keep the existing fire-and-forget behavior.
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        if (waitUntil) waitUntil(compaction);
+        else void compaction;
       }
     }
   }
@@ -6910,6 +7036,9 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    if (typeof next.llmCalls === "number") {
+      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
+    }
     if (next.usageReported) usage.usageReported = true;
     // Keep the earliest attempt's first event — a later continuation
     // attempt starting fresh must not overwrite genuine first-token timing.
@@ -8011,6 +8140,9 @@ export function resolveAgentRequestReasoningEffort({
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
+  if (options.resolveActionSurface) {
+    assertRequestActionSurfaceIsolation();
+  }
   // Undefined = let each engine pick its own defaultModel at request time.
   const configuredModel = options.model;
 
@@ -8022,7 +8154,7 @@ export function createProductionAgentHandler(
   // the settings UI) show up to the LLM without a process restart. MCP tools
   // are also scope-filtered per request — a user-scope server added by Alice
   // must not appear in Bob's tool list in a shared-process deployment.
-  const getEngineTools = (
+  const getRequestActions = (
     actions: Record<string, ActionEntry> = resolvedActions,
   ) => {
     const filtered: Record<string, ActionEntry> = {};
@@ -8032,8 +8164,10 @@ export function createProductionAgentHandler(
       }
       filtered[name] = entry;
     }
-    return actionsToEngineTools(filtered);
+    return filtered;
   };
+  const getEngineTools = (actions: Record<string, ActionEntry>) =>
+    actionsToEngineTools(getRequestActions(actions));
 
   return defineEventHandler(async (event) => {
     // Diagnostic-only setup-timing instrumentation. Captures wall-clock offsets
@@ -8083,6 +8217,7 @@ export function createProductionAgentHandler(
       effort: requestEffort,
       browserTabId,
       scope,
+      harness: requestHarness,
       trackInRunsTray,
     } = body;
     setupMark("bodyParsed");
@@ -8093,12 +8228,20 @@ export function createProductionAgentHandler(
     // run the loop inline with the background soft-timeout, reusing the
     // pre-claimed runId/turnId — we must NOT re-claim the slot or re-dispatch.
     const backgroundRunMarker =
+      preInjectedBody &&
       body[AGENT_CHAT_BACKGROUND_RUN_FIELD] &&
       typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD] === "object" &&
       typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!.runId === "string"
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // Both fields are internal durable-dispatch artifacts, never client input.
+    // A body marker alone is not proof of worker identity: only the verified
+    // `_process-run` route can install `preInjectedBody` on the event context.
+    if (!isBackgroundWorker) {
+      delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+      delete body.__resolvedActionSurface;
+    }
     // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
     // The worker's runId is available EARLY on the marker (the general `runId`
     // var resolves much later), so capture it now and emit the LAST setup stage
@@ -8160,6 +8303,16 @@ export function createProductionAgentHandler(
       isAgentChatDurableBackgroundEnabled({
         appOptIn: options.durableBackgroundRuns,
       });
+    const mutableBody = body as unknown as Record<string, unknown>;
+    if (!isBackgroundWorker) {
+      delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
+    }
+    if (dispatchToBackground) {
+      const clientPlatform = getRequestContext()?.clientPlatform;
+      if (clientPlatform) {
+        mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] = clientPlatform;
+      }
+    }
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();
@@ -8212,6 +8365,80 @@ export function createProductionAgentHandler(
       }
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
+      }
+    }
+    const requestedHostedHarness = normalizeHostedHarnessRuntime(
+      requestHarness?.runtime,
+    );
+    if (requestHarness !== undefined && !requestedHostedHarness) {
+      setResponseStatus(event, 400);
+      return { error: "Unsupported hosted harness runtime" };
+    }
+    const hostedHarnessPolicy = requestedHostedHarness
+      ? await resolveHostedHarnessPolicy({
+          config: options.hostedHarnessConfig,
+          orgId: getRequestOrgId() ?? null,
+          userEmail: ownerEmail,
+        })
+      : null;
+    if (
+      requestedHostedHarness &&
+      (!hostedHarnessPolicy?.enabled ||
+        !hostedHarnessPolicy.runtimes.includes(requestedHostedHarness))
+    ) {
+      setResponseStatus(event, hostedHarnessPolicy?.configEnabled ? 403 : 404);
+      return {
+        error: hostedHarnessPolicy?.configEnabled
+          ? "Hosted harness is not enabled for this organization"
+          : "Hosted harness is not configured for this app",
+      };
+    }
+    const runContext = ensureRequestRunContext();
+    if (runContext && requestedHostedHarness) {
+      runContext.hostedHarnessRuntime = requestedHostedHarness;
+    }
+    let availableRequestActions = getRequestActions();
+    if (requestedHostedHarness) {
+      availableRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        filterHostedHarnessToolNames(Object.keys(availableRequestActions)),
+      );
+    }
+    let surfacedRequestActions = availableRequestActions;
+    if (options.resolveActionSurface) {
+      const persistedSurface = isBackgroundWorker
+        ? readPersistedActionSurface(body, "__resolvedActionSurface")
+        : undefined;
+      const surface =
+        persistedSurface !== undefined
+          ? persistedSurface
+          : await options.resolveActionSurface({
+              event,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              threadId,
+              mode: requestMode,
+              internalContinuation: Boolean(internalContinuation),
+              availableActionNames: Object.keys(availableRequestActions),
+            });
+      surfacedRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        surface.allowedActionNames,
+      );
+      if (requestedHostedHarness) {
+        surfacedRequestActions = filterActionsByAllowedNames(
+          surfacedRequestActions,
+          filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
+        );
+      }
+      const allowedNames = Object.keys(surfacedRequestActions);
+      const runCtx = ensureRequestRunContext();
+      if (runCtx) runCtx.allowedActionNames = allowedNames;
+      if (!isBackgroundWorker) {
+        body.__resolvedActionSurface = {
+          orgId: getRequestOrgId() ?? null,
+          allowedActionNames: allowedNames,
+        };
       }
     }
     // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
@@ -8498,7 +8725,7 @@ export function createProductionAgentHandler(
       (async (): Promise<string> => {
         const screenStart = Date.now();
         try {
-          const viewScreenAction = resolvedActions["view-screen"];
+          const viewScreenAction = surfacedRequestActions["view-screen"];
           if (viewScreenAction) {
             const result = await viewScreenAction.run(
               {},
@@ -8583,7 +8810,7 @@ export function createProductionAgentHandler(
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
           return (
-            `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+            `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
             `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
           );
@@ -8600,7 +8827,9 @@ export function createProductionAgentHandler(
     const filesContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         let filesContext = "";
-        if (options.skipFilesContext) return filesContext;
+        if (options.skipFilesContext || requestedHostedHarness) {
+          return filesContext;
+        }
         if (history.length === 0) {
           try {
             const {
@@ -8807,13 +9036,15 @@ export function createProductionAgentHandler(
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
     const requestActions =
       requestMode === "plan"
-        ? createPlanModeActionRegistry(resolvedActions)
-        : resolvedActions;
+        ? createPlanModeActionRegistry(surfacedRequestActions)
+        : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = filterInitialEngineTools(
-      availableRequestTools,
-      options.initialToolNames,
-    );
+    const initialRequestTools = options.resolveActionSurface
+      ? availableRequestTools
+      : filterInitialEngineTools(
+          availableRequestTools,
+          options.initialToolNames,
+        );
     const requestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({
@@ -9052,6 +9283,36 @@ export function createProductionAgentHandler(
         }
       } catch {
         // Keep the body-derived messages — never drop the run.
+      }
+    }
+    // A foreground turn on an existing thread that arrives with NO history is
+    // amnesia, not a new conversation — the client trims history against a size
+    // budget and one tool-heavy turn could zero it out, which reads downstream
+    // as an ordinary first message. Recover what was said from the stored
+    // thread. Runs only on the foreground path, before `onRunPrepared` persists
+    // this turn, so the recovered window cannot contain the current message.
+    if (
+      !isBackgroundWorker &&
+      !internalContinuation &&
+      threadId &&
+      historyMessages.length === 0
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { recoverThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const recovered = recoverThreadHistoryForRequest(
+          (await getThread(threadId))?.threadData,
+        );
+        if (recovered.length > 0) messages.unshift(...recovered);
+      } catch (err) {
+        // Never drop the run over this — but never let it pass for "the thread
+        // had nothing to recover" either. That silence is the same failure this
+        // block exists to fix, one layer down.
+        console.warn(
+          `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
+          err,
+        );
       }
     }
     setupMark("depsThread");
@@ -9662,7 +9923,11 @@ export function createProductionAgentHandler(
                 const profilePrompt =
                   `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
                   (profile.description ? `${profile.description}\n\n` : "") +
-                  `${profile.instructions}\n</custom-agent-profile>`;
+                  `${profile.instructions}` +
+                  (profile.workspace?.resources.length
+                    ? `\n\nAgent pack resources (read these with the resources tools when relevant):\n${profile.workspace.resources.map((resource) => `- ${resource.path}${resource.name ? ` (${resource.name})` : ""}`).join("\n")}`
+                    : "") +
+                  `\n</custom-agent-profile>`;
 
                 let responseText = "";
                 const subUsage = await runAgentLoop({

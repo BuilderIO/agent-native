@@ -949,6 +949,7 @@ export async function withDbTimeout<T>(
 export function isServerlessRuntime(): boolean {
   return (
     !!process.env.NETLIFY ||
+    !!process.env.NETLIFY_FUNCTION_NAME ||
     !!process.env.VERCEL ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.LAMBDA_TASK_ROOT ||

@@ -1,10 +1,98 @@
+import { createServer } from "node:http";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSsrfSafeDispatcher,
   isBlockedExtensionUrl,
   isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
 } from "./url-safety.js";
+
+describe("createSsrfSafeDispatcher", () => {
+  it("loads the packaged server dispatcher instead of falling back to bare fetch", async () => {
+    await expect(createSsrfSafeDispatcher()).resolves.toMatchObject({
+      dispatch: expect.any(Function),
+    });
+  });
+
+  it("preserves optional dispatcher behavior when Node DNS is unavailable", async () => {
+    vi.doMock("node:dns", () => {
+      throw new Error("node:dns unavailable");
+    });
+    vi.resetModules();
+    try {
+      const mod = await import("./url-safety.js");
+      await expect(mod.createSsrfSafeDispatcher()).resolves.toBeNull();
+      await expect(
+        mod.createSsrfSafeDispatcher([], undefined, { required: true }),
+      ).rejects.toThrow(/dispatcher could not be loaded/);
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.resetModules();
+    }
+  });
+
+  it("retains guarded fetch behavior in edge runtimes without a Node dispatcher", async () => {
+    vi.doMock("node:dns", () => {
+      throw new Error("node:dns unavailable");
+    });
+    vi.doMock("node:dns/promises", () => ({
+      lookup: vi
+        .fn()
+        .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("ok", { status: 200 })),
+    );
+    vi.resetModules();
+    try {
+      const mod = await import("./url-safety.js");
+      await expect(
+        mod.ssrfSafeFetch("https://example.com/data"),
+      ).resolves.toBeInstanceOf(Response);
+      expect(fetch).toHaveBeenCalledWith(
+        "https://example.com/data",
+        expect.not.objectContaining({ dispatcher: expect.anything() }),
+      );
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.doUnmock("node:dns/promises");
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
+  it("allows a configured loopback hostname at its exact port through the real dispatcher", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("ok");
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Test server did not expose a TCP port.");
+      }
+      const origin = `http://localhost:${address.port}`;
+      const response = await ssrfSafeFetch(
+        `${origin}/health`,
+        {},
+        {
+          allowedPrivateOrigins: [origin],
+        },
+      );
+      await expect(response.text()).resolves.toBe("ok");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+});
 
 describe("isBlockedExtensionUrl", () => {
   it.each([
@@ -128,6 +216,21 @@ describe("ssrfSafeFetch per-hop policies", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // The followed hop's body must be drained so its connection is released.
     expect(redirectResponse.bodyUsed).toBe(true);
+  });
+
+  it("can return a validated redirect for a caller with its own redirect policy", async () => {
+    const redirectResponse = new Response("moved", {
+      status: 302,
+      headers: { location: httpOrigin },
+    });
+    const fetchMock = vi.fn(async () => redirectResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(httpsOrigin, {}, { followRedirects: false }),
+    ).resolves.toBe(redirectResponse);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(redirectResponse.bodyUsed).toBe(false);
   });
 
   it("allows configured loopback aliases without allowing an unconfigured port", async () => {

@@ -7,11 +7,10 @@
  * callback-scoped cookie and redeems the code server-to-server. Only that
  * server-to-server response may contain the signed identity assertion.
  *
- * Direct browser federation remains opt-in through
- * `AGENT_NATIVE_IDENTITY_HUB_URL`. The packaged Desktop Canary may use the
- * canonical Dispatch authority on canonical app origins, as established by
- * the merged feature-flagged Desktop work. This module does not change the
- * Desktop implementation or any ordinary auth surface.
+ * Direct browser federation uses the canonical Dispatch authority for exact
+ * first-party hosted app origins and remains opt-in through
+ * `AGENT_NATIVE_IDENTITY_HUB_URL` for self-hosted deployments. The packaged
+ * Desktop Canary follows the same canonical-origin boundary.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -36,10 +35,12 @@ import { createOAuthSession, getOrigin } from "./google-oauth.js";
 import {
   consumeSsoState,
   createSsoState,
+  CANONICAL_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
   identitySsoLoginButtonHtml,
-  isCanonicalAgentNativeAppRequest,
-  isDesktopSsoCanaryUserAgent,
+  isCanonicalIdentitySsoClientRequest,
+  isDesktopSsoUserAgent,
+  isIdentitySsoExplicitlyEnabled,
   isIdentitySsoEnabled,
   isJtiReplayed,
   SSO_STATE_TTL_MS,
@@ -58,7 +59,6 @@ const DESKTOP_COMPLETION_NONCE = /^[A-Za-z0-9_-]{32,128}$/;
 const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CODE = /^[A-Za-z0-9_-]{43}$/;
 const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
-const DESKTOP_IDENTITY_HUB_URL = "https://dispatch.agent-native.com";
 const SSO_VERIFIER_COOKIE_PREFIX = "agent_native_sso_verifier_";
 const MAX_ASSERTION_AGE_SECONDS = 5 * 60;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
@@ -210,26 +210,36 @@ function resolveClientBinding(
 }
 
 /**
- * The packaged Desktop SSO Canary may use Dispatch without each canonical app
- * deploying the direct-web hub env. Ordinary browsers and self-hosted apps
- * remain strictly env-gated.
+ * Canonical hosted apps may use Dispatch without per-app hub configuration.
+ * Self-hosted apps remain strictly env-gated. The exact-origin check is kept
+ * request-scoped so a missing deployment URL cannot broaden the trust set.
  */
 export function resolveIdentityHubUrl(event: H3Event): string | undefined {
-  const configured = getIdentityHubUrl();
+  const configured = isIdentitySsoExplicitlyEnabled()
+    ? getIdentityHubUrl()
+    : undefined;
   if (configured) return configured;
-  if (!isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent"))) {
+  if (
+    isCanonicalIdentitySsoClientRequest(
+      getHeader(event, "host"),
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return CANONICAL_IDENTITY_SSO_HUB_URL;
+  }
+  if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
     return undefined;
   }
   try {
     if (
-      !isCanonicalAgentNativeAppRequest(
+      !isCanonicalIdentitySsoClientRequest(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       )
     ) {
       return undefined;
     }
-    return DESKTOP_IDENTITY_HUB_URL;
+    return CANONICAL_IDENTITY_SSO_HUB_URL;
   } catch (error) {
     void error;
     return undefined;
@@ -240,6 +250,7 @@ interface VerifiedIdentity {
   email: string;
   name: string;
   orgDomain?: string;
+  authProvider?: "google";
   sub: string;
   jti: string;
 }
@@ -289,6 +300,8 @@ async function verifyIdentityAssertion(
         typeof payload.org_domain === "string" && payload.org_domain
           ? payload.org_domain
           : undefined,
+      authProvider:
+        payload.identity_auth_provider === "google" ? "google" : undefined,
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
@@ -406,15 +419,57 @@ export async function handleIdentitySso(
   event: H3Event,
   subpath: string,
 ): Promise<Response> {
-  const hub = resolveIdentityHubUrl(event);
-  if (!hub) return new Response("Not found", { status: 404 });
-
   const method = getMethod(event);
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
   );
   const loginPath = SIGN_IN_ENTRY_PATH;
+
+  // Dispatch is the identity authority, so it has no SSO hub for the
+  // browser to federate to. Its authenticated desktop completion page still
+  // lives on this route and must be reachable after ordinary sign-in.
+  if (sub === "/desktop-complete") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+    let nonce = "";
+    try {
+      nonce =
+        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
+          "nonce",
+        ) || "";
+    } catch {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    const current = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
+    if (!current?.email) {
+      return new Response("Authentication required", { status: 401 });
+    }
+    return new Response(
+      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
+          "Content-Type": "text/html; charset=utf-8",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
+  }
+
+  const hub = resolveIdentityHubUrl(event);
+  if (!hub) return new Response("Not found", { status: 404 });
 
   if (sub === "/login") {
     if (method !== "GET" && method !== "HEAD") {
@@ -522,7 +577,10 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-    if (await isGoogleSignInRequiredForEmail(identity.email)) {
+    if (
+      (await isGoogleSignInRequiredForEmail(identity.email)) &&
+      identity.authProvider !== "google"
+    ) {
       return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
     }
 
@@ -545,45 +603,6 @@ export async function handleIdentitySso(
       );
     }
     return redirect(event, safeReturnPath(stateResult.returnPath));
-  }
-
-  if (sub === "/desktop-complete") {
-    if (method !== "GET" && method !== "HEAD") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-    let nonce = "";
-    try {
-      nonce =
-        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
-          "nonce",
-        ) || "";
-    } catch {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    const current = await getSession(event).catch((error) => {
-      void error;
-      return null;
-    });
-    if (!current?.email) {
-      return new Response("Authentication required", { status: 401 });
-    }
-    return new Response(
-      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
-        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
-          "Content-Type": "text/html; charset=utf-8",
-          "Referrer-Policy": "no-referrer",
-        },
-      },
-    );
   }
 
   return new Response("Not found", { status: 404 });

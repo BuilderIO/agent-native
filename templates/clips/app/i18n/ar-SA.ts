@@ -255,6 +255,40 @@ const messages = {
     linkExpired: "انتهت صلاحية الرابط",
     linkExpiredMessage:
       "قام المنشئ بتعيين انتهاء الصلاحية على رابط المشاركة هذا.",
+    privateClip: "مقطع خاص",
+    privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
+    privateClipSignedOutMessage:
+      "هذا المقطع خاص. سجّل الدخول أو أدخل بريدك الإلكتروني لطلب الوصول.",
+    requestAccess: "طلب الوصول",
+    requestAccessDialogTitle: "طلب الوصول",
+    requestAccessDialogDescription:
+      "اختر الطريقة التي سيتعرّف بها المالك عليك عند مشاركة هذا المقطع.",
+    requestAccessSignIn: "تسجيل الدخول أو إنشاء حساب",
+    requestAccessOr: "أو",
+    requestAccessEmailLabel: "عنوان البريد الإلكتروني",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "بعد منح الوصول، سجّل الدخول بهذا البريد الإلكتروني لمشاهدة المقطع.",
+    requestAccessWithEmail: "طلب الوصول بالبريد الإلكتروني",
+    requestAccessEmailRequired: "أدخل عنوان بريد إلكتروني صالحًا.",
+    requestingAccess: "جارٍ طلب الوصول...",
+    accessRequested: "تم طلب الوصول",
+    accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestSentWithEmail: "طُلب من مالك المقطع مشاركته مع {{email}}.",
+    accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
+    accessApprovalTitle: "تم منح الوصول",
+    accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
+    accessApprovalMessage: "يمكن لـ {{email}} مشاهدة هذا المقطع الآن.",
+    accessApprovalAlreadyMessage:
+      "لدى {{email}} صلاحية الوصول إلى هذا المقطع بالفعل.",
+    accessApprovalErrorTitle: "تعذّر منح الوصول",
+    accessApprovalInvalid: "طلب الوصول هذا غير صالح أو منتهي الصلاحية.",
+    accessApprovalSignInTitle: "سجّل الدخول للسماح بالوصول",
+    accessApprovalSignInMessage:
+      "سجّل الدخول بصفتك مالك المقطع أو مسؤولاً للموافقة على هذا الطلب.",
+    accessApprovalOpenClip: "فتح المقطع",
+    accessApprovalSignIn: "تسجيل الدخول",
+    accessApprovalLoading: "جارٍ منح الوصول...",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",
@@ -344,7 +378,7 @@ const messages = {
     attendee_other: "الحضور {{count}}",
     joinCall: "الانضمام إلى المكالمة",
     myNotes: "ملاحظاتي",
-    aiNotes: "تلاحظ منظمة العفو الدولية",
+    aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
     working: "عمل…",
@@ -983,6 +1017,8 @@ const messages = {
     includeTranscriptDescription:
       "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
     transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    agentLinkDescription:
+      "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",
@@ -1008,8 +1044,13 @@ const messages = {
     pauseShortcut: "إيقاف مؤقت (⌥⇧P)",
     stop: "إيقاف التسجيل",
     elapsed: "الوقت المنقضي",
-    cancel: "إلغاء التسجيل",
-    cancelShortcut: "إلغاء (⌥⇧C)",
+    cancel: "حذف التسجيل",
+    cancelShortcut: "حذف (⌥⇧C)",
+    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmDescription:
+      "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
+    resume: "استئناف",
+    discardRecording: "حذف التسجيل",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",
@@ -1097,6 +1138,10 @@ const messages = {
     searchPrevMatch: "النتيجة السابقة",
     searchNextMatch: "النتيجة التالية",
     searchClose: "إغلاق البحث",
+  },
+  bulletLink: {
+    jumpToTranscript: "الانتقال إلى {{time}} في النص",
+    noMatchingMoment: "لم يتم العثور على لحظة مطابقة",
   },
   editorLayout: {
     trimmed: "تم القص",
@@ -1552,6 +1597,7 @@ const messages = {
     transcriptPending: "Transcript pending (مترجم)",
     notesPending: "Notes pending (مترجم)",
     pastRecordings: "Past recordings (مترجم)",
+    loadOlder: "تحميل الأقدم",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
@@ -1563,6 +1609,16 @@ const messages = {
     calendarConnected: "Calendar connected (مترجم)",
     calendarDisconnected: "Calendar disconnected (مترجم)",
     calendarSettings: "Calendar settings (مترجم)",
+    calendarAccountsButton: "التقويمات",
+    connectedAccounts: "الحسابات المتصلة",
+    calendarConnectedLabel: "متصل",
+    calendarNeedsReconnectLabel: "تحتاج إلى إعادة الاتصال",
+    calendarDisconnectedLabel: "غير متصل",
+    calendarStatusUnavailable: "الحالة غير متاحة",
+    reconnectCalendar: "إعادة الاتصال بالتقويم",
+    addAnotherCalendarAccount: "إضافة حساب آخر",
+    connectCalendar: "توصيل التقويم",
+    disconnectCalendarAccount: "فصل حساب",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (مترجم)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (مترجم)",

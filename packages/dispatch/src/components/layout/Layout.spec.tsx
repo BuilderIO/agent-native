@@ -61,6 +61,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.nav.chat": "Chat",
       "dispatch.nav.overview": "Overview",
       "dispatch.nav.apps": "Apps",
+      "dispatch.nav.agents": "Agents",
       "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
@@ -196,6 +197,7 @@ describe("Dispatch NavContent", () => {
     expect(primaryLabels.indexOf("Overview")).toBeLessThan(
       primaryLabels.indexOf("Chat"),
     );
+    expect(primaryLabels).toContain("Agents");
   });
 
   it("keeps collapsed navigation compact and preserves section spacing", async () => {
@@ -216,6 +218,33 @@ describe("Dispatch NavContent", () => {
     expect(lists[1].querySelector('a[href="/admin"]')).not.toBeNull();
     expect(lists[1].querySelector('a[href="/settings"]')).not.toBeNull();
     expect(lists[0].querySelector("a")?.className).toContain("size-9");
+  });
+
+  it("keeps chat-first primary actions in the collapsed sidebar", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              collapsed
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    for (const label of ["New chat", "Integrations", "Search"]) {
+      expect(
+        [...container.querySelectorAll("button")].find(
+          (button) => button.textContent?.trim() === label,
+        ),
+      ).toBeDefined();
+    }
+    expect(
+      container.querySelector("[data-chat-first-apps-rail]"),
+    ).not.toBeNull();
   });
 
   it("keeps management routes out of the primary navigation", async () => {

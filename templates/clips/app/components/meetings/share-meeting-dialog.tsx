@@ -1,11 +1,18 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  useActionMutation,
   useActionQuery,
+  useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconLink, IconMail } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -19,13 +26,13 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface ShareMeetingPopoverProps {
   meetingId: string;
@@ -81,49 +88,16 @@ function ShareMeetingContent({
   const canManage = data?.role === "owner" || data?.role === "admin";
 
   return (
-    <>
-      <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="link" className="gap-1.5">
-            <IconLink size={14} />
-            {t("clipsFinalRaw.link")}
-          </TabsTrigger>
-          <TabsTrigger value="invite" className="gap-1.5">
-            <IconMail size={14} />
-            {t("clipsFinalRaw.invite")}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="link" className="mt-3">
-          <LinkTab
-            meetingId={meetingId}
-            shareUrl={shareUrl}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            shareTranscript={shareTranscript}
-            transcriptReady={transcriptReady}
-          />
-        </TabsContent>
-
-        <TabsContent value="invite" className="mt-3">
-          <SharePeopleTab
-            resourceType="meeting"
-            resourceId={meetingId}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            onError={(err, action) =>
-              toast.error(
-                err instanceof Error
-                  ? err.message
-                  : action === "invite"
-                    ? t("clipsFinalRaw.inviteFailed")
-                    : t("clipsFinalRaw.removePersonFailed"),
-              )
-            }
-          />
-        </TabsContent>
-      </Tabs>
-    </>
+    <div className="min-w-0 px-4 py-3">
+      <LinkTab
+        meetingId={meetingId}
+        shareUrl={shareUrl}
+        sharesQuery={sharesQuery}
+        canManage={canManage}
+        shareTranscript={shareTranscript}
+        transcriptReady={transcriptReady}
+      />
+    </div>
   );
 }
 
@@ -157,6 +131,57 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const sharesLoaded = data?.visibility != null;
+  const createAgentLink = useActionMutation("create-agent-resource-link");
+  const createAgentLinkAsyncRef = useRef(createAgentLink.mutateAsync);
+  const agentLinkRequestIdRef = useRef(0);
+  const [agentLink, setAgentLink] = useState("");
+  const [agentLinkError, setAgentLinkError] = useState(false);
+  const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
+  });
+
+  const loadAgentLink = useCallback(async () => {
+    const requestId = agentLinkRequestIdRef.current + 1;
+    agentLinkRequestIdRef.current = requestId;
+    setAgentLink("");
+    setAgentLinkError(false);
+
+    try {
+      const result = (await createAgentLinkAsyncRef.current({
+        resourceType: "meeting",
+        resourceId: meetingId,
+      })) as { contextUrl?: string };
+      if (agentLinkRequestIdRef.current !== requestId) return;
+      if (result?.contextUrl) setAgentLink(result.contextUrl);
+      else setAgentLinkError(true);
+    } catch {
+      if (agentLinkRequestIdRef.current === requestId) setAgentLinkError(true);
+    }
+  }, [meetingId]);
+
+  useEffect(() => {
+    setAgentLink("");
+    setAgentLinkError(false);
+    if (!sharesLoaded || isPublic) return;
+    void loadAgentLink();
+
+    return () => {
+      agentLinkRequestIdRef.current += 1;
+    };
+  }, [isPublic, loadAgentLink, meetingId, sharesLoaded, visibility]);
+
+  useEffect(() => {
+    if (isPublic) setAgentDetailsOpen(false);
+  }, [isPublic]);
+
+  const agentShareDisabled =
+    sharesQuery.isLoading ||
+    !sharesLoaded ||
+    (!isPublic && (createAgentLink.isPending || !agentLink));
+  const visibleAgentLink = isPublic ? shareUrl : agentLink;
 
   useEffect(() => {
     setIncludeTranscript(shareTranscript);
@@ -182,6 +207,16 @@ function LinkTab({
 
   return (
     <div className="space-y-3">
+      <CopyField
+        label={
+          isPublic
+            ? t("clipsFinalRaw.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
+        value={shareUrl}
+        disabled={!sharesLoaded}
+      />
+
       <GeneralAccessSelect
         visibility={visibility}
         canManage={canManage}
@@ -217,7 +252,21 @@ function LinkTab({
         />
       </div>
 
-      <CopyField label={t("clipsFinalRaw.shareLink")} value={shareUrl} />
+      <SharePeopleTab
+        resourceType="meeting"
+        resourceId={meetingId}
+        sharesQuery={sharesQuery}
+        canManage={canManage}
+        onError={(err, action) =>
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : action === "invite"
+                ? t("clipsFinalRaw.inviteFailed")
+                : t("clipsFinalRaw.removePersonFailed"),
+          )
+        }
+      />
 
       {!isPublic && canManage ? (
         <MakePublicCard
@@ -229,6 +278,45 @@ function LinkTab({
           }
         />
       ) : null}
+
+      <ShareAgentsSection
+        label={t("shareDialog.shareWithAgents")}
+        open={agentDetailsOpen}
+        onOpenChange={setAgentDetailsOpen}
+        contentClassName="clips-collapsible-content"
+      >
+        <div className="space-y-2">
+          <CopyField
+            label={t("shareDialog.shareLink")}
+            value={visibleAgentLink}
+            disabled={agentShareDisabled}
+          />
+          {sharesLoaded ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("shareMeeting.agentLinkDescription")}
+              </p>
+              {agentLinkError ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t("shareDialog.agentLinkUnavailable")}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void loadAgentLink()}
+                    disabled={createAgentLink.isPending}
+                  >
+                    {t("shareDialog.retryAgentLink")}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </ShareAgentsSection>
     </div>
   );
 }

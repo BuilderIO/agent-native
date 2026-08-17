@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils";
 interface GitHubLink {
   id: string;
   url: string;
+  ref?: string;
+  include?: string[];
 }
 
 interface UploadedFile {
@@ -73,6 +75,12 @@ interface BuilderIndexInput {
   projectName?: string;
   description?: string;
   githubRepoUrl?: string;
+  githubSources?: Array<{
+    repoUrl: string;
+    ref?: string;
+    include?: string[];
+    exclude?: string[];
+  }>;
   connectedProjectId?: string;
   codeFiles?: Array<{
     filename: string;
@@ -93,6 +101,8 @@ export default function DesignSystemSetup() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [websiteUrls, setWebsiteUrls] = useState<string[]>([]);
   const [githubUrl, setGithubUrl] = useState("");
+  const [githubRef, setGithubRef] = useState("");
+  const [githubPaths, setGithubPaths] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
@@ -308,10 +318,24 @@ export default function DesignSystemSetup() {
       setValidationError(t("designSystemSetup.errors.githubUrl"));
       return;
     }
-    setGithubLinks((prev) => [...prev, { id: crypto.randomUUID(), url }]);
+    const include = githubPaths
+      .split(/[\n,]/)
+      .map((path) => path.trim().replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
+    setGithubLinks((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        url,
+        ...(githubRef.trim() ? { ref: githubRef.trim() } : {}),
+        ...(include.length > 0 ? { include: [...new Set(include)] } : {}),
+      },
+    ]);
     setGithubUrl("");
+    setGithubRef("");
+    setGithubPaths("");
     setValidationError(null);
-  }, [githubUrl, t]);
+  }, [githubPaths, githubRef, githubUrl, t]);
 
   const removeGithubLink = useCallback((id: string) => {
     setGithubLinks((prev) => prev.filter((l) => l.id !== id));
@@ -441,12 +465,26 @@ export default function DesignSystemSetup() {
     const normalizedWebsiteUrls = pendingWebsiteUrl
       ? [...websiteUrls, pendingWebsiteUrl]
       : websiteUrls;
+    const pendingGithubInclude = githubPaths
+      .split(/[\n,]/)
+      .map((path) => path.trim().replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
     const normalizedGithubLinks = pendingGithubUrl
-      ? [...githubLinks, { id: "pending", url: pendingGithubUrl }]
+      ? [
+          ...githubLinks,
+          {
+            id: "pending",
+            url: pendingGithubUrl,
+            ...(githubRef.trim() ? { ref: githubRef.trim() } : {}),
+            ...(pendingGithubInclude.length > 0
+              ? { include: [...new Set(pendingGithubInclude)] }
+              : {}),
+          },
+        ]
       : githubLinks;
 
-    const isSingleGithubSource =
-      normalizedGithubLinks.length === 1 &&
+    const isGithubOnlySource =
+      normalizedGithubLinks.length > 0 &&
       normalizedWebsiteUrls.length === 0 &&
       codeFiles.length === 0 &&
       !builderIndexResult &&
@@ -455,10 +493,7 @@ export default function DesignSystemSetup() {
       assets.length === 0 &&
       !selectedProjectId;
 
-    if (isSingleGithubSource) {
-      const githubRepoUrl = normalizedGithubLinks[0]?.url;
-      if (!githubRepoUrl) return;
-
+    if (isGithubOnlySource) {
       setValidationError(null);
       try {
         await indexSystemMutation.mutateAsync({
@@ -467,7 +502,11 @@ export default function DesignSystemSetup() {
             [notes.trim(), customInstructions.trim()]
               .filter(Boolean)
               .join("\n\n") || undefined,
-          githubRepoUrl,
+          githubSources: normalizedGithubLinks.map((link) => ({
+            repoUrl: link.url,
+            ...(link.ref ? { ref: link.ref } : {}),
+            ...(link.include?.length ? { include: link.include } : {}),
+          })),
         });
         toast.success(t("designSystemSetup.githubIndexStarted"));
         navigate("/design-systems");
@@ -507,7 +546,15 @@ export default function DesignSystemSetup() {
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
+        `\n## Connect Code: GitHub Repositories\nMake one call to \`index-design-system-with-builder\` with \`githubSources\` set to this JSON array:\n\n\`\`\`json\n${JSON.stringify(
+          normalizedGithubLinks.map((link) => ({
+            repoUrl: link.url,
+            ...(link.ref ? { ref: link.ref } : {}),
+            ...(link.include?.length ? { include: link.include } : {}),
+          })),
+          null,
+          2,
+        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
@@ -629,6 +676,8 @@ export default function DesignSystemSetup() {
     websiteUrl,
     websiteUrls,
     githubUrl,
+    githubRef,
+    githubPaths,
     githubLinks,
     codeFiles,
     builderIndexResult,
@@ -935,6 +984,22 @@ export default function DesignSystemSetup() {
                     {t("designSystemSetup.add")}
                   </Button>
                 </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    value={githubRef}
+                    onChange={(e) => setGithubRef(e.target.value)}
+                    placeholder={t("designSystemSetup.githubRef")}
+                    aria-label={t("designSystemSetup.githubRef")}
+                    className="bg-accent/50 border-border"
+                  />
+                  <Input
+                    value={githubPaths}
+                    onChange={(e) => setGithubPaths(e.target.value)}
+                    placeholder={t("designSystemSetup.githubPaths")}
+                    aria-label={t("designSystemSetup.githubPaths")}
+                    className="bg-accent/50 border-border"
+                  />
+                </div>
                 <p className="mt-2 text-xs text-muted-foreground/80">
                   {t("designSystemSetup.privateRepoPrefix")}{" "}
                   <a
@@ -954,6 +1019,13 @@ export default function DesignSystemSetup() {
                       >
                         <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
                         <span className="truncate flex-1">{link.url}</span>
+                        {link.ref || link.include?.length ? (
+                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                            {[link.ref, link.include?.join(", ")]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        ) : null}
                         <button
                           onClick={() => removeGithubLink(link.id)}
                           className="text-muted-foreground/70 hover:text-muted-foreground shrink-0 cursor-pointer"

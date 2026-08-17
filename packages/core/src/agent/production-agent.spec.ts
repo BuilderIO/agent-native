@@ -34,11 +34,14 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler,
   preloadPlanModeEngineTools,
+  readPersistedActionSurface,
+  readPersistedAllowedActionNames,
   isPlanModeToolCallAllowed,
   isCachedToolResultVisibleInContext,
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
+  filterActionsByAllowedNames,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -1419,6 +1422,266 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("limits each request to the action names returned by resolveActionSurface", async () => {
+    const seenTools: string[][] = [];
+    const lifecycle: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        lifecycle.push("stream");
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        allowed: actionEntry({}),
+        denied: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      prepareRequest: async () => {
+        lifecycle.push("prepare");
+      },
+      resolveActionSurface: async ({ threadId, availableActionNames }) => {
+        lifecycle.push("surface");
+        expect(threadId).toBe("thread-allowed");
+        expect(availableActionNames).toEqual([
+          "allowed",
+          "denied",
+          "tool-search",
+        ]);
+        return { allowedActionNames: ["allowed"] };
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use the configured agent",
+          threadId: "thread-allowed",
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => {
+      expect(seenTools).toEqual([["allowed"]]);
+    });
+    expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
+    expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("keeps concurrent request action surfaces isolated by thread", async () => {
+    const seenTools: string[][] = [];
+    const seenContinuations: Array<[string | undefined, boolean]> = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        alpha: actionEntry({}),
+        beta: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      resolveActionSurface: async ({ threadId, internalContinuation }) => {
+        seenContinuations.push([threadId, internalContinuation]);
+        if (threadId === "thread-alpha") {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { allowedActionNames: ["alpha"] };
+        }
+        return { allowedActionNames: ["beta"] };
+      },
+    });
+
+    const runThread = async (threadId: string, ownerEmail: string) => {
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Run",
+            threadId,
+            internalContinuation: threadId === "thread-beta",
+          }),
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: ownerEmail, run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    };
+
+    await Promise.all([
+      runThread("thread-alpha", "alpha@example.com"),
+      runThread("thread-beta", "beta@example.com"),
+    ]);
+
+    expect(seenTools).toHaveLength(2);
+    expect(seenTools).toContainEqual(["alpha"]);
+    expect(seenTools).toContainEqual(["beta"]);
+    expect(seenContinuations).toContainEqual(["thread-alpha", false]);
+    expect(seenContinuations).toContainEqual(["thread-beta", true]);
+  });
+
+  it("fails closed when resolveActionSurface returns an unknown action", async () => {
+    const engineStream = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: engineStream,
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: { known: actionEntry({}) },
+      resolveActionSurface: async () => ({
+        allowedActionNames: ["missing"],
+      }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Run" }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).rejects.toThrow(
+      "resolveActionSurface returned unknown action name(s): missing",
+    );
+    expect(engineStream).not.toHaveBeenCalled();
+  });
+
+  it("ignores forged durable-worker fields on ordinary chat requests", async () => {
+    const seenTools: string[][] = [];
+    const resolver = vi.fn(async () => ({
+      allowedActionNames: ["allowed"],
+    }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        allowed: actionEntry({}),
+        denied: actionEntry({}),
+      },
+      resolveActionSurface: resolver,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          __backgroundRun: {
+            runId: "attacker-selected-run",
+            continuationCount: 1,
+          },
+          __resolvedActionSurface: {
+            orgId: "attacker-selected-org",
+            allowedActionNames: ["denied"],
+          },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "real-org", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => expect(seenTools).toEqual([["allowed"]]));
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "real-org" }),
+    );
+  });
+
   it("passes queued message identity to onRunPrepared", async () => {
     const onRunPrepared = vi.fn();
     const engine: AgentEngine = {
@@ -1471,6 +1734,113 @@ describe("createProductionAgentHandler", () => {
   });
 });
 
+describe("filterActionsByAllowedNames", () => {
+  it("treats an explicit empty allowlist as no actions", () => {
+    expect(
+      filterActionsByAllowedNames(
+        { one: actionEntry({}), two: actionEntry({}) },
+        [],
+      ),
+    ).toEqual({});
+  });
+
+  it("preserves the allowlist order and removes duplicates", () => {
+    expect(
+      Object.keys(
+        filterActionsByAllowedNames(
+          { one: actionEntry({}), two: actionEntry({}) },
+          ["two", "one", "two"],
+        ),
+      ),
+    ).toEqual(["two", "one"]);
+  });
+
+  it("rejects inherited object properties as unknown actions", () => {
+    expect(() =>
+      filterActionsByAllowedNames({ allowed: actionEntry({}) }, [
+        "constructor",
+      ]),
+    ).toThrow(
+      "resolveActionSurface returned unknown action name(s): constructor",
+    );
+  });
+
+  it("distinguishes absent persisted surfaces from malformed ones", () => {
+    expect(readPersistedAllowedActionNames({})).toBeUndefined();
+    expect(
+      readPersistedAllowedActionNames({
+        allowedActionNames: null,
+      }),
+    ).toEqual([]);
+    expect(
+      readPersistedActionSurface({}, "__resolvedActionSurface"),
+    ).toBeUndefined();
+    expect(
+      readPersistedActionSurface(
+        { __resolvedActionSurface: { allowedActionNames: "invalid" } },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        { __resolvedActionSurface: { allowedActionNames: ["allowed"] } },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: 42,
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed", "allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: "org-123", allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: null,
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+  });
+
+  it("keeps tool-search scoped to the filtered request registry", async () => {
+    const fullRegistry = attachToolSearch({
+      allowed: actionEntry({ description: "Allowed action" }),
+      denied: actionEntry({ description: "Denied action" }),
+    });
+    const filtered = filterActionsByAllowedNames(fullRegistry, [
+      "allowed",
+      "tool-search",
+    ]);
+
+    const result = await filtered["tool-search"].run({});
+
+    expect(result.results.map((entry: { name: string }) => entry.name)).toEqual(
+      ["allowed"],
+    );
+    expect(result.totalTools).toBe(1);
+  });
+});
+
 describe("runAgentLoop", () => {
   it("passes trusted automation context through to the selected action", async () => {
     const run = vi.fn(async () => "updated");
@@ -1518,7 +1888,7 @@ describe("runAgentLoop", () => {
       },
     };
 
-    await runAgentLoop({
+    const usage = await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
@@ -1534,6 +1904,8 @@ describe("runAgentLoop", () => {
         policyId: "crm-sales-routine-local-v1",
       },
     });
+
+    expect(usage.llmCalls).toBe(2);
 
     expect(run).toHaveBeenCalledWith(
       {},

@@ -20,6 +20,12 @@ import {
   useTranslation,
 } from "react-i18next";
 
+import {
+  coreMessagesForLocale,
+  englishAgentChatMessages,
+  loadCoreMessagesForLocale,
+  normalizeCoreMessageOverrides,
+} from "../localization/core-messages.js";
 import defaultEnglishMessages from "../localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
@@ -271,8 +277,8 @@ function resolveSupportedLocales(args: {
   sourceLocale: LocaleCode;
 }): readonly LocaleCode[] {
   const configured = injectedAgentNativeConfig().translations?.locales;
-  const candidates = configured ??
-    args.catalog?.supportedLocales ?? [args.sourceLocale];
+  const candidates =
+    configured ?? args.catalog?.supportedLocales ?? SUPPORTED_LOCALES;
   const supported = candidates.filter((locale): locale is LocaleCode =>
     (SUPPORTED_LOCALES as readonly string[]).includes(locale),
   );
@@ -303,6 +309,43 @@ function normalizeLoadedMessages(value: unknown): LocaleMessages | null {
   return value as LocaleMessages;
 }
 
+function mergeLocaleMessages(
+  base: LocaleMessages,
+  overrides?: LocaleMessages | null,
+): LocaleMessages {
+  if (!overrides) return base;
+  const merged: LocaleMessages = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    const current = merged[key];
+    if (
+      current &&
+      value &&
+      typeof current === "object" &&
+      typeof value === "object" &&
+      !Array.isArray(current) &&
+      !Array.isArray(value)
+    ) {
+      merged[key] = mergeLocaleMessages(
+        current as LocaleMessages,
+        value as LocaleMessages,
+      );
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function composeLocaleMessages(
+  coreMessages: LocaleMessages,
+  appMessages?: LocaleMessages | null,
+): LocaleMessages {
+  return mergeLocaleMessages(
+    mergeLocaleMessages(defaultEnglishMessages, coreMessages),
+    appMessages ? normalizeCoreMessageOverrides(appMessages) : null,
+  );
+}
+
 function createI18nInstance(args: {
   namespace: string;
   sourceLocale: LocaleCode;
@@ -313,12 +356,18 @@ function createI18nInstance(args: {
   const instance = i18next.createInstance();
   const resources: Record<string, Record<string, LocaleMessages>> = {
     [args.sourceLocale]: {
-      [args.namespace]: args.messages,
+      [args.namespace]: composeLocaleMessages(
+        coreMessagesForLocale(args.sourceLocale),
+        args.messages,
+      ),
     },
   };
-  if (args.initialLocale !== args.sourceLocale && args.initialMessages) {
+  if (args.initialLocale !== args.sourceLocale) {
     resources[args.initialLocale] = {
-      [args.namespace]: args.initialMessages,
+      [args.namespace]: composeLocaleMessages(
+        coreMessagesForLocale(args.initialLocale),
+        args.initialMessages,
+      ),
     };
   }
   void instance.use(initReactI18next).init({
@@ -368,6 +417,9 @@ export function AgentNativeI18nProvider({
   const [locale, setLocale] = useState<LocaleCode>(initialState.locale);
   const [loading, setLoading] = useState(false);
   const i18nRef = useRef<I18nInstance | null>(null);
+  const appMessagesLoadedRef = useRef<Set<LocaleCode> | null>(null);
+  const appMessagesRef = useRef<Map<LocaleCode, LocaleMessages> | null>(null);
+  const coreMessagesLoadedRef = useRef<Set<LocaleCode> | null>(null);
 
   if (!i18nRef.current) {
     const preloadedMessages = normalizeLoadedMessages(
@@ -375,26 +427,45 @@ export function AgentNativeI18nProvider({
         ? hydration.messages
         : initialMessages,
     );
+    const resolvedSourceMessages = normalizeCoreMessageOverrides(
+      hydration.locale === sourceLocale && hydration.messages
+        ? hydration.messages
+        : sourceMessages,
+    );
     i18nRef.current = createI18nInstance({
       namespace,
       sourceLocale,
-      messages:
-        hydration.locale === sourceLocale && hydration.messages
-          ? hydration.messages
-          : sourceMessages,
+      messages: resolvedSourceMessages,
       initialLocale: initialState.locale,
       initialMessages: preloadedMessages,
     });
+    appMessagesRef.current = new Map([[sourceLocale, resolvedSourceMessages]]);
+    appMessagesLoadedRef.current = new Set([sourceLocale]);
+    if (initialState.locale !== sourceLocale && preloadedMessages) {
+      appMessagesRef.current.set(
+        initialState.locale,
+        normalizeCoreMessageOverrides(preloadedMessages),
+      );
+      appMessagesLoadedRef.current.add(initialState.locale);
+    }
+    coreMessagesLoadedRef.current = new Set(
+      [sourceLocale, initialState.locale].filter(
+        (candidate) => candidate === DEFAULT_LOCALE,
+      ),
+    );
   }
 
   const i18n = i18nRef.current;
 
   useEffect(() => {
     if (i18n.hasResourceBundle(sourceLocale, namespace)) {
+      const normalizedSourceMessages =
+        normalizeCoreMessageOverrides(sourceMessages);
+      appMessagesRef.current?.set(sourceLocale, normalizedSourceMessages);
       i18n.addResourceBundle(
         sourceLocale,
         namespace,
-        sourceMessages,
+        normalizedSourceMessages,
         true,
         true,
       );
@@ -417,20 +488,46 @@ export function AgentNativeI18nProvider({
     async function applyLocale() {
       setLoading(true);
       try {
-        if (
-          locale !== sourceLocale &&
-          !i18n.hasResourceBundle(locale, namespace)
-        ) {
+        const shouldLoadAppMessages =
+          locale !== sourceLocale && !appMessagesLoadedRef.current?.has(locale);
+        const shouldLoadCoreMessages =
+          !coreMessagesLoadedRef.current?.has(locale);
+
+        if (shouldLoadAppMessages || shouldLoadCoreMessages) {
           const preloaded =
             hydration.locale === locale && hydration.messages
               ? hydration.messages
               : initialLocale === locale && initialMessages
                 ? initialMessages
                 : null;
-          const loaded = preloaded ?? (await loadMessages?.(locale));
-          const messages = normalizeLoadedMessages(loaded);
-          if (messages) {
-            i18n.addResourceBundle(locale, namespace, messages, true, true);
+          const [coreMessages, loadedAppMessages] = await Promise.all([
+            shouldLoadCoreMessages
+              ? loadCoreMessagesForLocale(locale)
+              : Promise.resolve<LocaleMessages>({}),
+            shouldLoadAppMessages
+              ? Promise.resolve(preloaded ?? loadMessages?.(locale))
+              : Promise.resolve(null),
+          ]);
+          const existingMessages = normalizeLoadedMessages(
+            i18n.getResourceBundle(locale, namespace),
+          );
+          const loadedMessages = normalizeLoadedMessages(loadedAppMessages);
+          if (loadedMessages) {
+            appMessagesRef.current?.set(
+              locale,
+              normalizeCoreMessageOverrides(loadedMessages),
+            );
+          }
+          const appMessages = appMessagesRef.current?.get(locale) ?? null;
+          const nextMessages = shouldLoadCoreMessages
+            ? composeLocaleMessages(coreMessages, appMessages)
+            : mergeLocaleMessages(existingMessages ?? {}, appMessages);
+          i18n.addResourceBundle(locale, namespace, nextMessages, true, true);
+          if (shouldLoadCoreMessages) {
+            coreMessagesLoadedRef.current?.add(locale);
+          }
+          if (shouldLoadAppMessages) {
+            appMessagesLoadedRef.current?.add(locale);
           }
         }
         if (!cancelled) {
@@ -580,6 +677,12 @@ export function useOptionalLocale(): LocaleContextValue | null {
 }
 
 const CORE_FALLBACK_MESSAGES: Record<string, string> = {
+  ...Object.fromEntries(
+    Object.entries(englishAgentChatMessages).map(([key, value]) => [
+      `agentChat.${key}`,
+      value,
+    ]),
+  ),
   "runsTray.runs": "Runs",
   "runsTray.agentRuns": "Agent runs",
   "runsTray.activeRun_one": "{{count}} active run",
@@ -604,6 +707,9 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.statusDone": "Done",
   "runsTray.statusFailed": "Failed",
   "runsTray.statusStopped": "Stopped",
+  "runsTray.statusNeedsApproval": "Needs approval",
+  "runsTray.statusNeedsInput": "Needs input",
+  "runsTray.statusPaused": "Paused",
   "runsTray.updatedJustNow": "Updated just now",
   "runsTray.finishedJustNow": "Finished just now",
   "runsTray.updatedMinutes": "Updated {{count}}m ago",
@@ -612,8 +718,8 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.finishedHours": "Finished {{count}}h ago",
   "runsTray.updatedDate": "Updated {{date}}",
   "runsTray.finishedDate": "Finished {{date}}",
-  "agentTask.backgroundTask": "Background task",
-  "agentTask.stop": "Stop background task",
+  "agentTask.spawnedAgent": "Spawned agent",
+  "agentTask.stop": "Stop spawned agent",
   "agentTask.openThread": "Open task thread",
   "codeRequired.fallbackDetail":
     "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
@@ -731,6 +837,16 @@ function fallbackMessage(key: string, options?: Record<string, unknown>) {
     : humanizeFallbackKey(key);
 }
 
+function preserveTranslatedUserValues(
+  translated: string,
+  options?: Record<string, unknown>,
+) {
+  const defaultValue = options?.defaultValue;
+  return typeof defaultValue === "string" && translated === defaultValue
+    ? interpolateFallbackMessage(defaultValue, options)
+    : translated;
+}
+
 export function useT() {
   const { i18n, t } = useTranslation();
   const context = useContext(LocaleContext);
@@ -738,12 +854,14 @@ export function useT() {
   return useCallback(
     (key: string, options?: Record<string, unknown>) => {
       const translated = t(key, options);
-      if (translated !== key) return translated;
+      if (translated !== key)
+        return preserveTranslatedUserValues(translated, options);
       const getFixedT = (
         i18n as { getFixedT?: (locale: LocaleCode) => typeof t }
       ).getFixedT;
       const sourceFallback = getFixedT?.(sourceLocale)(key, options);
-      if (sourceFallback && sourceFallback !== key) return sourceFallback;
+      if (sourceFallback && sourceFallback !== key)
+        return preserveTranslatedUserValues(sourceFallback, options);
       return fallbackMessage(key, options);
     },
     [i18n, sourceLocale, t],

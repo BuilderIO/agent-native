@@ -2194,6 +2194,72 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(JSON.stringify(body.structuredHistory).length).toBeLessThan(400_000);
+
+    // Pricing the tool calls was only half of it: the budget then evicted the
+    // asks themselves. One bulky turn costs more than the whole budget, so
+    // walking newest-first and breaking dropped every earlier message —
+    // production thread 062ab179 re-read the same extension and re-stated the
+    // same diagnosis for eight turns because each turn started blind.
+    const historyText = body.structuredHistory
+      .filter((message: any) => message.role === "user")
+      .flatMap((message: any) =>
+        message.content
+          .filter((part: any) => part.type === "text")
+          .map((part: any) => part.text),
+      )
+      .join("\n");
+    expect(historyText).toContain("the original ask");
+    expect(historyText).toContain("second ask");
+    expect(historyText).toContain("third ask");
+  });
+
+  it("keeps an over-budget turn's conclusions after dropping its tool results", async () => {
+    // A tool-heavy turn's results are ~97% of its cost; the prose it wrote is
+    // the other 3% and is the part that cannot be re-read. Dropping the whole
+    // message evicted both, so the agent re-derived the same finding each turn.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-findings",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "why is it empty" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              ...Array.from({ length: 8 }, (_, i) => ({
+                type: "tool-call",
+                toolCallId: `call-${i}`,
+                toolName: "read-source",
+                args: { query: "x".repeat(7_000) },
+                result: "y".repeat(11_000),
+              })),
+              { type: "text", text: "the rate filter excludes zero-rate rows" },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "so change it" }] },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "confirming the filter" }],
+          },
+          { role: "user", content: [{ type: "text", text: "now fix it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = fetchSpy.mock.calls[0][1].body as string;
+    expect(body).toContain("why is it empty");
+    expect(body).toContain("the rate filter excludes zero-rate rows");
+    expect(body).not.toContain("y".repeat(11_000));
   });
 
   it("prices object tool results by what the request actually carries", async () => {
@@ -2233,7 +2299,12 @@ describe("createAgentChatAdapter", () => {
 
     const body = fetchSpy.mock.calls[0][1].body as string;
     expect(body).toContain("now do it");
-    expect(body).not.toContain("the original ask");
+    // Priced correctly, this one turn exceeds the whole assistant budget and is
+    // dropped. Priced as `String(result)` it would cost 15 chars per call and
+    // sail through — so the absent payload, not an evicted user ask, is what
+    // proves the pricing. The asks themselves are on a separate budget and stay.
+    expect(body).not.toContain("y".repeat(13_000));
+    expect(body).toContain("the original ask");
   });
 
   it("preserves structured tool history when auto-continuing after a transient error", async () => {
@@ -2641,7 +2712,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     expect(postCount).toBe(2);
@@ -2943,7 +3019,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     // It must retry its own prompt, never fetch the old run's events (replay).
@@ -6481,7 +6562,101 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
-  it("adds final text when a terminal followed run contains only completed tool work", async () => {
+  it("continues a followed background run whose done event follows completed tool work", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        requestTurnId = (JSON.parse(init.body as string) as { turnId: string })
+          .turnId;
+        return postCount === 1
+          ? backgroundSseResponse(
+              [
+                {
+                  type: "tool_start",
+                  id: "blocks-1",
+                  tool: "get-plan-blocks",
+                  input: { format: "reference" },
+                },
+                {
+                  type: "tool_done",
+                  id: "blocks-1",
+                  tool: "get-plan-blocks",
+                  result: '{"count":20}',
+                },
+                { type: "auto_continue", reason: "run_timeout" },
+              ],
+              "run-follow-tool-only",
+            )
+          : backgroundSseResponse(
+              [{ type: "text", text: "The plan is ready." }, { type: "done" }],
+              "run-follow-final",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-follow-tool-only",
+          threadId: "thread-bg-follow-tool-only",
+          turnId: requestTurnId,
+          status: "completed",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-follow-tool-only/events")) {
+        return sseResponse([{ type: "done" }], "run-follow-tool-only");
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-follow-tool-only",
+      threadId: "thread-bg-follow-tool-only",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "visualize this plan" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect((results.at(-1) as any).content.at(-1).text).toBe(
+      "The plan is ready.",
+    );
+    expect(
+      (results.at(-1) as any).metadata?.custom?.runWarning,
+    ).toBeUndefined();
+  });
+
+  it("continues when a terminal followed run contains only completed tool work", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -6497,28 +6672,39 @@ describe("createAgentChatAdapter", () => {
     );
 
     let requestTurnId = "";
+    const postBodies: Array<Record<string, any>> = [];
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
-        requestTurnId = JSON.parse(init.body as string).turnId;
-        return backgroundSseResponse(
-          [
-            {
-              type: "tool_start",
-              id: "sync-1",
-              tool: "sync-source",
-              input: {},
-            },
-            {
-              type: "tool_done",
-              id: "sync-1",
-              tool: "sync-source",
-              result: '{"synced":4}',
-              completedSideEffect: true,
-            },
-            { type: "auto_continue", reason: "run_timeout" },
-          ],
-          "run-bg-tool-only",
-        );
+        const body = JSON.parse(init.body as string) as Record<string, any>;
+        postBodies.push(body);
+        requestTurnId = body.turnId;
+        return postBodies.length === 1
+          ? backgroundSseResponse(
+              [
+                {
+                  type: "tool_start",
+                  id: "sync-1",
+                  tool: "sync-source",
+                  input: {},
+                },
+                {
+                  type: "tool_done",
+                  id: "sync-1",
+                  tool: "sync-source",
+                  result: '{"synced":4}',
+                  completedSideEffect: true,
+                },
+                { type: "auto_continue", reason: "run_timeout" },
+              ],
+              "run-bg-tool-only",
+            )
+          : backgroundSseResponse(
+              [
+                { type: "text", text: "The source is synced." },
+                { type: "done" },
+              ],
+              "run-bg-tool-final",
+            );
       }
       if (url.includes("/runs/active")) {
         return jsonResponse({
@@ -6559,13 +6745,82 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     const results = await promise;
 
+    expect(postBodies).toHaveLength(2);
+    expect(postBodies[1]).toMatchObject({ internalContinuation: true });
+    expect(postBodies[1].history.at(-1).content).toContain("Tool: sync-source");
     const last = results.at(-1) as any;
-    expect(last.status).toEqual({ type: "complete", reason: "stop" });
-    expect(last.metadata?.custom?.runWarning?.errorCode).toBe(
-      "final_response_missing_after_tool",
+    expect(last.content.at(-1).text).toBe("The source is synced.");
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+  });
+
+  it("recovers a background response whose done event follows completed tool work", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
     );
-    expect(last.content.at(-1).text).toContain(
-      "stopped before sending a final message",
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/_agent-native/agent-chat" || init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return postCount === 1
+        ? backgroundSseResponse(
+            [
+              {
+                type: "tool_start",
+                id: "blocks-1",
+                tool: "get-plan-blocks",
+                input: { format: "reference" },
+              },
+              {
+                type: "tool_done",
+                id: "blocks-1",
+                tool: "get-plan-blocks",
+                result: '{"count":20}',
+              },
+              { type: "done" },
+            ],
+            "run-bg-done-tool-only",
+          )
+        : backgroundSseResponse(
+            [{ type: "text", text: "The plan is ready." }, { type: "done" }],
+            "run-bg-done-final",
+          );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-done-tool-only",
+      threadId: "thread-bg-done-tool-only",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "visualize this plan" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect((results.at(-1) as any).content.at(-1).text).toBe(
+      "The plan is ready.",
     );
   });
 
@@ -8879,6 +9134,37 @@ describe("activeRunLooksAlive", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an unresolved delegated-agent activity card as in-flight work", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-1",
+        status: "running",
+        hasInFlightWork: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "agent-call",
+            toolName: "agent:Analytics",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

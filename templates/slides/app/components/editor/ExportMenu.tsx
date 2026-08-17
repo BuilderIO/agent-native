@@ -11,7 +11,6 @@ import {
   IconCopy,
   IconShare2,
   IconBrandGoogle,
-  IconPlugConnected,
 } from "@tabler/icons-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -32,12 +31,55 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 
 /** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
   "https://docs.google.com/presentation/u/0/?usp=import";
+
+/**
+ * The importer stamps this on every slide it writes, and `parseSlideHtml` in
+ * actions/export-pptx.ts branches on the same marker: those slides carry the
+ * source file's own geometry, which the server emits as real `custGeom` vector
+ * shapes. dom-to-pptx has no custGeom at all and rasterizes them to PNGs.
+ */
+const IMPORTED_SLIDE_MARKER = 'data-imported-pptx="true"';
+
+/**
+ * Objects whose geometry only exists once a browser has laid the slide out:
+ * `freezeSlideElementForFreeform` and the text-box tool mint
+ * `data-slide-object-id` client-side, while every object the importer emits
+ * also carries `data-pptx-element-kind`. The server has no layout engine to
+ * measure the former, so it refuses those slides rather than reflowing them.
+ */
+const BROWSER_AUTHORED_OBJECT =
+  "[data-slide-object-id]:not([data-pptx-element-kind]), .fmd-freeform-object";
+
+/**
+ * Whether the vector-capable server exporter can render this deck losslessly.
+ * `get-deck` returns the import receipt alongside the deck body, so the client
+ * deck carries `sourceImport` at runtime even though the type predates it.
+ */
+export function canExportPptxFromServer(
+  deck:
+    | { sourceImport?: unknown; slides: { content?: string }[] }
+    | null
+    | undefined,
+): boolean {
+  if (!deck?.sourceImport || deck.slides.length === 0) return false;
+  return deck.slides.every((slide) => {
+    const html = slide.content ?? "";
+    if (!html.includes(IMPORTED_SLIDE_MARKER)) return false;
+    return !new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector(BROWSER_AUTHORED_OBJECT);
+  });
+}
 
 interface ExportMenuProps {
   deckId: string;
@@ -53,7 +95,6 @@ interface ExportMenuProps {
 }
 
 export interface ExportMenuHandle {
-  connectGoogle: () => Promise<void>;
   exportGoogleSlides: () => Promise<void>;
   exportHtml: () => Promise<void>;
   exportPptx: () => Promise<void>;
@@ -75,6 +116,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     ref,
   ) {
     const t = useT();
+    const { getDeck, flushDeckSave } = useDecks();
     const [googleSlidesImportOpen, setGoogleSlidesImportOpen] = useState(false);
     const googleSlidesImportTarget = useRef<Window | null>(null);
     const triggerBlobDownload = (blob: Blob, filename: string) => {
@@ -107,8 +149,38 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
+    const exportPptxFromServer = async () => {
+      // The server exports the persisted deck, so an unflushed edit would be
+      // missing from the file the user just asked for.
+      await flushDeckSave(deckId);
+      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId }),
+      });
+      if (!res.ok) {
+        throw new Error(
+          await readErrorMessage(res, t("editorExport.exportPptxError")),
+        );
+      }
+      triggerBlobDownload(
+        await res.blob(),
+        filenameFromDisposition(
+          res.headers.get("content-disposition"),
+          ".pptx",
+        ),
+      );
+    };
+
     const handleExportPptx = async () => {
       try {
+        // An imported deck's shapes survive only on the server path. Falling
+        // back to the browser exporter on failure would hand back rasterized
+        // silhouettes of the same deck without saying so.
+        if (canExportPptxFromServer(getDeck(deckId))) {
+          await exportPptxFromServer();
+          return;
+        }
         await onExportPptx();
       } catch (err) {
         console.error("Export failed:", err);
@@ -121,44 +193,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
-    const handleExportGoogleSlides = async () => {
-      if (!onExportGoogleSlides) return;
-      // Opened up-front: browsers only honour window.open() inside the click
-      // gesture, and building the PPTX is async.
-      const target = window.open("", "_blank");
-      googleSlidesImportTarget.current = target;
-      try {
-        const result = await onExportGoogleSlides();
-        if (result.url !== null) {
-          googleSlidesImportTarget.current = null;
-          if (target) target.location.href = result.url;
-          toast.success(t("editorExport.googleSlidesCreated"), {
-            description: t("editorExport.googleSlidesCreatedHint"),
-          });
-          return;
-        }
-        if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
-        setGoogleSlidesImportOpen(true);
-        // The deck did not reach Drive. Saying "success" here is why users read
-        // the .pptx download as the intended result and never learn that their
-        // Google account is unconnected or that Drive rejected the upload.
-        toast.warning(t("editorExport.googleSlidesDownloaded"), {
-          description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
-        });
-      } catch (err) {
-        googleSlidesImportTarget.current = null;
-        target?.close();
-        console.error("Export failed:", err);
-        toast.error(t("editorExport.exportFailed"), {
-          description:
-            err instanceof Error
-              ? err.message
-              : t("editorExport.exportGoogleSlidesError"),
-        });
-      }
-    };
-
-    const handleConnectGoogle = async () => {
+    const handleConnectGoogle = async (target?: Window | null) => {
       const authUrl = new URL(
         agentNativePath("/_agent-native/google-docs/auth-url"),
         window.location.origin,
@@ -168,11 +203,9 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         window.location.pathname + window.location.search,
       );
 
-      const popup = window.open(
-        "",
-        "google-docs-oauth",
-        "popup,width=520,height=720",
-      );
+      const popup =
+        target ??
+        window.open("", "google-docs-oauth", "popup,width=520,height=720");
       if (!popup) {
         toast.error(t("editorExport.exportFailed"), {
           description: t("editorExport.exportGoogleSlidesError"),
@@ -200,6 +233,49 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       } catch (err) {
         popup?.close();
         console.error("Google connection failed:", err);
+        toast.error(t("editorExport.exportFailed"), {
+          description:
+            err instanceof Error
+              ? err.message
+              : t("editorExport.exportGoogleSlidesError"),
+        });
+      }
+    };
+
+    const handleExportGoogleSlides = async () => {
+      if (!onExportGoogleSlides) return;
+      // Opened up-front: browsers only honour window.open() inside the click
+      // gesture, and building the PPTX is async. If the account is missing,
+      // the same tab becomes the OAuth popup so the export action owns setup.
+      const target = window.open("", "_blank");
+      googleSlidesImportTarget.current = target;
+      try {
+        const result = await onExportGoogleSlides();
+        if ("requiresConnection" in result && result.requiresConnection) {
+          googleSlidesImportTarget.current = null;
+          await handleConnectGoogle(target);
+          return;
+        }
+        if (result.url !== null) {
+          googleSlidesImportTarget.current = null;
+          if (target) target.location.href = result.url;
+          toast.success(t("editorExport.googleSlidesCreated"), {
+            description: t("editorExport.googleSlidesCreatedHint"),
+          });
+          return;
+        }
+        if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
+        setGoogleSlidesImportOpen(true);
+        // The deck did not reach Drive. Saying "success" here is why users read
+        // the .pptx download as the intended result and never learn that Drive
+        // rejected the upload.
+        toast.warning(t("editorExport.googleSlidesDownloaded"), {
+          description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
+        });
+      } catch (err) {
+        googleSlidesImportTarget.current = null;
+        target?.close();
+        console.error("Export failed:", err);
         toast.error(t("editorExport.exportFailed"), {
           description:
             err instanceof Error
@@ -241,17 +317,61 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     useImperativeHandle(
       ref,
       () => ({
-        connectGoogle: handleConnectGoogle,
         exportGoogleSlides: handleExportGoogleSlides,
         exportHtml: handleExportHtml,
         exportPptx: handleExportPptx,
       }),
-      [
-        handleConnectGoogle,
-        handleExportGoogleSlides,
-        handleExportHtml,
-        handleExportPptx,
-      ],
+      [handleExportGoogleSlides, handleExportHtml, handleExportPptx],
+    );
+
+    const exportActions = (
+      <>
+        <DropdownMenuItem onClick={handleExportHtml} className="cursor-pointer">
+          <IconCode className="size-4" />
+          {t("editorExport.downloadHtml")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onExportPdf} className="cursor-pointer">
+          <IconFileTypePdf className="size-4" />
+          {t("editorExport.exportPdf")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
+          <IconDownload className="size-4" />
+          {t("editorExport.exportPptx")}
+        </DropdownMenuItem>
+        {onExportGoogleSlides && (
+          <DropdownMenuItem
+            onClick={handleExportGoogleSlides}
+            className="cursor-pointer"
+          >
+            <IconBrandGoogle className="size-4" />
+            {t("editorExport.openInGoogleSlides")}
+          </DropdownMenuItem>
+        )}
+      </>
+    );
+
+    const shareActions = (
+      <>
+        {onShareTeam && (
+          <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
+            <IconShare2 className="size-4" />
+            {t("editorExport.shareWithTeam")}
+          </DropdownMenuItem>
+        )}
+        {onShareLink && (
+          <DropdownMenuItem onClick={onShareLink} className="cursor-pointer">
+            <IconShare2 className="size-4" />
+            {t("editorExport.publicShareLink")}
+          </DropdownMenuItem>
+        )}
+      </>
+    );
+
+    const duplicateAction = (
+      <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
+        <IconCopy className="size-4" />
+        {t("editorExport.duplicateDeck")}
+      </DropdownMenuItem>
     );
 
     const menuContent = (
@@ -259,61 +379,40 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         <DropdownMenuLabel className="text-[11px] text-muted-foreground">
           {t("editorExport.exportAndDuplicate")}
         </DropdownMenuLabel>
-        {onShareTeam && (
-          <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
-            <IconShare2 className="w-4 h-4 mr-2" />
-            {t("editorExport.shareWithTeam")}
-          </DropdownMenuItem>
-        )}
-        {onShareLink && (
-          <DropdownMenuItem onClick={onShareLink} className="cursor-pointer">
-            <IconShare2 className="w-4 h-4 mr-2" />
-            {t("editorExport.publicShareLink")}
-          </DropdownMenuItem>
-        )}
+        {shareActions}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleExportHtml} className="cursor-pointer">
-          <IconCode className="w-4 h-4 mr-2" />
-          {t("editorExport.downloadHtml")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onExportPdf} className="cursor-pointer">
-          <IconFileTypePdf className="w-4 h-4 mr-2" />
-          {t("editorExport.exportPdf")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
-          <IconDownload className="w-4 h-4 mr-2" />
-          {t("editorExport.exportPptx")}
-        </DropdownMenuItem>
-        {onExportGoogleSlides && (
+        {exportActions}
+        <DropdownMenuSeparator />
+        {duplicateAction}
+      </>
+    );
+
+    const inlineMenuContent = (
+      <>
+        {onShareTeam || onShareLink ? (
           <>
-            <DropdownMenuItem
-              onClick={handleConnectGoogle}
-              className="cursor-pointer"
-            >
-              <IconPlugConnected className="w-4 h-4 mr-2" />
-              {t("editorExport.connectGoogle")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={handleExportGoogleSlides}
-              className="cursor-pointer"
-            >
-              <IconBrandGoogle className="w-4 h-4 mr-2" />
-              {t("editorExport.openInGoogleSlides")}
-            </DropdownMenuItem>
+            {shareActions}
+            <DropdownMenuSeparator />
           </>
-        )}
+        ) : null}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="cursor-pointer gap-2">
+            <IconUpload className="size-4" />
+            {t("editorExport.export")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-56">
+            {exportActions}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
-          <IconCopy className="w-4 h-4 mr-2" />
-          {t("editorExport.duplicateDeck")}
-        </DropdownMenuItem>
+        {duplicateAction}
       </>
     );
 
     return (
       <>
         {inline ? (
-          menuContent
+          inlineMenuContent
         ) : (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

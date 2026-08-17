@@ -452,6 +452,13 @@ export interface OAuthStatePayload {
   owner?: string;
   orgId?: string;
   desktop?: boolean;
+  /**
+   * Explicit native-mobile intent from an embedded app. The callback may be
+   * served by a browser with a non-mobile user-agent, so relying on
+   * `isMobile(event)` alone can strand the native client on the web sign-in
+   * page.
+   */
+  mobile?: boolean;
   addAccount?: boolean;
   app?: string;
   /**
@@ -524,6 +531,7 @@ export interface EncodeOAuthStateOptions {
   owner?: string;
   orgId?: string;
   desktop?: boolean;
+  mobile?: boolean;
   addAccount?: boolean;
   app?: string;
   returnUrl?: string;
@@ -603,6 +611,7 @@ export function encodeOAuthState(
   if (opts.owner) payload.o = opts.owner;
   if (opts.orgId) payload.g = opts.orgId;
   if (opts.desktop) payload.d = true;
+  if (opts.mobile) payload.m = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
@@ -654,6 +663,7 @@ export function decodeOAuthState(
         owner: parsed.o || undefined,
         orgId: typeof parsed.g === "string" ? parsed.g : undefined,
         desktop: !!parsed.d,
+        mobile: !!parsed.m,
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
@@ -712,6 +722,7 @@ export async function createOAuthSession(
   opts: {
     hasProductionSession: boolean;
     desktop?: boolean;
+    mobile?: boolean;
     trackSignup?: {
       authProvider: string;
       authUserId?: string;
@@ -721,7 +732,10 @@ export async function createOAuthSession(
     };
   },
 ): Promise<OAuthSessionResult> {
-  const mobile = isMobile(event);
+  // A native callback can arrive through a browser whose callback request
+  // user-agent does not identify as mobile. Prefer the signed flow intent and
+  // retain UA detection for ordinary mobile web sign-ins.
+  const mobile = opts.mobile || isMobile(event);
   const needsDeepLink = opts.desktop || mobile;
   const maxAge = getSessionMaxAge();
 
@@ -788,6 +802,7 @@ export function oauthCallbackResponse(
   opts: {
     sessionToken?: string;
     desktop?: boolean;
+    mobile?: boolean;
     addAccount?: boolean;
     /**
      * Same-origin path to return the viewer to after a successful web
@@ -800,7 +815,9 @@ export function oauthCallbackResponse(
     appName?: string;
   },
 ): Response | string | unknown | Promise<Response | string | unknown> {
-  const mobile = isMobile(event);
+  // The mobile flag is carried inside HMAC-signed OAuth state by native
+  // clients. UA detection remains the fallback for ordinary mobile browsers.
+  const mobile = opts.mobile || isMobile(event);
   const query = getQuery(event);
   const callbackState =
     typeof query.state === "string" && query.state.length > 0
@@ -931,11 +948,13 @@ export function oauthErrorPage(message: string): Response {
 
 export function oauthDesktopExchangePage(
   message = "Returning to the app...",
+  closeWindow = true,
 ): Response {
   const safe = escapeHtml(message);
-  return htmlResponse(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p><script>window.close()</script></body></html>`,
-  );
+  const closeScript = closeWindow ? "<script>window.close()</script>" : "";
+  // guard:allow-raw-color - standalone callback page intentionally uses fixed dark colors.
+  const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p></body></html>`;
+  return htmlResponse(page.replace("</body>", `${closeScript}</body>`));
 }
 
 // ─── Internal ────────────────────────────────────────────────────────────────

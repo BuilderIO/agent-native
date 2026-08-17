@@ -41,7 +41,7 @@ import {
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
-import { useT } from "../i18n.js";
+import { useOptionalLocale, useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
@@ -55,6 +55,7 @@ import {
 import {
   humanizeToolName,
   isCallAgentToolCallShadowed,
+  isToolCallActive,
 } from "../tool-display.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
@@ -163,6 +164,7 @@ export function ToolActivityPresentation({
   suppressLongRunningHint?: boolean;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
   useEffect(() => {
     if (!isRunning || suppressLongRunningHint) {
@@ -186,7 +188,7 @@ export function ToolActivityPresentation({
         {children}
         {isRunning && showLongRunningHint && (
           <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
-            Still working. Large updates can take a minute or two.
+            {t("agentChat.tool.longRunning")}
           </div>
         )}
       </div>
@@ -277,6 +279,10 @@ function formatToolTextValue(
 export function toolInputPayload(
   toolName: string,
   args: Record<string, unknown>,
+  labels: { input: string; inputWithLabel: (label: string) => string } = {
+    input: "Input",
+    inputWithLabel: (label) => `Input - ${label}`,
+  },
 ): ToolDetailPayload | null {
   const entries = Object.entries(args);
   if (entries.length === 0) return null;
@@ -288,7 +294,7 @@ export function toolInputPayload(
       normalizedKey === "sql" || normalizedKey.endsWith("sql") ? "SQL" : key;
     return {
       section: "input",
-      title: `Input - ${keyLabel}`,
+      title: labels.inputWithLabel(keyLabel),
       text: formatted.text,
       copyText:
         typeof value === "string" ? value : stringifyToolValue(value, true),
@@ -297,7 +303,7 @@ export function toolInputPayload(
   }
   return {
     section: "input",
-    title: "Input",
+    title: labels.input,
     text: JSON.stringify(args, null, 2),
     copyText: JSON.stringify(args, null, 2),
     lang: "json",
@@ -306,12 +312,13 @@ export function toolInputPayload(
 
 export function toolResultPayload(
   result: string | undefined,
+  title = "Result",
 ): ToolDetailPayload | null {
   if (result === undefined) return null;
   const formatted = formatToolTextValue(result);
   return {
     section: "result",
-    title: "Result",
+    title,
     text: formatted.text,
     copyText: result,
     lang: formatted.lang,
@@ -438,6 +445,7 @@ function ToolOutputPopover({
   payload: ToolDetailPayload;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -477,7 +485,7 @@ function ToolOutputPopover({
             className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("agentChat.common.copied") : t("agentChat.common.copy")}
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden p-3">
@@ -545,6 +553,7 @@ function ApprovalAffordance({
   toolCallId?: string;
   approval: { approvalKey: string; dismissed?: boolean };
 }) {
+  const t = useT();
   const ctx = React.useContext(ApprovalContext);
   const [localResolution, setLocalResolution] =
     useState<ApprovalResolution | null>(null);
@@ -560,7 +569,7 @@ function ApprovalAffordance({
   if (resolution === "approved") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
-        Approved. Re-running {toolName}...
+        {t("agentChat.approval.approved", { tool: toolName })}
       </div>
     );
   }
@@ -570,15 +579,15 @@ function ApprovalAffordance({
   if (resolution === "denied") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
-        Denied. {toolName} did not run.
+        {t("agentChat.approval.denied", { tool: toolName })}
       </div>
     );
   }
   return (
-    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
       <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="mr-auto text-xs text-muted-foreground">
-        Approve to run {toolName}?
+      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+        {t("agentChat.approval.question", { tool: toolName })}
       </span>
       {ctx && (
         <button
@@ -593,12 +602,12 @@ function ApprovalAffordance({
             ctx.onApprove(approval.approvalKey);
           }}
           className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
             "bg-foreground text-background hover:bg-foreground/90",
           )}
         >
           <IconCheck className="h-3.5 w-3.5" />
-          Approve
+          {t("agentChat.approval.approve")}
         </button>
       )}
       {ctx?.onAlwaysAllow && (
@@ -613,14 +622,14 @@ function ApprovalAffordance({
             );
             ctx.onAlwaysAllow?.(approval.approvalKey);
           }}
-          title="Approve and always allow this exact command"
+          title={t("agentChat.approval.alwaysAllowHint")}
           className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
             "text-foreground hover:bg-muted",
           )}
         >
           <IconShieldCheck className="h-3.5 w-3.5" />
-          Always allow
+          {t("agentChat.approval.alwaysAllow")}
         </button>
       )}
       <button
@@ -631,12 +640,12 @@ function ApprovalAffordance({
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
-          "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
           "text-foreground hover:bg-muted",
         )}
       >
         <IconX className="h-3.5 w-3.5" />
-        Deny
+        {t("agentChat.approval.deny")}
       </button>
     </div>
   );
@@ -655,6 +664,7 @@ export function ToolCallDisplay({
   isRunning,
   outcome,
   structuredMeta,
+  activity,
   approval,
   repeatCount,
   isLatestRunning = isRunning,
@@ -671,6 +681,7 @@ export function ToolCallDisplay({
   /** "unknown": the stream ended mid-flight, so the side effect may have landed. */
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
@@ -678,6 +689,19 @@ export function ToolCallDisplay({
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
+  const isDelegatedAgentCall =
+    toolName === "call-agent" || toolName.startsWith("agent:");
+  const effectiveIsRunning =
+    isRunning ||
+    (isDelegatedAgentCall &&
+      isToolCallActive({
+        type: "tool-call",
+        toolName,
+        result,
+        outcome,
+        activity,
+        structuredMeta,
+      }));
   const showActiveTail = isActiveTail ?? isLatestRunning;
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
@@ -686,7 +710,7 @@ export function ToolCallDisplay({
   const wrapToolDisplay = (children: React.ReactNode) => (
     <ToolActivityPresentation
       toolName={toolName}
-      isRunning={isRunning}
+      isRunning={effectiveIsRunning}
       toolCallId={toolCallId}
       suppressLongRunningHint={
         toolName === "call-agent" || toolName.startsWith("agent:")
@@ -702,7 +726,7 @@ export function ToolCallDisplay({
           structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
         }
         output={result}
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -712,7 +736,7 @@ export function ToolCallDisplay({
         meta={
           structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
         }
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -722,7 +746,7 @@ export function ToolCallDisplay({
         meta={
           structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
         }
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -735,7 +759,7 @@ export function ToolCallDisplay({
       result={result}
       mcpApp={mcpApp}
       chatUI={chatUI}
-      isRunning={isRunning}
+      isRunning={effectiveIsRunning}
       outcome={outcome}
       isActiveTail={showActiveTail}
       structuredMeta={structuredMeta}
@@ -774,6 +798,7 @@ function ToolCallDisplayGeneric({
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
+  const t = useT();
   const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
@@ -852,7 +877,7 @@ function ToolCallDisplayGeneric({
             description={
               parsed.description ||
               (args as Record<string, string>)?.task ||
-              "Sub-agent task"
+              t("agentChat.tool.subAgentTask")
             }
             onOpen={(tid) => {
               window.dispatchEvent(
@@ -906,15 +931,21 @@ function ToolCallDisplayGeneric({
     );
   }
 
-  const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
-  const resultPayload = toolResultPayload(result);
+  const inputPayload = hasArgs
+    ? toolInputPayload(toolName, args, {
+        input: t("agentChat.tool.input"),
+        inputWithLabel: (label) =>
+          t("agentChat.tool.inputWithLabel", { label }),
+      })
+    : null;
+  const resultPayload = toolResultPayload(result, t("agentChat.tool.result"));
 
   const displayName = isAgentCall
     ? isRunning
-      ? `Asking ${agentName}...`
+      ? t("agentChat.tool.askingAgent", { agent: agentName })
       : isAgentError
-        ? `Error asking ${agentName}`
-        : `Asked ${agentName}`
+        ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
+        : t("agentChat.tool.askedAgent", { agent: agentName })
     : humanizeToolName(toolName);
 
   const canExpand = isAgentCall
@@ -922,12 +953,12 @@ function ToolCallDisplayGeneric({
     : hasArgs || result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
   const ToolIcon = resolveToolIcon(toolName);
-  const outputTitle = `Raw ${toolName} tool call output`;
+  const outputTitle = t("agentChat.tool.rawOutput", { tool: toolName });
 
   if (isAgentCall) {
     return (
       <AgentCallCell
-        agentName={agentName ?? "agent"}
+        agentName={agentName ?? t("agentChat.common.agent")}
         activity={agentActivity}
         progress={agentProgress}
         responseText={agentStreamText}
@@ -994,7 +1025,7 @@ function ToolCallDisplayGeneric({
         {repeatCount && repeatCount > 1 && (
           <span
             className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
-            title={`Repeated ${repeatCount} times`}
+            title={t("agentChat.tool.repeated", { count: repeatCount })}
           >
             {repeatCount}x
           </span>
@@ -1019,7 +1050,9 @@ function ToolCallDisplayGeneric({
             >
               <button
                 type="button"
-                aria-label={`View ${toolName} output`}
+                aria-label={t("agentChat.tool.viewOutput", {
+                  tool: toolName,
+                })}
                 className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
               >
                 <IconCode className="size-3.5" />
@@ -1030,8 +1063,7 @@ function ToolCallDisplayGeneric({
       </AnimatedCollapse>
       {isUnknownOutcome && (
         <p role="status" className="ps-5 text-xs text-muted-foreground">
-          Interrupted before this finished reporting — it may or may not have
-          completed. Check before retrying.
+          {t("agentChat.tool.interrupted")}
         </p>
       )}
       {approval && (
@@ -1063,6 +1095,7 @@ function AgentCallCell({
   durationMs?: number;
 }) {
   const t = useT();
+  const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(true);
   const toolCount = activity?.toolCalls?.length ?? 0;
   // Response segments are ordered against the tool calls that preceded them, so
@@ -1082,10 +1115,10 @@ function AgentCallCell({
     inlineSegments.length,
   );
   const label = isRunning
-    ? t("agentPanel.delegatedAgent.asking", { name: agentName })
+    ? t("agentChat.tool.askingAgent", { agent: agentName })
     : isError
-      ? t("agentPanel.delegatedAgent.error", { name: agentName })
-      : t("agentPanel.delegatedAgent.asked", { name: agentName });
+      ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
+      : t("agentChat.tool.askedAgent", { agent: agentName });
   const workContent = work ? (
     <div className="space-y-1 ps-5">
       {Array.from({ length: workItemCount }, (_, index) => {
@@ -1138,8 +1171,8 @@ function AgentCallCell({
     isRunning && !activity && progress && progressState
       ? [
           progressState.charAt(0).toUpperCase() + progressState.slice(1),
-          t("agentPanel.delegatedAgent.elapsed", {
-            duration: formatWorkedDuration(progress.elapsedSeconds * 1000),
+          t("agentChat.tool.elapsed", {
+            duration: formatDuration(progress.elapsedSeconds * 1000),
           }),
           progress.detail,
         ]
@@ -1266,12 +1299,20 @@ export function ToolCallFallback({
   isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  // A spinner is a claim that something is running right now, so it needs an
-  // actually-running chat. `chatRunning` already stays true across
-  // auto-continuation gaps and server-active runs (resolveAssistantChatRunningState),
-  // so an activity placeholder alone must never resurrect one on rehydrated
-  // history.
-  const isRunning = result === undefined && chatRunning;
+  // `chatRunning` covers ordinary live activity. An unresolved tool or a
+  // delegated-agent row is also explicit work evidence, while a generic
+  // activity placeholder alone must stay frozen when history is rehydrated.
+  const isRunning =
+    rest.outcome !== "unknown" &&
+    ((result === undefined && chatRunning) ||
+      isToolCallActive({
+        type: "tool-call",
+        toolName,
+        result,
+        outcome: rest.outcome,
+        activity: rest.activity,
+        structuredMeta: rest.structuredMeta,
+      }));
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -1288,6 +1329,7 @@ export function ToolCallFallback({
       mcpApp={rest.mcpApp}
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
+      activity={rest.activity}
       isRunning={isRunning}
       outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
@@ -1368,6 +1410,7 @@ export function ReconnectStreamMessage({
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
+        activity={part.activity}
         outcome={part.outcome}
         isRunning={
           part.result === undefined &&
@@ -1531,6 +1574,8 @@ export function ReasoningCell({
    */
   durationMs?: number | null;
 }) {
+  const t = useT();
+  const formatDuration = useLocalizedWorkedDuration();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
   const [open, setOpen] = useState(defaultOpen ?? true);
   const wasStreamingRef = useRef(isStreaming);
@@ -1566,10 +1611,12 @@ export function ReasoningCell({
   }
 
   const label = isStreaming
-    ? "Thinking"
+    ? t("agentChat.status.thinking")
     : durationMs != null
-      ? `Thought for ${formatWorkedDuration(durationMs)}`
-      : "Thought";
+      ? t("agentChat.tool.thoughtFor", {
+          duration: formatDuration(durationMs),
+        })
+      : t("agentChat.tool.thought");
   // Only clamp to a scroll-free "tail" view while actively streaming and
   // expanded — once the run finishes the full text is shown, unclamped.
   const showTail = isStreaming && open;
@@ -1607,21 +1654,50 @@ export function ReasoningCell({
 
 // ─── Worked-for duration helpers ──────────────────────────────────────────────
 
-export function formatWorkedDuration(ms: number): string {
+export function formatWorkedDuration(
+  ms: number,
+  options: {
+    locale?: string;
+    hour?: string;
+    minute?: string;
+    second?: string;
+  } = {},
+): string {
+  const number = new Intl.NumberFormat(options.locale ?? "en-US");
+  const hour = options.hour ?? "h";
+  const minute = options.minute ?? "m";
+  const second = options.second ?? "s";
+  const part = (value: number, unit: string) =>
+    `${number.format(value)}${unit}`;
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
   if (totalSeconds < 60) {
-    return totalSeconds <= 1 ? "1s" : `${totalSeconds}s`;
+    return part(Math.max(1, totalSeconds), second);
   }
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   if (minutes < 60) {
-    if (seconds === 0) return `${minutes}m`;
-    return `${minutes}m ${seconds}s`;
+    if (seconds === 0) return part(minutes, minute);
+    return `${part(minutes, minute)} ${part(seconds, second)}`;
   }
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes % 60;
-  if (remMinutes === 0) return `${hours}h`;
-  return `${hours}h ${remMinutes}m`;
+  if (remMinutes === 0) return part(hours, hour);
+  return `${part(hours, hour)} ${part(remMinutes, minute)}`;
+}
+
+export function useLocalizedWorkedDuration() {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? "en-US";
+  return useCallback(
+    (ms: number) =>
+      formatWorkedDuration(ms, {
+        locale,
+        hour: t("agentChat.duration.hourShort"),
+        minute: t("agentChat.duration.minuteShort"),
+        second: t("agentChat.duration.secondShort"),
+      }),
+    [locale, t],
+  );
 }
 
 export function WorkedForSummary({
@@ -1637,6 +1713,8 @@ export function WorkedForSummary({
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
+  const t = useT();
+  const formatDuration = useLocalizedWorkedDuration();
   // Ordinary completed work starts closed so a remount never flashes details
   // while auto-collapse settles. Interactive UI opts into an open summary.
   const [open, setOpen] = useState(defaultOpen);
@@ -1651,8 +1729,10 @@ export function WorkedForSummary({
 
   const label =
     durationMs != null && durationMs >= 1000
-      ? `Worked for ${formatWorkedDuration(durationMs)}`
-      : "Worked";
+      ? t("agentChat.tool.workedFor", {
+          duration: formatDuration(durationMs),
+        })
+      : t("agentChat.tool.worked");
 
   return (
     <div className="my-1 w-full">
@@ -1688,8 +1768,9 @@ export function RanToolsSummary({
   motionKey?: string;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
-  const label = `Ran ${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
+  const label = t("agentChat.tool.ranTools", { count: toolCount });
 
   return (
     <div

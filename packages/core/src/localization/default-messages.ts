@@ -55,6 +55,7 @@ const messages = {
     profileUploading: "Uploading...",
     profileChangePhoto: "Change photo",
     profileNameLabel: "Name",
+    profileNameEdit: "Edit name",
     profileNamePlaceholder: "Your name",
     profileNameDescription:
       "This name is used when referring to you across Agent-Native apps.",
@@ -360,6 +361,8 @@ const messages = {
         " a Dispatch tab or a workspace app in this workspace.",
       agentsDescription:
         "Dispatch can delegate to the built-in app suite over A2A by default. Add extra agents here only if you want to route work to apps outside that built-in set.",
+      simpleAgentsDescription:
+        "Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool.",
       mcpAccessUpdated: "Agent integration access updated",
       selectAppForMcp: "Select at least one app, or expose all apps.",
       mcpUrlCopied: "Agent integration URL copied",
@@ -482,6 +485,7 @@ const messages = {
     workspace: "Resources",
     newChat: "New chat",
     newTerminal: "New terminal",
+    loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
@@ -757,6 +761,7 @@ const messages = {
     shareLink: "Share link",
     addPeopleByEmail: "Add people by email",
     notifyPeople: "Notify people",
+    message: "Message",
     addMessage: "Add a message",
     hideMessage: "Hide message",
     messagePlaceholder: "Add a short note (optional)",
@@ -767,6 +772,7 @@ const messages = {
     embedUrl: "Embed URL",
     embedCode: "Embed code",
     copy: "Copy",
+    copied: "Copied",
     role: "Role",
     private: "Private",
     privateDescription: "Only people with access can view",
@@ -807,6 +813,9 @@ const messages = {
     statusDone: "Done",
     statusFailed: "Failed",
     statusStopped: "Stopped",
+    statusNeedsApproval: "Needs approval",
+    statusNeedsInput: "Needs input",
+    statusPaused: "Paused",
     updatedJustNow: "Updated just now",
     finishedJustNow: "Finished just now",
     updatedMinutes: "Updated {{count}}m ago",
@@ -817,8 +826,8 @@ const messages = {
     finishedDate: "Finished {{date}}",
   },
   agentTask: {
-    backgroundTask: "Background task",
-    stop: "Stop background task",
+    spawnedAgent: "Spawned agent",
+    stop: "Stop spawned agent",
     openThread: "Open task thread",
   },
   codeRequired: {

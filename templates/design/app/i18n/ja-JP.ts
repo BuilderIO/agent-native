@@ -6,6 +6,11 @@ const messages = {
     ...messagesByLocale["ja-JP"].designEditor,
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
+    toasts: {
+      ...messagesByLocale["ja-JP"].designEditor.toasts,
+      pdfExportError: "PDF をエクスポートできませんでした",
+      pdfDownloaded: "PDF をダウンロードしました",
+    },
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",
       send: "送信",
@@ -57,7 +62,7 @@ const messages = {
     commentMode: "コメント",
     sendToAgent: "エージェントに送信",
     sendingToAgent: "エージェントに送信中…",
-    enterToPost: "Enter で投稿 · Shift+Enter で改行",
+    enterToPost: "Enter で投稿 · Shift Enter で改行",
     post: "投稿",
     posting: "投稿中…",
     postFailed: "このコメントを投稿できませんでした",

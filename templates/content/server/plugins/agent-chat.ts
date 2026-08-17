@@ -34,6 +34,9 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: {
+    connectorCatalog: ["list-content-databases", "describe-content-database"],
+  },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
   // Enable sandboxed JavaScript execution so Content agents can fetch,

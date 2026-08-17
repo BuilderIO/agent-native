@@ -5,6 +5,7 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 
@@ -23,6 +24,8 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -32,6 +35,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
+    meetings: {
+      id: "meetings.id",
+    },
     meetingParticipants: {
       email: "participants.email",
       name: "participants.name",
@@ -88,6 +94,7 @@ function makeMeeting(overrides: Record<string, unknown> = {}) {
     transcriptStatus: "ready",
     summaryMd: "The team agreed on the launch plan.",
     bulletsJson: JSON.stringify([{ text: "Ship on Tuesday" }]),
+    ownerEmail: "owner@example.com",
     recordingId: "recording-1",
     shareTranscript: false,
     trashedAt: null,
@@ -103,6 +110,10 @@ describe("/api/public-meeting route", () => {
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: false,
+      reason: "missing",
+    });
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
       resource: makeMeeting(),
@@ -129,9 +140,63 @@ describe("/api/public-meeting route", () => {
     expect(mockGetDb).not.toHaveBeenCalled();
   });
 
-  it("omits the transcript by default", async () => {
+  it("uses a valid meeting-scoped agent token without requiring a browser session", async () => {
+    const meeting = makeMeeting({
+      visibility: "private",
+      shareTranscript: true,
+    });
+    const db = createDbWithSelectResults([[meeting], [], []]);
+    mockGetQuery.mockReturnValue({
+      id: "meeting-1",
+      agent_access: "meeting-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      viewerEmail: "owner@example.com",
+    });
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "meeting-token",
+      { resourceKind: "clips:meeting", resourceId: "meeting-1" },
+    );
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      meeting: { id: "meeting-1", title: "Weekly sync" },
+      viewer: null,
+    });
+    expect(db.select).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not treat an invalid agent token as anonymous meeting access", async () => {
+    mockGetQuery.mockReturnValue({
+      id: "meeting-1",
+      agent_access: "wrong-meeting-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: false,
+      reason: "signature_mismatch",
+    });
+    mockResolveAccess.mockResolvedValue(null);
+
+    await expect(handler({} as any)).resolves.toEqual({ error: "Not found" });
+
+    expect(mockResolveAccess).toHaveBeenCalledWith("meeting", "meeting-1", {
+      userEmail: undefined,
+      orgId: undefined,
+    });
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("returns a null transcript when no transcript row exists", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: true }),
+    });
     const db = createDbWithSelectResults([
-      [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
+      [{ email: "OWNER@example.com", name: "Owner", isOrganizer: true }],
       [
         {
           id: "item-1",
@@ -140,6 +205,7 @@ describe("/api/public-meeting route", () => {
           completedAt: null,
         },
       ],
+      [],
     ]);
     mockGetDb.mockReturnValue(db);
 
@@ -151,7 +217,7 @@ describe("/api/public-meeting route", () => {
         summaryMd: "The team agreed on the launch plan.",
         bullets: [{ text: "Ship on Tuesday" }],
         participants: [
-          { email: "guest@example.com", name: "Guest", isOrganizer: false },
+          { email: "OWNER@example.com", name: "Owner", isOrganizer: true },
         ],
         actionItems: [
           {
@@ -161,11 +227,14 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
+        // The owner is already a listed participant (case-insensitively),
+        // so their email is already public on this page — safe to include.
+        ownerEmail: "owner@example.com",
+        transcript: null,
       },
       viewer: null,
     });
-    expect("transcript" in (result as any).meeting).toBe(false);
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.select).toHaveBeenCalledTimes(3);
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       {},
       "Cache-Control",
@@ -173,35 +242,46 @@ describe("/api/public-meeting route", () => {
     );
   });
 
-  it("includes a normalized transcript only after the owner opts in", async () => {
+  it("does not expose the owner's email when they aren't a public participant", async () => {
+    const db = createDbWithSelectResults([
+      [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
+      [],
+    ]);
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({
+      meeting: { ownerEmail: null },
+    });
+  });
+
+  it("includes a normalized transcript when shareTranscript is enabled", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
       resource: makeMeeting({ shareTranscript: true }),
     });
-    const db = createDbWithSelectResults([]);
-    db.select = vi
-      .fn()
-      .mockImplementationOnce(() => selectBuilder([]))
-      .mockImplementationOnce(() => selectBuilder([]))
-      .mockImplementationOnce(() =>
-        selectBuilder([
-          {
-            status: "ready",
-            language: "en",
-            fullText: "Hello team. We are ready.",
-            failureReason: null,
-            segmentsJson: JSON.stringify([
-              {
-                startMs: 0,
-                endMs: 1_200,
-                text: "Hello team.",
-                source: "mic",
-              },
-            ]),
-            updatedAt: "2026-07-20T17:31:00.000Z",
-          },
-        ]),
-      );
+    const db = createDbWithSelectResults([
+      [],
+      [],
+      [
+        {
+          status: "ready",
+          language: "en",
+          fullText: "Hello team. We are ready.",
+          failureReason: null,
+          segmentsJson: JSON.stringify([
+            {
+              startMs: 0,
+              endMs: 1_200,
+              text: "Hello team.",
+              source: "mic",
+            },
+          ]),
+          updatedAt: "2026-07-20T17:31:00.000Z",
+        },
+      ],
+    ]);
     mockGetDb.mockReturnValue(db);
 
     const result = await handler({} as any);
@@ -224,6 +304,24 @@ describe("/api/public-meeting route", () => {
       },
     });
     expect(db.select).toHaveBeenCalledTimes(3);
+  });
+
+  it("omits the transcript when shareTranscript is disabled", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: false }),
+    });
+    const db = createDbWithSelectResults([[], []]);
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
+    expect(result).toHaveProperty("meeting");
+    expect(
+      (result as { meeting: Record<string, unknown> }).meeting,
+    ).not.toHaveProperty("transcript");
+    expect(db.select).toHaveBeenCalledTimes(2);
   });
 
   it("passes the signed-in viewer context to meeting access resolution", async () => {

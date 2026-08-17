@@ -210,6 +210,7 @@ type ActiveRecording = {
   outputStream: MediaStream;
   sourceStreams: MediaStream[];
   audioContext: AudioContext | null;
+  cleanupAudio: () => void;
   chunkIndex: number;
   uploadChain: Promise<void>;
   uploadPromises: Promise<unknown>[];
@@ -433,14 +434,9 @@ async function getCameraStream(deviceId: string): Promise<MediaStream> {
   }
 }
 
-// Phones/Continuity-style mics already apply their own echo cancellation,
-// noise suppression, and gain control before the audio ever reaches Chrome.
-// Stacking Chrome's versions of the same processing on top double-processes
-// the signal and audibly degrades it. We can't detect "is this device doing
-// its own processing" directly, so we use the device label as a heuristic and
-// ask the browser to SKIP its own noise suppression / AGC for those devices
-// (`{ ideal: false }` — a best-effort request, not a hard requirement). Echo
-// cancellation stays on for everything.
+// Let the browser apply its built-in voice processing. Device labels are not a
+// reliable signal for whether a hardware path already processed its audio, so
+// do not branch capture quality on a label heuristic.
 async function chooseFallbackMicDevice(
   requestedLabel: string,
   avoidDeviceIds: string[] = [],
@@ -457,13 +453,12 @@ async function chooseFallbackMicDevice(
 
 function voiceFocusedAudioConstraints(
   deviceId: string,
-  deviceLabel = "",
+  _deviceLabel = "",
 ): MediaTrackConstraints {
-  const skipRedundantProcessing = isLikelyPhoneMicLabel(deviceLabel);
   const audio: MediaTrackConstraints = {
     echoCancellation: true,
-    noiseSuppression: skipRedundantProcessing ? { ideal: false } : true,
-    autoGainControl: skipRedundantProcessing ? { ideal: false } : true,
+    noiseSuppression: true,
+    autoGainControl: true,
     channelCount: 1,
   };
   if (deviceId) audio.deviceId = { exact: deviceId };
@@ -787,21 +782,33 @@ async function buildCompositor(
 
 async function createMixedAudio(
   streams: MediaStream[],
-): Promise<{ audioContext: AudioContext | null; tracks: MediaStreamTrack[] }> {
-  const audioTracks = streams.flatMap((stream) => stream.getAudioTracks());
-  if (!audioTracks.length) return { audioContext: null, tracks: [] };
-  if (audioTracks.length === 1) {
-    return { audioContext: null, tracks: audioTracks };
+  microphoneStream: MediaStream | null,
+): Promise<{
+  audioContext: AudioContext | null;
+  tracks: MediaStreamTrack[];
+  cleanup: () => void;
+}> {
+  const audioInputs = streams.flatMap((stream) =>
+    stream.getAudioTracks().map((track) => ({
+      track,
+      isMicrophone: stream === microphoneStream,
+    })),
+  );
+  if (!audioInputs.length) {
+    return { audioContext: null, tracks: [], cleanup() {} };
+  }
+  if (audioInputs.length === 1 && !audioInputs[0].isMicrophone) {
+    return { audioContext: null, tracks: [audioInputs[0].track], cleanup() {} };
   }
 
   const audioContext = new AudioContext();
   await audioContext.resume().catch(() => undefined);
   const destination = audioContext.createMediaStreamDestination();
-  for (const track of audioTracks) {
+  for (const input of audioInputs) {
     // One source per track (not per stream) so each input is isolated in the
     // mix graph and can be detached independently.
     const source = audioContext.createMediaStreamSource(
-      new MediaStream([track]),
+      new MediaStream([input.track]),
     );
     source.connect(destination);
     // A mixed input track can end mid-recording — most commonly the shared
@@ -809,7 +816,7 @@ async function createMixedAudio(
     // just that dead source so the mixed output keeps carrying the surviving
     // inputs (the microphone). Without this the whole mixed destination can go
     // silent, dropping both the tab audio and the mic for the rest of the clip.
-    track.addEventListener("ended", () => {
+    input.track.addEventListener("ended", () => {
       try {
         source.disconnect();
       } catch {
@@ -817,7 +824,15 @@ async function createMixedAudio(
       }
     });
   }
-  return { audioContext, tracks: destination.stream.getAudioTracks() };
+  let cleanedUp = false;
+  return {
+    audioContext,
+    tracks: destination.stream.getAudioTracks(),
+    cleanup() {
+      if (cleanedUp) return;
+      cleanedUp = true;
+    },
+  };
 }
 
 async function uploadChunk(
@@ -1081,6 +1096,7 @@ function disposePrepared(): void {
 
 function cleanup(recording: ActiveRecording): void {
   recording.stopCompositor?.();
+  recording.cleanupAudio();
   stopStreams([recording.outputStream, ...recording.sourceStreams]);
   void recording.audioContext?.close().catch(() => undefined);
 }
@@ -1215,7 +1231,7 @@ async function begin(message: BeginMessage): Promise<{
       ? [ready.cameraStream]
       : []),
   ];
-  const mixedAudio = await createMixedAudio(audioInputs);
+  const mixedAudio = await createMixedAudio(audioInputs, ready.micStream);
 
   const outputStream = new MediaStream([videoTrack, ...mixedAudio.tracks]);
   const mimeType = pickMimeType() || "video/webm";
@@ -1257,6 +1273,7 @@ async function begin(message: BeginMessage): Promise<{
       ...(compositor ? [compositor.canvasStream] : []),
     ],
     audioContext: mixedAudio.audioContext,
+    cleanupAudio: mixedAudio.cleanup,
     chunkIndex: 0,
     uploadChain: Promise.resolve(),
     uploadPromises: [],
@@ -1802,6 +1819,7 @@ async function restart(
   // Tear down the old compositor + mixing context; keep the capture tracks alive
   // so the next BEGIN can build a fresh compositor/recorder on the same streams.
   recording.stopCompositor?.();
+  recording.cleanupAudio();
   void recording.audioContext?.close().catch(() => undefined);
   activeRecording = null;
 

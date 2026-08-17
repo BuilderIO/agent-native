@@ -128,7 +128,7 @@ describe("MessageActionsMenu request ID copy", () => {
     });
     const item = Array.from(
       document.querySelectorAll('[role="menuitem"]'),
-    ).find((candidate) => candidate.textContent?.includes("Copy Request ID"));
+    ).find((candidate) => candidate.textContent?.includes("Copy request ID"));
     expect(item).toBeTruthy();
     await act(async () => {
       item?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

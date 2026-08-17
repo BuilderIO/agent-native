@@ -184,6 +184,27 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 
 For list views, show `<VisibilityBadge visibility={row.visibility} />` next to each resource.
 
+## Standard share surface
+
+All app share popovers should use the same compact surface contract:
+
+- Use the text-only `ShareTrigger` from `@agent-native/toolkit/sharing`.
+- Render ordinary links with `ShareCopyRow`, which exposes a Copy action without
+  printing the raw URL.
+- Keep general access and individual people access in the standard Core sharing
+  flow. The people flow supports email invites, roles, notifications, and
+  removal through the shared share actions.
+- Add `ShareAgentsSection` only when the resource has a real agent-readable
+  link or prompt. Keep it collapsed by default and supply domain-specific
+  content through the shared section shell.
+- App-specific tabs or controls may remain when they represent a real domain
+  action (for example, an embed-code editor), but they should retain the same
+  trigger, copy-row, access, and spacing language.
+
+`ShareDisclosureSection` is the toolkit-owned shell for optional expandable
+share details; use its `ShareAgentsSection` or `SharePeopleSection` wrappers
+instead of creating another collapsible share panel in a template.
+
 ## Actions available everywhere
 
 The framework auto-mounts these actions in every template — no per-template boilerplate:
