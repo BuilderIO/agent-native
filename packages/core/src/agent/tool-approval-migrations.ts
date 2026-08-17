@@ -44,7 +44,6 @@ export const AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL = `CREATE INDEX IF NOT EXISTS
 
 export const AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approvals_recovery
   ON agent_tool_approvals(owner_email, org_id, thread_id, approval_key_hash, status, turn_id)`;
-
 /**
  * Durable approval grants are created and consumed on request paths, but their
  * schema belongs to the release migration boundary in production.
