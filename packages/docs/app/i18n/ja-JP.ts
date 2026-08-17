@@ -1569,8 +1569,6 @@ const jaJP = {
     realTimeCollaboration: "リアルタイム共同編集",
     agentResourcesOverview: "エージェント リソースの概要",
     skills: "スキル",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "カスタム Agents とチーム",
     workspaceGovernance: "Workspace ガバナンス",
     recurringJobs: "定期ジョブ",

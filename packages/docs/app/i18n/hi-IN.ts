@@ -1562,8 +1562,6 @@ const hiIN = {
     realTimeCollaboration: "Real-time collaboration",
     agentResourcesOverview: "एजेंट संसाधन अवलोकन",
     skills: "स्किल्स",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Custom Agents और Teams",
     workspaceGovernance: "Workspace governance",
     recurringJobs: "आवर्ती नौकरियाँ",

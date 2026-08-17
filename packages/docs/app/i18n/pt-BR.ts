@@ -1568,8 +1568,6 @@ const ptBR = {
     realTimeCollaboration: "Colaboração em tempo real",
     agentResourcesOverview: "Visão geral dos recursos do agente",
     skills: "Habilidades",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Agents e equipes personalizados",
     workspaceGovernance: "Governança do workspace",
     recurringJobs: "Jobs recorrentes",

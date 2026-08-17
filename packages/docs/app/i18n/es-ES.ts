@@ -1572,8 +1572,6 @@ const esES = {
     realTimeCollaboration: "Colaboración en tiempo real",
     agentResourcesOverview: "Descripción general de los recursos del agente",
     skills: "Habilidades",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Agents y equipos personalizados",
     workspaceGovernance: "Gobernanza del workspace",
     recurringJobs: "Tareas recurrentes",

@@ -1542,8 +1542,6 @@ const messages = {
     realTimeCollaboration: "即時協作",
     agentResourcesOverview: "代理資源概覽",
     skills: "技能",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "自訂 Agents 與團隊",
     workspaceGovernance: "工作區治理",
     recurringJobs: "定期工作",

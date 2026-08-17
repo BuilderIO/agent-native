@@ -1562,8 +1562,6 @@ const enUS = {
     realTimeCollaboration: "Real-Time Collaboration",
     agentResourcesOverview: "Agent Resources Overview",
     skills: "Skills",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Custom Agents & Teams",
     workspaceGovernance: "Workspace Governance",
     recurringJobs: "Recurring Jobs",

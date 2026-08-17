@@ -1544,8 +1544,6 @@ const zhCN = {
     realTimeCollaboration: "实时协作",
     agentResourcesOverview: "代理资源概览",
     skills: "技能",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "自定义 Agents 与团队",
     workspaceGovernance: "工作区治理",
     recurringJobs: "定期任务",

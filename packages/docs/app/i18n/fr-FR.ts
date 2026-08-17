@@ -1573,8 +1573,6 @@ const frFR = {
     realTimeCollaboration: "Collaboration temps réel",
     agentResourcesOverview: "Vue d'ensemble des ressources de l'agent",
     skills: "Compétences",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Agents et équipes personnalisés",
     workspaceGovernance: "Gouvernance du workspace",
     recurringJobs: "Tâches récurrentes",

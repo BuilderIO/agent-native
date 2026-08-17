@@ -1572,8 +1572,6 @@ const deDE = {
     realTimeCollaboration: "Echtzeit-Zusammenarbeit",
     agentResourcesOverview: "Übersicht über Agent-Ressourcen",
     skills: "Fähigkeiten",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Eigene Agents und Teams",
     workspaceGovernance: "Workspace-Governance",
     recurringJobs: "Wiederkehrende Jobs",

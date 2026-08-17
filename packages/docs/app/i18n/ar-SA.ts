@@ -1560,8 +1560,6 @@ const arSA = {
     realTimeCollaboration: "تعاون فوري",
     agentResourcesOverview: "نظرة عامة على موارد الوكيل",
     skills: "المهارات",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Agents و Teams مخصصة",
     workspaceGovernance: "حوكمة مساحة العمل",
     recurringJobs: "وظائف متكررة",

@@ -1565,8 +1565,6 @@ const koKR = {
     realTimeCollaboration: "실시간 협업",
     agentResourcesOverview: "에이전트 리소스 개요",
     skills: "스킬",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "사용자 지정 Agents 및 팀",
     workspaceGovernance: "Workspace 거버넌스",
     recurringJobs: "반복 작업",

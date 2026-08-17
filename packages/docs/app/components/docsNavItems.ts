@@ -612,19 +612,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "environmentVariables",
         slug: "environment-variables",
       },
-      {
-        id: "agents-group",
-        labelKey: "agents",
-        draft: true,
-        children: [
-          {
-            id: "agents-overview",
-            labelKey: "agentsOverview",
-            slug: "agents",
-            draft: true,
-          },
-        ],
-      },
     ],
   },
   {
