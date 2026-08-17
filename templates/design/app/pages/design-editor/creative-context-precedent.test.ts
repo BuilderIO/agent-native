@@ -65,6 +65,7 @@ describe("loadCreativeContextPrecedent", () => {
     expect(mockedCallAction).toHaveBeenCalledWith(
       "list-context-memberships",
       expect.objectContaining({ contextId: "ctx-1", status: "active" }),
+      { method: "GET" },
     );
   });
 

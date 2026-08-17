@@ -13,7 +13,12 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  parseCreativeContexts,
+  useCreativeContexts,
+  useCreativeContextState,
+} from "@agent-native/creative-context/client";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -194,6 +199,30 @@ export default function Index() {
         isBuiltIn: template.isBuiltIn,
       })),
     [templatesData?.templates],
+  );
+  const creativeContextsQuery = useCreativeContexts();
+  const creativeContextState = useCreativeContextState();
+  const creativeContextOptions = useMemo(
+    () =>
+      parseCreativeContexts(creativeContextsQuery.data)
+        .filter((context) => context.memberCount > 0)
+        .map((context) => ({ id: context.id, name: context.name })),
+    [creativeContextsQuery.data],
+  );
+  const handleCreativeContextChange = useCallback(
+    (contextId: string | null) => {
+      void creativeContextState
+        .setState({
+          ...creativeContextState.state,
+          contextMode: "auto",
+          selectedContextId: contextId,
+          pinnedPackId: null,
+        })
+        .catch(() => {
+          toast.error(t("creativeContext.stateSaveFailed"));
+        });
+    },
+    [creativeContextState, t],
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
@@ -1121,6 +1150,12 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
+        creativeContexts={creativeContextOptions}
+        creativeContextsLoading={creativeContextsQuery.isLoading}
+        selectedCreativeContextId={
+          creativeContextState.state.selectedContextId ?? null
+        }
+        onCreativeContextChange={handleCreativeContextChange}
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);

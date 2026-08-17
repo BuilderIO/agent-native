@@ -55,6 +55,9 @@ import {
 } from "@agent-native/core/shared";
 import {
   CreativeContextShareTab,
+  parseCreativeContexts,
+  useCreativeContexts,
+  useCreativeContextState,
   readCreativeContextState,
 } from "@agent-native/creative-context/client";
 import {
@@ -5040,6 +5043,30 @@ function DesignEditor() {
     t,
   ]);
 
+  const creativeContextsQuery = useCreativeContexts();
+  const creativeContextState = useCreativeContextState();
+  const creativeContextOptions = useMemo(
+    () =>
+      parseCreativeContexts(creativeContextsQuery.data)
+        .filter((context) => context.memberCount > 0)
+        .map((context) => ({ id: context.id, name: context.name })),
+    [creativeContextsQuery.data],
+  );
+  const handleCreativeContextChange = useCallback(
+    (contextId: string | null) => {
+      void creativeContextState
+        .setState({
+          ...creativeContextState.state,
+          contextMode: "auto",
+          selectedContextId: contextId,
+          pinnedPackId: null,
+        })
+        .catch(() => {
+          toast.error(t("creativeContext.stateSaveFailed"));
+        });
+    },
+    [creativeContextState, t],
+  );
   const resolvePromptDesignSystemId = useCallback(
     () =>
       design?.designSystemId ??
@@ -6090,12 +6117,10 @@ function DesignEditor() {
     let cancelled = false;
     void (async () => {
       const shouldExploreVariants = promptRequestsVariantExploration(prompt);
-      const precedent =
-        pending.skipQuestions === true || shouldExploreVariants
-          ? null
-          : await loadCreativeContextPrecedent(
-              (await readCreativeContextState()).selectedContextId,
-            );
+      const precedent = await loadCreativeContextPrecedent(
+        (await readCreativeContextState()).selectedContextId,
+      );
+      debugger;
       if (cancelled) return;
       // A reference screenshot already answers the questions the intake flow
       // asks. Spending the one turn that can see the image on a questionnaire
@@ -32792,7 +32817,6 @@ function DesignEditor() {
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
-          debugger;
           if (isBuilderDesignEmbed) {
             window.parent.postMessage(
               {
@@ -32885,6 +32909,12 @@ function DesignEditor() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}
+        creativeContexts={creativeContextOptions}
+        creativeContextsLoading={creativeContextsQuery.isLoading}
+        selectedCreativeContextId={
+          creativeContextState.state.selectedContextId ?? null
+        }
+        onCreativeContextChange={handleCreativeContextChange}
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
           navigate("/design-systems/setup");

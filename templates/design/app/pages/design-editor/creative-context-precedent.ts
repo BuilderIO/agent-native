@@ -109,11 +109,15 @@ export async function loadCreativeContextPrecedent(
 
   let response: MembershipsResponse;
   try {
-    response = (await callAction("list-context-memberships", {
-      contextId: id,
-      status: "active",
-      limit: MEMBERSHIP_LIMIT,
-    })) as MembershipsResponse;
+    response = (await callAction(
+      "list-context-memberships",
+      {
+        contextId: id,
+        status: "active",
+        limit: MEMBERSHIP_LIMIT,
+      },
+      { method: "GET" },
+    )) as MembershipsResponse;
   } catch (error) {
     return { status: "unavailable", contextId: id, reason: errorReason(error) };
   }
