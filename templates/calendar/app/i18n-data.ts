@@ -664,6 +664,7 @@ const enUS = {
     },
   },
   calendarView: {
+    addWorkingLocation: "Add working location",
     addTitleBeforeCreate: "Add a title before creating the event",
     calendarSettingsLoading:
       "Calendar settings are still loading. Try again in a moment.",
@@ -692,6 +693,11 @@ const enUS = {
     updatingEvent: "Updating event...",
     updatingRecurringEvent: "Updating recurring event...",
     week: "Week",
+    timezoneSwitchTitle: "Use your browser timezone?",
+    timezoneSwitchDescription:
+      "Calendar is pinned to {{savedTimezone}}, but your browser is in {{browserTimezone}}. Switch the calendar timezone?",
+    timezoneSwitchKeep: "Keep {{timezone}}",
+    timezoneSwitchSwitch: "Switch to {{timezone}}",
   },
   eventForm: {
     addAttachment: "Add attachment",
@@ -8014,6 +8020,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "你的信息",
     },
     calendarView: {
+      addWorkingLocation: "添加工作地点",
       addTitleBeforeCreate: "创建事件前请添加标题",
       calendarSettingsLoading: "日历设置仍在加载。请稍后再试。",
       day: "日",
@@ -8041,6 +8048,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "正在更新事件...",
       updatingRecurringEvent: "正在更新重复事件...",
       week: "周",
+      timezoneSwitchTitle: "使用浏览器时区？",
+      timezoneSwitchDescription:
+        "日历固定为 {{savedTimezone}}，但浏览器使用 {{browserTimezone}}。要切换日历时区吗？",
+      timezoneSwitchKeep: "保留 {{timezone}}",
+      timezoneSwitchSwitch: "切换到 {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "预约链接 — Calendar",
@@ -8183,6 +8195,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Tu información",
     },
     calendarView: {
+      addWorkingLocation: "Añadir ubicación de trabajo",
       addTitleBeforeCreate: "Añade un título antes de crear el evento",
       calendarSettingsLoading:
         "La configuración del calendario aún se está cargando. Inténtalo de nuevo en un momento.",
@@ -8213,6 +8226,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Actualizando evento...",
       updatingRecurringEvent: "Actualizando evento recurrente...",
       week: "Semana",
+      timezoneSwitchTitle: "¿Usar la zona horaria del navegador?",
+      timezoneSwitchDescription:
+        "El calendario está fijado en {{savedTimezone}}, pero tu navegador usa {{browserTimezone}}. ¿Cambiar la zona horaria del calendario?",
+      timezoneSwitchKeep: "Mantener {{timezone}}",
+      timezoneSwitchSwitch: "Cambiar a {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "Enlaces de reserva — Calendar",
@@ -8361,6 +8379,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Vos informations",
     },
     calendarView: {
+      addWorkingLocation: "Ajouter un lieu de travail",
       addTitleBeforeCreate: "Ajoutez un titre avant de créer l'événement",
       calendarSettingsLoading:
         "Les paramètres du calendrier sont encore en cours de chargement. Réessayez dans un instant.",
@@ -8389,6 +8408,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Mise à jour de l'événement...",
       updatingRecurringEvent: "Mise à jour de l'événement récurrent...",
       week: "Semaine",
+      timezoneSwitchTitle: "Utiliser le fuseau horaire du navigateur ?",
+      timezoneSwitchDescription:
+        "Le calendrier est fixé sur {{savedTimezone}}, mais votre navigateur utilise {{browserTimezone}}. Changer le fuseau horaire du calendrier ?",
+      timezoneSwitchKeep: "Conserver {{timezone}}",
+      timezoneSwitchSwitch: "Passer à {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "Liens de réservation — Calendar",
@@ -8539,6 +8563,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Deine Informationen",
     },
     calendarView: {
+      addWorkingLocation: "Arbeitsort hinzufügen",
       addTitleBeforeCreate:
         "Fügen Sie einen Titel hinzu, bevor Sie das Ereignis erstellen",
       calendarSettingsLoading:
@@ -8569,6 +8594,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Ereignis wird aktualisiert...",
       updatingRecurringEvent: "Wiederkehrendes Ereignis wird aktualisiert...",
       week: "Woche",
+      timezoneSwitchTitle: "Browser-Zeitzone verwenden?",
+      timezoneSwitchDescription:
+        "Der Kalender ist auf {{savedTimezone}} festgelegt, aber Ihr Browser verwendet {{browserTimezone}}. Kalenderzeitzone wechseln?",
+      timezoneSwitchKeep: "{{timezone}} beibehalten",
+      timezoneSwitchSwitch: "Zu {{timezone}} wechseln",
     },
     routeTitles: {
       bookingLinks: "Buchungslinks — Calendar",
@@ -8718,6 +8748,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "あなたの情報",
     },
     calendarView: {
+      addWorkingLocation: "勤務場所を追加",
       addTitleBeforeCreate: "イベントを作成する前にタイトルを追加してください",
       calendarSettingsLoading:
         "カレンダー設定を読み込み中です。少し待ってからもう一度お試しください。",
@@ -8746,6 +8777,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "イベントを更新中...",
       updatingRecurringEvent: "繰り返しイベントを更新中...",
       week: "週",
+      timezoneSwitchTitle: "ブラウザのタイムゾーンを使用しますか？",
+      timezoneSwitchDescription:
+        "カレンダーは {{savedTimezone}} に固定されていますが、ブラウザは {{browserTimezone}} を使用しています。カレンダーのタイムゾーンを切り替えますか？",
+      timezoneSwitchKeep: "{{timezone}} を維持",
+      timezoneSwitchSwitch: "{{timezone}} に切り替え",
     },
     routeTitles: {
       bookingLinks: "予約リンク — Calendar",
@@ -8890,6 +8926,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "내 정보",
     },
     calendarView: {
+      addWorkingLocation: "근무 위치 추가",
       addTitleBeforeCreate: "이벤트를 만들기 전에 제목을 추가하세요",
       calendarSettingsLoading:
         "캘린더 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요.",
@@ -8919,6 +8956,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "이벤트 업데이트 중...",
       updatingRecurringEvent: "반복 이벤트 업데이트 중...",
       week: "주",
+      timezoneSwitchTitle: "브라우저 시간대를 사용할까요?",
+      timezoneSwitchDescription:
+        "캘린더는 {{savedTimezone}}에 고정되어 있지만 브라우저는 {{browserTimezone}}을(를) 사용합니다. 캘린더 시간대를 전환할까요?",
+      timezoneSwitchKeep: "{{timezone}} 유지",
+      timezoneSwitchSwitch: "{{timezone}}(으)로 전환",
     },
     routeTitles: {
       bookingLinks: "예약 링크 — Calendar",
@@ -9065,6 +9107,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Suas informações",
     },
     calendarView: {
+      addWorkingLocation: "Adicionar local de trabalho",
       addTitleBeforeCreate: "Adicione um título antes de criar o evento",
       calendarSettingsLoading:
         "As configurações do calendário ainda estão carregando. Tente novamente em instantes.",
@@ -9094,6 +9137,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Atualizando evento...",
       updatingRecurringEvent: "Atualizando evento recorrente...",
       week: "Semana",
+      timezoneSwitchTitle: "Usar o fuso horário do navegador?",
+      timezoneSwitchDescription:
+        "O calendário está fixado em {{savedTimezone}}, mas o navegador usa {{browserTimezone}}. Mudar o fuso horário do calendário?",
+      timezoneSwitchKeep: "Manter {{timezone}}",
+      timezoneSwitchSwitch: "Mudar para {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "Links de reserva — Calendar",
@@ -9240,6 +9288,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "आपकी जानकारी",
     },
     calendarView: {
+      addWorkingLocation: "कार्य स्थान जोड़ें",
       addTitleBeforeCreate: "इवेंट बनाने से पहले शीर्षक जोड़ें",
       calendarSettingsLoading:
         "कैलेंडर सेटिंग अभी लोड हो रही हैं। कृपया थोड़ी देर में फिर कोशिश करें।",
@@ -9268,6 +9317,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "इवेंट अपडेट हो रहा है...",
       updatingRecurringEvent: "दोहराया जाने वाला इवेंट अपडेट हो रहा है...",
       week: "सप्ताह",
+      timezoneSwitchTitle: "ब्राउज़र का टाइमज़ोन इस्तेमाल करें?",
+      timezoneSwitchDescription:
+        "कैलेंडर {{savedTimezone}} पर पिन है, लेकिन आपका ब्राउज़र {{browserTimezone}} पर है। कैलेंडर टाइमज़ोन बदलें?",
+      timezoneSwitchKeep: "{{timezone}} रखें",
+      timezoneSwitchSwitch: "{{timezone}} पर बदलें",
     },
     routeTitles: {
       bookingLinks: "बुकिंग लिंक — Calendar",
@@ -9413,6 +9467,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "معلوماتك",
     },
     calendarView: {
+      addWorkingLocation: "إضافة موقع العمل",
       addTitleBeforeCreate: "أضف عنوانًا قبل إنشاء الحدث",
       calendarSettingsLoading:
         "لا تزال إعدادات التقويم قيد التحميل. حاول مرة أخرى بعد قليل.",
@@ -9441,6 +9496,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "جارٍ تحديث الحدث...",
       updatingRecurringEvent: "جارٍ تحديث الحدث المتكرر...",
       week: "الأسبوع",
+      timezoneSwitchTitle: "استخدام المنطقة الزمنية للمتصفح؟",
+      timezoneSwitchDescription:
+        "التقويم مثبت على {{savedTimezone}}، لكن متصفحك يستخدم {{browserTimezone}}. هل تريد تبديل المنطقة الزمنية للتقويم؟",
+      timezoneSwitchKeep: "الاحتفاظ بـ {{timezone}}",
+      timezoneSwitchSwitch: "التبديل إلى {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "روابط الحجز — Calendar",
