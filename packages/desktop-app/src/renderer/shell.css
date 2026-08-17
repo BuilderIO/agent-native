@@ -297,6 +297,8 @@ body {
 
 .desktop-chat-first-hub .code-agents-rail {
   position: relative;
+  min-height: 0;
+  height: 100%;
   border-right: 0;
   padding-top: 36px;
 }
@@ -937,8 +939,11 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail-footer {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   margin-top: auto;
+  background: hsl(var(--sidebar-background));
 }
 
 .desktop-chat-first-rail-footer-actions {
@@ -989,6 +994,20 @@ body {
   > .code-agents-nav-link {
   flex: 0 0 auto;
   width: 40px;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-rail-collapse] {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-rail-collapse]:hover {
+  background: hsl(var(--sidebar-accent) / 0.85);
+  color: hsl(var(--sidebar-accent-foreground));
 }
 
 @media (prefers-reduced-motion: reduce) {

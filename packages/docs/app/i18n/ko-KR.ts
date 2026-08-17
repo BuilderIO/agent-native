@@ -1580,6 +1580,7 @@ const koKR = {
     messagingRecipes: "메시징 레시피",
     messagingInternals: "메시징 내부 구조",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "A2A 프로토콜",
     mcpClients: "MCP 클라이언트 (도구 추가)",
     httpApi: "HTTP API (작업 호출)",

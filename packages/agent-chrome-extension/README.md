@@ -34,10 +34,13 @@ Emergency stop also releases injected mouse buttons and modifier keys before it
 detaches the debugger.
 
 Supported commands are `attach`, `detach`, `stop`, `observe`, `click`, `type`,
-`key`, `navigate`, and `scroll`. `observe` returns a bounded, simplified Chrome
-Accessibility tree and an optional viewport JPEG. Click and type targets are
-`backendNodeId` values from that tree. Navigation is restricted to the task's
-exact allowed-origin set.
+`key`, `navigate`, `open-tab`, and `scroll`. `observe` returns a bounded,
+simplified Chrome Accessibility tree and an optional viewport JPEG. Click and
+type targets are `backendNodeId` values from that tree. Navigation and
+background tab creation are restricted to the task's exact allowed-origin set.
+`open-tab` calls Chrome with `active: false`, then moves the task lease to the
+new tab after debugger attachment; it never focuses a Chrome window or uses
+the macOS cursor.
 
 The native port sends a heartbeat every 20 seconds. Chrome alarms retry the
 connection after a native-host disconnect, while the disconnect itself first

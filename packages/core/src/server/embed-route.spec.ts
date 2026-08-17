@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
@@ -52,6 +52,11 @@ describe("createEmbedStartRouteHandler", () => {
     setResponseHeader.mockReset();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
   it("does not consume one-time embed tickets for HEAD probes", async () => {
     const handler = createEmbedStartRouteHandler();
 
@@ -102,9 +107,10 @@ describe("createEmbedStartRouteHandler", () => {
       fakeEvent("GET", { ticket: "ticket-123" }),
     );
 
-    expect(consumeEmbedSessionTicket).toHaveBeenCalledWith("ticket-123", {
-      expectedOrgId: null,
-    });
+    expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
+      "ticket-123",
+      expect.objectContaining({ expectedOrgId: null }),
+    );
     expect(setEmbedSessionCookie).toHaveBeenCalledTimes(1);
     expect(signEmbedSessionToken).toHaveBeenCalledWith({
       ownerEmail: "steve@example.com",
@@ -160,6 +166,53 @@ describe("createEmbedStartRouteHandler", () => {
     expect(html).not.toContain("Invalid or expired embed session");
   });
 
+  it("logs a redacted target consume outcome and HTTP status", async () => {
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "");
+    vi.stubEnv("APP_ID", "");
+    consumeEmbedSessionTicket.mockImplementationOnce(
+      (_ticket: string, options: any) => {
+        options.onResult({
+          outcome: "org-mismatch",
+          ticketKey: "ticket-key",
+          ticketRowFound: true,
+          consumed: false,
+          expired: false,
+          expectedOrgKey: "expected-org",
+          ticketOrgKey: "ticket-org",
+        });
+        return null;
+      },
+    );
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "GET",
+        { ticket: "raw-ticket-value" },
+        { host: "content.agent-native.com", "x-forwarded-proto": "https" },
+      ),
+    );
+
+    expect(res.status).toBe(401);
+    expect(info).toHaveBeenCalledWith(
+      "[agent-native] workspace embed consume",
+      expect.objectContaining({
+        targetAppId: "content",
+        targetOrigin: "https://content.agent-native.com",
+        ticketKey: "ticket-key",
+        outcome: "org-mismatch",
+        ticketRowFound: true,
+        consumed: false,
+        expired: false,
+        expectedOrgKey: "expected-org",
+        ticketOrgKey: "ticket-org",
+        responseStatus: 401,
+      }),
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain("raw-ticket-value");
+  });
+
   it("bounds capability token lifetime to the remaining one-time ticket lifetime", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-29T12:00:00Z"));
@@ -208,7 +261,7 @@ describe("createEmbedStartRouteHandler", () => {
     expect(getExistingSession).toHaveBeenCalledOnce();
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
       "signed-out-local-ticket",
-      { expectedOrgId: null },
+      expect.objectContaining({ expectedOrgId: null }),
     );
     expect(signEmbedSessionToken).toHaveBeenCalledWith({
       ownerEmail: localWorkspacePrincipal,

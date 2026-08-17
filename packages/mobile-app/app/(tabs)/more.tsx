@@ -24,6 +24,7 @@ import AppCard, {
 import { SafeAreaView } from "@/components/uniwind-interop";
 import * as AppStore from "@/lib/app-store";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { useApps } from "@/lib/use-apps";
 import { useWorkspaceApps } from "@/lib/workspace-apps";
 
@@ -76,6 +77,7 @@ function ReorderableAppRow({
   source: "Local" | "Workspace";
   onReorder: (fromIndex: number, toIndex: number) => void;
 }) {
+  const colors = useMobileThemeColors();
   const accentColor = appAccentColor(app);
   const translateY = useRef(new Animated.Value(0)).current;
   const panResponder = useMemo(
@@ -130,7 +132,7 @@ function ReorderableAppRow({
       </View>
       <View className="flex-1 ml-3 min-w-0">
         <Text
-          className="text-white text-[15px] font-semibold"
+          className="text-foreground text-[15px] font-semibold"
           numberOfLines={1}
         >
           {app.name}
@@ -139,12 +141,17 @@ function ReorderableAppRow({
           {source}
         </Text>
       </View>
-      <IconGripVertical color="#71717a" size={20} strokeWidth={1.8} />
+      <IconGripVertical
+        color={colors.mutedForeground}
+        size={20}
+        strokeWidth={1.8}
+      />
     </Animated.View>
   );
 }
 
 export default function AppsScreen() {
+  const colors = useMobileThemeColors();
   const router = useRouter();
   const { enabledApps: localApps } = useApps();
   const workspace = useWorkspaceApps();
@@ -250,7 +257,7 @@ export default function AppsScreen() {
                 className={`flex-row items-center rounded-full border px-3 h-11 active:opacity-75 ${reorderMode ? "bg-gray-charcoal border-gray-charcoal" : "bg-card-dark border-border-dark"}`}
               >
                 <IconArrowsMoveVertical
-                  color="#d4d4d8"
+                  color={colors.foreground}
                   size={18}
                   strokeWidth={1.8}
                 />
@@ -265,7 +272,11 @@ export default function AppsScreen() {
               onPress={() => router.push("/settings" as never)}
               className="items-center bg-card-dark border border-border-dark rounded-full h-11 w-11 justify-center active:opacity-75"
             >
-              <IconSettings color="#f4f4f5" size={21} strokeWidth={1.8} />
+              <IconSettings
+                color={colors.foreground}
+                size={21}
+                strokeWidth={1.8}
+              />
             </Pressable>
           </View>
         </View>
@@ -322,7 +333,11 @@ export default function AppsScreen() {
           className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row p-[14px] active:opacity-75"
         >
           <View className="items-center bg-gray-charcoal rounded-xl h-[42px] w-[42px] justify-center">
-            <IconSettings color="#d4d4d8" size={20} strokeWidth={1.8} />
+            <IconSettings
+              color={colors.foreground}
+              size={20}
+              strokeWidth={1.8}
+            />
           </View>
           <View className="flex-1 ml-3">
             <Text className="text-text-light text-[15px] font-semibold">
@@ -332,7 +347,7 @@ export default function AppsScreen() {
               Choose which apps sit beside Chat.
             </Text>
           </View>
-          <IconChevronRight color="#71717a" size={20} />
+          <IconChevronRight color={colors.mutedForeground} size={20} />
         </Pressable>
       </ScrollView>
     </SafeAreaView>

@@ -1587,6 +1587,7 @@ const deDE = {
     messagingRecipes: "Messaging-Rezepte",
     messagingInternals: "Messaging-Interna",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "A2A-Protokoll",
     mcpClients: "MCP-Clients (Tools hinzufügen)",
     httpApi: "HTTP-API (Aktionen aufrufen)",

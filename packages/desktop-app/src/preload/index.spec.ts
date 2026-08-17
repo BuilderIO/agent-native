@@ -47,6 +47,7 @@ describe("multi-frontier preload API", () => {
           getStatus(): Promise<unknown>;
           getSettings(): Promise<unknown>;
           setSsoEnabled(enabled: boolean): Promise<unknown>;
+          ensureAppSession(appId: string): Promise<unknown>;
           getAvailability(): Promise<unknown>;
           signIn(): Promise<unknown>;
           authenticate(request: {
@@ -62,6 +63,7 @@ describe("multi-frontier preload API", () => {
     await identity.getStatus();
     await identity.getSettings();
     await identity.setSsoEnabled(true);
+    await identity.ensureAppSession("calendar");
     await identity.getAvailability();
     await identity.signIn();
     await identity.authenticate({
@@ -81,6 +83,10 @@ describe("multi-frontier preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith(
       IPC.IDENTITY_SSO_ENABLED_SET,
       true,
+    );
+    expect(electron.invoke).toHaveBeenCalledWith(
+      IPC.IDENTITY_APP_SESSION_ENSURE,
+      "calendar",
     );
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AVAILABILITY_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);

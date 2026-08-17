@@ -837,6 +837,7 @@ function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    `Treat ${run.cwd || process.cwd()} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
     ...(additionalSkillsRoot
       ? [
@@ -1799,6 +1800,7 @@ function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    `Treat ${run.cwd || process.cwd()} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
     ...(additionalSkillsRoot
       ? [
@@ -2665,6 +2667,7 @@ You bring a senior engineer's judgment to the work, but you let it arrive throug
 - When you search for text or files, reach first for \`rg\` or \`rg --files\`; they are much faster than \`grep\` or \`find\`. If \`rg\` is unavailable, use the next best tool without fuss.
 - Parallelize independent read-only work (file reads, searches) so you gather context quickly. Keep mutating steps ordered.
 - Read relevant files before editing them. Do not edit a file you have not actually read.
+- Treat ${cwd} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.
 
 # Engineering judgment
 

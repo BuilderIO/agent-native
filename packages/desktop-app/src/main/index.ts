@@ -1290,6 +1290,19 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
   return true;
 });
 
+ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
+  if (
+    !isShellIdentityIpc(event) ||
+    !isDesktopSsoEnabled() ||
+    typeof appId !== "string" ||
+    !appId.trim()
+  ) {
+    return false;
+  }
+  const broker = ensureDesktopIdentityBroker();
+  return broker?.ensureAppSession(appId.trim()) ?? false;
+});
+
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
@@ -4466,6 +4479,7 @@ async function spawnCodeAgentRunner(
       resourcesPath: process.resourcesPath,
       electronPath: process.execPath,
       repoRoot,
+      cwd,
       environment: process.env,
     },
     "run",
@@ -4525,7 +4539,7 @@ async function spawnCodeAgentRunner(
         runnerState: "running",
         runnerPid: child.pid,
         runnerCommand,
-        runnerCwd: repoRoot,
+        runnerCwd: invocation.cwd,
         runnerStartedAt,
       },
     });
@@ -4675,6 +4689,7 @@ function spawnCodeAgentApprovalRunner(
       resourcesPath: process.resourcesPath,
       electronPath: process.execPath,
       repoRoot,
+      cwd,
       environment: process.env,
     },
     subcommand,
@@ -4718,6 +4733,7 @@ function spawnCodeAgentApprovalRunner(
       metadata: {
         approvalRunnerPid: child.pid,
         approvalRunnerCommand: runnerCommand,
+        approvalRunnerCwd: invocation.cwd,
         approvalRunnerStartedAt: runnerStartedAt,
       },
     });
@@ -11469,7 +11485,7 @@ app.whenReady().then(async () => {
       const appId = id;
       configureWebviewSession(wc.session, appId);
       desktopWebviewAppIds.set(wc, appId);
-      if (resolveDesktopIdentityApp(appId)) {
+      if (isDesktopSsoEnabled() && resolveDesktopIdentityApp(appId)) {
         void wc
           .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
           .catch(() => {});

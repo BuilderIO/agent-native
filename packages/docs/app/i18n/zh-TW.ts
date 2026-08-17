@@ -1557,6 +1557,7 @@ const messages = {
     messagingRecipes: "訊息範例",
     messagingInternals: "訊息內部機制",
     dispatch: "調度",
+    portal: "Portal",
     a2aProtocol: "A2A 協議",
     mcpClients: "MCP 用戶端（新增工具）",
     httpApi: "HTTP API（呼叫行動）",

@@ -16,6 +16,7 @@ import {
   ModalSafeAreaProvider,
   SafeAreaView,
 } from "@/components/uniwind-interop";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const ICON_PRESETS: { name: string; icon: keyof typeof Feather.glyphMap }[] = [
   { name: "Globe", icon: "globe" },
@@ -45,6 +46,7 @@ export default function AppForm({
   onSave,
   editApp,
 }: AppFormProps) {
+  const colors = useMobileThemeColors();
   const [name, setName] = useState(editApp?.name ?? "");
   const [url, setUrl] = useState(editApp?.url ?? "");
   const [description, setDescription] = useState(editApp?.description ?? "");
@@ -107,14 +109,14 @@ export default function AppForm({
             <TouchableOpacity onPress={onClose} className="active:opacity-75">
               <Text className="text-status-gray text-base">Cancel</Text>
             </TouchableOpacity>
-            <Text className="text-white text-lg font-bold">
+            <Text className="text-foreground text-lg font-bold">
               {isEditing ? "Edit App" : "Add App"}
             </Text>
             <TouchableOpacity
               onPress={handleSave}
               className="active:opacity-75"
             >
-              <Text className="text-white text-base font-bold">Save</Text>
+              <Text className="text-foreground text-base font-bold">Save</Text>
             </TouchableOpacity>
           </View>
 
@@ -126,22 +128,22 @@ export default function AppForm({
               Name *
             </Text>
             <TextInput
-              className="bg-card-dark rounded-lg p-3.5 text-white text-base border border-border-dark"
+              className="bg-card-dark rounded-lg p-3.5 text-foreground text-base border border-border-dark"
               value={name}
               onChangeText={setName}
               placeholder="My App"
-              placeholderTextColor="#555555"
+              placeholderTextColor={colors.mutedForeground}
             />
 
             <Text className="text-text-muted text-xs font-semibold mt-4 mb-1.5 uppercase tracking-wider">
               URL *
             </Text>
             <TextInput
-              className="bg-card-dark rounded-lg p-3.5 text-white text-base border border-border-dark"
+              className="bg-card-dark rounded-lg p-3.5 text-foreground text-base border border-border-dark"
               value={url}
               onChangeText={setUrl}
               placeholder="https://myapp.example.com"
-              placeholderTextColor="#555555"
+              placeholderTextColor={colors.mutedForeground}
               keyboardType="url"
               autoCapitalize="none"
               autoCorrect={false}
@@ -151,11 +153,11 @@ export default function AppForm({
               Description
             </Text>
             <TextInput
-              className="bg-card-dark rounded-lg p-3.5 text-white text-base border border-border-dark"
+              className="bg-card-dark rounded-lg p-3.5 text-foreground text-base border border-border-dark"
               value={description}
               onChangeText={setDescription}
               placeholder="What does this app do?"
-              placeholderTextColor="#555555"
+              placeholderTextColor={colors.mutedForeground}
             />
 
             <Text className="text-text-muted text-xs font-semibold mt-4 mb-1.5 uppercase tracking-wider">
@@ -170,7 +172,11 @@ export default function AppForm({
                   }`}
                   onPress={() => setIcon(iconName)}
                 >
-                  <Feather name={featherIcon} size={22} color="#ffffff" />
+                  <Feather
+                    name={featherIcon}
+                    size={22}
+                    color={colors.foreground}
+                  />
                 </TouchableOpacity>
               ))}
             </View>

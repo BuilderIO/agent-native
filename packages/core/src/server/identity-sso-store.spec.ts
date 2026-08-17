@@ -152,13 +152,29 @@ describe("identity SSO feature switch and request classifiers", () => {
     process.env.APP_URL = "https://mail.agent-native.com";
     expect(store.getIdentityHubUrl()).toBe("https://dispatch.agent-native.com");
     expect(store.isIdentitySsoEnabled()).toBe(true);
+    expect(store.identitySsoLoginButtonHtml()).toBe("");
 
+    process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
+      "https://dispatch.agent-native.com";
+    expect(store.identitySsoLoginButtonHtml()).toBe("");
+
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
     expect(store.getIdentityHubUrl()).toBeUndefined();
     expect(store.isIdentitySsoEnabled()).toBe(false);
 
     process.env.APP_URL = "https://workspace.example.test";
     expect(store.getIdentityHubUrl()).toBeUndefined();
+  });
+
+  it("keeps the browser entry available for explicitly configured self-hosted apps", () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
+      "https://dispatch.agent-native.com";
+
+    expect(store.identitySsoLoginButtonHtml()).toContain(
+      'id="identity-sso-btn"',
+    );
   });
 
   it("normalizes a configured hub without accepting credentials or queries", () => {
@@ -175,7 +191,10 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(store.getIdentityHubUrl()).toBe("http://localhost:3000");
   });
 
-  it("recognizes only the packaged Canary marker and canonical hosts", () => {
+  it("recognizes desktop clients and canonical hosts", () => {
+    expect(
+      store.isDesktopSsoUserAgent("Mozilla/5.0 AgentNativeDesktop/1.2.3"),
+    ).toBe(true);
     expect(
       store.isDesktopSsoCanaryUserAgent(
         "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",

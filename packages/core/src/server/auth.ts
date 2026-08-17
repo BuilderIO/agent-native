@@ -179,7 +179,7 @@ import {
 import {
   isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
-  isDesktopSsoCanaryUserAgent,
+  isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
@@ -2457,8 +2457,8 @@ function createAuthGuardFn(
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
       p === "/_agent-native/identity/callback";
-    const isDesktopCanaryIdentityRequest =
-      isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent")) &&
+    const isDesktopIdentityRequest =
+      isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
       isCanonicalAgentNativeAppRequest(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
@@ -2471,7 +2471,7 @@ function createAuthGuardFn(
     if (
       isIdentitySsoEntryPath &&
       (isIdentitySsoExplicitlyEnabled() ||
-        isDesktopCanaryIdentityRequest ||
+        isDesktopIdentityRequest ||
         isCanonicalHostedIdentityRequest)
     ) {
       return;

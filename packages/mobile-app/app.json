@@ -6,7 +6,7 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "agentnative",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.agentnative.mobile",
       "supportsTablet": true,

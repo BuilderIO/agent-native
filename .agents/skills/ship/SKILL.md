@@ -27,7 +27,9 @@ uncommitted. Re-check ownership before every stage, commit, and push.
 shared checkout. At the start of the flow, record the status and ownership
 baseline. Commit and push only paths changed for this invocation. If another
 agent changes or adds a path during the flow, leave it untouched and
-uncommitted for that agent; never revert, stash, overwrite, or absorb it.
+uncommitted for that agent; never revert, stash, overwrite, or absorb it. A
+path appearing in `git status` is not ownership evidence and never authorizes
+staging it.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a

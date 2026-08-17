@@ -25,8 +25,10 @@ import type { WebView as WebViewRef } from "react-native-webview";
 import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
-import { useNativeAppAuthEnabled } from "@/lib/native-app-auth";
-import { validateNativeSession } from "@/lib/native-auth";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { buildMobileGuestThemeScript } from "@/lib/mobile-theme";
+import { useNativeAppAuthState } from "@/lib/native-app-auth";
+import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
 import { completeOAuthCallback, rememberOAuthState } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
@@ -40,7 +42,10 @@ import {
   saveSessionToken,
   SESSION_TOKEN_KEY,
 } from "@/lib/session-token-store";
-import { buildMobileWebViewAuthUrl } from "@/lib/webview-auth-url";
+import {
+  buildMobileWebViewAuthUrl,
+  canCaptureMobileWebViewSession,
+} from "@/lib/webview-auth-url";
 import {
   isTrustedWebViewUrl,
   parseTrustedOrigin,
@@ -77,6 +82,8 @@ const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 // onShouldStartLoadWithRequest on that server redirect, so Google's block
 // page loads inside the WebView. Intercept the start URL here instead.
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
+
+const MAX_AUTOMATIC_WORKSPACE_EMBED_RETRIES = 2;
 
 // The remote sign-in page opens Google in a window.open popup. Inside this
 // WebView that popup either loads Google inline (which Google blocks) or spins
@@ -234,6 +241,15 @@ function embedTargetPath(rawUrl: string): string {
   }
 }
 
+function isEmbedStartUrl(rawUrl: string): boolean {
+  const queryOrFragmentIndex = rawUrl.search(/[?#]/);
+  const path =
+    queryOrFragmentIndex === -1
+      ? rawUrl
+      : rawUrl.slice(0, queryOrFragmentIndex);
+  return path.endsWith("/_agent-native/embed/start");
+}
+
 function AppWebView(
   {
     url,
@@ -247,6 +263,8 @@ function AppWebView(
   ref: React.Ref<AppWebViewHandle>,
 ) {
   const webviewRef = useRef<WebViewRef>(null);
+  const { destructive, foreground, primaryForeground, theme } =
+    useMobileThemeColors();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
@@ -264,21 +282,27 @@ function AppWebView(
     "idle" | "loading" | "disabled" | "ready" | "error"
   >("idle");
   const [workspaceEmbedAttempt, setWorkspaceEmbedAttempt] = useState(0);
+  const workspaceEmbedAutoRetryRef = useRef(0);
   const [nativeSignInOpen, setNativeSignInOpen] = useState(false);
   const lastTokenRef = useRef<string | null>(null);
   const oauthInFlightRef = useRef(false);
   const sessionUrlLoadedRef = useRef(false);
   const isFocusedRef = useRef(false);
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
-  const nativeAuthEnabled = useNativeAppAuthEnabled();
+  const { enabled: nativeAuthEnabled, ready: nativeAuthReady } =
+    useNativeAppAuthState();
   const effectiveCaptureSessionToken = captureSessionToken && nativeAuthEnabled;
   const shouldHideEmbeddedAuth =
-    nativeAuthEnabled && (!workspaceAppId || workspaceEmbedState === "ready");
+    nativeAuthEnabled &&
+    Boolean(workspaceAppId) &&
+    workspaceEmbedState === "ready";
   const resolvedParentSessionTokenKey =
     parentSessionTokenKey ?? sessionTokenKey;
-  const canCaptureSessionToken =
-    effectiveCaptureSessionToken &&
-    (!workspaceAppId || sessionTokenKey !== resolvedParentSessionTokenKey);
+  const canCaptureSessionToken = canCaptureMobileWebViewSession({
+    enabled: effectiveCaptureSessionToken,
+    sessionTokenKey,
+    parentSessionTokenKey: resolvedParentSessionTokenKey,
+  });
 
   // Remember the current route so the oauth-complete fallback can return here
   // instead of Home if the deep link leaks to the OS (Android resets the stack,
@@ -287,17 +311,47 @@ function AppWebView(
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
+  const refreshWorkspaceEmbed = useCallback((automatic: boolean) => {
+    if (automatic) {
+      if (
+        workspaceEmbedAutoRetryRef.current >=
+        MAX_AUTOMATIC_WORKSPACE_EMBED_RETRIES
+      ) {
+        setWorkspaceEmbedUrl(null);
+        setWorkspaceEmbedError(
+          "The workspace app session could not be refreshed. Try again.",
+        );
+        setWorkspaceEmbedState("error");
+        setLoading(false);
+        return;
+      }
+      workspaceEmbedAutoRetryRef.current += 1;
+    } else {
+      workspaceEmbedAutoRetryRef.current = 0;
+    }
+    setError(false);
+    setLoading(true);
+    setWorkspaceEmbedUrl(null);
+    setWorkspaceEmbedError(null);
+    setWorkspaceEmbedState("loading");
+    setWorkspaceEmbedAttempt((attempt) => attempt + 1);
+  }, []);
+
   const reload = useCallback(() => {
     setError(false);
     setLoading(true);
     if (workspaceAppId) {
-      setWorkspaceEmbedAttempt((attempt) => attempt + 1);
+      refreshWorkspaceEmbed(false);
       return;
     }
     webviewRef.current?.reload();
-  }, [workspaceAppId]);
+  }, [refreshWorkspaceEmbed, workspaceAppId]);
 
   useImperativeHandle(ref, () => ({ reload }), [reload]);
+
+  useEffect(() => {
+    webviewRef.current?.injectJavaScript(buildMobileGuestThemeScript(theme));
+  }, [theme]);
 
   const readStoredSessions = useCallback(async () => {
     const [targetToken, parentToken] = await Promise.all([
@@ -307,13 +361,19 @@ function AppWebView(
     let nextTargetToken = targetToken;
     let nextParentToken = parentToken;
     if (nativeAuthEnabled && parentToken) {
-      const validParent = await validateNativeSession(parentToken);
-      if (!validParent) {
+      const parentCheck = await inspectNativeSession(
+        parentToken,
+        NATIVE_AUTH_BASE_URL,
+      );
+      if (parentCheck.status === "invalid") {
         const currentParentToken = await getSessionToken(
           resolvedParentSessionTokenKey,
         );
         if (currentParentToken === parentToken) {
-          await clearSessionToken(resolvedParentSessionTokenKey);
+          // A child WebView can observe a stale or transient validation
+          // failure while another app is using the same parent. Keep the
+          // central credential available for the next app; native sign-out
+          // is the only owner allowed to delete it.
           nextParentToken = null;
           if (sessionTokenKey === resolvedParentSessionTokenKey) {
             nextTargetToken = null;
@@ -391,6 +451,10 @@ function AppWebView(
     workspaceEmbedAttempt,
   ]);
 
+  useEffect(() => {
+    workspaceEmbedAutoRetryRef.current = 0;
+  }, [parentSessionToken, url, workspaceAppId]);
+
   // Re-read the token every time this screen regains focus. Returning from the
   // Google sign-in browser (via oauth-complete's replace/back, or the inline
   // auth session) refocuses this screen; without this, an already-mounted
@@ -419,9 +483,9 @@ function AppWebView(
 
   // When the app returns to foreground, check if the session token was updated
   // (e.g. by the oauth-complete deep link handler storing a new token in
-  // SecureStore). If it changed, update state — the resulting URL change
-  // causes the WebView to navigate to the new URL with ?_session automatically.
-  // No explicit reload() needed; changing source.uri triggers navigation.
+  // SecureStore). If it changed, update state. Workspace apps exchange the
+  // parent token for a one-time embed URL; other apps keep their own login
+  // surface and never receive the parent token in a URL.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
@@ -581,6 +645,10 @@ function AppWebView(
       if (!isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) return;
       try {
         const msg = JSON.parse(event.nativeEvent.data);
+        if (workspaceAppId && msg.type === "agentNative.embedSessionExpired") {
+          refreshWorkspaceEmbed(true);
+          return;
+        }
         if (
           canCaptureSessionToken &&
           isFocusedRef.current &&
@@ -669,12 +737,26 @@ function AppWebView(
       sessionTokenKey,
       trustedOrigin,
       openGoogleSession,
+      refreshWorkspaceEmbed,
+      workspaceAppId,
     ],
   );
 
   const handleLoadEnd = useCallback(
     (event: { nativeEvent: { url: string } }) => {
+      if (workspaceAppId && isEmbedStartUrl(event.nativeEvent.url)) {
+        refreshWorkspaceEmbed(true);
+        return;
+      }
+      if (workspaceAppId) {
+        workspaceEmbedAutoRetryRef.current = 0;
+      }
       setLoading(false);
+      if (isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) {
+        webviewRef.current?.injectJavaScript(
+          buildMobileGuestThemeScript(theme),
+        );
+      }
       if (
         canCaptureSessionToken &&
         isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)
@@ -690,27 +772,26 @@ function AppWebView(
         webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
       }
     },
-    [canCaptureSessionToken, trustedOrigin],
+    [
+      canCaptureSessionToken,
+      refreshWorkspaceEmbed,
+      theme,
+      trustedOrigin,
+      workspaceAppId,
+    ],
   );
 
-  // Append the session token as a query param so the server can promote it to
-  // an httpOnly cookie (bridges the Safari/WKWebView cookie jar gap).
+  // Workspace apps load only through their one-time embed URL. Other WebViews
+  // stay on their ordinary app-owned URL and never receive a reusable token.
   const webviewUrl = useMemo(() => {
-    if (!effectiveCaptureSessionToken) return url;
     return buildMobileWebViewAuthUrl({
       url,
-      sessionToken,
-      sessionTokenKey,
-      parentSessionTokenKey: resolvedParentSessionTokenKey,
-      workspaceAppId,
+      workspaceAppId: effectiveCaptureSessionToken ? workspaceAppId : undefined,
       workspaceEmbedState,
       workspaceEmbedUrl,
     });
   }, [
     effectiveCaptureSessionToken,
-    resolvedParentSessionTokenKey,
-    sessionTokenKey,
-    sessionToken,
     url,
     workspaceAppId,
     workspaceEmbedState,
@@ -731,6 +812,10 @@ function AppWebView(
     Boolean(parentSessionToken) &&
     (workspaceEmbedState === "idle" || workspaceEmbedState === "loading");
 
+  if (!nativeAuthReady) {
+    return <MobileWebViewLoading label="Preparing secure app sign-in…" />;
+  }
+
   if (effectiveCaptureSessionToken && !sessionLoaded) {
     return <MobileWebViewLoading label="Opening app…" />;
   }
@@ -746,12 +831,12 @@ function AppWebView(
           automatically.
         </Text>
         <TouchableOpacity
-          className="mt-6 min-h-11 items-center justify-center rounded-xl bg-white px-5 active:opacity-75"
+          className="mt-6 min-h-11 items-center justify-center rounded-xl bg-primary px-5 active:opacity-75"
           onPress={() => setNativeSignInOpen(true)}
           accessibilityRole="button"
           accessibilityLabel="Sign in"
         >
-          <Text className="text-background-dark text-[14px] font-bold">
+          <Text className="text-primary-foreground text-[14px] font-bold">
             Sign in
           </Text>
         </TouchableOpacity>
@@ -771,7 +856,7 @@ function AppWebView(
   if (workspaceEmbedState === "error") {
     return (
       <View className="flex-1 items-center justify-center bg-background-pure px-7">
-        <Feather name="alert-circle" size={42} color="#EF4444" />
+        <Feather name="alert-circle" size={42} color={destructive} />
         <Text className="mt-4 text-center text-white text-[18px] font-semibold">
           Could not open{appName ? ` ${appName}` : " the workspace app"}
         </Text>
@@ -779,13 +864,13 @@ function AppWebView(
           {workspaceEmbedError ?? "The workspace session could not be created."}
         </Text>
         <TouchableOpacity
-          className="mt-5 flex-row items-center gap-2 rounded-lg bg-white px-5 py-2.5 active:opacity-75"
+          className="mt-5 flex-row items-center gap-2 rounded-lg bg-primary px-5 py-2.5 active:opacity-75"
           onPress={reload}
           accessibilityRole="button"
           accessibilityLabel="Retry"
         >
-          <Feather name="refresh-cw" size={16} color="#111111" />
-          <Text className="text-background-dark text-sm font-semibold">
+          <Feather name="refresh-cw" size={16} color={primaryForeground} />
+          <Text className="text-primary-foreground text-sm font-semibold">
             Retry
           </Text>
         </TouchableOpacity>
@@ -796,17 +881,17 @@ function AppWebView(
   if (error) {
     return (
       <View className="flex-1 justify-center items-center bg-background-pure p-6">
-        <Feather name="alert-circle" size={48} color="#EF4444" />
+        <Feather name="alert-circle" size={48} color={destructive} />
         <Text className="text-white text-lg font-semibold mt-4 mb-1.5">
           Failed to load{appName ? ` ${appName}` : ""}
         </Text>
         <Text className="text-gray-medium text-xs mb-5">{url}</Text>
         <TouchableOpacity
-          className="flex-row items-center bg-white px-5 py-2.5 rounded-lg gap-2 active:opacity-75"
+          className="flex-row items-center bg-primary px-5 py-2.5 rounded-lg gap-2 active:opacity-75"
           onPress={reload}
         >
-          <Feather name="refresh-cw" size={16} color="#111111" />
-          <Text className="text-background-dark text-sm font-semibold">
+          <Feather name="refresh-cw" size={16} color={primaryForeground} />
+          <Text className="text-primary-foreground text-sm font-semibold">
             Retry
           </Text>
         </TouchableOpacity>
@@ -832,7 +917,8 @@ function AppWebView(
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onOpenWindow={handleOpenWindow}
         onMessage={handleMessage}
-        injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}${
+        injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}
+${buildMobileGuestThemeScript(theme)}${
           shouldHideEmbeddedAuth ? `\n${FORCE_REDIRECT_AUTH_SCRIPT}` : ""
         }`}
         javaScriptEnabled
@@ -852,7 +938,7 @@ function AppWebView(
       />
       {loading && (
         <View className="absolute inset-0 justify-center items-center bg-background-pure">
-          <ActivityIndicator size="large" color="#ffffff" />
+          <ActivityIndicator size="large" color={foreground} />
         </View>
       )}
     </View>
@@ -860,9 +946,14 @@ function AppWebView(
 }
 
 function MobileWebViewLoading({ label }: { label: string }) {
+  const { background, mutedForeground } = useMobileThemeColors();
+
   return (
-    <View className="flex-1 items-center justify-center bg-background-pure">
-      <ActivityIndicator color="#d4d4d8" />
+    <View
+      className="flex-1 items-center justify-center bg-background-pure"
+      style={{ backgroundColor: background }}
+    >
+      <ActivityIndicator color={mutedForeground} />
       <Text className="mt-2.5 text-[13px] text-gray-medium">{label}</Text>
     </View>
   );

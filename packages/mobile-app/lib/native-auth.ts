@@ -12,6 +12,7 @@ import {
   OAUTH_TOKEN_STORE_KEY,
 } from "./oauth-storage";
 import {
+  clearSessionToken,
   getSessionToken,
   saveSessionToken,
   SESSION_TOKEN_KEY,
@@ -20,6 +21,8 @@ import {
 const dispatchApp = TEMPLATE_APPS.find((app) => app.id === "dispatch");
 export const NATIVE_AUTH_BASE_URL =
   dispatchApp?.url ?? "https://dispatch.agent-native.com";
+export const NATIVE_SESSION_BOOTSTRAP_KEY =
+  "agent-native:native-session-bootstrap-v1";
 
 type NativeAuthResponse = {
   error?: unknown;
@@ -47,37 +50,86 @@ export interface NativeAuthResult {
   orgId?: string;
 }
 
+export type NativeSessionCheck =
+  | { status: "valid"; session: NativeAuthResult }
+  | { reason: "unauthorized"; status: "invalid" }
+  | {
+      reason: "invalid-response" | "network" | "server";
+      status: "unavailable";
+      statusCode?: number;
+    };
+
+export type NativeSessionBootstrapResult =
+  | { firstInstall: boolean; status: "connected"; session: NativeAuthResult }
+  | { firstInstall: boolean; status: "signed-out" }
+  | { firstInstall: boolean; status: "unavailable" };
+
 function cleanBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+export async function inspectNativeSession(
+  token: string,
+  baseUrl: string,
+): Promise<NativeSessionCheck> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${cleanBaseUrl(baseUrl)}/_agent-native/auth/session`,
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+  } catch (error) {
+    console.warn("[mobile auth] session validation request failed", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return { reason: "network", status: "unavailable" };
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return { reason: "unauthorized", status: "invalid" };
+  }
+  if (!response.ok) {
+    return {
+      reason: "server",
+      status: "unavailable",
+      statusCode: response.status,
+    };
+  }
+
+  let payload: NativeAuthResponse | null = null;
+  try {
+    payload = (await response.json()) as NativeAuthResponse;
+  } catch (error) {
+    console.warn("[mobile auth] session response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return { reason: "invalid-response", status: "unavailable" };
+  }
+  const email = typeof payload?.email === "string" ? payload.email.trim() : "";
+  if (!email) return { reason: "invalid-response", status: "unavailable" };
+
+  const orgId =
+    typeof payload?.orgId === "string" && payload.orgId.trim()
+      ? payload.orgId.trim()
+      : undefined;
+  return {
+    session: { email, token, ...(orgId ? { orgId } : {}) },
+    status: "valid",
+  };
 }
 
 async function readSessionIdentity(
   token: string,
   baseUrl: string,
 ): Promise<NativeAuthResult> {
-  const response = await fetch(
-    `${cleanBaseUrl(baseUrl)}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
-    { headers: { Accept: "application/json" } },
-  );
-  let payload: NativeAuthResponse | null = null;
-  try {
-    payload = (await response.json()) as NativeAuthResponse;
-  } catch (error) {
-    // The status below remains the source of truth when the server did not
-    // return JSON.
-    console.warn("[mobile auth] session response was not valid JSON", {
-      reason: error instanceof Error ? error.message : "unknown error",
-    });
-  }
-  const email = typeof payload?.email === "string" ? payload.email.trim() : "";
-  if (!response.ok || !email) {
-    throw new Error("Sign-in did not create a usable session.");
-  }
-  const orgId =
-    typeof payload?.orgId === "string" && payload.orgId.trim()
-      ? payload.orgId.trim()
-      : undefined;
-  return { email, token, ...(orgId ? { orgId } : {}) };
+  const result = await inspectNativeSession(token, baseUrl);
+  if (result.status === "valid") return result.session;
+  throw new Error("Sign-in did not create a usable session.");
 }
 
 /**
@@ -89,14 +141,53 @@ export async function validateNativeSession(
   baseUrl = NATIVE_AUTH_BASE_URL,
 ): Promise<NativeAuthResult | null> {
   if (!token) return null;
-  try {
-    return await readSessionIdentity(token, baseUrl);
-  } catch (error) {
+  const result = await inspectNativeSession(token, baseUrl);
+  if (result.status === "valid") return result.session;
+  if (result.status === "unavailable") {
     console.warn("[mobile auth] stored session validation failed", {
-      reason: error instanceof Error ? error.message : "unknown error",
+      reason: result.reason,
+      ...(result.statusCode ? { statusCode: result.statusCode } : {}),
     });
-    return null;
   }
+  return null;
+}
+
+/**
+ * Validate the Keychain-backed parent once when the native shell starts. The
+ * AsyncStorage marker detects an install whose app data was deleted while its
+ * Keychain item survived. A stale parent is cleared only after Dispatch
+ * returns an authentication failure; transport failures keep it available for
+ * the next retry.
+ */
+export async function bootstrapNativeSession({
+  baseUrl = NATIVE_AUTH_BASE_URL,
+}: {
+  baseUrl?: string;
+} = {}): Promise<NativeSessionBootstrapResult> {
+  const [marker, token] = await Promise.all([
+    AsyncStorage.getItem(NATIVE_SESSION_BOOTSTRAP_KEY),
+    getSessionToken(),
+  ]);
+  const firstInstall = marker !== "1";
+
+  if (!token) {
+    await AsyncStorage.setItem(NATIVE_SESSION_BOOTSTRAP_KEY, "1");
+    return { firstInstall, status: "signed-out" };
+  }
+
+  const result = await inspectNativeSession(token, baseUrl);
+  if (result.status === "invalid") {
+    const currentToken = await getSessionToken();
+    if (currentToken === token) await clearSessionToken();
+    await AsyncStorage.setItem(NATIVE_SESSION_BOOTSTRAP_KEY, "1");
+    return { firstInstall, status: "signed-out" };
+  }
+  if (result.status === "unavailable") {
+    return { firstInstall, status: "unavailable" };
+  }
+
+  await AsyncStorage.setItem(NATIVE_SESSION_BOOTSTRAP_KEY, "1");
+  return { firstInstall, session: result.session, status: "connected" };
 }
 async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
   const authUrl = new URL(

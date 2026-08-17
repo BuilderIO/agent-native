@@ -1,43 +1,51 @@
 export interface MobileWebViewAuthUrlOptions {
   url: string;
-  sessionToken?: string | null;
-  sessionTokenKey: string;
-  parentSessionTokenKey: string;
   workspaceAppId?: string;
   workspaceEmbedState?: "idle" | "loading" | "disabled" | "ready" | "error";
   workspaceEmbedUrl?: string | null;
 }
 
-/**
- * Build a WebView URL without ever putting the parent bearer on a workspace
- * app request. Workspace apps receive only their one-time embed URL; a
- * separate target token remains supported for legacy non-workspace surfaces.
- */
-export function buildMobileWebViewAuthUrl(
-  options: MobileWebViewAuthUrlOptions,
-): string {
-  const {
-    url,
-    sessionToken,
-    sessionTokenKey,
-    parentSessionTokenKey,
-    workspaceAppId,
-    workspaceEmbedState,
-    workspaceEmbedUrl,
-  } = options;
-
-  if (workspaceAppId) {
-    return workspaceEmbedState === "ready" && workspaceEmbedUrl
-      ? workspaceEmbedUrl
-      : url;
-  }
-  if (!sessionToken || sessionTokenKey === parentSessionTokenKey) return url;
-
+function removeLegacySessionParam(url: string): string {
   try {
     const parsed = new URL(url);
-    parsed.searchParams.set("_session", sessionToken);
+    if (!parsed.searchParams.has("_session")) return url;
+    parsed.searchParams.delete("_session");
     return parsed.toString();
   } catch {
     return url;
   }
+}
+
+/**
+ * The native shell owns the parent credential. A WebView may only capture a
+ * session into a distinct app-scoped key, never back into that shared key.
+ */
+export function canCaptureMobileWebViewSession(options: {
+  enabled: boolean;
+  sessionTokenKey: string;
+  parentSessionTokenKey: string;
+}): boolean {
+  return (
+    options.enabled && options.sessionTokenKey !== options.parentSessionTokenKey
+  );
+}
+
+/**
+ * Build a WebView URL without putting any reusable session token in a URL.
+ * Workspace apps receive only their one-time embed URL; non-workspace apps
+ * remain on their ordinary app-owned login path.
+ */
+export function buildMobileWebViewAuthUrl(
+  options: MobileWebViewAuthUrlOptions,
+): string {
+  const { url, workspaceAppId, workspaceEmbedState, workspaceEmbedUrl } =
+    options;
+  const safeUrl = removeLegacySessionParam(url);
+
+  if (workspaceAppId) {
+    return workspaceEmbedState === "ready" && workspaceEmbedUrl
+      ? workspaceEmbedUrl
+      : safeUrl;
+  }
+  return safeUrl;
 }
