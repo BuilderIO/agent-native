@@ -58,19 +58,6 @@ export default function PresenterView({
   const indexRef = useRef(index);
   indexRef.current = index;
 
-  // `initialIndex` only seeds the first render. Without this, reusing the
-  // presenter route after a deep-link change leaves `index` pointing at the
-  // previous (or now out-of-range) slide until the next broadcast-channel
-  // `state` message arrives. Keyed on `startIndex`/`deckId` (not
-  // `initialIndex`, which also recomputes on every slide content edit) so an
-  // in-progress presenter session isn't yanked back to the URL slide by an
-  // unrelated deck update, but a genuine deep link or deck switch — this
-  // route is reused across decks — still resets.
-  useEffect(() => {
-    setIndex(initialIndex);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startIndex, deckId]);
-
   useEffect(() => {
     const channel = openPresentChannel(deckId);
     channelRef.current = channel;
@@ -133,23 +120,38 @@ export default function PresenterView({
     [slides],
   );
 
-  // A skip toggle or reorder changes `safeSlides` without necessarily
-  // changing its length at the active position — a length-only clamp would
-  // silently swap in a different slide at the same index. Follow the
-  // previously-shown slide's id to its new position, and only fall back to
-  // clamping the raw index when that slide is gone.
-  const prevSafeSlideIdsRef = useRef<string[]>([]);
+  // One atomic effect handles both cases so they can't race each other:
+  // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
+  //   from initialIndex. This route is reused across decks (see the
+  //   BroadcastChannel effect above, keyed on deckId).
+  // - Otherwise, a skip toggle or reorder changed safeSlides without a new
+  //   deep link. A length-only clamp would silently swap in a different
+  //   slide at the same index, so follow the previously-shown slide's id to
+  //   its new position, falling back to a raw clamp only when it's gone.
+  const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
+  const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {
     const newIds = safeSlides.map((s) => s.id);
+    const prevKey = prevDeepLinkKeyRef.current;
+    const isDeepLinkChange =
+      prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
+    prevDeepLinkKeyRef.current = { startIndex, deckId };
+    prevSafeSlideIdsRef.current = newIds;
+
+    if (isDeepLinkChange) {
+      setIndex(initialIndex);
+      return;
+    }
+
     const activeId = prevSafeSlideIdsRef.current[indexRef.current];
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
-    prevSafeSlideIdsRef.current = newIds;
     setIndex(
       followedIndex >= 0
         ? followedIndex
         : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1)),
     );
-  }, [safeSlides]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeSlides, startIndex, deckId]);
 
   const current = safeSlides[index];
   const next = safeSlides[index + 1];

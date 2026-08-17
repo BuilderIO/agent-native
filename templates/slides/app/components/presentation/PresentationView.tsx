@@ -290,26 +290,6 @@ export default function PresentationView({
   const isSharedRef = useRef(isShared);
   isSharedRef.current = isShared;
 
-  // A skip toggle or reorder changes which slides make up `safeSlides`
-  // without necessarily changing its length at the active position — a
-  // length-only clamp would silently swap in a different slide at the same
-  // index. Track the previously-shown slide's id and follow it to its new
-  // position; only fall back to clamping the raw index when that slide is
-  // gone (e.g. it was just skipped).
-  const prevSafeSlideIdsRef = useRef<string[]>([]);
-  useEffect(() => {
-    const newIds = safeSlides.map((s) => s.id);
-    const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
-    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
-    prevSafeSlideIdsRef.current = newIds;
-    setCurrentIndex(
-      followedIndex >= 0 ? followedIndex : clampIndex(currentIndexRef.current),
-    );
-    setPrevIndex((prev) =>
-      prev !== null && prev >= safeSlides.length ? null : prev,
-    );
-  }, [clampIndex, safeSlides]);
-
   const clearTransitionTimer = useCallback(() => {
     if (transitionTimerRef.current !== null) {
       window.clearTimeout(transitionTimerRef.current);
@@ -319,23 +299,45 @@ export default function PresentationView({
 
   useEffect(() => clearTransitionTimer, [clearTransitionTimer]);
 
+  // One atomic effect handles both cases so they can't race each other:
+  // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
+  //   from initialIndex. This component is reused across deck navigation
+  //   (see the exit-handler refs above), so a new deck at the same `?slide=`
+  //   must still reset instead of inheriting the previous deck's position.
+  // - Otherwise, a skip toggle or reorder changed safeSlides without a new
+  //   deep link. A length-only clamp would silently swap in a different
+  //   slide at the same index, so follow the previously-shown slide's id to
+  //   its new position, falling back to a raw clamp only when it's gone.
+  const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
+  const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {
-    clearTransitionTimer();
-    queuedNavigationRef.current = null;
-    setCurrentIndex(clampIndex(initialIndex));
-    setCurrentStep(0);
-    setPrevIndex(null);
-    setAnimating(false);
-    // `initialIndex`/`clampIndex` also change on every slide content edit or
-    // skip toggle (they're derived from the whole `slides` array), which
-    // would otherwise reset an in-progress presentation back to the deep
-    // link's starting slide on unrelated updates. Only re-seed when
-    // `startIndex` changes, or `deckId` does — this component is reused
-    // across deck navigation (see the exit-handler refs above), so a new
-    // deck at the same `?slide=` must still reset instead of inheriting the
-    // previous deck's position.
+    const newIds = safeSlides.map((s) => s.id);
+    const prevKey = prevDeepLinkKeyRef.current;
+    const isDeepLinkChange =
+      prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
+    prevDeepLinkKeyRef.current = { startIndex, deckId };
+    prevSafeSlideIdsRef.current = newIds;
+
+    if (isDeepLinkChange) {
+      clearTransitionTimer();
+      queuedNavigationRef.current = null;
+      setCurrentIndex(clampIndex(initialIndex));
+      setCurrentStep(0);
+      setPrevIndex(null);
+      setAnimating(false);
+      return;
+    }
+
+    const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
+    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    setCurrentIndex(
+      followedIndex >= 0 ? followedIndex : clampIndex(currentIndexRef.current),
+    );
+    setPrevIndex((prev) =>
+      prev !== null && prev >= safeSlides.length ? null : prev,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startIndex, deckId]);
+  }, [safeSlides, startIndex, deckId]);
 
   const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
