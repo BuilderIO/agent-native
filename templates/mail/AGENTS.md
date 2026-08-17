@@ -57,6 +57,14 @@ Detailed draft, queue, and contact-resolution patterns live in
   signature is already present) and inserts before any quoted reply/forward
   content. Never derive a signature from the user's name or connected profile
   when none is configured.
+- A request to permanently add, change, or remove a drafting/writing-style rule
+  is a durable settings mutation: read `get-mail-settings`, merge the requested
+  change into the existing `writingStyle` while preserving unrelated rules,
+  and call `update-mail-settings` with the complete merged value. If the
+  requested merge is ambiguous or conflicts with existing guidance, show the
+  proposed wording and ask for confirmation first; then re-read the settings
+  and confirm persistence. Do not call `manage-draft`, open compose, or create
+  a draft for a settings-only request unless the user separately asks for one.
 - For teammate/Slack-originated send requests, use `queue-email-draft`
   (`draft-queue` skill), not `send-email` directly. The requester and reviewer
   must both be members of the active organization; Slack intake resolves the

@@ -69,6 +69,30 @@ Before creating or rewriting a draft, read the user's drafting settings with `pn
 - Follow `writingStyle` when present.
 - Keep generated copy natural and specific. Avoid generic AI email tropes, headings, and over-formal filler unless the user asks for that style.
 
+## Updating Durable Drafting Settings
+
+Treat requests to permanently change, add to, or remove a writing-style rule as
+settings changes, not drafting requests. Route them to `update-mail-settings`;
+do not use `manage-draft`, open the compose UI, or create a draft unless the
+user separately asks for an example or email draft.
+
+For a durable settings request:
+
+1. Read the current settings with `get-mail-settings`.
+2. Merge the requested rule into the existing `writingStyle`, preserving
+   unrelated instructions. For a removal, remove only the requested rule.
+3. If the requested change is ambiguous, conflicts with existing guidance, or
+   would materially rewrite the style, show the proposed merged wording and
+   ask the user to confirm before changing it.
+4. Call `update-mail-settings` with the complete merged `writingStyle` value.
+5. Read `get-mail-settings` again and confirm the persisted result. Do not
+   report success based only on the update call response.
+
+If the user asks both to change the durable style and to draft an email, update
+the settings first, then create the separately requested draft using the
+confirmed settings. A style-setting request alone must leave compose state
+unchanged.
+
 ## How It Works
 
 1. **Write** `writeAppState("compose-{id}", draft)` — the shared application state row changes
