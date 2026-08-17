@@ -140,4 +140,59 @@ describe("save-browser-transcript", () => {
     );
     expect(result).toMatchObject({ status: "failed", truncated: true });
   });
+
+  // macos-native and web-speech are mic-only engines (see
+  // transcription-engine.ts), so a fullText-only save from either can only be
+  // the mic. Without a source the UI defaults the whole transcript to "Them".
+  //
+  // This covers the action's own contract, not the desktop meeting flush:
+  // `transcriptSegments` now always sends at least one segment per line, so
+  // the desktop no longer reaches this branch. The reachable callers are the
+  // web recorder, the Chrome extension, and agent/CLI `save-browser-transcript`
+  // calls, whose `segments` argument is optional.
+  it.each([
+    ["macos-native", "mic"],
+    ["web-speech", "mic"],
+  ] as const)(
+    "tags synthesized segments as mic for the %s engine when no segments are supplied",
+    async (source, expectedSpeakerSource) => {
+      const values = vi.fn();
+      mocks.insert.mockReturnValue({ values });
+      mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+      await saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Hello there, this is a test.",
+        source,
+        overwriteReady: true,
+      });
+
+      const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+      const segments = JSON.parse(inserted.segmentsJson);
+      expect(segments.length).toBeGreaterThan(0);
+      for (const segment of segments) {
+        expect(segment.source).toBe(expectedSpeakerSource);
+      }
+    },
+  );
+
+  it("leaves synthesized segments source-less for whisper (mixed mic + system)", async () => {
+    const values = vi.fn();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Hello there, this is a test.",
+      source: "whisper",
+      overwriteReady: true,
+    });
+
+    const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+    const segments = JSON.parse(inserted.segmentsJson);
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment.source).toBeUndefined();
+    }
+  });
 });

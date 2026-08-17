@@ -61,7 +61,50 @@ export interface SpeakerIdentity {
   initialsSource: AttendeeStackParticipant | string;
   isOwner: boolean;
   accentClass: string;
+  /** The capture could not tell speakers apart, so this transcript names
+   *  nobody — the row renders without an avatar or label rather than claiming
+   *  a speaker we cannot know. */
+  unattributed?: boolean;
 }
+
+/**
+ * Whether a transcript carries enough signal to name who said what.
+ *
+ * A capture that only ever produced one speaker signal cannot distinguish two
+ * people: the mic-only fallback engines tag every segment `mic` (the remote
+ * side reaches the transcript only as bleed into the same microphone), and
+ * cloud transcription of a single mixed track tags nothing at all. Attributing
+ * those to the recording owner reads as fact and is wrong for every line the
+ * other person spoke — including in the AI summary and action items derived
+ * from it. A per-segment `speaker` label from a diarizing provider counts as
+ * signal even when `source` is absent.
+ *
+ * Only meaningful with two or more participants; a solo recording that is all
+ * mic genuinely is all one person.
+ */
+export function transcriptDistinguishesSpeakers(
+  segments: TranscriptSegment[],
+  participants: AttendeeStackParticipant[],
+): boolean {
+  if (participants.length < 2) return true;
+  const signals = new Set<string>();
+  for (const segment of segments) {
+    const speaker = segment.speaker?.trim();
+    if (speaker) signals.add(`speaker:${normalizeSpeaker(speaker)}`);
+    else if (segment.source) signals.add(`source:${segment.source}`);
+    if (signals.size > 1) return true;
+  }
+  return false;
+}
+
+const UNATTRIBUTED_SPEAKER: SpeakerIdentity = {
+  key: "unattributed",
+  label: null,
+  initialsSource: "",
+  isOwner: false,
+  accentClass: "",
+  unattributed: true,
+};
 
 const SPEAKER_ACCENTS = [
   "bg-accent text-accent-foreground",
@@ -203,9 +246,12 @@ function groupConsecutive(
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
 ): BubbleGroup[] {
+  const attributable = transcriptDistinguishesSpeakers(segments, participants);
   const groups: BubbleGroup[] = [];
   segments.forEach((seg, index) => {
-    const speaker = resolveSpeaker(seg, participants, ownerEmail);
+    const speaker = attributable
+      ? resolveSpeaker(seg, participants, ownerEmail)
+      : UNATTRIBUTED_SPEAKER;
     const last = groups[groups.length - 1];
     if (last && last.speaker.key === speaker.key) {
       last.segments.push({ seg, index });
@@ -509,38 +555,40 @@ export function TranscriptBubbles({
                   key={`${group.speaker.key}:${gi}`}
                   className="space-y-0.5"
                 >
-                  <div className="flex h-6 items-center gap-2">
-                    <Avatar
-                      className={cn(
-                        "size-6 shrink-0",
-                        group.speaker.accentClass,
-                      )}
-                    >
-                      <AvatarFallback
+                  {!group.speaker.unattributed && (
+                    <div className="flex h-6 items-center gap-2">
+                      <Avatar
                         className={cn(
-                          "text-[9px] font-semibold",
+                          "size-6 shrink-0",
                           group.speaker.accentClass,
                         )}
                       >
-                        {attendeeInitials(group.speaker.initialsSource)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex min-h-6 items-center">
-                      <span
-                        className={cn(
-                          "text-xs font-semibold leading-6",
-                          group.speaker.isOwner
-                            ? "text-primary"
-                            : "text-foreground",
-                        )}
-                      >
-                        {group.speaker.label ||
-                          (group.speaker.isOwner
-                            ? t("transcriptBubbles.me")
-                            : t("transcriptBubbles.them"))}
-                      </span>
+                        <AvatarFallback
+                          className={cn(
+                            "text-[9px] font-semibold",
+                            group.speaker.accentClass,
+                          )}
+                        >
+                          {attendeeInitials(group.speaker.initialsSource)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex min-h-6 items-center">
+                        <span
+                          className={cn(
+                            "text-xs font-semibold leading-6",
+                            group.speaker.isOwner
+                              ? "text-primary"
+                              : "text-foreground",
+                          )}
+                        >
+                          {group.speaker.label ||
+                            (group.speaker.isOwner
+                              ? t("transcriptBubbles.me")
+                              : t("transcriptBubbles.them"))}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                   <div className="space-y-1">
                     {group.segments.map(({ seg, index }) => {
                       return (

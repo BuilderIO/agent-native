@@ -5,6 +5,7 @@ import {
   findParticipant,
   resolveParticipantForSpeaker,
   resolveSpeaker,
+  transcriptDistinguishesSpeakers,
 } from "./transcript-bubbles.js";
 
 const bob: AttendeeStackParticipant = {
@@ -71,6 +72,77 @@ describe("resolveSpeaker", () => {
       undefined,
     );
     expect(speaker.label).toBe("Bob");
+  });
+});
+
+describe("transcriptDistinguishesSpeakers", () => {
+  const seg = (
+    text: string,
+    extra: Partial<{ source: "mic" | "system"; speaker: string }> = {},
+  ) => ({ startMs: 0, endMs: 1_000, text, ...extra });
+
+  // The mic-only fallback engines tag every segment "mic": the remote side
+  // only reaches the transcript as bleed into the same microphone, so naming
+  // the owner would attribute the other person's words to them as fact.
+  it("reports no signal when every segment came from the mic", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" }), seg("there", { source: "mic" })],
+        [bob, alice],
+      ),
+    ).toBe(false);
+  });
+
+  // Cloud transcription of a single mixed track tags nothing at all. This is
+  // the shape behind the original "everything shows as Them" report.
+  it("reports no signal when no segment carries a source", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello"), seg("there")],
+        [bob, alice],
+      ),
+    ).toBe(false);
+  });
+
+  it("reports signal when both streams are present", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" }), seg("there", { source: "system" })],
+        [bob, alice],
+      ),
+    ).toBe(true);
+  });
+
+  // A diarizing provider distinguishes speakers by name even with no source.
+  it("counts distinct per-segment speaker labels as signal", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { speaker: "Bob" }), seg("there", { speaker: "Alice" })],
+        [bob, alice],
+      ),
+    ).toBe(true);
+  });
+
+  it("treats one repeated speaker label as no signal", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { speaker: "Bob" }), seg("there", { speaker: "bob " })],
+        [bob, alice],
+      ),
+    ).toBe(false);
+  });
+
+  // A solo recording that is all mic genuinely is all one person, so the
+  // owner attribution there is a fact rather than a guess.
+  it("attributes freely when the meeting has fewer than two participants", () => {
+    expect(
+      transcriptDistinguishesSpeakers([seg("hello", { source: "mic" })], [bob]),
+    ).toBe(true);
+    expect(transcriptDistinguishesSpeakers([seg("hello")], [])).toBe(true);
+  });
+
+  it("treats an empty transcript as unattributable rather than owned", () => {
+    expect(transcriptDistinguishesSpeakers([], [bob, alice])).toBe(false);
   });
 });
 
