@@ -9,6 +9,7 @@ private struct HelperFailure: Error, CustomStringConvertible {
 private final class PhantomCursorView: NSView {
     static let panelWidth: CGFloat = 70
     static let panelHeight: CGFloat = 45
+    static let labelGap: CGFloat = 2
 
     var labelOnLeft = false {
         didSet { needsDisplay = true }
@@ -71,12 +72,15 @@ private final class PhantomCursorView: NSView {
             .foregroundColor: NSColor.white,
         ]
         let labelSize = label.size(withAttributes: labelAttributes)
+        let labelWidth = labelSize.width + 12
         let labelRect = NSRect(
-            x: labelOnLeft ? max(0, pointerOriginX - labelSize.width - 14) : 17,
+            x: labelOnLeft
+                ? max(0, pointerOriginX - labelWidth - PhantomCursorView.labelGap)
+                : 17,
             y: labelAbove
                 ? min(max(pointerTipY + 2, 0), PhantomCursorView.panelHeight - 20)
                 : 5,
-            width: labelSize.width + 12,
+            width: labelWidth,
             height: 20
         )
         let labelPath = NSBezierPath(roundedRect: labelRect, xRadius: 2, yRadius: 2)
@@ -137,13 +141,18 @@ private final class PhantomCursorOverlay {
                 panel = nextPanel
             }
 
-            let labelGap: CGFloat = 2
             let pointerWidth: CGFloat = 17
-            view.labelOnLeft = placement.appKitPoint.x + pointerWidth + labelGap + view.preferredLabelWidth > placement.screen.frame.maxX
+            view.labelOnLeft = placement.appKitPoint.x
+                + pointerWidth
+                + PhantomCursorView.labelGap
+                + view.preferredLabelWidth
+                > placement.screen.frame.maxX
             view.labelAbove = placement.appKitPoint.y - 44 < placement.screen.frame.minY
             _ = click
             let desiredOriginX = view.labelOnLeft
-                ? placement.appKitPoint.x - 52
+                ? placement.appKitPoint.x
+                    - view.preferredLabelWidth
+                    - PhantomCursorView.labelGap
                 : placement.appKitPoint.x - 1
             let originX = min(
                 max(desiredOriginX, placement.screen.frame.minX),
