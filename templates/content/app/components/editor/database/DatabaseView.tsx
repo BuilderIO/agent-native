@@ -10,6 +10,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
+import { DataGrid, type DataGridColumn } from "@agent-native/toolkit/data-grid";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
@@ -113,6 +114,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   contentSpaceForCatalogItem,
   createContentSpaceSelectionQueue,
@@ -888,6 +890,11 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
+    useState(false);
+  const sourceHandoffActiveRef = useRef(false);
+  const addPropertyOpenRequestSequenceRef = useRef(0);
+  const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
   const [inlineAddFilterOpen, setInlineAddFilterOpen] = useState(false);
@@ -921,6 +928,64 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
+  const openSourcesFromAddProperty = () => {
+    sourceHandoffActiveRef.current = true;
+    setSettingsPanel("source");
+    setSettingsOpen(true);
+  };
+  const completeSourceHandoff = () => {
+    if (!sourceHandoffActiveRef.current) return;
+    sourceHandoffActiveRef.current = false;
+    setSettingsOpen(false);
+    addPropertyOpenRequestSequenceRef.current += 1;
+    setAddPropertyOpenRequestId(addPropertyOpenRequestSequenceRef.current);
+  };
+  async function runSourceHandoffMutation<T>(
+    mutation: () => Promise<T>,
+    options: { revealOptimisticPreview?: boolean } = {},
+  ): Promise<T | null> {
+    const returnToAddProperty = sourceHandoffActiveRef.current;
+    if (options.revealOptimisticPreview) {
+      sourceHandoffActiveRef.current = false;
+      setPreserveSourceNavigationOnClose(true);
+      setSettingsOpen(false);
+    }
+    try {
+      const result = await mutation();
+      if (options.revealOptimisticPreview) {
+        setPreserveSourceNavigationOnClose(false);
+        if (returnToAddProperty) {
+          addPropertyOpenRequestSequenceRef.current += 1;
+          setAddPropertyOpenRequestId(
+            addPropertyOpenRequestSequenceRef.current,
+          );
+        }
+      } else {
+        completeSourceHandoff();
+      }
+      return result;
+    } catch (error) {
+      if (options.revealOptimisticPreview) {
+        sourceHandoffActiveRef.current = returnToAddProperty;
+        setSettingsPanel("source");
+        setSettingsOpen(true);
+        setPreserveSourceNavigationOnClose(false);
+      }
+      toast.error(dbText("failedToAttachSource"), {
+        description:
+          error instanceof Error ? error.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
+  }
+  const closeDatabaseSettings = () => {
+    sourceHandoffActiveRef.current = false;
+    setSettingsOpen(false);
+  };
+  const changeDatabaseSettingsPanel = (panel: DatabaseSettingsPanel) => {
+    if (panel !== "source") sourceHandoffActiveRef.current = false;
+    setSettingsPanel(panel);
+  };
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
@@ -1608,7 +1673,7 @@ function DatabaseTable({
         target: mutationContract.target,
         expectedSchemaRevision: mutationContract.schemaRevision,
         idempotencyKey: crypto.randomUUID(),
-        title,
+        ...(title.trim() ? { title } : {}),
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
       });
@@ -2561,6 +2626,7 @@ function DatabaseTable({
               "relative",
             )}
             onClick={() => {
+              sourceHandoffActiveRef.current = false;
               setSettingsPanel("main");
               setSettingsOpen((open) => !open);
             }}
@@ -2731,6 +2797,15 @@ function DatabaseTable({
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
+          source={source}
+          sources={sources}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
           hideEmptyGroups={activeView.hideEmptyGroups === true}
           onClearResultConstraints={clearSearchAndFilters}
@@ -2811,6 +2886,15 @@ function DatabaseTable({
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
           month={dateViewMonth}
+          source={source}
+          sources={sources}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onMonthChange={setDateViewMonth}
           onDatePropertyChange={(propertyId) =>
@@ -2839,6 +2923,15 @@ function DatabaseTable({
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
           month={dateViewMonth}
+          source={source}
+          sources={sources}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onMonthChange={setDateViewMonth}
           onDatePropertyChange={(propertyId) =>
@@ -2889,6 +2982,13 @@ function DatabaseTable({
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
           hideEmptyGroups={activeView.hideEmptyGroups === true}
           focusedTitleDocumentId={inlineTitleFocusDocumentId}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onSortsChange={setActiveSorts}
           onFiltersChange={setActiveFilters}
@@ -2989,41 +3089,54 @@ function DatabaseTable({
         sources={sources}
         hiddenCount={hiddenProperties.length}
         groupIds={toolbarGroups.map((group) => group.id)}
-        onClose={() => setSettingsOpen(false)}
-        onPanelChange={setSettingsPanel}
+        onClose={closeDatabaseSettings}
+        onPanelChange={changeDatabaseSettingsPanel}
         onAttachBuilderSource={(model, relationshipMode) =>
-          attachSource.mutateAsync({
-            documentId: document.id,
-            sourceType: "builder-cms",
-            sourceName: model.displayName,
-            sourceTable: model.name,
-            builderFieldPaths: model.fields.map((field) => field.name),
-            relationshipMode,
-            mode:
-              relationshipMode === "items"
-                ? "add"
-                : sources.length > 0 || source
-                  ? undefined
-                  : "replace",
-          })
+          runSourceHandoffMutation(
+            async () => {
+              const result = await attachSource.mutateAsync({
+                documentId: document.id,
+                sourceType: "builder-cms",
+                sourceName: model.displayName,
+                sourceTable: model.name,
+                builderFieldPaths: model.fields.map((field) => field.name),
+                relationshipMode,
+                mode:
+                  relationshipMode === "items"
+                    ? "add"
+                    : sources.length > 0 || source
+                      ? undefined
+                      : "replace",
+              });
+              if ("responseProjection" in result) {
+                runBuilderHydration(result.sourceId);
+              }
+              return result;
+            },
+            { revealOptimisticPreview: true },
+          )
         }
         onFederateSource={(candidate, join) =>
-          attachSource.mutateAsync({
-            documentId: document.id,
-            sourceType: candidate.sourceType,
-            sourceName: candidate.sourceName,
-            sourceTable: candidate.sourceTable,
-            relationshipMode: "details",
-            join,
-          })
+          runSourceHandoffMutation(() =>
+            attachSource.mutateAsync({
+              documentId: document.id,
+              sourceType: candidate.sourceType,
+              sourceName: candidate.sourceName,
+              sourceTable: candidate.sourceTable,
+              relationshipMode: "details",
+              join,
+            }),
+          )
         }
         onChangeSourceRole={(sourceId, relationshipMode, join) =>
-          changeSourceRole.mutateAsync({
-            documentId: document.id,
-            sourceId,
-            relationshipMode,
-            join,
-          })
+          runSourceHandoffMutation(() =>
+            changeSourceRole.mutateAsync({
+              documentId: document.id,
+              sourceId,
+              relationshipMode,
+              join,
+            }),
+          )
         }
         onDisconnectSecondary={(sourceId) =>
           disconnectSource.mutate({ documentId: document.id, sourceId })
@@ -3113,6 +3226,7 @@ function DatabaseTable({
           setSourceWriteMode.isPending
         }
         sourcePendingOperations={sourcePendingOperations}
+        preserveSourceNavigationOnClose={preserveSourceNavigationOnClose}
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -4824,6 +4938,16 @@ function DatabaseItemPreview({
     if (controller) scheduleDraftWrite(controller);
   }
 
+  async function handleContentSaveNow(nextContent: string) {
+    setLocalContent(nextContent);
+    if (!previewCanEdit || !document) return false;
+    const controller = saveControllerRef.current;
+    if (!controller) return false;
+    controller.changeContent(nextContent);
+    await controller.flush();
+    return controller.lastSaved.content === nextContent;
+  }
+
   function keepLocalBodyDraft() {
     if (!activeBodyDraftConflict) return;
     const controller = peekPreviewDocumentSaveController(documentId);
@@ -5142,6 +5266,7 @@ function DatabaseItemPreview({
                     documentId={previewDocument.id}
                     content={localContent}
                     onChange={handleContentChange}
+                    onSaveContent={handleContentSaveNow}
                     ydoc={null}
                     editable={previewCanEdit}
                   />
@@ -5288,6 +5413,9 @@ function DatabaseTableView({
   collapsedGroupIds,
   hideEmptyGroups,
   focusedTitleDocumentId,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onSortsChange,
   onFiltersChange,
   onResizeColumn,
@@ -5338,6 +5466,9 @@ function DatabaseTableView({
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
   focusedTitleDocumentId: string | null;
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onResizeColumn: (
@@ -5449,6 +5580,36 @@ function DatabaseTableView({
   const actionColumnWidth = cleanDefaultTable
     ? EMPTY_DEFAULT_ADD_PROPERTY_COLUMN_WIDTH
     : ACTION_COLUMN_WIDTH;
+  const dataGridColumns = useMemo<DataGridColumn<ContentDatabaseItem>[]>(
+    () => [
+      {
+        id: "name",
+        width: DEFAULT_NAME_COLUMN_WIDTH,
+        minWidth: MIN_COLUMN_WIDTH,
+        maxWidth: MAX_COLUMN_WIDTH,
+        resizable: false,
+      },
+      ...properties.map((property) => ({
+        id: property.definition.id,
+        width: DEFAULT_PROPERTY_COLUMN_WIDTH,
+        minWidth: MIN_COLUMN_WIDTH,
+        maxWidth: MAX_COLUMN_WIDTH,
+        resizable: false,
+      })),
+      ...(canEdit
+        ? [
+            {
+              id: "actions",
+              width: actionColumnWidth,
+              minWidth: actionColumnWidth,
+              maxWidth: actionColumnWidth,
+              resizable: false,
+            },
+          ]
+        : []),
+    ],
+    [actionColumnWidth, canEdit, properties],
+  );
   const rowDraggingEnabled =
     canEdit &&
     rowsAreManuallyOrdered &&
@@ -5798,12 +5959,18 @@ function DatabaseTableView({
           }}
         />
       ) : null}
-      <div
-        data-database-scroll-surface="table"
-        tabIndex={0}
-        className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
-      >
-        <div className="w-max min-w-full min-w-[720px]">
+      {/* DataGrid preserves the table contract: data-database-scroll-surface="table", tabIndex={0}, and min-w-0 max-w-full overflow-x-auto. */}
+      <DataGrid
+        rows={items}
+        columns={dataGridColumns}
+        getRowId={(item) => item.id}
+        columnWidths={columnWidths}
+        contentClassName="min-w-[720px]"
+        scrollContainerProps={{
+          "data-database-scroll-surface": "table",
+          tabIndex: 0,
+        }}
+        renderHeader={() => (
           <div
             className="grid border-y border-border/35 text-xs font-medium text-muted-foreground/80"
             style={{
@@ -5878,150 +6045,156 @@ function DatabaseTableView({
                   label={dbText("addProperty")}
                   source={source}
                   sources={sources}
+                  onConnectSource={onConnectSource}
+                  openRequestId={addPropertyOpenRequestId}
+                  onOpenRequestHandled={onAddPropertyOpenRequestHandled}
                 />
               </div>
             ) : null}
           </div>
-
-          {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
-            <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              {dbText("loadingDatabase")}
-            </div>
-          ) : (
-            <>
-              {databaseViewHasNoMatchingPages(
-                items.length,
-                hasSearch,
-                activeFilters.length,
-              ) ? (
-                <DatabaseNoMatchingPages
-                  className="border-t border-border"
-                  label={dbText("noRowsMatchThisView")}
-                  onClear={onClearResultConstraints}
-                />
-              ) : null}
-              {grouped
-                ? groups.map((group) => (
-                    <DatabaseGroupedTableSection
-                      key={group.id}
-                      group={group}
+        )}
+        renderBody={() => (
+          <>
+            {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
+              <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
+                <Spinner className="size-4" />
+                {dbText("loadingDatabase")}
+              </div>
+            ) : (
+              <>
+                {databaseViewHasNoMatchingPages(
+                  items.length,
+                  hasSearch,
+                  activeFilters.length,
+                ) ? (
+                  <DatabaseNoMatchingPages
+                    className="border-t border-border"
+                    label={dbText("noRowsMatchThisView")}
+                    onClear={onClearResultConstraints}
+                  />
+                ) : null}
+                {grouped
+                  ? groups.map((group) => (
+                      <DatabaseGroupedTableSection
+                        key={group.id}
+                        group={group}
+                        properties={properties}
+                        columnWidths={columnWidths}
+                        databaseDocumentId={databaseDocumentId}
+                        workspaceCatalog={isWorkspaceCatalog}
+                        workspaceCreationPropertyValues={
+                          workspaceCreationPropertyValues
+                        }
+                        canEdit={canEdit}
+                        selectedIdSet={selectedIdSet}
+                        wrapCells={wrapCells}
+                        rowDensity={rowDensity}
+                        isCreating={isCreating}
+                        newRowLabel={newRowLabel}
+                        focusedTitleDocumentId={focusedTitleDocumentId}
+                        collapsed={databaseGroupIsCollapsed(
+                          collapsedGroupIds,
+                          group.id,
+                        )}
+                        onCreateRow={onCreateGroupedRow}
+                        onTitleFocusHandled={onTitleFocusHandled}
+                        onCollapsedChange={(collapsed) =>
+                          onGroupCollapsedChange(group.id, collapsed)
+                        }
+                        onToggleCheckbox={toggleCheckboxCell}
+                        onToggleRowSelection={onToggleRowSelection}
+                        onPreview={onPreview}
+                        onDeletedPreviewItem={onDeletedPreviewItem}
+                        onOpenPage={onOpenPage}
+                      />
+                    ))
+                  : items.map((item, index) => (
+                      <DatabaseTableRow
+                        key={item.id}
+                        item={item}
+                        databaseDocumentId={databaseDocumentId}
+                        workspaceCatalog={isWorkspaceCatalog}
+                        properties={properties}
+                        columnWidths={columnWidths}
+                        canEdit={canEdit}
+                        rowIndex={index}
+                        canReorder={rowsAreManuallyOrdered}
+                        canDragRow={rowDraggingEnabled}
+                        canMoveUp={rowsAreManuallyOrdered && index > 0}
+                        canMoveDown={
+                          rowsAreManuallyOrdered && index < items.length - 1
+                        }
+                        selected={selectedIdSet.has(item.id)}
+                        isDragging={draggedItemId === item.id}
+                        isDropTarget={
+                          !!draggedItemId &&
+                          dropTargetItemId === item.id &&
+                          draggedItemId !== item.id
+                        }
+                        startEditingTitle={
+                          focusedTitleDocumentId === item.document.id
+                        }
+                        onDragHandlePointerDown={(event) =>
+                          startRowDrag(item.id, event)
+                        }
+                        onToggleCheckbox={(property) =>
+                          void toggleCheckboxCell(item, property)
+                        }
+                        wrapCells={wrapCells}
+                        rowDensity={rowDensity}
+                        onToggleSelected={() => onToggleRowSelection(item.id)}
+                        onPreviewItem={onPreview}
+                        onDeletedPreviewItem={onDeletedPreviewItem}
+                        onTitleEditStarted={onTitleFocusHandled}
+                        onPreview={() => onPreview(item)}
+                        onOpenPage={() => onOpenPage(item)}
+                      />
+                    ))}
+                {canEdit && !grouped ? (
+                  isWorkspaceCatalog ? (
+                    <WorkspaceSourceMenuRow
+                      label={newRowLabel}
                       properties={properties}
                       columnWidths={columnWidths}
-                      databaseDocumentId={databaseDocumentId}
-                      workspaceCatalog={isWorkspaceCatalog}
-                      workspaceCreationPropertyValues={
-                        workspaceCreationPropertyValues
-                      }
-                      canEdit={canEdit}
-                      selectedIdSet={selectedIdSet}
-                      wrapCells={wrapCells}
                       rowDensity={rowDensity}
-                      isCreating={isCreating}
-                      newRowLabel={newRowLabel}
-                      focusedTitleDocumentId={focusedTitleDocumentId}
-                      collapsed={databaseGroupIsCollapsed(
-                        collapsedGroupIds,
-                        group.id,
-                      )}
-                      onCreateRow={onCreateGroupedRow}
-                      onTitleFocusHandled={onTitleFocusHandled}
-                      onCollapsedChange={(collapsed) =>
-                        onGroupCollapsedChange(group.id, collapsed)
-                      }
-                      onToggleCheckbox={toggleCheckboxCell}
-                      onToggleRowSelection={onToggleRowSelection}
-                      onPreview={onPreview}
-                      onDeletedPreviewItem={onDeletedPreviewItem}
-                      onOpenPage={onOpenPage}
+                      propertyValues={workspaceCreationPropertyValues}
+                      actionColumnWidth={actionColumnWidth}
                     />
-                  ))
-                : items.map((item, index) => (
-                    <DatabaseTableRow
-                      key={item.id}
-                      item={item}
-                      databaseDocumentId={databaseDocumentId}
-                      workspaceCatalog={isWorkspaceCatalog}
+                  ) : (
+                    <NewDatabaseRow
+                      label={newRowLabel}
                       properties={properties}
                       columnWidths={columnWidths}
-                      canEdit={canEdit}
-                      rowIndex={index}
-                      canReorder={rowsAreManuallyOrdered}
-                      canDragRow={rowDraggingEnabled}
-                      canMoveUp={rowsAreManuallyOrdered && index > 0}
-                      canMoveDown={
-                        rowsAreManuallyOrdered && index < items.length - 1
-                      }
-                      selected={selectedIdSet.has(item.id)}
-                      isDragging={draggedItemId === item.id}
-                      isDropTarget={
-                        !!draggedItemId &&
-                        dropTargetItemId === item.id &&
-                        draggedItemId !== item.id
-                      }
-                      startEditingTitle={
-                        focusedTitleDocumentId === item.document.id
-                      }
-                      onDragHandlePointerDown={(event) =>
-                        startRowDrag(item.id, event)
-                      }
-                      onToggleCheckbox={(property) =>
-                        void toggleCheckboxCell(item, property)
-                      }
-                      wrapCells={wrapCells}
                       rowDensity={rowDensity}
-                      onToggleSelected={() => onToggleRowSelection(item.id)}
-                      onPreviewItem={onPreview}
-                      onDeletedPreviewItem={onDeletedPreviewItem}
-                      onTitleEditStarted={onTitleFocusHandled}
-                      onPreview={() => onPreview(item)}
-                      onOpenPage={() => onOpenPage(item)}
+                      disabled={isCreating}
+                      isPending={isCreating}
+                      onCreate={onCreateRow}
+                      actionColumnWidth={actionColumnWidth}
                     />
-                  ))}
-              {canEdit && !grouped ? (
-                isWorkspaceCatalog ? (
-                  <WorkspaceSourceMenuRow
-                    label={newRowLabel}
-                    properties={properties}
-                    columnWidths={columnWidths}
-                    rowDensity={rowDensity}
-                    propertyValues={workspaceCreationPropertyValues}
+                  )
+                ) : null}
+                {cleanDefaultTable ? (
+                  <DatabaseBlankDefaultRows
+                    rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
                     actionColumnWidth={actionColumnWidth}
                   />
-                ) : (
-                  <NewDatabaseRow
-                    label={newRowLabel}
-                    properties={properties}
-                    columnWidths={columnWidths}
-                    rowDensity={rowDensity}
-                    disabled={isCreating}
-                    isPending={isCreating}
-                    onCreate={onCreateRow}
-                    actionColumnWidth={actionColumnWidth}
-                  />
-                )
-              ) : null}
-              {cleanDefaultTable ? (
-                <DatabaseBlankDefaultRows
-                  rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
+                ) : null}
+                <DatabaseTableFooter
+                  properties={properties}
+                  items={items}
+                  totalCount={totalCount}
+                  constrained={constrained}
+                  columnWidths={columnWidths}
+                  canEdit={canEdit}
+                  calculations={calculations}
                   actionColumnWidth={actionColumnWidth}
+                  onCalculationChange={onCalculationChange}
                 />
-              ) : null}
-              <DatabaseTableFooter
-                properties={properties}
-                items={items}
-                totalCount={totalCount}
-                constrained={constrained}
-                columnWidths={columnWidths}
-                canEdit={canEdit}
-                calculations={calculations}
-                actionColumnWidth={actionColumnWidth}
-                onCalculationChange={onCalculationChange}
-              />
-            </>
-          )}
-        </div>
-      </div>
+              </>
+            )}
+          </>
+        )}
+      />
       <AlertDialog
         open={
           !removesFavoriteMembership &&
@@ -7494,6 +7667,7 @@ function DatabaseSettingsPanelSheet({
   onSetBuilderLiveWrites,
   sourceActionPending,
   sourcePendingOperations,
+  preserveSourceNavigationOnClose,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -7523,16 +7697,16 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponse | null>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -7541,6 +7715,7 @@ function DatabaseSettingsPanelSheet({
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
+  preserveSourceNavigationOnClose: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -7590,10 +7765,12 @@ function DatabaseSettingsPanelSheet({
     );
   }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
-    // Always re-enter the Sources panel at its root, and don't retain a path
-    // across close/reopen.
-    if (!open || panel !== "source") setSourceNavStack([]);
-  }, [open, panel]);
+    // Ordinary close/reopen returns to the root. The optimistic attach handoff
+    // keeps the leaf only long enough to restore a failed mutation in place.
+    if (panel !== "source" || (!open && !preserveSourceNavigationOnClose)) {
+      setSourceNavStack([]);
+    }
+  }, [open, panel, preserveSourceNavigationOnClose]);
 
   if (!open) return null;
 
@@ -8096,16 +8273,16 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponse | null>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -8251,8 +8428,8 @@ function DatabaseSettingsSourcePanel({
         }}
         onAddItems={async () => {
           if (!secondary) return;
-          await onChangeSourceRole(secondary.id, "items");
-          onNavReplace([]);
+          const result = await onChangeSourceRole(secondary.id, "items");
+          if (result) onNavReplace([]);
         }}
         onChooseFields={() =>
           secondary
@@ -8284,6 +8461,7 @@ function DatabaseSettingsSourcePanel({
                 join,
               )
             : await onFederateSource(top.candidate, join);
+          if (!result) return;
           if ("responseProjection" in result) {
             throw new Error(
               "Detail-source attachment returned an item-source acknowledgement.",
@@ -8444,8 +8622,8 @@ function DatabaseSettingsSourcePanel({
               })
             }
             onAddItems={async () => {
-              await onAttachBuilderSource(model, "items");
-              onNavReplace([]);
+              const result = await onAttachBuilderSource(model, "items");
+              if (result) onNavReplace([]);
             }}
           />
         ) : (
@@ -8455,17 +8633,8 @@ function DatabaseSettingsSourcePanel({
               size="sm"
               disabled={!canEdit || builderAttachPending}
               onClick={async () => {
-                try {
-                  await onAttachBuilderSource(model);
-                  onNavReplace([]);
-                } catch (err) {
-                  toast.error(dbText("failedToAttachSource"), {
-                    description:
-                      err instanceof Error
-                        ? err.message
-                        : dbText("somethingWentWrong"),
-                  });
-                }
+                const result = await onAttachBuilderSource(model);
+                if (result) onNavReplace([]);
               }}
             >
               {builderAttachPending ? (
@@ -8794,8 +8963,8 @@ function DatabaseSettingsSourcePanel({
             });
           }}
           onAddItems={async () => {
-            await onChangeSourceRole(selectedSource.id, "items");
-            onNavReplace([]);
+            const result = await onChangeSourceRole(selectedSource.id, "items");
+            if (result) onNavReplace([]);
           }}
           onChooseFields={() =>
             onNavPush({
@@ -9185,6 +9354,12 @@ function AddSourceView({
             <Spinner className="size-3.5" />
             {dbText("loadingTables")}
           </div>
+        ) : query.isError ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
             {dbText("noOtherDatabasesAvailableToAdd")}
@@ -12016,6 +12191,11 @@ function DatabaseCalendarView({
   hasSearch,
   dateProperty,
   month,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onClearResultConstraints,
   onMonthChange,
   onDatePropertyChange,
@@ -12037,6 +12217,11 @@ function DatabaseCalendarView({
   hasSearch: boolean;
   dateProperty: DocumentProperty | null;
   month: Date;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onClearResultConstraints: () => void;
   onMonthChange: (month: Date) => void;
   onDatePropertyChange: (propertyId: string | null) => void;
@@ -12180,6 +12365,11 @@ function DatabaseCalendarView({
             <AddProperty
               documentId={databaseDocumentId}
               databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
             />
           ) : null}
         </div>
@@ -12472,6 +12662,11 @@ function DatabaseBoardView({
   isLoading,
   isCreating,
   isMoving,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   hasActiveConstraints,
   collapsedGroupIds,
   hideEmptyGroups,
@@ -12497,6 +12692,11 @@ function DatabaseBoardView({
   isLoading: boolean;
   isCreating: boolean;
   isMoving: boolean;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   hasActiveConstraints: boolean;
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
@@ -12724,6 +12924,11 @@ function DatabaseBoardView({
             <AddProperty
               documentId={databaseDocumentId}
               databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
             />
           ) : null}
         </div>

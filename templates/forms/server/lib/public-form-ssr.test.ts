@@ -197,7 +197,7 @@ describe("public form SSR", () => {
     );
   });
 
-  it("renders conditional metadata and disables hidden required controls", async () => {
+  it("hides initially invisible conditional fields and submits scrubbed page context", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRows([
         {
@@ -241,6 +241,16 @@ describe("public form SSR", () => {
     expect(html).toContain(
       'data-cond-field="event_type" data-cond-op="equals" data-cond-val="Physical"',
     );
+    expect(html).toContain(
+      'data-field-id="venue" data-cond-field="event_type" data-cond-op="equals" data-cond-val="Physical" style="display:none" data-hidden="1"',
+    );
     expect(html).toContain("control.disabled = !show");
+    expect(html).toContain("var pageUrl = scrubPageUrl(window.location.href);");
+    expect(html).toContain("_meta: { pageUrl: pageUrl }");
+    expect(html).toContain('"share_token"');
+    expect(html).toContain('"access_token"');
+    expect(html).toContain('"session"');
+    expect(html).toContain("Array.from(params.keys()).forEach(function(key)");
+    expect(html).toContain('params.set(key, "<redacted>")');
   });
 });

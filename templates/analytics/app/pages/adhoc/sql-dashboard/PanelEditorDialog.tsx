@@ -404,7 +404,7 @@ function PanelEditorContent({
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
         `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
         `Native dashboard panels and Data Programs come first. Add an extension panel only when the user explicitly asks for a genuinely bespoke, one-off Custom Block for this dashboard and native panels cannot represent it faithfully. For a reusable/native capability call connect-builder instead. New agent-authored Custom Blocks use config.extensionId plus config.customBlock={authoredBy:"agent",intent:"one-off",scope:"dashboard",nativeGapReason:"custom-visualization"|"custom-interaction"|"custom-layout"|"other"}; never put prompt/customer text in that metadata. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
-        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. For funnel panels, use config.xKey for the stage label, config.yKey for the non-negative count/value, and keep the SQL ORDER BY in the intended funnel order. ` +
+        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, seriesLabels (exact series key -> display label), description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. For funnel panels, use config.xKey for the stage label, config.yKey for the non-negative count/value, and keep the SQL ORDER BY in the intended funnel order. ` +
         `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. Use heatmap, callout, and section panels when their native contracts fit; do not create a Custom Block for a supported native panel. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
@@ -756,7 +756,6 @@ function PanelEditorContent({
         <div className="grid gap-3">
           <Label>{t("panelEditor.whatToChart")}</Label>
           <PromptComposer
-            autoFocus
             disabled={isGenerating}
             placeholder={t("panelEditor.promptPlaceholder")}
             draftScope="analytics:add-panel"

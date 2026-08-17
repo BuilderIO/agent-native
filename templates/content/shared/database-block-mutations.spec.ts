@@ -113,6 +113,36 @@ describe("individual Blocks-field document mutations", () => {
     ).toEqual([before.blocks[0]!.id, "block_requested", before.blocks[1]!.id]);
   });
 
+  it("preserves an unmentioned open toggle while updating its sibling", () => {
+    const markdown = [
+      '<details open="">',
+      "<summary>Expanded</summary>",
+      "\tChild",
+      "</details>",
+      "After",
+    ].join("\n");
+    const before = identity(markdown);
+    const changed = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: {
+        operation: "update",
+        blockId: before.blocks[2]!.id,
+        block: { kind: "paragraph", nfm: "Updated" },
+      },
+    });
+
+    expect(changed.markdown).toBe(
+      [
+        "<details open>",
+        "<summary>Expanded</summary>",
+        "\tChild",
+        "</details>",
+        "Updated",
+      ].join("\n"),
+    );
+  });
+
   it("keeps exact IDs when inserting among indistinguishable siblings", () => {
     const markdown = "Same\nSame";
     const before = identity(markdown);
@@ -192,6 +222,72 @@ describe("individual Blocks-field document mutations", () => {
     expect(changed.deletedCandidateIds).toEqual([callout.id, child.id]);
   });
 
+  it("preserves an unchanged descendant ID when updating its container", () => {
+    const markdown = "<callout>\n\tChild\n</callout>\nSibling";
+    const stored = persisted(markdown);
+    const before = exposeBlocksFieldIdentity(stored, markdown);
+    const callout = before.blocks.find(
+      (block) => block.kind === "notionCallout",
+    )!;
+    const child = before.blocks.find((block) => block.parentId === callout.id)!;
+    const changed = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: {
+        operation: "update",
+        blockId: callout.id,
+        block: {
+          kind: "notionCallout",
+          nfm: '<callout color="blue">\n\tChild\n</callout>',
+        },
+      },
+    });
+    const next = reconcileBlocksFieldIdentity({
+      documentId: "document-1",
+      propertyId: "property-1",
+      previous: stored,
+      markdown: changed.markdown,
+      preferredIdsByPath: changed.preferredIdsByPath,
+      createId: () => "unexpected",
+    });
+    expect(next.blocks.find((block) => block.markdown === "Child")?.id).toBe(
+      child.id,
+    );
+  });
+
+  it("rejects leaf blocks as insertion parents before serialization", () => {
+    const leafKinds = [
+      ["paragraph", "Paragraph"],
+      ["heading", "# Heading"],
+      ["horizontalRule", "---"],
+      ["codeBlock", "```\ncode\n```"],
+      ["image", "![image](https://example.com/image.png)"],
+      ["video", '<video src="https://example.com/video.mp4">Clip</video>'],
+      ["audio", '<audio src="https://example.com/audio.mp3">Clip</audio>'],
+      ["notionBlockAtom", '<page url="https://example.com">Page</page>'],
+      ["registryBlock", '<Endpoint id="endpoint-1" />'],
+      ["contentReference", '<ContentReference sourcePath="source.mdx" />'],
+      ["localMdxComponent", '<ProjectCard title="Example" />'],
+    ] as const;
+
+    for (const [kind, markdown] of leafKinds) {
+      const before = identity(markdown);
+      const parent = before.blocks.find((block) => block.kind === kind)!;
+      expect(() =>
+        mutateBlocksFieldDocument({
+          markdown,
+          identity: before,
+          mutation: {
+            operation: "insert",
+            block: { kind: "paragraph", nfm: "Nested" },
+            position: { placement: "end", parentBlockId: parent.id },
+          },
+          insertedBlockId: `nested-${kind}`,
+        }),
+      ).toThrow(`not valid inside ${kind}`);
+    }
+  });
+
   it("keeps every deleted subtree ID tombstoned after an identical fresh insert", () => {
     const insertedMarkdown = "<callout>\n\tChild\n</callout>";
     const markdown = `${insertedMarkdown}\nSibling`;
@@ -262,6 +358,38 @@ describe("individual Blocks-field document mutations", () => {
     expect(Object.values(changed.preferredIdsByPath).sort()).toEqual(
       before.blocks.map((block) => block.id).sort(),
     );
+  });
+
+  it("updates and repositions an existing upsert while retaining its stable ID", () => {
+    const markdown = "Alpha\nBeta\nGamma";
+    const before = identity(markdown);
+    const beta = before.blocks[1]!;
+    const gamma = before.blocks[2]!;
+    const changed = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: {
+        operation: "upsert",
+        blockId: beta.id,
+        block: { kind: "paragraph", nfm: "Beta moved" },
+        position: { placement: "after", anchorBlockId: gamma.id },
+      },
+    });
+
+    expect(changed.markdown).toBe("Alpha\nGamma\nBeta moved");
+    const stored = reconcileBlocksFieldIdentity({
+      documentId: "document-1",
+      propertyId: "property-1",
+      previous: persisted(markdown),
+      markdown: changed.markdown,
+      preferredIdsByPath: changed.preferredIdsByPath,
+      createId: () => "unexpected-upsert-id",
+    });
+    expect(
+      exposeBlocksFieldIdentity(stored, changed.markdown).blocks.map(
+        (block) => block.id,
+      ),
+    ).toEqual([before.blocks[0]!.id, gamma.id, beta.id]);
   });
 
   it("rejects unsupported structural updates and kind conversion", () => {

@@ -68,6 +68,8 @@ export interface ActionButtonProps
   leadingIcon?: ReactNode;
   trailingIcon?: ReactNode;
   onPress?: (event?: DesignSystemPressEvent) => void;
+  /** Native click interoperability for Radix `asChild` composition. */
+  onClick?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   elementRef?: Ref<HTMLButtonElement>;
 }
 

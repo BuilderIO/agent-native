@@ -91,6 +91,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
   leadingIcon,
   trailingIcon,
   onPress,
+  onClick,
   elementRef,
   ...props
 }) => (
@@ -101,7 +102,10 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
     variant={buttonVariant(intent, emphasis)}
     size={buttonSize(size)}
     disabled={disabled || pending}
-    onClick={(event) => onPress?.(event)}
+    onClick={(event) => {
+      onPress?.(event);
+      onClick?.(event);
+    }}
   >
     {pending ? <DefaultSpinnerPrimitive aria-hidden="true" /> : leadingIcon}
     {children}

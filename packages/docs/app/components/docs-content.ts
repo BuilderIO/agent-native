@@ -17,6 +17,7 @@ import {
   isDocsLocale,
   type DocsLocale,
 } from "./docs-locale";
+import { slugifyHeading } from "./heading-slug";
 
 // Keep default docs route-lazy. Eagerly importing and parsing the whole corpus
 // makes every SSR cold start pay for documents unrelated to the requested page.
@@ -127,12 +128,7 @@ function extractHeadings(
     if (!match) continue;
     const level = match[1].length; // 2, 3, or 4
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
-    const id =
-      match[3] ||
-      label
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+    const id = match[3] || slugifyHeading(label);
     headings.push({ id, label, level });
   }
   return headings;
@@ -357,12 +353,7 @@ async function buildSearchIndexFromDocs(
       const m = line.text.match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
       if (m) {
         const label = m[2].replace(/`([^`]+)`/g, "$1").trim();
-        const id =
-          m[3] ||
-          label
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "");
+        const id = m[3] || slugifyHeading(label);
         sections.push({ id, label, startLine: line.lineNumber });
       }
     }

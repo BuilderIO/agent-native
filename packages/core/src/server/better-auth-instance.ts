@@ -30,6 +30,7 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
+  getCloudflareD1Binding,
   getDatabaseUrl,
   getDatabaseAuthToken,
   closePgliteClients,
@@ -77,6 +78,7 @@ import {
 } from "./email-templates.js";
 import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 
 export {
   getAuthLoginMode,
@@ -103,6 +105,21 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
     .findUserByEmail(email, { includeAccounts: false })
     .catch(() => null);
   return !!existing?.user?.email;
+}
+
+/** Return whether the canonical user has a verified Google account link. */
+export async function hasGoogleAuthIdentity(
+  email: string,
+): Promise<boolean | undefined> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) return undefined;
+  const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+    includeAccounts: true,
+  });
+  return (
+    existing?.accounts.some((account) => account.providerId === "google") ??
+    false
+  );
 }
 
 export async function trackSignupEvent({
@@ -444,6 +461,8 @@ export interface BetterAuthInstance {
 export interface BetterAuthConfig {
   /** Base path for Better Auth routes. Default: "/_agent-native/auth/ba" */
   basePath?: string;
+  /** Session max age in seconds. Defaults to the framework's 30-day lifetime. */
+  sessionMaxAge?: number;
   /** Additional social providers beyond what env vars auto-detect */
   socialProviders?: BetterAuthOptions["socialProviders"];
   /** Additional Better Auth plugins */
@@ -749,6 +768,57 @@ export async function getBetterAuth(
  */
 export function getBetterAuthSync(): BetterAuthInstance | undefined {
   return _auth;
+}
+
+const BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER =
+  "/_agent-native/auth/ba/magic-link/verify";
+const DESKTOP_MAGIC_LINK_CALLBACK_MARKER =
+  "/_agent-native/auth/magic-link/desktop-callback";
+const DESKTOP_MAGIC_LINK_LANDING_MARKER =
+  "/_agent-native/auth/magic-link/desktop-landing";
+
+/**
+ * Email security scanners commonly prefetch ordinary GET links. Better Auth
+ * intentionally consumes a magic-link token on that first GET, so a scanner
+ * can otherwise spend a desktop flow before the user ever clicks it. Keep the
+ * normal web link unchanged and put only desktop flows behind an explicit
+ * confirmation page that hands the original verification URL back after the
+ * user acts.
+ */
+export function desktopMagicLinkLandingUrl(value: string): string | undefined {
+  try {
+    const verificationUrl = new URL(value);
+    const callbackValue = verificationUrl.searchParams.get("callbackURL");
+    if (!callbackValue) return undefined;
+    const callbackUrl = new URL(callbackValue, verificationUrl.origin);
+    if (callbackUrl.origin !== verificationUrl.origin) return undefined;
+    if (!callbackUrl.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_MARKER)) {
+      return undefined;
+    }
+
+    const verifyMarkerIndex = verificationUrl.pathname.lastIndexOf(
+      BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER,
+    );
+    if (verifyMarkerIndex < 0) return undefined;
+
+    const landingUrl = new URL(verificationUrl.origin);
+    landingUrl.pathname =
+      verificationUrl.pathname.slice(0, verifyMarkerIndex) +
+      DESKTOP_MAGIC_LINK_LANDING_MARKER;
+    for (const key of [
+      "token",
+      "callbackURL",
+      "newUserCallbackURL",
+      "errorCallbackURL",
+    ]) {
+      const queryValue = verificationUrl.searchParams.get(key);
+      if (queryValue) landingUrl.searchParams.set(key, queryValue);
+    }
+    return landingUrl.toString();
+  } catch {
+    // coercion-ok: malformed provider URLs keep the original link unchanged.
+    return undefined;
+  }
 }
 
 /**
@@ -1212,6 +1282,10 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
+    // Auth schema relations are intentionally not registered here. Keep the
+    // experimental relational-query path off so a bundled Drizzle adapter
+    // cannot recurse while resolving a session or account join.
+    experimental: { joins: false },
     secret,
     emailAndPassword: {
       enabled: true,
@@ -1346,7 +1420,7 @@ async function createBetterAuthInstance(
             // browser's `an_ft` first-touch cookie rides in.
             context?: {
               headers?: Headers | null;
-              request?: { headers?: Headers | null } | null;
+              request?: { headers?: Headers | null; url?: string } | null;
             } | null,
           ) => {
             // When a newly-created user's email has pending org invitations
@@ -1365,8 +1439,19 @@ async function createBetterAuthInstance(
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
+              const magicLinkAttribution = context?.request?.url?.includes(
+                "newUserCallbackURL",
+              )
+                ? readMagicLinkSignupAttribution(
+                    context.request.url,
+                    getAuthSecret(),
+                  )
+                : undefined;
               attribution = signupAttributionFromCookieHeader(cookieHeader);
-              anonymousId = readAnalyticsAnonymousId(cookieHeader);
+              attribution = magicLinkAttribution?.attribution ?? attribution;
+              anonymousId =
+                magicLinkAttribution?.anonymousId ??
+                readAnalyticsAnonymousId(cookieHeader);
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;
@@ -1438,8 +1523,11 @@ async function createBetterAuthInstance(
       },
     },
     session: {
-      expiresIn: 60 * 60 * 24 * 30, // 30 days
-      updateAge: 60 * 60 * 24, // refresh daily
+      expiresIn: config?.sessionMaxAge ?? 60 * 60 * 24 * 30,
+      updateAge: Math.min(
+        60 * 60 * 24,
+        config?.sessionMaxAge ?? 60 * 60 * 24 * 30,
+      ), // refresh daily, or sooner for short custom sessions
       cookieCache: {
         enabled: true,
         maxAge: 5 * 60, // 5 min cache
@@ -1479,7 +1567,34 @@ async function createBetterAuthInstance(
         storeToken: "hashed",
         rateLimit: { window: 60, max: 5 },
         disableSignUp,
-        sendMagicLink: async ({ email, url }) => {
+        sendMagicLink: async ({ email, url, token }) => {
+          let urlPath: string | undefined;
+          let urlQueryKeys: string[] | undefined;
+          try {
+            const parsedURL = new URL(url);
+            urlPath = parsedURL.pathname;
+            urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
+          } catch {
+            // coercion-ok: diagnostics must never make email delivery fail.
+            // Better Auth owns URL construction; keep diagnostics non-fatal.
+          }
+          if (typeof token === "string") {
+            console.info("[agent-native][magic-link]", {
+              phase: "issued",
+              tokenDigest: crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("hex")
+                .slice(0, 16),
+              expectedStoredIdentifierPrefix: crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("base64url")
+                .slice(0, 16),
+              urlPath,
+              urlQueryKeys,
+            });
+          }
           const appBasePath = (
             process.env.VITE_APP_BASE_PATH ||
             process.env.APP_BASE_PATH ||
@@ -1488,9 +1603,11 @@ async function createBetterAuthInstance(
           const magicLinkUrl = appBasePath
             ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
             : url;
+          const deliveredMagicLinkUrl =
+            desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
           const { subject, html, text, appSender } = renderMagicLinkEmail({
             email,
-            magicLinkUrl,
+            magicLinkUrl: deliveredMagicLinkUrl,
           });
           await sendEmail({ to: email, subject, html, text, appSender });
         },
@@ -1523,7 +1640,7 @@ export function configureLocalSqlite(sqlite: {
   sqlite.pragma("journal_mode = WAL");
 }
 
-async function buildDatabaseConfig(
+export async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
@@ -1590,6 +1707,24 @@ async function buildDatabaseConfig(
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+    });
+  }
+
+  if (dialect === "d1") {
+    const d1 = getCloudflareD1Binding();
+    if (!d1) {
+      throw new Error(
+        "Cloudflare D1 database binding is unavailable; configure the DB binding before initializing Better Auth.",
+      );
+    }
+    const { drizzle } = await import("drizzle-orm/d1");
+    const db = drizzle(d1 as Parameters<typeof drizzle>[0], {
+      schema: sqliteAuthSchema,
+    });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "sqlite",
+      schema: sqliteAuthSchema,
     });
   }
 

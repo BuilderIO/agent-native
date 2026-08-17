@@ -63,6 +63,7 @@ export {
 export {
   createRemoteDevice,
   getRemoteComputerCapabilities,
+  getRemoteExecutionCapabilities,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
   unregisterRemoteDevice,
@@ -71,6 +72,7 @@ export {
   claimNextComputerCommand,
   enqueueComputerCommand,
   getRemoteCommand,
+  getRemoteCommandByIdempotencyKey,
   listRemoteCommandsForOwner,
 } from "./remote-commands-store.js";
 export {
@@ -110,6 +112,10 @@ export type {
   PublicRemotePushRegistration,
   PublicRemoteDevice,
   RemoteComputerCapabilities,
+  RemoteExecutionCapabilities,
+  RemoteExecutionBackend,
+  RemoteExecutionPersistence,
+  RemoteExecutionWorkload,
   RemoteCommand,
   RemoteDevice,
   RemoteDeviceMetadata,

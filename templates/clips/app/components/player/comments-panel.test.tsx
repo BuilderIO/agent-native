@@ -77,16 +77,20 @@ describe("CommentsPanel reply composer", () => {
   let root: Root;
   let queryClient: QueryClient;
 
-  function renderPanel(currentUserEmail = "viewer@example.com") {
+  function renderPanel(
+    currentUserEmail = "viewer@example.com",
+    comments: Comment[] = [rootComment],
+  ) {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <CommentsPanel
             recordingId="recording-1"
-            comments={[rootComment]}
+            comments={comments}
             currentMs={34_000}
             currentUserEmail={currentUserEmail}
             enableComments
+            canComment
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation="share"
@@ -127,6 +131,20 @@ describe("CommentsPanel reply composer", () => {
     expect(absoluteUrl?.rel).toBe("noopener noreferrer");
     expect(wwwUrl?.textContent).toBe("www.example.org/help");
     expect(container.textContent).toContain("www.example.org/help.");
+  });
+
+  it("renders inline Markdown while flattening headings", () => {
+    renderPanel("viewer@example.com", [
+      {
+        ...rootComment,
+        content: "# Not a heading\n\n**Bold** and `inline code`.",
+      },
+    ]);
+
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("code")?.textContent).toBe("inline code");
+    expect(container.textContent).toContain("Not a heading");
   });
 
   it("opens and focuses a reply field inline without replacing the new-comment draft", async () => {
@@ -268,5 +286,33 @@ describe("CommentsPanel reply composer", () => {
       ),
     ).toBeNull();
     expect(actionMocks.updateComment).not.toHaveBeenCalled();
+  });
+
+  it("submits a new comment for a signed-in viewer", () => {
+    const newComment = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(newComment).not.toBeNull();
+
+    act(() => {
+      if (!newComment) return;
+      setTextareaValue(newComment, "Viewer note");
+    });
+
+    act(() => {
+      newComment?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          ctrlKey: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(actionMocks.addComment).toHaveBeenCalledWith({
+      recordingId: "recording-1",
+      content: "Viewer note",
+      videoTimestampMs: 34_000,
+    });
   });
 });

@@ -2,6 +2,12 @@ import type { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  listFileUploadProviders,
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+} from "../file-upload/index.js";
+import type { FileUploadProvider } from "../file-upload/types.js";
+import {
   BUILDER_CONNECT_PARAM,
   BUILDER_STATE_PARAM,
   signBuilderCallbackState,
@@ -24,6 +30,7 @@ import {
   getFrameworkEnvKeys,
   readLegacyCoreRouteInitSettings,
   shouldRunCoreRouteBootDatabaseWork,
+  ensureS3FileUploadProvider,
 } from "./core-routes-plugin.js";
 
 describe("readLegacyCoreRouteInitSettings", () => {
@@ -48,6 +55,31 @@ describe("readLegacyCoreRouteInitSettings", () => {
       persistedEnvVars: { OTHER_KEY: "value" },
       builderDisconnected: null,
     });
+  });
+});
+
+describe("ensureS3FileUploadProvider", () => {
+  afterEach(() => {
+    unregisterFileUploadProvider("s3");
+  });
+
+  it("does not replace an explicitly registered S3 provider", () => {
+    const customProvider: FileUploadProvider = {
+      id: "s3",
+      name: "Custom S3 provider",
+      isConfigured: () => true,
+      upload: async () => ({
+        url: "https://custom.example/upload",
+        provider: "s3",
+      }),
+    };
+    registerFileUploadProvider(customProvider);
+
+    ensureS3FileUploadProvider();
+
+    expect(
+      listFileUploadProviders().find((provider) => provider.id === "s3"),
+    ).toBe(customProvider);
   });
 });
 
@@ -279,6 +311,30 @@ describe("resolveBuilderOwnerContextForRequest", () => {
     const state = signBuilderCallbackState(originalOwner);
     const event = createMockEvent(
       `https://agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=${encodeURIComponent(state)}`,
+    );
+
+    const context = await resolveBuilderOwnerContextForRequest(
+      event,
+      {
+        getSessionForEvent: async () => ({ email: freshOwner }),
+      },
+      "callback",
+    );
+
+    expect(context.email).toBe(originalOwner);
+    expect(context.session).toBeNull();
+    expect(context.anonymous).toBe(true);
+  });
+
+  it("recovers signed callback state when a mounted event loses its query", async () => {
+    const originalOwner = "anon-original@agent-native.com";
+    const freshOwner = "anon-fresh@agent-native.com";
+    const state = signBuilderCallbackState(originalOwner);
+    const event = createMockEvent(
+      `https://agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=${encodeURIComponent(state)}`,
+    );
+    event.url = new URL(
+      "https://agent-native.com/_agent-native/builder/callback",
     );
 
     const context = await resolveBuilderOwnerContextForRequest(

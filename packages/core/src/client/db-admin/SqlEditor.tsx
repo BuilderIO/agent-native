@@ -528,7 +528,7 @@ export function SqlEditor({
           type="button"
           onClick={runActiveStatement}
           disabled={running || !value.trim()}
-          title={`Run selection / statement (${MOD}+Enter)`}
+          title={`Run selection / statement (${MOD} Enter)`}
           className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? (
@@ -540,7 +540,7 @@ export function SqlEditor({
         </button>
 
         <span className="hidden text-[11px] text-muted-foreground sm:inline">
-          {MOD}+Enter runs selection / statement · {MOD}+Shift+Enter runs all
+          {MOD} Enter runs selection / statement · {MOD} Shift Enter runs all
         </span>
 
         <div className="ml-auto flex items-center gap-2">

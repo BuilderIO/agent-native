@@ -147,6 +147,17 @@ function assertCompatibleParent(
     (ref) => ref.path === parentPath,
   )?.node;
   const parentKind = parent?.type;
+  const generalContainerKinds = new Set([
+    "blockquote",
+    "listItem",
+    "taskItem",
+    "notionToggle",
+    "notionCallout",
+    "notionColumn",
+    "notionSyncedBlock",
+    "tableHeader",
+    "tableCell",
+  ]);
   const valid =
     parentKind === undefined
       ? ![
@@ -167,7 +178,8 @@ function assertCompatibleParent(
               ? kind === "tableRow"
               : parentKind === "tableRow"
                 ? kind === "tableHeader" || kind === "tableCell"
-                : ![
+                : generalContainerKinds.has(parentKind) &&
+                  ![
                     "listItem",
                     "taskItem",
                     "notionColumn",
@@ -180,6 +192,41 @@ function assertCompatibleParent(
       `Block kind "${kind}" is not valid inside ${parentKind ?? "the field root"}.`,
     );
   }
+}
+
+function repositionNode(args: {
+  blockId: string;
+  current: NodeRef;
+  node: PMNode;
+  position: Placement;
+  byId: Map<string, NodeRef>;
+  doc: PMDoc;
+}) {
+  if (
+    "anchorBlockId" in args.position &&
+    args.position.anchorBlockId === args.blockId
+  ) {
+    throw new Error("A block cannot be reordered relative to itself.");
+  }
+  const target = destination(args.position, args.byId, args.doc);
+  if (target.parentPath !== args.current.parentPath) {
+    throw new Error("Cross-parent block reorder is not supported.");
+  }
+  args.current.nodes.splice(args.current.nodeIndex, 1);
+  const targetIndex =
+    "anchorBlockId" in args.position
+      ? (() => {
+          const anchor = args.byId.get(args.position.anchorBlockId);
+          if (!anchor || anchor.nodes !== target.nodes) {
+            throw new Error("Reorder anchor is outside the current parent.");
+          }
+          const anchorIndex = target.nodes.indexOf(anchor.node);
+          return anchorIndex + (args.position.placement === "after" ? 1 : 0);
+        })()
+      : args.position.placement === "start"
+        ? 0
+        : target.nodes.length;
+  target.nodes.splice(targetIndex, 0, args.node);
 }
 
 function preferredIds(
@@ -261,7 +308,18 @@ export function mutateBlocksFieldDocument(args: {
       }
       requestedNode = parsedBlock(currentKind, args.mutation.block.nfm);
       current.nodes[current.nodeIndex] = requestedNode;
+      current.node = requestedNode;
       idByNode.set(requestedNode, args.mutation.blockId);
+      if (args.mutation.operation === "upsert" && args.mutation.position) {
+        repositionNode({
+          blockId: args.mutation.blockId,
+          current,
+          node: requestedNode,
+          position: args.mutation.position,
+          byId,
+          doc,
+        });
+      }
     } else if (args.mutation.operation === "delete") {
       deletedCandidateIds = args.identity.blocks
         .filter((block) => {
@@ -274,34 +332,14 @@ export function mutateBlocksFieldDocument(args: {
         .map((block) => block.id);
       current.nodes.splice(current.nodeIndex, 1);
     } else if (args.mutation.operation === "reorder") {
-      const position = args.mutation.position;
-      if (
-        "anchorBlockId" in position &&
-        position.anchorBlockId === args.mutation.blockId
-      ) {
-        throw new Error("A block cannot be reordered relative to itself.");
-      }
-      const target = destination(position, byId, doc);
-      if (target.parentPath !== current.parentPath) {
-        throw new Error("Cross-parent block reorder is not supported.");
-      }
-      current.nodes.splice(current.nodeIndex, 1);
-      const targetIndex =
-        "anchorBlockId" in position
-          ? (() => {
-              const anchor = byId.get(position.anchorBlockId);
-              if (!anchor || anchor.nodes !== target.nodes) {
-                throw new Error(
-                  "Reorder anchor is outside the current parent.",
-                );
-              }
-              const anchorIndex = target.nodes.indexOf(anchor.node);
-              return anchorIndex + (position.placement === "after" ? 1 : 0);
-            })()
-          : position.placement === "start"
-            ? 0
-            : target.nodes.length;
-      target.nodes.splice(targetIndex, 0, current.node);
+      repositionNode({
+        blockId: args.mutation.blockId,
+        current,
+        node: current.node,
+        position: args.mutation.position,
+        byId,
+        doc,
+      });
     }
   }
 

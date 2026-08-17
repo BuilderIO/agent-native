@@ -28,8 +28,47 @@ import { usePollLoop } from "../use-poll-loop.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
+type BackgroundAgentRunDto = {
+  id: string;
+  kind: "code" | "agent-team" | "harness";
+  source: string;
+  sourceLabel?: string;
+  title: string;
+  subtitle?: string;
+  status:
+    | "queued"
+    | "running"
+    | "paused"
+    | "needs-input"
+    | "needs-approval"
+    | "completed"
+    | "errored"
+    | "unknown";
+  phase?: string;
+  goalId: string;
+  needsInput: boolean;
+  needsApproval: boolean;
+  createdAt: string;
+  updatedAt: string;
+  surfaceUrl?: string;
+  metadata?: Record<string, unknown>;
+  sourceRecord?: {
+    threadId?: string;
+    parentThreadId?: string;
+    name?: string;
+  };
+};
 type RunsTrayTriggerVariant = "icon" | "pill";
 const RUN_CHANGE_SETTLE_MS = 250;
+/**
+ * Cadence used while a run still reads as active, even for hosts that opted
+ * out of idle polling with `pollMs={0}`. Those hosts only refresh on mount and
+ * on a `runs` change event, and a run abandoned mid-flight (budget exhausted,
+ * dead worker) emits neither — so the spinner has no path back to a terminal
+ * status. Polling only while something looks active keeps the idle cost at
+ * zero and still lets the server's stale sweep terminalize the row.
+ */
+const ACTIVE_RUN_POLL_MS = 5000;
 
 interface RunsTrayProps {
   /** Poll interval in ms. 0 disables. Default 3000. */
@@ -77,20 +116,46 @@ function useRunsTrayState({
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
-      try {
-        const query = new URLSearchParams({ limit: String(limit) });
-        if (!includeRecent) query.set("active", "true");
-        const res = await fetch(
-          agentNativePath(`/_agent-native/runs?${query.toString()}`),
+      const query = new URLSearchParams({ limit: String(limit) });
+      if (!includeRecent) query.set("active", "true");
+      const [legacyResult, backgroundResult] = await Promise.allSettled([
+        fetch(agentNativePath(`/_agent-native/runs?${query.toString()}`), {
+          signal,
+        }),
+        fetch(
+          agentNativePath(
+            `/_agent-native/agent-chat/runs/list?${new URLSearchParams({ limit: String(limit) }).toString()}`,
+          ),
           { signal },
-        );
-        if (!res.ok) return;
-        const rows = (await res.json()) as AgentRunDto[];
-        setRuns(rows);
-      } catch {
-        // coercion-ok: `runs` keeps its last good value rather than being
-        // cleared to an empty tray; the next poll tick retries.
+        ),
+      ]);
+
+      const rows =
+        legacyResult.status === "fulfilled" && legacyResult.value.ok
+          ? await readLegacyRuns(legacyResult.value)
+          : null;
+      const backgroundRows =
+        backgroundResult.status === "fulfilled" && backgroundResult.value.ok
+          ? await readBackgroundRuns(backgroundResult.value)
+          : null;
+      const hasSuccessfulResponse = rows !== null || backgroundRows !== null;
+      if (!hasSuccessfulResponse) {
+        return;
       }
+
+      const merged = new Map<string, AgentRunDto>();
+      for (const row of rows ?? []) merged.set(row.id, row);
+      for (const row of backgroundRows ?? []) {
+        const normalized = normalizeBackgroundRun(row);
+        if (includeRecent || normalized.status === "running") {
+          merged.set(normalized.id, normalized);
+        }
+      }
+      setRuns(
+        [...merged.values()]
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .slice(0, limit),
+      );
     },
     [includeRecent, limit],
   );
@@ -108,11 +173,17 @@ function useRunsTrayState({
     return () => window.clearTimeout(timeout);
   }, [refresh, runsVersion]);
 
-  usePollLoop(refresh, { intervalMs: pollMs, enabled: pollMs > 0 });
+  const hasActiveRun = runs.some((run) => run.status === "running");
+  usePollLoop(refresh, {
+    intervalMs: pollMs > 0 ? pollMs : ACTIVE_RUN_POLL_MS,
+    enabled: pollMs > 0 || hasActiveRun,
+  });
 
   const dismissRun = useCallback(
     async (runId: string) => {
+      const existing = runs.find((run) => run.id === runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
+      if (existing && isBackgroundRun(existing)) return;
       try {
         const res = await fetch(
           agentNativePath(`/_agent-native/runs/${runId}`),
@@ -126,7 +197,7 @@ function useRunsTrayState({
         refresh();
       }
     },
-    [refresh],
+    [refresh, runs],
   );
 
   const stopRun = useCallback(
@@ -485,6 +556,73 @@ function RunsTrayContent({
   );
 }
 
+async function readLegacyRuns(
+  response: Response,
+): Promise<AgentRunDto[] | null> {
+  try {
+    const body: unknown = await response.json();
+    return Array.isArray(body) ? (body as AgentRunDto[]) : null;
+  } catch {
+    // coercion-ok: malformed responses return null, distinct from an empty run list.
+    return null;
+  }
+}
+
+async function readBackgroundRuns(
+  response: Response,
+): Promise<BackgroundAgentRunDto[] | null> {
+  try {
+    const body: unknown = await response.json();
+    if (!body || typeof body !== "object" || !("runs" in body)) return null;
+    const runs = (body as { runs?: unknown }).runs;
+    return Array.isArray(runs) ? (runs as BackgroundAgentRunDto[]) : null;
+  } catch {
+    // coercion-ok: malformed responses return null, distinct from an empty run list.
+    return null;
+  }
+}
+
+function normalizeBackgroundRun(run: BackgroundAgentRunDto): AgentRunDto {
+  const metadata = run.metadata ?? {};
+  const threadId =
+    run.sourceRecord?.threadId ??
+    (typeof metadata.threadId === "string" ? metadata.threadId : undefined);
+  const status: ProgressStatus =
+    run.status === "errored"
+      ? "failed"
+      : run.status === "queued" ||
+          run.status === "running" ||
+          run.status === "needs-input" ||
+          run.status === "needs-approval"
+        ? "running"
+        : "succeeded";
+  return {
+    id: run.id,
+    owner: "",
+    title: run.title,
+    step: run.needsApproval
+      ? "Needs approval"
+      : (run.subtitle ?? (run.status === "paused" ? "Paused" : run.phase)),
+    percent: null,
+    status,
+    startedAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    completedAt: status === "running" ? null : run.updatedAt,
+    metadata: {
+      ...metadata,
+      kind: run.kind,
+      source: run.source,
+      sourceLabel: run.sourceLabel,
+      backgroundStatus: run.status,
+      backgroundGoalId: run.goalId,
+      needsApproval: run.needsApproval,
+      needsInput: run.needsInput,
+      ...(run.surfaceUrl ? { surfaceUrl: run.surfaceUrl } : {}),
+      ...(threadId ? { threadId } : {}),
+    },
+  };
+}
+
 function getRunThreadId(run: AgentRunDto): string | undefined {
   const metadata = run.metadata ?? {};
   const direct =
@@ -544,6 +682,15 @@ function isAgentTeamRun(run: AgentRunDto): boolean {
   );
 }
 
+function isBackgroundRun(run: AgentRunDto): boolean {
+  return (
+    typeof run.metadata === "object" &&
+    run.metadata !== null &&
+    typeof (run.metadata as Record<string, unknown>).backgroundStatus ===
+      "string"
+  );
+}
+
 function RunRow({
   run,
   onDismiss,
@@ -559,7 +706,8 @@ function RunRow({
   const { formatDate } = useFormatters();
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
-  const canStop = isRunning && isAgentTeamRun(run);
+  const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
+  const backgroundStatus = getBackgroundStatus(run);
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
@@ -574,7 +722,7 @@ function RunRow({
             </div>
           ) : null}
         </div>
-        <StatusPill status={run.status} />
+        <StatusPill status={run.status} backgroundStatus={backgroundStatus} />
       </div>
       {run.percent != null || isRunning ? (
         <div className="h-1 w-full overflow-hidden rounded bg-muted">
@@ -653,8 +801,38 @@ const STATUS_PILL_STYLES: Record<ProgressStatus, string> = {
   cancelled: "bg-muted text-muted-foreground",
 };
 
-function StatusPill({ status }: { status: ProgressStatus }) {
+function StatusPill({
+  status,
+  backgroundStatus,
+}: {
+  status: ProgressStatus;
+  backgroundStatus?: BackgroundAgentRunDto["status"];
+}) {
   const t = useT();
+  if (backgroundStatus === "needs-approval") {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+        <IconAlertCircle size={12} aria-hidden />
+        {t("runsTray.statusNeedsApproval", { defaultValue: "Needs approval" })}
+      </span>
+    );
+  }
+  if (backgroundStatus === "needs-input") {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+        <IconAlertCircle size={12} aria-hidden />
+        {t("runsTray.statusNeedsInput", { defaultValue: "Needs input" })}
+      </span>
+    );
+  }
+  if (backgroundStatus === "paused") {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+        <IconClock size={12} aria-hidden />
+        {t("runsTray.statusPaused", { defaultValue: "Paused" })}
+      </span>
+    );
+  }
   const { Icon, className } = STATUS_GLYPHS[status];
   const spinClass = status === "running" ? " animate-spin" : "";
   return (
@@ -667,6 +845,30 @@ function StatusPill({ status }: { status: ProgressStatus }) {
       <Icon size={12} className={`${className}${spinClass}`} aria-hidden />
       {t(STATUS_COPY_KEYS[status])}
     </span>
+  );
+}
+
+function getBackgroundStatus(
+  run: AgentRunDto,
+): BackgroundAgentRunDto["status"] | undefined {
+  const value = run.metadata?.backgroundStatus;
+  return typeof value === "string" && isBackgroundStatus(value)
+    ? value
+    : undefined;
+}
+
+function isBackgroundStatus(
+  value: string,
+): value is BackgroundAgentRunDto["status"] {
+  return (
+    value === "queued" ||
+    value === "running" ||
+    value === "paused" ||
+    value === "needs-input" ||
+    value === "needs-approval" ||
+    value === "completed" ||
+    value === "errored" ||
+    value === "unknown"
   );
 }
 

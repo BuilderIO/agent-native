@@ -182,6 +182,11 @@ in the moment of agent use.
   five-item sidebar preview and a footer row with New chat followed by an
   ellipsis disclosure up to fifteen. Apps inject routing, labels, and domain
   actions.
+- **Data grid kit**: provider-agnostic spreadsheet mechanics belong in
+  `@agent-native/toolkit/data-grid`. Apps provide rows, typed columns, editor
+  slots, selection and width state, persistence callbacks, and product-level
+  row/body slots. Keep database models, access checks, grouping, drag/drop,
+  and domain actions in the app adapter.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home

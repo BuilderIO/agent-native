@@ -20,10 +20,13 @@ import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
-    "Add a comment to a recording at a specific video timestamp. For new threads, omit threadId/parentId. For replies, pass both.",
+    "Add a comment to a recording at a specific video timestamp. Comment text supports inline Markdown such as bold, italic, inline code, and links; headings are flattened in comment surfaces. For new threads, omit threadId/parentId. For replies, pass both.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
-    content: z.string().min(1).describe("Comment text"),
+    content: z
+      .string()
+      .min(1)
+      .describe("Comment text; inline Markdown is supported, without headings"),
     videoTimestampMs: z
       .number()
       .int()
@@ -44,8 +47,7 @@ export default defineAction({
       .describe("Display name for the author (falls back to email local part)"),
   }),
   run: async (args) => {
-    // Viewer access is required (public/org recordings allow viewers to comment).
-    await assertAccess("recording", args.recordingId, "viewer");
+    await assertAccess("recording", args.recordingId, "commenter");
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

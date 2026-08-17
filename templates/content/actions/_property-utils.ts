@@ -1,10 +1,15 @@
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import {
   and,
   asc,
   eq,
   inArray,
   isNull,
+  or,
   sql,
   type InferSelectModel,
 } from "drizzle-orm";
@@ -509,6 +514,44 @@ export async function listPropertiesForDocument(
   // never here. A viewer opening a shared/legacy row must not trigger writes on
   // another owner's database.
   return listPropertiesForDatabase(database.id, document);
+}
+
+export async function listPropertiesForAllDocumentDatabases(
+  document: DocumentRow,
+) {
+  const db = getDb();
+  const memberships = await db
+    .select({ databaseId: schema.contentDatabaseItems.databaseId })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.documentId, document.id));
+  const membershipIds = memberships.map((membership) => membership.databaseId);
+  const databases = await db
+    .select({
+      id: schema.contentDatabases.id,
+      documentId: schema.contentDatabases.documentId,
+    })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        isNull(schema.contentDatabases.deletedAt),
+        membershipIds.length > 0
+          ? or(
+              eq(schema.contentDatabases.documentId, document.id),
+              inArray(schema.contentDatabases.id, membershipIds),
+            )
+          : eq(schema.contentDatabases.documentId, document.id),
+      ),
+    )
+    .orderBy(asc(schema.contentDatabases.id));
+
+  const properties = [];
+  for (const database of databases) {
+    if (!(await resolveAccess("document", database.documentId))) continue;
+    properties.push(
+      ...(await listPropertiesForDatabase(database.id, document)),
+    );
+  }
+  return properties;
 }
 
 export async function listPropertiesForDatabase(

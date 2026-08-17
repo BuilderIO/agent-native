@@ -37,6 +37,7 @@ import {
   IconClock,
   IconPlayerPlay,
   IconSignature,
+  IconPhoto,
   IconFilter,
   IconInfoCircle,
   IconMessage2,
@@ -89,6 +90,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -868,6 +870,12 @@ function TriggersSubsection() {
 
 // ─── Automations Section ─────────────────────────────────────────────────────
 
+type AutomationSettings = {
+  engine?: string;
+  model?: string;
+  allowAutomationSends: boolean;
+};
+
 function AutomationsSection() {
   const t = useT();
   const { data: rules = [], isLoading } = useAutomations();
@@ -896,9 +904,9 @@ function AutomationsSection() {
   // Refetch on any settings write or agent action so agent-driven changes
   // (e.g. update-automation-settings) show up without a manual refresh.
   const settingsSync = useChangeVersions(["settings", "action"]);
-  const { data: autoSettings } = useQuery({
+  const { data: autoSettings } = useQuery<AutomationSettings>({
     queryKey: ["automation-settings", settingsSync],
-    queryFn: async () => {
+    queryFn: async (): Promise<AutomationSettings> => {
       try {
         return await callAction(
           "get-automation-settings",
@@ -906,7 +914,7 @@ function AutomationsSection() {
           { method: "GET" },
         );
       } catch {
-        return { model: defaultModel };
+        return { model: defaultModel, allowAutomationSends: false };
       }
     },
     staleTime: 30_000,
@@ -914,6 +922,7 @@ function AutomationsSection() {
   });
 
   const queryClient = useQueryClient();
+  const [isSavingAutomationSends, setIsSavingAutomationSends] = useState(false);
   const selectedModel = autoSettings?.model || defaultModel;
   const selectedEngine =
     autoSettings?.engine ||
@@ -930,12 +939,52 @@ function AutomationsSection() {
   const handleModelChange = async (value: string) => {
     const [engine, model] = value.split("::");
     if (!engine || !model) return;
-    queryClient.setQueryData(["automation-settings"], { engine, model });
+    queryClient.setQueriesData<AutomationSettings>(
+      { queryKey: ["automation-settings"] },
+      (current) =>
+        current
+          ? { ...current, engine, model }
+          : { engine, model, allowAutomationSends: false },
+    );
     await callAction(
       "update-automation-settings",
       { engine, model },
       { method: "PUT" },
     );
+  };
+
+  const handleAutomationSendsChange = async (enabled: boolean) => {
+    if (!autoSettings || isSavingAutomationSends) return;
+    const previous = autoSettings.allowAutomationSends;
+    queryClient.setQueriesData<AutomationSettings>(
+      { queryKey: ["automation-settings"] },
+      (current) =>
+        current ? { ...current, allowAutomationSends: enabled } : current,
+    );
+    setIsSavingAutomationSends(true);
+    try {
+      await callAction(
+        "update-automation-settings",
+        { allowAutomationSends: enabled },
+        { method: "PUT" },
+      );
+    } catch (error) {
+      queryClient.setQueriesData<AutomationSettings>(
+        { queryKey: ["automation-settings"] },
+        (current) =>
+          current ? { ...current, allowAutomationSends: previous } : current,
+      );
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("settings.automationSendSettingSaveFailed"),
+      );
+    } finally {
+      setIsSavingAutomationSends(false);
+      await queryClient.invalidateQueries({
+        queryKey: ["automation-settings"],
+      });
+    }
   };
 
   const handleCreate = (data: {
@@ -994,6 +1043,20 @@ function AutomationsSection() {
           <IconPlus className="h-3.5 w-3.5" />
           {t("settings.newRule")}
         </Button>
+      </div>
+
+      <div className="max-w-2xl mb-6">
+        {autoSettings ? (
+          <SettingsSwitchRow
+            title={t("settings.allowAutomationSends")}
+            description={t("settings.allowAutomationSendsDescription")}
+            checked={autoSettings.allowAutomationSends}
+            disabled={isSavingAutomationSends}
+            onCheckedChange={handleAutomationSendsChange}
+          />
+        ) : (
+          <Skeleton className="h-16 w-full" />
+        )}
       </div>
 
       {/* Content */}
@@ -1076,6 +1139,7 @@ function DraftingSection() {
   const queryClient = useQueryClient();
   const [signature, setSignature] = useState("");
   const [writingStyle, setWritingStyle] = useState("");
+  const signatureSelectionRef = useRef({ start: 0, end: 0 });
   const importSignature = useActionMutation("import-gmail-signature", {
     onSuccess: (result) => {
       setSignature(result.signature);
@@ -1106,6 +1170,49 @@ function DraftingSection() {
   const savedWritingStyle = settings?.writingStyle ?? "";
   const isDirty =
     signature !== savedSignature || writingStyle !== savedWritingStyle;
+
+  const insertSignatureImage = async (
+    file: File,
+    start: number,
+    end: number,
+  ) => {
+    try {
+      const result = await uploadFile(file);
+      const markdown = `![${file.name.replace(/\.[^.]+$/, "")}](${result.url})`;
+      setSignature(
+        (current) =>
+          `${current.slice(0, start)}${markdown}${current.slice(end)}`,
+      );
+    } catch {
+      toast.error(t("settings.signatureImageUploadFailed"));
+    }
+  };
+
+  const handleSignaturePaste = (
+    event: React.ClipboardEvent<HTMLTextAreaElement>,
+  ) => {
+    const image = Array.from(event.clipboardData.items)
+      .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+      ?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    void insertSignatureImage(
+      image,
+      target.selectionStart,
+      target.selectionEnd,
+    );
+  };
+
+  const handleSignatureImage = async () => {
+    const file = await openFilePicker("image/*");
+    if (!file) return;
+    await insertSignatureImage(
+      file,
+      signatureSelectionRef.current.start,
+      signatureSelectionRef.current.end,
+    );
+  };
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -1162,10 +1269,27 @@ function DraftingSection() {
                   )}
                   {t("settings.importFromGmail")}
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => void handleSignatureImage()}
+                >
+                  <IconPhoto className="h-3 w-3" />
+                  {t("settings.addSignatureImage")}
+                </Button>
               </div>
               <Textarea
                 value={signature}
                 onChange={(event) => setSignature(event.target.value)}
+                onPaste={handleSignaturePaste}
+                onSelect={(event) => {
+                  signatureSelectionRef.current = {
+                    start: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
+                  };
+                }}
                 placeholder={"Best,\nSteve"}
                 rows={5}
                 className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
@@ -1219,7 +1343,7 @@ function DraftingSection() {
   );
 }
 
-function TrackingRow({
+function SettingsSwitchRow({
   title,
   description,
   checked,
@@ -1281,13 +1405,13 @@ function TrackingSection() {
           </>
         ) : (
           <>
-            <TrackingRow
+            <SettingsSwitchRow
               title={t("settings.trackEmailOpens")}
               description={t("settings.trackEmailOpensDescription")}
               checked={tracking.opens}
               onCheckedChange={(v) => update({ opens: v })}
             />
-            <TrackingRow
+            <SettingsSwitchRow
               title={t("settings.trackLinkClicks")}
               description={t("settings.trackLinkClicksDescription")}
               checked={tracking.clicks}

@@ -10,6 +10,7 @@ export {
   defaultFeatureFlagRules,
   evaluateFeatureFlag,
   evaluateFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
   getFeatureFlagRules,
   normalizeFeatureFlagRules,
@@ -17,5 +18,6 @@ export {
   type FeatureFlagRules,
   type FeatureFlagScope,
 } from "./store.js";
-export { createFeatureFlagsPlugin } from "./plugin.js";
-export { createFeatureFlagA2AActionRouteAuth } from "./a2a-action-route.js";
+// Plugin and A2A auth stay on `./server` and `@agent-native/core/server`.
+// Re-exporting them here pulls HMAC Node builtins into any Vite client that
+// imports this barrel for `defineFeatureFlag` / `isFeatureFlagEnabled`.

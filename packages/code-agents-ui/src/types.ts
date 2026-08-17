@@ -40,6 +40,21 @@ export type CodeAgentPromptAttachment = AgentPromptAttachment;
 
 export type CodeAgentFollowUpMode = "immediate" | "queued";
 
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
 export interface CodeAgentProjectCommand {
   kind: "command";
   name: string;
@@ -208,6 +223,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -242,6 +258,44 @@ export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 }
@@ -290,6 +344,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -309,6 +364,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {
@@ -368,6 +424,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;

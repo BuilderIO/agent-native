@@ -9,6 +9,8 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentActionSurface,
+  type AgentActionSurfaceDetails,
   type ActionTool,
   type ScriptTool,
   type AgentMessage,
@@ -150,12 +152,12 @@ export {
   type JsonSchema,
 } from "./automation/index.js";
 export {
-  createFeatureFlagsPlugin,
   defineFeatureFlag,
   defineFeatureFlags,
   evaluateFeatureFlag,
   getFeatureFlagDefinition,
   getFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
   listFeatureFlags,
   registerFeatureFlags,
@@ -164,6 +166,10 @@ export {
   type FeatureFlagRules,
   type FeatureFlagScope,
 } from "./feature-flags/index.js";
+export {
+  createFeatureFlagA2AActionRouteAuth,
+  createFeatureFlagsPlugin,
+} from "./feature-flags/server.js";
 
 // Server
 export {
@@ -267,6 +273,26 @@ export {
   type DailyBucket,
   type UsageRecentEntry,
 } from "./usage/store.js";
+export {
+  dismissUsageAlert,
+  enqueueUsageAlertEvaluation,
+  listUsageAlerts,
+  saveUsageAlert,
+  setUsageAlertEnabled,
+  USAGE_ALERT_DEFAULT_DAILY_USD,
+  USAGE_ALERT_UNIT_SCALE,
+  type SaveUsageAlertInput,
+  type UsageAlertAccess,
+  type UsageAlertChannel,
+  type UsageAlertEventSummary,
+  type UsageAlertListOptions,
+  type UsageAlertMutationResult,
+  type UsageAlertPeriod,
+  type UsageAlertRule,
+  type UsageAlertScope,
+  type UsageAlertStatus,
+  type UsageAlertUnit,
+} from "./usage/alerts-store.js";
 
 // Workspace-scoped third-party connection metadata
 export {
@@ -277,15 +303,26 @@ export {
   listWorkspaceConnectionProviderCatalogForApp,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  normalizeWorkspaceConnectionAllowedUsers,
   resolveWorkspaceConnectionCredentialForApp,
   resolveWorkspaceConnectionCredentialsForApp,
   revokeWorkspaceConnectionGrant,
+  assertWorkspaceUserGroupIds,
+  assertWorkspaceUserGroupManager,
+  deleteWorkspaceUserGroup,
+  ensureWorkspaceUserGroupsTable,
+  listWorkspaceUserGroups,
+  listWorkspaceUserGroupsForOrg,
+  normalizeWorkspaceUserGroupIds,
   serializeWorkspaceConnectionGrant,
   serializeWorkspaceConnection,
   summarizeWorkspaceConnectionProviderForApp,
   summarizeWorkspaceConnectionProviderReadiness,
   upsertWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
+  updateWorkspaceUserGroupMembers,
+  upsertWorkspaceUserGroup,
+  workspaceUserGroupsIncludeUser,
   type ListWorkspaceConnectionProviderCatalogForAppOptions,
   type ListWorkspaceConnectionGrantsOptions,
   type ListWorkspaceConnectionsOptions,
@@ -297,6 +334,8 @@ export {
   type SummarizeWorkspaceConnectionProviderReadinessOptions,
   type UpsertWorkspaceConnectionGrantInput,
   type UpsertWorkspaceConnectionInput,
+  type UpsertWorkspaceUserGroupInput,
+  type UpdateWorkspaceUserGroupMembersInput,
   type WorkspaceConnectionAppAccess,
   type WorkspaceConnectionAppAccessMode,
   type WorkspaceConnection,
@@ -320,6 +359,7 @@ export {
   type WorkspaceConnectionProviderReadinessStatus,
   type WorkspaceConnectionPublicCredentialRef,
   type WorkspaceConnectionStatus,
+  type WorkspaceUserGroup,
   workspaceConnectionIsAvailableToApp,
   registerWorkspaceConnectionLifecycleListener,
   type WorkspaceConnectionLifecycleEvent,

@@ -42,6 +42,20 @@ function nestedScrollableConsumesVerticalIntent(
   return false;
 }
 
+/**
+ * @deprecated Nothing in this repo calls this any more — `AgentConversation`
+ * and `AssistantChat` both stick to the bottom via the shadcn `MessageScroller`
+ * primitive, which does it with one mechanism instead of five.
+ *
+ * What is below is five independent things all writing `scrollTop`: a scroll
+ * listener with a content-shrank heuristic, a ResizeObserver re-attached to
+ * every child on each mutation, a MutationObserver that scrolls, a
+ * rAF+rAF+setTimeout(80) chain, and a 100ms interval while streaming. Each was
+ * added to fix a different report and none replaced the one before it, so they
+ * race: that is the "text bumps up and down rapidly" and "flashing and
+ * jittering" users kept describing. Kept only so an external template importing
+ * it does not break; do not adopt it, and delete it in the next major.
+ */
 export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   followKey,
   streaming = false,

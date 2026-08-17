@@ -2,8 +2,10 @@
 name: creative-context
 description: >-
   Reuse creative context across generation while respecting explicit context
-  choices, pinned packs, provenance, and opt-out state.
-scope: app
+  choices, pinned packs, provenance, and opt-out state. Use when generating or
+  refining any creative output, or when the user references saved or approved
+  context.
+scope: both
 metadata:
   internal: true
 ---

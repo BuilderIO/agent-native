@@ -88,6 +88,7 @@ let unshareResource: AnyAction;
 const OWNER = "owner@example.com";
 const OTHER = "outsider@example.com";
 const VIEWER = "viewer@example.com";
+const COMMENTER = "commenter@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
@@ -624,6 +625,25 @@ describe("explicit user shares", () => {
     );
     expect(got.planId).toBe(planId);
 
+    await expect(
+      asUser({ userEmail: VIEWER }, () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "Viewer comment must be rejected",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
     // edit denied (viewer < editor)
     await expect(
       asUser({ userEmail: VIEWER }, () =>
@@ -766,28 +786,58 @@ describe("public review link", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it("a real signed-in account CAN comment on a public plan (read-only viewer + account)", async () => {
+  it("a commenter share can comment while a public viewer remains read-only", async () => {
     const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
-
-    const result = await asUser({ userEmail: OTHER, userName: "Other" }, () =>
-      updateVisualPlan.run({
-        planId,
-        contentPatches: [],
-        sections: [],
-        comments: [
-          {
-            message: "Looks good, one nit.",
-            kind: "comment",
-            status: "open",
-            createdBy: "human",
-          },
-        ],
-        consumedCommentIds: [],
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: COMMENTER,
+        role: "commenter",
       }),
     );
+
+    await expect(
+      asUser({ userEmail: OTHER, userName: "Other" }, () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "Public viewer cannot comment.",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const result = await asUser(
+      { userEmail: COMMENTER, userName: "Commenter" },
+      () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "Looks good, one nit.",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+    );
     expect(result.comments.length).toBe(1);
-    expect(result.comments[0].authorEmail).toBe(OTHER);
+    expect(result.comments[0].authorEmail).toBe(COMMENTER);
     // The plan body itself is untouched by a comment-only call.
     expect((await rawPlan(planId)).title).toBe("Plan");
   });
@@ -984,7 +1034,16 @@ describe("adversarial", () => {
     // owner makes a public plan and another account leaves a comment
     const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
-    const commentResult = await asUser({ userEmail: VIEWER }, () =>
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: COMMENTER,
+        role: "commenter",
+      }),
+    );
+    const commentResult = await asUser({ userEmail: COMMENTER }, () =>
       updateVisualPlan.run({
         planId,
         contentPatches: [],

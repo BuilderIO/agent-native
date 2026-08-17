@@ -1,6 +1,8 @@
 import { docToNfm, nfmToDoc, type PMNode } from "./nfm.js";
 
 export const BLOCKS_FIELD_IDENTITY_VERSION = 1;
+export const BLOCK_TOMBSTONE_REVISION_WINDOW = 20;
+export const MAX_BLOCK_TOMBSTONES_PER_FIELD = 500;
 
 export const BLOCKS_FIELD_BLOCK_KINDS = [
   "paragraph",
@@ -229,6 +231,10 @@ function deterministicBlockId(
   )}`;
 }
 
+function fieldScopedBlockId(fieldId: string, candidateId: string): string {
+  return `block_${hashString(fieldId)}_${hashString(candidateId)}`;
+}
+
 function publicIdentity(
   stored: StoredBlocksFieldIdentity,
   identityStatus: BlocksFieldIdentityStatus,
@@ -275,7 +281,9 @@ export function legacyBlocksFieldIdentity(args: {
   const idByPath = new Map<string, string>();
   const usedIds = new Set<string>();
   const blocks: StoredBlocksFieldBlock[] = snapshots.map((snapshot) => {
-    const preferred = snapshot.preferredId;
+    const preferred = snapshot.preferredId
+      ? fieldScopedBlockId(fieldId, snapshot.preferredId)
+      : null;
     const id =
       preferred && !usedIds.has(preferred)
         ? preferred
@@ -508,19 +516,27 @@ export function reconcileBlocksFieldIdentity(args: {
       );
       if (recoveredIndex !== undefined) {
         previous = previousDeleted[recoveredIndex];
-        if (previous) recoveredIds.add(previous.id);
+        if (previous) {
+          recoveredIds.add(previous.id);
+          recoverable.delete(`${snapshot.kind}\0${snapshot.contentHash}`);
+        }
       }
     }
     if (explicitId && usedIds.has(explicitId) && explicitId !== previous?.id) {
       throw new Error(`Preferred Block ID is already reserved: ${explicitId}`);
     }
     let id =
-      explicitId ?? previous?.id ?? snapshot.preferredId ?? args.createId();
+      explicitId ??
+      previous?.id ??
+      fieldScopedBlockId(
+        args.previous.fieldId,
+        snapshot.preferredId ?? args.createId(),
+      );
     while (
       assignedNextIds.has(id) ||
       (!explicitId && usedIds.has(id) && id !== previous?.id)
     ) {
-      id = args.createId();
+      id = fieldScopedBlockId(args.previous.fieldId, args.createId());
     }
     usedIds.add(id);
     assignedNextIds.add(id);
@@ -549,15 +565,26 @@ export function reconcileBlocksFieldIdentity(args: {
       deletedAtRevision: nextRevision,
       recoveredAtRevision: null,
     }));
-  const retainedTombstones = previousDeleted.filter(
-    (block) => !recoveredIds.has(block.id),
-  );
+  const oldestRecoverableRevision =
+    nextRevision - BLOCK_TOMBSTONE_REVISION_WINDOW;
+  const retainedTombstones = [...previousDeleted, ...deletedNow]
+    .filter(
+      (block) =>
+        !recoveredIds.has(block.id) &&
+        block.deletedAtRevision !== null &&
+        block.deletedAtRevision > oldestRecoverableRevision,
+    )
+    .sort(
+      (left, right) =>
+        (right.deletedAtRevision ?? 0) - (left.deletedAtRevision ?? 0),
+    )
+    .slice(0, MAX_BLOCK_TOMBSTONES_PER_FIELD);
 
   return {
     fieldId: args.previous.fieldId,
     revision: nextRevision,
     contentHash: blocksContentHash(args.markdown),
-    blocks: [...nextBlocks, ...retainedTombstones, ...deletedNow],
+    blocks: [...nextBlocks, ...retainedTombstones],
   };
 }
 

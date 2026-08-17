@@ -135,6 +135,22 @@ describe("db/client dialect detection", () => {
     });
   });
 
+  it("keeps the pool bounded when Netlify exposes only the function marker", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "slides");
+    const { neonPoolOptions, pgPoolOptions, isServerlessRuntime } =
+      await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+    expect(neonPoolOptions()).toMatchObject({
+      idle_in_transaction_session_timeout: 30_000,
+    });
+    expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
+      application_name: "agent-native:app",
+      idle_in_transaction_session_timeout: 30_000,
+    });
+  });
+
   it("recognizes production serverless execution and honors local emulation", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");

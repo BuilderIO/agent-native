@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { signA2AToken } from "@agent-native/core/a2a";
 import { fetchOrgApps, type OrgApp } from "@agent-native/core/mcp";
+import { getOrgDomain } from "@agent-native/core/org";
 
 import type { AnalyticsAdminContext } from "./db-admin-connections.js";
 
@@ -31,11 +32,11 @@ export interface WorkspaceFeatureFlagsResult {
 }
 
 export interface WorkspaceFeatureFlagMutationResult {
-  contractVersion: 1;
+  contractVersion: 2;
   status: "ready";
   key: string;
   rules: Record<string, unknown>;
-  scope: { orgId: string | null };
+  scope: { orgId: string | null; orgDomain: string | null };
 }
 
 export interface WorkspaceFeatureFlagMutationInput {
@@ -66,14 +67,15 @@ export function validateWorkspaceFeatureFlagMutation(
   body: unknown,
   expected: {
     key: string;
-    orgId: string;
+    orgDomain: string;
+    allowExplicitNoOrgTarget?: boolean;
     rules?: Record<string, unknown>;
     enabledForEmail?: string;
   },
 ): WorkspaceFeatureFlagMutationResult {
   const payload = body as Partial<WorkspaceFeatureFlagMutationResult> | null;
   const valid =
-    payload?.contractVersion === 1 &&
+    payload?.contractVersion === 2 &&
     payload.status === "ready" &&
     payload.key === expected.key &&
     !!payload.rules &&
@@ -81,7 +83,8 @@ export function validateWorkspaceFeatureFlagMutation(
     !Array.isArray(payload.rules) &&
     !!payload.scope &&
     typeof payload.scope === "object" &&
-    payload.scope.orgId === expected.orgId;
+    (payload.scope.orgDomain === expected.orgDomain ||
+      (expected.allowExplicitNoOrgTarget && payload.scope.orgDomain === null));
   if (!valid)
     throw new Error(
       "The target app returned an unsupported or unverified feature flag mutation response.",
@@ -152,13 +155,43 @@ async function delegatedToken(
   admin: AnalyticsAdminContext,
   origin: string,
   scope: "flags:read" | "flags:write",
+  resolvedOrgDomain?: string,
 ): Promise<string> {
-  return signA2AToken(admin.userEmail, undefined, undefined, {
-    expiresIn: "120s",
-    preferGlobalSecret: true,
-    audience: origin,
-    extraClaims: { org_id: admin.orgId, scope, jti: randomUUID() },
-  });
+  try {
+    const orgDomain =
+      resolvedOrgDomain ??
+      (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
+    if (!orgDomain) throw new TargetCallFailure("token-generation");
+    return await signA2AToken(admin.userEmail, orgDomain, undefined, {
+      expiresIn: "120s",
+      preferGlobalSecret: true,
+      audience: origin,
+      extraClaims: { org_id: admin.orgId, scope, jti: randomUUID() },
+    });
+  } catch {
+    throw new TargetCallFailure("token-generation");
+  }
+}
+
+type TargetFailureReason = "token-generation" | "timeout" | "network";
+
+class TargetCallFailure extends Error {
+  constructor(readonly reason: TargetFailureReason) {
+    super(`Feature flag target call failed: ${reason}`);
+    this.name = "TargetCallFailure";
+  }
+}
+
+export function classifyWorkspaceFeatureFlagTargetFailure(
+  error: unknown,
+): TargetFailureReason {
+  if (error instanceof TargetCallFailure) return error.reason;
+  if (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  )
+    return "timeout";
+  return "network";
 }
 
 async function callTarget(
@@ -166,25 +199,34 @@ async function callTarget(
   admin: AnalyticsAdminContext,
   action: "list-feature-flags" | "set-feature-flag",
   body: Record<string, unknown>,
+  orgDomain?: string,
 ): Promise<{ status: number; body: unknown }> {
   const origin = targetOrigin(app);
   const token = await delegatedToken(
     admin,
     origin,
     action === "list-feature-flags" ? "flags:read" : "flags:write",
+    orgDomain,
   );
-  const response = await fetch(`${origin}/_agent-native/actions/${action}`, {
-    method: action === "list-feature-flags" ? "GET" : "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-      ...(action === "set-feature-flag"
-        ? { "Content-Type": "application/json" }
-        : {}),
-    },
-    ...(action === "set-feature-flag" ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(TARGET_TIMEOUT_MS),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${origin}/_agent-native/actions/${action}`, {
+      method: action === "list-feature-flags" ? "GET" : "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        ...(action === "set-feature-flag"
+          ? { "Content-Type": "application/json" }
+          : {}),
+      },
+      ...(action === "set-feature-flag" ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(TARGET_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new TargetCallFailure(
+      classifyWorkspaceFeatureFlagTargetFailure(error),
+    );
+  }
   let parsed: unknown = null;
   try {
     parsed = await response.json();
@@ -209,7 +251,7 @@ export function classifyWorkspaceFeatureFlagList(
   if (result.status === 404 || result.status === 405)
     return { ...base, state: "unsupported" };
   if (result.status < 200 || result.status >= 300)
-    return { ...base, state: "unknown-legacy" };
+    return { ...base, state: "unknown-legacy", reason: "target-execution" };
   const payload = result.body as {
     flags?: unknown;
     canManage?: unknown;
@@ -254,7 +296,11 @@ async function mapBounded<T, R>(
 export async function listWorkspaceFeatureFlags(
   admin: AnalyticsAdminContext,
 ): Promise<WorkspaceFeatureFlagsResult> {
-  const apps = await fetchOrgApps({ serviceOrgId: admin.orgId });
+  const apps = await fetchOrgApps({
+    selfId: "analytics",
+    includeDirectoryApp: true,
+    serviceOrgId: admin.orgId,
+  });
   if (apps.length === 0) return { directoryStatus: "unavailable", apps: [] };
   const entries = await mapBounded(apps, async (app) => {
     try {
@@ -262,13 +308,14 @@ export async function listWorkspaceFeatureFlags(
         app,
         await callTarget(app, admin, "list-feature-flags", {}),
       );
-    } catch {
+    } catch (error) {
       return {
         appId: app.id,
         appName: app.name,
         appOrigin: targetOrigin(app),
         state: "unreachable" as const,
         flags: [],
+        reason: classifyWorkspaceFeatureFlagTargetFailure(error),
       };
     }
   });
@@ -279,14 +326,31 @@ export async function setWorkspaceFeatureFlag(
   admin: AnalyticsAdminContext,
   input: WorkspaceFeatureFlagMutationInput,
 ): Promise<WorkspaceFeatureFlagMutationResult> {
-  const apps = await fetchOrgApps({ serviceOrgId: admin.orgId });
+  const apps = await fetchOrgApps({
+    selfId: "analytics",
+    includeDirectoryApp: true,
+    serviceOrgId: admin.orgId,
+  });
   const app = apps.find((candidate) => candidate.id === input.appId);
   if (!app)
     throw new Error(
       "The requested app is not available in this organization directory.",
     );
   const targetInput = workspaceFeatureFlagTargetInput(input);
-  const result = await callTarget(app, admin, "set-feature-flag", targetInput);
+  let orgDomain: string | undefined;
+  try {
+    orgDomain = (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
+  } catch {
+    throw new TargetCallFailure("token-generation");
+  }
+  if (!orgDomain) throw new TargetCallFailure("token-generation");
+  const result = await callTarget(
+    app,
+    admin,
+    "set-feature-flag",
+    targetInput,
+    orgDomain,
+  );
   if (result.status === 401 || result.status === 403)
     throw new Error("The target app denied this delegated flag operation.");
   if (result.status === 404 || result.status === 405)
@@ -297,7 +361,8 @@ export async function setWorkspaceFeatureFlag(
     );
   return validateWorkspaceFeatureFlagMutation(result.body, {
     key: input.key,
-    orgId: admin.orgId,
+    orgDomain,
+    allowExplicitNoOrgTarget: true,
     ...(input.operation === "replace-rules" && input.rules
       ? {
           rules: {
@@ -324,7 +389,11 @@ export async function getWorkspaceFlagTarget(
   admin: AnalyticsAdminContext,
   appId: string,
 ): Promise<FleetFlagApp> {
-  const apps = await fetchOrgApps({ serviceOrgId: admin.orgId });
+  const apps = await fetchOrgApps({
+    selfId: "analytics",
+    includeDirectoryApp: true,
+    serviceOrgId: admin.orgId,
+  });
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app)
     throw new Error(
@@ -335,13 +404,14 @@ export async function getWorkspaceFlagTarget(
       app,
       await callTarget(app, admin, "list-feature-flags", {}),
     );
-  } catch {
+  } catch (error) {
     return {
       appId: app.id,
       appName: app.name,
       appOrigin: targetOrigin(app),
       state: "unreachable",
       flags: [],
+      reason: classifyWorkspaceFeatureFlagTargetFailure(error),
     };
   }
 }

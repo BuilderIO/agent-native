@@ -1,3 +1,5 @@
+export { MemoryRouter as AgentChatMemoryRouter } from "react-router";
+
 export {
   AgentAskPopover,
   type AgentAskPopoverProps,
@@ -335,6 +337,7 @@ export {
   type ChatFirstAppRegistration,
   type ChatFirstAppResolution,
   type ChatFirstAppTarget,
+  type ChatFirstAppSurfacePlacement,
   type ChatFirstAgentActivity,
   type ChatFirstAgentActivityStatus,
   type ChatFirstOpenAppDelivery,

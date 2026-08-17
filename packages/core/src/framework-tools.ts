@@ -249,6 +249,9 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-automation-runs": "automation",
   "list-automations": "automation",
   "manage-automation": "automation",
+  "get-usage-alerts": "automation",
+  "manage-usage-alert": "automation",
+  "get-usage-metrics": "automation",
 
   "context-manifest-get": "contextXray",
   "context-preview-get": "contextXray",

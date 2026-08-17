@@ -478,6 +478,11 @@ const messages = {
     lastRun: "Last run:",
     automationsDescription:
       "Rules that automatically process new inbox emails using AI.",
+    allowAutomationSends: "Allow automations to send emails automatically",
+    allowAutomationSendsDescription:
+      "Off by default. Turn this on when you want automations to send emails without asking for approval each time.",
+    automationSendSettingSaveFailed:
+      "Could not save the automation email setting.",
     loadingModels: "Loading models",
     newRule: "New rule",
     noAutomationRules: "No automation rules yet.",
@@ -496,7 +501,9 @@ const messages = {
     signature: "Signature",
     importFromGmail: "Import from Gmail",
     signatureHelp:
-      "Added to new drafts before quoted reply history. Markdown links and images are supported.",
+      "Added to new drafts before quoted reply history. Paste an image here or use Add image; Markdown links and images are supported.",
+    addSignatureImage: "Add image",
+    signatureImageUploadFailed: "Failed to upload signature image",
     writingStyle: "Writing style",
     writingStylePlaceholder: "Short, specific, warm. Avoid formal filler.",
     saveDraftingSettings: "Save drafting settings",

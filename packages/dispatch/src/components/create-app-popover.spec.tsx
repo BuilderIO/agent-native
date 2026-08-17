@@ -152,9 +152,12 @@ describe("CreateAppFlow", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderAndSubmit(prompt: string) {
+  async function renderAndSubmit(
+    prompt: string,
+    props: { onClose?: () => void; onCreated?: () => void } = {},
+  ) {
     await act(async () => {
-      root.render(React.createElement(CreateAppFlow, {}));
+      root.render(React.createElement(CreateAppFlow, props));
     });
 
     changeValue(
@@ -194,7 +197,7 @@ describe("CreateAppFlow", () => {
     );
     expect(localLink?.textContent).toContain("Create locally");
     expect(localLink?.href).toBe(
-      "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app",
+      "https://www.agent-native.com/docs/multi-app-workspace#adding-a-new-app",
     );
   });
 
@@ -211,6 +214,55 @@ describe("CreateAppFlow", () => {
         String(input).includes("start-workspace-app-creation"),
       ),
     ).toBe(false);
+  });
+
+  it("reuses an empty local chat for direct dev-mode app creation", async () => {
+    devState.isDevMode = true;
+
+    await renderAndSubmit("Build a quality dashboard");
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submit: true,
+        type: "code",
+        newTab: true,
+        reuseEmptyTab: true,
+      }),
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("start-workspace-app-creation"),
+      ),
+    ).toBe(false);
+  });
+
+  it("opens a fresh local chat when the server hands off app creation", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "local-agent",
+      appId: "quality-dashboard",
+      prompt: "Create the quality dashboard in the new workspace app.",
+      message: "Starting the local coding chat.",
+    };
+    const onClose = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onClose });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "Create the quality dashboard in the new workspace app.",
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the parent after Builder accepts app creation", async () => {
+    const onCreated = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onCreated });
+
+    expect(onCreated).toHaveBeenCalledTimes(1);
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {
@@ -315,7 +367,7 @@ describe("CreateAppFlow", () => {
       });
     });
     const branchLink = Array.from(container.querySelectorAll("a")).find(
-      (candidate) => candidate.textContent?.includes("Open Builder branch"),
+      (candidate) => candidate.textContent?.includes("Open in Builder"),
     );
     expect(branchLink?.getAttribute("href")).toBe(
       "https://branch.example.test",

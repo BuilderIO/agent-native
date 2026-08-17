@@ -1,5 +1,6 @@
 import type {
   ContentDatabaseItem,
+  ContentDatabaseSource,
   ContentDatabaseView,
   DocumentProperty,
 } from "@shared/api";
@@ -59,6 +60,11 @@ export function DatabaseTimelineView({
   hasSearch,
   dateProperty,
   month,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onClearResultConstraints,
   onMonthChange,
   onDatePropertyChange,
@@ -81,6 +87,11 @@ export function DatabaseTimelineView({
   hasSearch: boolean;
   dateProperty: DocumentProperty | null;
   month: Date;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onClearResultConstraints: () => void;
   onMonthChange: (month: Date) => void;
   onDatePropertyChange: (propertyId: string | null) => void;
@@ -293,6 +304,11 @@ export function DatabaseTimelineView({
             <AddProperty
               documentId={databaseDocumentId}
               databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
             />
           ) : null}
         </div>

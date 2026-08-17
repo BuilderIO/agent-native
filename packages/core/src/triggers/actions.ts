@@ -19,6 +19,10 @@ import {
   type AutomationScope,
 } from "../automations/service.js";
 import { listEvents } from "../event-bus/index.js";
+import {
+  getRemoteExecutionCapabilities,
+  listRemoteDevicesForOwner,
+} from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
 import { queueAutomationRunNow } from "../jobs/run-now.js";
 import {
@@ -53,6 +57,32 @@ async function handleListEvents(): Promise<string> {
     return `- **${e.name}**: ${e.description}${schemaStr}${example}`;
   });
   return lines.join("\n");
+}
+
+async function handleListHosts(getCurrentUser: () => string): Promise<string> {
+  const devices = await listRemoteDevicesForOwner({
+    ownerEmail: getCurrentUser(),
+    orgId: getRequestOrgId(),
+    status: "active",
+    limit: 50,
+  });
+  const now = Date.now();
+  return JSON.stringify(
+    devices.map((device) => ({
+      id: device.id,
+      name: device.label,
+      platform: device.platform,
+      hostName: device.hostName,
+      status: device.status,
+      online: device.lastSeenAt !== null && now - device.lastSeenAt <= 90_000,
+      lastSeenAt: device.lastSeenAt
+        ? new Date(device.lastSeenAt).toISOString()
+        : null,
+      executionCapabilities: getRemoteExecutionCapabilities(device),
+    })),
+    null,
+    2,
+  );
 }
 
 async function handleList(
@@ -90,6 +120,9 @@ async function handleList(
       createdBy: meta.createdBy ?? null,
       runAs: meta.runAs ?? null,
       model: meta.model ?? null,
+      executionHostId: meta.executionHostId ?? null,
+      executionEngine: meta.executionEngine ?? null,
+      executionCwd: meta.executionCwd ?? null,
       mcpTools: meta.mcpTools ?? [],
       originScopeId: meta.originScopeId ?? null,
       deliveryPlatform: meta.deliveryPlatform ?? null,
@@ -149,6 +182,18 @@ async function handleDefine(
             ? args.delegated_policy_id
             : undefined,
         model: typeof args.model === "string" ? args.model : undefined,
+        executionHostId:
+          typeof args.execution_host_id === "string"
+            ? args.execution_host_id
+            : undefined,
+        executionEngine:
+          typeof args.execution_engine === "string"
+            ? args.execution_engine
+            : undefined,
+        executionCwd:
+          typeof args.execution_cwd === "string"
+            ? args.execution_cwd
+            : undefined,
         mcpTools: args.mcpTools,
         delivery: integration
           ? {
@@ -182,6 +227,9 @@ async function handleDefine(
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
       mcpTools: definition.meta.mcpTools ?? [],
       originScopeId: definition.meta.originScopeId ?? null,
       deliveryPlatform: definition.meta.deliveryPlatform ?? null,
@@ -230,6 +278,24 @@ async function handleUpdate(
             : typeof args.model === "string"
               ? args.model
               : null,
+        executionHostId:
+          args.execution_host_id === undefined
+            ? undefined
+            : typeof args.execution_host_id === "string"
+              ? args.execution_host_id
+              : null,
+        executionEngine:
+          args.execution_engine === undefined
+            ? undefined
+            : typeof args.execution_engine === "string"
+              ? args.execution_engine
+              : null,
+        executionCwd:
+          args.execution_cwd === undefined
+            ? undefined
+            : typeof args.execution_cwd === "string"
+              ? args.execution_cwd
+              : null,
         mcpTools: args.mcpTools,
       },
     );
@@ -246,6 +312,9 @@ async function handleUpdate(
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
       mcpTools: definition.meta.mcpTools ?? [],
       originScopeId: definition.meta.originScopeId ?? null,
       deliveryPlatform: definition.meta.deliveryPlatform ?? null,
@@ -329,6 +398,7 @@ async function handleRunNow(
 
 const VALID_ACTIONS = [
   "list-events",
+  "list-hosts",
   "list",
   "define",
   "update",
@@ -347,9 +417,10 @@ export function createAutomationToolEntries(
         description: `Manage automations (event-triggered and scheduled tasks). Use the "action" parameter to choose an operation:
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
-- **list**: List all automations (triggers). Shows trigger, status, model, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, mcpTools.
-- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
+- **list-hosts**: List paired execution hosts and their non-secret capabilities. Call this before assigning execution_host_id.
+- **list**: List all automations (triggers). Shows trigger, status, model, execution host, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, execution_host_id, execution_engine, execution_cwd, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event trigger when it should run only when something changes. Host-targeted automations queue code-agent work on that host and do not silently fall back to this server.
+- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
 - **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name; optional scope.`,
@@ -359,7 +430,7 @@ export function createAutomationToolEntries(
             action: {
               type: "string",
               description:
-                "The operation to perform: list-events, list, define, update, delete, fire-test, or run-now.",
+                "The operation to perform: list-events, list-hosts, list, define, update, delete, fire-test, or run-now.",
               enum: [...VALID_ACTIONS],
             },
             name: {
@@ -391,7 +462,7 @@ export function createAutomationToolEntries(
             schedule: {
               type: "string",
               description:
-                'For schedule triggers: cron expression. Example: "0 9 * * 1-5" (9am weekdays).',
+                'For schedule triggers: cron expression. If omitted, defaults to "0 * * * *" (once per hour). Example: "0 9 * * 1-5" (9am weekdays).',
             },
             condition: {
               type: "string",
@@ -413,6 +484,21 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "Optional model id for this automation. The default model is used when omitted.",
+            },
+            execution_host_id: {
+              type: "string",
+              description:
+                "Optional exact paired host id for scheduled code-agent execution. Call list-hosts first; a selected host is never silently replaced by another host.",
+            },
+            execution_engine: {
+              type: "string",
+              description:
+                "Optional host engine id, such as codex-cli or claude-cli. It must be advertised by the selected host when host capabilities include an engine list.",
+            },
+            execution_cwd: {
+              type: "string",
+              description:
+                "Optional workspace path on the execution host. Use the host connector's configured workspace when omitted.",
             },
             mcpTools: {
               type: "array",
@@ -451,11 +537,16 @@ export function createAutomationToolEntries(
       },
       planMode: {
         effect: (args) =>
-          args.action === "list" || args.action === "list-events"
+          args.action === "list" ||
+          args.action === "list-events" ||
+          args.action === "list-hosts"
             ? "read"
             : "write",
-        allowedValues: { action: ["list-events", "list"] },
-        description: "Plan mode allows listing automations and event types.",
+        allowedValues: {
+          action: ["list-events", "list-hosts", "list"],
+        },
+        description:
+          "Plan mode allows listing automations, execution hosts, and event types.",
       },
       run: async (
         args: Record<string, unknown>,
@@ -466,6 +557,8 @@ export function createAutomationToolEntries(
         switch (action) {
           case "list-events":
             return handleListEvents();
+          case "list-hosts":
+            return handleListHosts(getCurrentUser);
           case "list":
             return handleList(args, getCurrentUser, appId);
           case "define":

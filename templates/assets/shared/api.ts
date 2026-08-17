@@ -208,7 +208,7 @@ export interface ImageLibrarySummary {
   canonicalLogoAssetId?: string | null;
   coverAssetId?: string | null;
   visibility?: string;
-  accessRole?: "owner" | "admin" | "editor" | "viewer";
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   archivedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;

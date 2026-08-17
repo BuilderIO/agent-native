@@ -284,6 +284,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
         );
         await ensureIndexExists(
+          "idx_feedback_type_created",
+          `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
+        );
+        await ensureIndexExists(
           "idx_satisfaction_thread",
           `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
         );
@@ -369,6 +373,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
         `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,

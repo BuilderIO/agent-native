@@ -96,6 +96,28 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
+    id: "workspace.root-landing-resolver",
+    surface: "workspace",
+    label:
+      "Resolve the app root to the caller's last authorized page or a private welcome page",
+    uiEntrypoints: ["app/routes/_app._index.tsx", "app/lib/content-landing.ts"],
+    durableEffect:
+      "The root route restores the most recent authorized page when possible and otherwise converges on one private personal welcome page while preserving last-location state.",
+    uiImplementation:
+      "The index route invokes the shared landing resolver on first load, then navigates to the resolved page and records the landing document in application state.",
+    status: "action-backed",
+    actions: ["resolve-content-landing"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-landing.db.test.ts",
+      "app/lib/content-landing.test.ts",
+    ],
+  },
+  {
     id: "sidebar.chrome-state",
     surface: "sidebar",
     label: "Collapse sections and resize the sidebar",
@@ -253,6 +275,7 @@ export const parityMatrix: ParityRow[] = [
       "create-content-database",
       "create-inline-content-database",
       "delete-content-database",
+      "describe-content-database",
       "get-content-database",
       "list-content-databases",
       "list-trashed-content-databases",
@@ -263,7 +286,12 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/content-database-lifecycle.db.test.ts"],
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "actions/list-content-databases.db.test.ts",
+      "server/plugins/agent-chat.spec.ts",
+      "../../packages/core/src/server/agent-chat/content-a2a-capabilities.spec.ts",
+    ],
     evalScenarioIds: ["database-source-scope"],
   },
   {

@@ -1,5 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
+
+function a2aSecret(): string | undefined {
+  return readDeployCredentialEnv("A2A_SECRET");
+}
+
+function a2aSecrets(): readonly string[] {
+  const secret = a2aSecret();
+  return secret ? [secret] : [];
+}
+
 export interface A2AToolResultSummary {
   tool: string;
   result: string;
@@ -140,9 +151,7 @@ interface PersistedArtifactLedger {
 
 function persistedArtifactLedgerFromMarker(
   result: string,
-  secrets: readonly string[] = process.env.A2A_SECRET
-    ? [process.env.A2A_SECRET]
-    : [],
+  secrets: readonly string[] = a2aSecrets(),
 ): PersistedArtifactLedger | null {
   if (secrets.length === 0) return null;
   const match = result.match(
@@ -183,9 +192,7 @@ function persistedArtifactLedgerFromMarker(
 
 function persistedArtifactIdentitiesFromMarker(
   result: string,
-  secrets: readonly string[] = process.env.A2A_SECRET
-    ? [process.env.A2A_SECRET]
-    : [],
+  secrets: readonly string[] = a2aSecrets(),
 ): A2AArtifactIdentity[] {
   return (persistedArtifactLedgerFromMarker(result, secrets)?.identities ?? [])
     .slice(0, 12)
@@ -205,9 +212,9 @@ function persistedArtifactIdentitiesFromMarker(
 function withPersistedArtifactMarker(
   text: string,
   toolResults: A2AToolResultSummary[],
-  secret = process.env.A2A_SECRET,
+  secret = a2aSecret(),
 ): string {
-  const verificationSecrets = [secret, process.env.A2A_SECRET].filter(
+  const verificationSecrets = [secret, a2aSecret()].filter(
     (value, index, values): value is string =>
       !!value && values.indexOf(value) === index,
   );
@@ -1292,10 +1299,7 @@ export function appendA2APersistedMutationReceipts(
   toolResults: A2AToolResultSummary[],
   options: A2AArtifactResponseOptions = {},
 ): string {
-  const receiptSecrets = [
-    options.persistedArtifactSecret,
-    process.env.A2A_SECRET,
-  ].filter(
+  const receiptSecrets = [options.persistedArtifactSecret, a2aSecret()].filter(
     (value, index, values): value is string =>
       !!value && values.indexOf(value) === index,
   );
@@ -1727,7 +1731,7 @@ export function guardA2AArtifactResponse(
       ? withPersistedArtifactMarker(
           withReceipts,
           toolResults,
-          options.persistedArtifactSecret ?? process.env.A2A_SECRET,
+          options.persistedArtifactSecret ?? a2aSecret(),
         )
       : withReceipts;
   };

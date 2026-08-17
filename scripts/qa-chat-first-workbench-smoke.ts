@@ -34,6 +34,7 @@ const colorScheme =
 type SurfaceSnapshot = {
   panel: number;
   launcher: number;
+  leftDrawer: number;
   emptyCards: number;
   toggle: number;
   browser: number;
@@ -43,6 +44,10 @@ type SurfaceSnapshot = {
   panelWidth: number;
   chatRight: number;
   panelLeft: number;
+  mainApp: number;
+  appOptions: number;
+  composerLeft: number;
+  composerRight: number;
 };
 
 type SmokeContext = {
@@ -100,6 +105,7 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
       launcher: document.querySelectorAll(
         ".dispatch-chat-first-surface-launcher",
       ).length,
+      leftDrawer: document.querySelectorAll(".agent-layout-left-drawer").length,
       emptyCards: document.querySelectorAll("[data-surface-empty-state] > *")
         .length,
       toggle: document.querySelectorAll("[data-chat-first-surface-toggle]")
@@ -114,6 +120,18 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
       panelWidth: panel?.getBoundingClientRect().width ?? 0,
       chatRight: chat?.getBoundingClientRect().right ?? 0,
       panelLeft: panel?.getBoundingClientRect().left ?? 0,
+      mainApp: document.querySelectorAll("[data-dispatch-chat-first-main-app]")
+        .length,
+      appOptions: document.querySelectorAll("[data-chat-first-surface-app]")
+        .length,
+      composerLeft:
+        document
+          .querySelector<HTMLElement>(".agent-composer-area")
+          ?.getBoundingClientRect().left ?? 0,
+      composerRight:
+        document
+          .querySelector<HTMLElement>(".agent-composer-area")
+          ?.getBoundingClientRect().right ?? 0,
     };
   });
   await saveScreenshot(page, name);
@@ -123,6 +141,7 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
 async function createContext(
   browser: Browser,
   enabled: boolean,
+  pathname = "/chat",
 ): Promise<SmokeContext> {
   const context = await browser.newContext({
     colorScheme,
@@ -137,6 +156,15 @@ async function createContext(
   }, enabled);
   const page = await context.newPage();
   const embedRequests: Array<Record<string, unknown>> = [];
+  for (const host of ["mail.example.test", "analytics.example.test"]) {
+    await page.route(`https://${host}/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<!doctype html><html><body style="margin:0;background:#18212b;color:#f8fafc;font:16px system-ui"><main data-chat-first-smoke-app style="padding:24px">${host} loaded</main></body></html>`,
+      }),
+    );
+  }
   if (enabled) {
     await page.route("**/_agent-native/application-state*", async (route) => {
       if (route.request().method() !== "GET") {
@@ -205,24 +233,30 @@ async function createContext(
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
-            startUrl: "https://mail.example.test/mail/inbox",
+            startUrl:
+              payload.app === "analytics"
+                ? "https://analytics.example.test/adhoc/q2"
+                : "https://mail.example.test/mail/inbox",
           }),
         });
       },
     );
   }
-  await page.goto(`${baseUrl}/chat`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${baseUrl}${pathname}`, { waitUntil: "domcontentloaded" });
   // The client-side auth guard can redirect after the initial document has
   // loaded, when its first session query returns 401. Give that redirect a
   // chance to settle before deciding whether the local-dev CTA is needed.
   await page.waitForTimeout(2_000);
-  if (new URL(page.url()).pathname.endsWith("/sign-in")) {
-    const localDevButton = page.getByRole("button", {
-      name: /continue as local dev/i,
-    });
+  const localDevButton = page.getByRole("button", {
+    name: /continue as local dev/i,
+  });
+  if (
+    (await localDevButton.count()) > 0 &&
+    (await localDevButton.isVisible())
+  ) {
     await localDevButton.waitFor({ state: "visible", timeout: 15_000 });
     await localDevButton.click();
-    await page.waitForURL((url) => url.pathname.endsWith("/chat"), {
+    await page.waitForURL((url) => url.pathname.endsWith(pathname), {
       timeout: 15_000,
     });
   }
@@ -241,15 +275,63 @@ async function runSmoke(browser: Browser): Promise<void> {
     await off.context.close();
   }
 
-  const on = await createContext(browser, true);
+  const emptyContext = await createContext(browser, true);
+  let empty: SurfaceSnapshot;
   try {
-    const empty = await snapshot(on.page, "02-chat-first-no-tabs");
-    assert.equal(empty.toggle, 1, "chat-first toggle should be discoverable");
-    assert.equal(empty.panel, 0, "no-tab state must not mount a side panel");
+    empty = await snapshot(emptyContext.page, "02-chat-first-empty");
+    assert.equal(
+      empty.toggle,
+      0,
+      "empty chat must not offer a right-surface toggle",
+    );
+    assert.equal(empty.panel, 0, "empty chat must not mount a side panel");
+    assert.equal(
+      empty.leftDrawer,
+      1,
+      "Dispatch navigation should remain available",
+    );
     assert.equal(empty.launcher, 0, "launcher should be closed by default");
     assert.equal(empty.emptyCards, 0, "empty cards should be on demand");
     assert.ok(
+      empty.composerLeft > 0 && empty.composerRight < 1280,
+      "full-page composer should have horizontal breathing room",
+    );
+    assert.ok(
+      empty.composerRight - empty.composerLeft <= 752,
+      "full-page composer should be no wider than 750px",
+    );
+    assert.ok(
       empty.chatWidth >= empty.mainWidth - 2,
+      "chat should occupy the content width without a side panel",
+    );
+  } finally {
+    await emptyContext.context.close();
+  }
+
+  const on = await createContext(browser, true, "/chat/thread-smoke");
+  try {
+    const active = await snapshot(on.page, "02-chat-first-active");
+    assert.equal(
+      active.toggle,
+      1,
+      "active chat should expose the surface toggle",
+    );
+    assert.equal(
+      active.panel,
+      0,
+      "active chat should start with no side panel",
+    );
+    assert.equal(
+      active.leftDrawer,
+      1,
+      "Dispatch navigation should remain available",
+    );
+    assert.ok(
+      active.composerRight - active.composerLeft <= 752,
+      "full-page composer should be no wider than 750px",
+    );
+    assert.ok(
+      active.chatWidth >= active.mainWidth - 2,
       "chat should occupy the content width without a side panel",
     );
 
@@ -265,7 +347,11 @@ async function runSmoke(browser: Browser): Promise<void> {
       "side surface should be an inline column beside the conversation, not an overlay",
     );
     assert.equal(picker.launcher, 0);
-    assert.equal(picker.emptyCards, 6);
+    assert.ok(picker.emptyCards >= 6);
+    assert.ok(
+      picker.appOptions >= 2,
+      "picker should list workspace and granted apps",
+    );
     assert.equal(
       await on.page.locator('[data-surface-availability="deferred"]').count(),
       3,
@@ -307,6 +393,10 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-dispatch-chat-first-app-frame]").waitFor({
       state: "attached",
     });
+    await on.page
+      .frameLocator("[data-dispatch-chat-first-app-frame]")
+      .locator("[data-chat-first-smoke-app]")
+      .waitFor({ state: "visible" });
     assert.deepEqual(
       on.embedRequests.at(-1),
       { app: "mail", path: "/mail/inbox", chrome: "minimal" },
@@ -316,6 +406,21 @@ async function runSmoke(browser: Browser): Promise<void> {
       (await snapshot(on.page, "05-chat-first-app")).tabs,
       0,
       "first-party app panes must not show a surface tab bar",
+    );
+    const sideApp = await snapshot(on.page, "05-chat-first-app-side");
+    assert.equal(
+      sideApp.panel,
+      1,
+      "agent-opened apps should stay in the side pane",
+    );
+    assert.equal(
+      sideApp.mainApp,
+      0,
+      "agent-opened apps should keep chat in the main area",
+    );
+    assert.ok(
+      sideApp.chatWidth < empty.chatWidth - 1,
+      "agent-opened apps should leave the full-page chat visible beside them",
     );
     await saveScreenshot(on.page, "05-chat-first-app");
     await on.page.getByRole("button", { name: "Hide side surface" }).click();
@@ -336,6 +441,10 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-dispatch-chat-first-app-frame]").waitFor({
       state: "attached",
     });
+    await on.page
+      .frameLocator("[data-dispatch-chat-first-app-frame]")
+      .locator("[data-chat-first-smoke-app]")
+      .waitFor({ state: "visible" });
     assert.deepEqual(
       on.embedRequests.at(-1),
       { app: "analytics", path: "/adhoc/q2", chrome: "minimal" },
@@ -356,7 +465,7 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.reload({ waitUntil: "domcontentloaded" });
     await on.page.waitForTimeout(7_000);
     await on.page.locator("[data-chat-first-surface-toggle]").click();
-    await on.page.getByRole("button", { name: "Open activity" }).click();
+    await on.page.getByRole("button", { name: "Open activity" }).last().click();
     const agents = await snapshot(on.page, "06-chat-first-agents");
     assert.equal(agents.panel, 1, "opening a surface should mount the panel");
     assert.ok(agents.tabs >= 1);
@@ -434,7 +543,7 @@ async function runSmoke(browser: Browser): Promise<void> {
     const keyboardPicker = await snapshot(on.page, "10-chat-first-keyboard");
     assert.equal(keyboardPicker.panel, 1);
     assert.equal(keyboardPicker.launcher, 0);
-    assert.equal(keyboardPicker.emptyCards, 6);
+    assert.ok(keyboardPicker.emptyCards >= 6);
   } finally {
     await on.context.close();
   }
@@ -451,6 +560,11 @@ type ElectronSnapshot = {
   browser: number;
   appPane: number;
   mainWidth: number;
+  chatWidth: number;
+  mainApp: number;
+  appOptions: number;
+  composerLeft: number;
+  composerRight: number;
 };
 
 async function electronSnapshot(
@@ -460,9 +574,15 @@ async function electronSnapshot(
 ): Promise<ElectronSnapshot> {
   const snapshot = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".code-agents-main");
+    const rail = document.querySelector<HTMLElement>(
+      "[data-chat-first-apps-rail]",
+    );
+    const composer = document.querySelector<HTMLElement>(
+      ".code-agents-standard-composer",
+    );
     return {
-      hub: document.querySelectorAll(".desktop-chat-first-hub--enabled").length,
-      rail: document.querySelectorAll("[data-chat-first-apps-rail]").length,
+      hub: document.querySelectorAll(".desktop-chat-first-hub").length,
+      rail: rail && getComputedStyle(rail).display !== "none" ? 1 : 0,
       panel: document.querySelectorAll("[data-chat-first-surface-panel]")
         .length,
       launcher: document.querySelectorAll(
@@ -478,6 +598,9 @@ async function electronSnapshot(
         .length,
       appPane: document.querySelectorAll("[data-chat-first-app-pane]").length,
       mainWidth: main?.getBoundingClientRect().width ?? 0,
+      mainApp: document.querySelectorAll(
+        ".code-agents-main [data-chat-first-app-pane]",
+      ).length,
       chatWidth:
         document
           .querySelector<HTMLElement>(
@@ -498,6 +621,10 @@ async function electronSnapshot(
         document
           .querySelector<HTMLElement>("[data-chat-first-surface-panel]")
           ?.getBoundingClientRect().left ?? 0,
+      appOptions: document.querySelectorAll("[data-chat-first-surface-app]")
+        .length,
+      composerLeft: composer?.getBoundingClientRect().left ?? 0,
+      composerRight: composer?.getBoundingClientRect().right ?? 0,
     };
   });
   if (electronApp) await saveElectronScreenshot(electronApp, name);
@@ -516,7 +643,14 @@ async function openElectronAgentSurface(page: Page): Promise<void> {
 async function installElectronAppCreationSmokeMock(
   electronApp: ElectronApplication,
 ): Promise<void> {
-  const apps = ["content", "design", "mail", "calendar", "clips"].map((id) => ({
+  const apps = [
+    "mail",
+    "calendar",
+    "design",
+    "clips",
+    "content",
+    "analytics",
+  ].map((id) => ({
     id,
     name: id[0].toUpperCase() + id.slice(1),
     icon: "Code",
@@ -595,6 +729,39 @@ async function installElectronAppCreationSmokeMock(
   );
 }
 
+async function installElectronActiveChatSmokeMock(
+  electronApp: ElectronApplication,
+): Promise<void> {
+  await electronApp.evaluate(({ ipcMain }) => {
+    const now = new Date().toISOString();
+    const run = {
+      id: "task-chat-first-active-smoke",
+      goalId: "task",
+      title: "Active chat",
+      subtitle: "Smoke-test active chat",
+      status: "completed",
+      phase: "completed",
+      progress: { label: "Completed", completed: 1, total: 1, percent: 100 },
+      details: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    ipcMain.removeHandler("code-agents:list-runs");
+    ipcMain.handle("code-agents:list-runs", async (_event, goalId) => ({
+      status: "ok",
+      goalId: goalId ?? "task",
+      runs: [run],
+    }));
+    ipcMain.removeHandler("code-agents:read-transcript");
+    ipcMain.handle("code-agents:read-transcript", async (_event, request) => ({
+      status: "ok",
+      runId: request?.runId ?? run.id,
+      events: [],
+    }));
+  });
+}
+
 function electronExecutablePath(): string {
   const configured = process.env.CHAT_FIRST_ELECTRON_EXECUTABLE?.trim();
   if (configured) return configured;
@@ -641,55 +808,43 @@ async function runElectronSmoke(): Promise<void> {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(5_000);
 
-    await page.evaluate(async () => {
-      await window.electronAPI.frame.update({ chatFirstMode: false });
-      location.reload();
-    });
-    await page.waitForTimeout(5_000);
-
-    await openElectronAgentSurface(page);
-    const off = await electronSnapshot(
-      page,
-      "electron-01-chat-first-off",
-      electronApp,
-    );
-    assert.equal(off.hub, 0, "Electron legacy Agent shell must stay unchanged");
-    assert.equal(
-      off.rail,
-      0,
-      "Electron chat-first rail must be absent when off",
-    );
-    assert.equal(
-      off.toggle,
-      0,
-      "Electron chat-first toggle must be absent when off",
-    );
-
-    await page.evaluate(async (dispatchUrl) => {
-      if (dispatchUrl) {
+    if (electronDispatchUrl) {
+      await page.evaluate(async (dispatchUrl) => {
         await window.electronAPI.appConfig.update("dispatch", {
           mode: "prod",
           url: dispatchUrl,
         });
-      }
-      await window.electronAPI.frame.update({ chatFirstMode: true });
-      location.reload();
-    }, electronDispatchUrl);
-    await page.waitForTimeout(5_000);
+        location.reload();
+      }, electronDispatchUrl);
+      await page.waitForTimeout(5_000);
+    }
     await openElectronAgentSurface(page);
 
     const empty = await electronSnapshot(
       page,
-      "electron-02-chat-first-no-tabs",
+      "electron-01-chat-first-no-tabs",
       electronApp,
     );
-    assert.equal(empty.hub, 1, "Electron chat-first hub should be enabled");
-    assert.equal(empty.rail, 1, "Electron chat-first rail should be visible");
+    assert.equal(
+      empty.hub,
+      1,
+      "Electron chat-first hub should always be present",
+    );
+    assert.equal(
+      empty.rail,
+      1,
+      "Electron chat-first rail should always be visible",
+    );
     assert.equal(empty.panel, 0, "Electron no-tab state must hide the panel");
     assert.equal(
       empty.launcher,
       0,
       "Electron launcher should be closed by default",
+    );
+    assert.equal(
+      empty.toggle,
+      0,
+      "Electron empty chat must not offer a right-surface toggle",
     );
     assert.ok(
       empty.mainWidth > 0,
@@ -699,8 +854,12 @@ async function runElectronSmoke(): Promise<void> {
       await page
         .locator(".code-agents-main-toolbar [data-chat-first-surface-toggle]")
         .count(),
-      1,
-      "Electron panel toggle should stay in the central toolbar above native webviews",
+      0,
+      "Electron empty chat should not expose the surface toggle",
+    );
+    assert.ok(
+      empty.composerRight - empty.composerLeft <= 752,
+      "Electron full-page composer should be no wider than 750px",
     );
     const defaultAppIds = await page
       .locator("[data-chat-first-app][data-app-id]")
@@ -708,15 +867,44 @@ async function runElectronSmoke(): Promise<void> {
         elements.map((element) => element.getAttribute("data-app-id")),
       );
     assert.deepEqual(
-      defaultAppIds.slice(0, 5),
-      ["content", "design", "mail", "calendar", "clips"],
-      "Electron first-run apps should use the shared default order",
+      defaultAppIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron first-run apps should use the desktop default order",
+    );
+    const newChatAppIds = await page
+      .locator(".code-agents-overview-footer .desktop-apps-grid [data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      newChatAppIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron New chat app list should use the desktop default order",
     );
     assert.equal(
       await page.getByRole("button", { name: "Show more" }).count(),
       1,
       "Electron app rail should progressively disclose the remaining apps",
     );
+    await page.locator("[data-chat-first-all-apps]").click();
+    await page
+      .locator(".desktop-apps-grid--full-page")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    const allAppsIds = await page
+      .locator(".desktop-apps-grid--full-page [data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      allAppsIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron All apps view should use the desktop default order",
+    );
+    await page.getByRole("button", { name: "Back to chats" }).click();
+    await page.locator(".desktop-apps-grid--full-page").waitFor({
+      state: "detached",
+      timeout: 15_000,
+    });
     assert.equal(
       await page.locator("[data-chat-first-main-chat]").count(),
       0,
@@ -728,7 +916,7 @@ async function runElectronSmoke(): Promise<void> {
       "The empty chat-first center should not show a workbench before a chat is selected",
     );
     const topNavColors = await page
-      .locator(".code-agents-nav-list > button")
+      .locator(".code-agents-rail-scroll .code-agents-nav-link")
       .evaluateAll((buttons) =>
         buttons.map((button) => getComputedStyle(button).color),
       );
@@ -736,6 +924,37 @@ async function runElectronSmoke(): Promise<void> {
       new Set(topNavColors).size,
       1,
       `Electron chat-first top navigation should use one neutral text color (${topNavColors.join(", ")})`,
+    );
+
+    await installElectronActiveChatSmokeMock(electronApp);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(5_000);
+    await openElectronAgentSurface(page);
+    const activeChatRow = page
+      .locator(".code-agents-run-list .an-chat-history-row")
+      .filter({ hasText: "Active chat" });
+    await activeChatRow.waitFor({ state: "visible", timeout: 15_000 });
+    await activeChatRow.locator(".an-chat-history-row__button").click();
+    const active = await electronSnapshot(
+      page,
+      "electron-03-chat-first-active",
+      electronApp,
+    );
+    assert.equal(
+      active.toggle,
+      1,
+      "Electron active chat should expose the surface toggle",
+    );
+    assert.equal(
+      await page
+        .locator(".code-agents-main-toolbar [data-chat-first-surface-toggle]")
+        .count(),
+      1,
+      "Electron active chat should expose the central surface toggle",
+    );
+    assert.ok(
+      active.composerRight - active.composerLeft <= 752,
+      "Electron full-page composer should be no wider than 750px",
     );
 
     await page.locator('[data-chat-first-app][data-app-id="mail"]').click();
@@ -757,9 +976,34 @@ async function runElectronSmoke(): Promise<void> {
       0,
       "Electron first-party app panes must not show a surface tab bar",
     );
+    assert.equal(
+      appSurface.mainApp,
+      1,
+      "Electron rail-opened apps should take over the main area",
+    );
+    assert.equal(appSurface.panel, 0);
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:openApp", {
+          detail: { app: "mail", path: "/mail/inbox" },
+        }),
+      );
+    });
+    await page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+    const sideApp = await electronSnapshot(
+      page,
+      "electron-03-chat-first-app-side",
+      electronApp,
+    );
+    assert.equal(sideApp.panel, 1);
+    assert.equal(sideApp.mainApp, 0);
     assert.ok(
-      appSurface.chatWidth < empty.chatWidth - 1,
-      "Electron app panes should leave the full-page chat visible beside them",
+      sideApp.chatWidth < active.chatWidth - 1,
+      "Electron agent-opened apps should leave the full-page chat visible beside them",
     );
     await page.getByRole("button", { name: "Hide side surface" }).click();
     await page.locator("[data-chat-first-surface-panel]").waitFor({
@@ -890,7 +1134,7 @@ async function runElectronSmoke(): Promise<void> {
 
     await page.getByRole("button", { name: "Show less" }).click();
     const chatFirstNav = await page
-      .locator(".code-agents-nav-list")
+      .locator(".code-agents-rail-scroll")
       .innerText();
     assert.doesNotMatch(chatFirstNav, /Agent chat|Code work/);
     assert.doesNotMatch(chatFirstNav, /Mobile|Computer access/);
@@ -914,6 +1158,11 @@ async function runElectronSmoke(): Promise<void> {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForTimeout(5_000);
     await openElectronAgentSurface(page);
+    const currentChatRow = page
+      .locator(".code-agents-run-list .an-chat-history-row")
+      .first();
+    await currentChatRow.waitFor({ state: "visible", timeout: 15_000 });
+    await currentChatRow.locator(".an-chat-history-row__button").click();
     const closePreview = page.getByRole("button", { name: "Close browser" });
     if (await closePreview.count()) await closePreview.click();
     const electronToggle = page.locator("[data-chat-first-surface-toggle]");
@@ -930,7 +1179,7 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(picker.panel, 1);
     assert.ok(
-      picker.chatWidth < empty.chatWidth - 1,
+      picker.chatWidth < active.chatWidth - 1,
       "Electron side surface should shrink the conversation column",
     );
     assert.ok(
@@ -939,9 +1188,13 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(picker.launcher, 0);
     assert.equal(
-      picker.cards,
-      6,
-      "Electron should expose the six-card catalog",
+      picker.cards >= 6,
+      true,
+      "Electron should expose the surface catalog",
+    );
+    assert.ok(
+      picker.appOptions >= 5,
+      "Electron picker should list workspace apps",
     );
     assert.equal(
       await page.locator('[data-surface-availability="deferred"]').count(),
@@ -949,7 +1202,7 @@ async function runElectronSmoke(): Promise<void> {
       "Electron deferred surfaces should be labeled honestly",
     );
 
-    await page.getByRole("button", { name: "Open activity" }).click();
+    await page.getByRole("button", { name: "Open activity" }).last().click();
     const agents = await electronSnapshot(
       page,
       "electron-04-agents",

@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -29,6 +29,8 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
+  BlocksFieldIdCollisionError,
+  lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
@@ -88,7 +90,7 @@ const mutationEnvelopeSchema = z.object({
   idempotencyKey: z.string().min(1).max(200),
 });
 
-export const mutateDatabaseBlockSchema = z.discriminatedUnion("operation", [
+const mutateDatabaseBlockOperationSchema = z.discriminatedUnion("operation", [
   mutationEnvelopeSchema.extend({
     operation: z.literal("insert"),
     block: blockValueSchema,
@@ -116,8 +118,31 @@ export const mutateDatabaseBlockSchema = z.discriminatedUnion("operation", [
   }),
 ]);
 
+type MutationInput = z.infer<typeof mutateDatabaseBlockOperationSchema>;
+
+// Agent tool registration requires a top-level object schema. Keep the
+// discriminated union as the exact validator for operation-specific fields.
+export const mutateDatabaseBlockSchema = z
+  .object({
+    ...mutationEnvelopeSchema.shape,
+    operation: z.enum(["insert", "update", "upsert", "delete", "reorder"]),
+    blockId: z.string().min(1).optional(),
+    block: blockValueSchema.optional(),
+    position: placementSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    const parsed = mutateDatabaseBlockOperationSchema.safeParse(value);
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      context.addIssue({
+        code: "custom",
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+  }) as z.ZodType<MutationInput>;
+
 type BlockTarget = z.infer<typeof databaseBlockTargetSchema>;
-type MutationInput = z.infer<typeof mutateDatabaseBlockSchema>;
 
 interface LoadedField {
   context: MutationContext;
@@ -136,6 +161,17 @@ function contractError(
   statusCode = 409,
 ): never {
   throw new ActionContractError(message, { errorCode, details, statusCode });
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = String(candidate?.code ?? "");
+  const message = String(candidate?.message ?? "");
+  return (
+    code === "23505" ||
+    code.includes("SQLITE_CONSTRAINT") ||
+    /unique constraint|primary key constraint|duplicate key/i.test(message)
+  );
 }
 
 function databaseTarget(target: BlockTarget): DatabaseMutationTarget {
@@ -400,6 +436,7 @@ function actionMutation(
           operation: "upsert",
           blockId: input.blockId,
           block: input.block,
+          position: input.position,
         },
       };
     }
@@ -657,6 +694,30 @@ export async function mutateDatabaseBlock(
           tx,
         );
         if (lockedReplay) return lockedReplay;
+        const primaryBlocksFields = await lockPrimaryBlocksFields(
+          tx,
+          input.target.rowDocumentId,
+        );
+        const [lockedDocument] = await tx
+          .update(schema.documents)
+          .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+          .where(
+            and(
+              eq(schema.documents.id, input.target.rowDocumentId),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+          .returning({ id: schema.documents.id });
+        if (!lockedDocument) {
+          contractError(
+            "ROW_NOT_FOUND",
+            "The exact database row was not found.",
+            {
+              documentId: input.target.rowDocumentId,
+            },
+            404,
+          );
+        }
         const loaded = await loadField({
           target: input.target,
           role: "editor",
@@ -721,23 +782,80 @@ export async function mutateDatabaseBlock(
         let postIdentity = loaded.identity;
         if (changed.changed) {
           await writeMarkdown(tx, loaded, input.target, changed.markdown, now);
-          await persistBlocksFieldIdentity({
-            db: tx,
-            ownerEmail: loaded.ownerEmail,
-            documentId: input.target.rowDocumentId,
-            propertyId: input.target.propertyId,
-            previousMarkdown: loaded.markdown,
-            markdown: changed.markdown,
-            expectedRevision: input.expectedFieldRevision,
-            preferredIdsByPath: changed.preferredIdsByPath,
-            now,
-          });
+          try {
+            const fieldsToPersist =
+              loaded.storageTarget === "document_body"
+                ? primaryBlocksFields
+                : [
+                    {
+                      propertyId: input.target.propertyId,
+                      ownerEmail: loaded.ownerEmail,
+                    },
+                  ];
+            if (
+              !fieldsToPersist.some(
+                (field) => field.propertyId === input.target.propertyId,
+              )
+            ) {
+              throw new Error(
+                "Primary Blocks membership changed before the operation completed.",
+              );
+            }
+            for (const field of fieldsToPersist) {
+              const isTarget = field.propertyId === input.target.propertyId;
+              await persistBlocksFieldIdentity({
+                db: tx,
+                ownerEmail: field.ownerEmail,
+                documentId: input.target.rowDocumentId,
+                propertyId: field.propertyId,
+                previousMarkdown: loaded.markdown,
+                markdown: changed.markdown,
+                ...(isTarget
+                  ? {
+                      expectedRevision: input.expectedFieldRevision,
+                      preferredIdsByPath: changed.preferredIdsByPath,
+                      rejectCrossFieldIdRemapping: true,
+                    }
+                  : {}),
+                now,
+              });
+            }
+          } catch (error) {
+            if (
+              error instanceof BlocksFieldIdCollisionError ||
+              (resolved.insertedBlockId && isUniqueConstraintError(error))
+            ) {
+              contractError(
+                "BLOCK_ID_ALREADY_USED",
+                "The requested block ID has already been used.",
+                {
+                  blockId:
+                    error instanceof BlocksFieldIdCollisionError
+                      ? error.blockId
+                      : resolved.insertedBlockId,
+                },
+              );
+            }
+            throw error;
+          }
           postIdentity = await readBlocksFieldIdentity({
             db: tx,
             documentId: input.target.rowDocumentId,
             propertyId: input.target.propertyId,
             markdown: changed.markdown,
           });
+          if (
+            resolved.insertedBlockId &&
+            !postIdentity.blocks.some(
+              (block) => block.id === resolved.insertedBlockId,
+            )
+          ) {
+            contractError(
+              "BLOCK_ID_ALREADY_USED",
+              "The requested block ID has already been used.",
+              { blockId: resolved.insertedBlockId },
+            );
+          }
           await touchContentDatabase(tx, input.target.databaseId, now);
         }
         const postRow = await rowSnapshot(
@@ -836,7 +954,5 @@ export async function mutateDatabaseBlock(
       });
     },
   );
-  return result.receipt.idempotency.result === "replayed"
-    ? result
-    : verifyResult(result);
+  return verifyResult(result);
 }

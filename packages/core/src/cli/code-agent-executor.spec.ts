@@ -112,7 +112,7 @@ describe("executeCodeAgentRun", () => {
     expect(output.read()).toContain("I checked the workspace");
     expect(
       listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
-    ).toEqual(["user", "status", "system", "status"]);
+    ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
   });
 
   it("pauses with a credential hint when no provider key is available", async () => {
@@ -268,6 +268,7 @@ describe("executeCodeAgentRun", () => {
       goalId: "task",
       title: "Use Claude",
       status: "queued",
+      permissionMode: "auto-edit",
       cwd: process.cwd(),
       metadata: {
         engine: "claude-cli",
@@ -297,6 +298,12 @@ describe("executeCodeAgentRun", () => {
     expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5");
     expect(args).toContain("--effort");
     expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "acceptEdits"]),
+    );
+    expect(args).not.toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
     expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -306,6 +313,182 @@ describe("executeCodeAgentRun", () => {
         }),
       ]),
     );
+  });
+
+  it("persists Codex JSON tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "const outputPath = outputIndex === -1 ? '' : args[outputIndex + 1];",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  if (outputPath) fs.writeFileSync(outputPath, 'Codex final answer');",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', status: 'in_progress' } });",
+        "  emit({ type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', aggregated_output: 'package.json', exit_code: 0, status: 'completed' } });",
+        "  emit({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'I inspected the workspace.' } });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Codex tool events",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "bash",
+            input: { command: "rg --files" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "bash",
+            result: "package.json",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "system",
+          message: "I inspected the workspace.",
+          metadata: expect.objectContaining({ role: "assistant" }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Claude stream-json tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'package.json' } }] } });",
+        "  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: '{\\\"name\\\":\\\"agentnative\\\"}' }] } });",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'I inspected package.json.' }] } });",
+        "  emit({ type: 'result', result: 'Claude final answer' });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Claude tool events",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect package.json",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "Read",
+            input: { file_path: "package.json" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "Read",
+            result: '{"name":"agentnative"}',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("maps read-only OpenCode runs to the built-in Plan agent", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "opencode-cli";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "opencode-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const opencodeBin = path.join(binDir, "opencode");
+    fs.writeFileSync(
+      opencodeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdout.write('OpenCode streamed output');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect with OpenCode",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "read-only",
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the repository",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "opencode-cli" },
+    });
+    expect(output.read()).toContain("OpenCode streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--agent", "plan"]));
+    expect(args[args.indexOf("--agent") + 1]).toBe("plan");
   });
 
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
@@ -1399,6 +1582,7 @@ describe("buildCodeAgentSystemPrompt", () => {
 
   it("includes nested AGENTS.md precedence note in every prompt", () => {
     const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain("only project checkout for this run");
     expect(prompt).toContain(
       "More deeply nested AGENTS.md files take precedence",
     );

@@ -8,6 +8,7 @@ import {
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
   restoreEditableTextRange,
+  selectAllEditableText,
   snapshotEditableTextRange,
 } from "./rich-text-selection";
 
@@ -109,6 +110,14 @@ describe("rich text selection", () => {
 
     expect(restoreEditableTextRange(block, saved)).toBe(true);
     expect(window.getSelection()!.toString()).toBe("ell");
+  });
+
+  it("selects the whole editable block without selecting the page", () => {
+    const block = editable("first line<br>second line");
+
+    expect(selectAllEditableText(block)).toBe(true);
+    expect(window.getSelection()!.toString()).toBe("first linesecond line");
+    expect(getEditableTextRange(block)).not.toBeNull();
   });
 
   it("keeps the returned range connected across adjacent matching styles", () => {

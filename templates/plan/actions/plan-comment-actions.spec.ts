@@ -64,6 +64,16 @@ vi.mock("@agent-native/core/sharing", () => {
     assertAccess: (...args: unknown[]) => assertAccessMock(...args),
     currentAccess: () => ({ userEmail: request.email }),
     resolveAccess: (...args: unknown[]) => resolveAccessMock(...args),
+    roleSatisfies: (actual: string, minimum: string) => {
+      const rank: Record<string, number> = {
+        viewer: 1,
+        commenter: 2,
+        editor: 3,
+        admin: 4,
+        owner: 5,
+      };
+      return (rank[actual] ?? 0) >= (rank[minimum] ?? 0);
+    },
   };
 });
 

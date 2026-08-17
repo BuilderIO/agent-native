@@ -8,6 +8,7 @@ import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -537,7 +538,7 @@ const updateVisualPlanSchema = z.object({
     .optional()
     .default([])
     .describe(
-      "Legacy comment array. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
+      "Legacy comment array. Comment messages support inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
     ),
   consumedCommentIds: z
     .array(z.string())
@@ -660,6 +661,11 @@ export default defineAction({
       if (!access) throw new Error(`Plan ${args.planId} not found`);
       if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
         throw new ForbiddenError(`Plan ${args.planId} not found`);
+      }
+      if (!roleSatisfies(access.role, "commenter")) {
+        throw new ForbiddenError(
+          "Commenting on this plan requires commenter access or higher.",
+        );
       }
     } else {
       await assertPlanEditor(args.planId);

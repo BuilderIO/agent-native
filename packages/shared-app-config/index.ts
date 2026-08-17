@@ -53,6 +53,120 @@ export interface AppConfig {
   enabled: boolean;
   /** Whether to load the dev or production URL. Default: "prod" */
   mode?: "dev" | "prod";
+  /** Explicitly opt a custom production app into Desktop workspace SSO. */
+  workspaceSso?: boolean;
+}
+
+/** Stable server-side key for the native workspace app inventory rollout. */
+export const WORKSPACE_APP_LIST_FLAG_KEY = "dispatch.workspace-app-list";
+
+const WORKSPACE_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
+
+function workspaceAppUrl(
+  value: unknown,
+  pathValue: unknown,
+  baseUrl?: string,
+): string | null {
+  const raw =
+    typeof value === "string" && value.trim()
+      ? value.trim()
+      : typeof pathValue === "string" && pathValue.trim()
+        ? pathValue.trim()
+        : "";
+  if (!raw) return null;
+
+  try {
+    const parsed = new URL(raw, baseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+/**
+ * Convert the Dispatch workspace registry response into safe app entries for
+ * native shells. Pending, archived, invalid, and agent-card-only records do
+ * not become launchable apps, and no registry metadata or credentials cross
+ * the shell boundary.
+ */
+export function normalizeWorkspaceAppConfigs(
+  payload: unknown,
+  options: { baseUrl?: string; excludeDispatch?: boolean } = {},
+): AppConfig[] {
+  const rawApps = Array.isArray((payload as { apps?: unknown[] })?.apps)
+    ? (payload as { apps: unknown[] }).apps
+    : Array.isArray(payload)
+      ? payload
+      : [];
+  const candidates: AppConfig[] = [];
+
+  for (const entry of rawApps) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    if (
+      !id ||
+      !WORKSPACE_APP_ID_PATTERN.test(id) ||
+      record.archived === true ||
+      (record.status !== undefined && record.status !== "ready") ||
+      (options.excludeDispatch !== false &&
+        (record.isDispatch === true || id === "dispatch"))
+    ) {
+      continue;
+    }
+
+    const url = workspaceAppUrl(
+      record.url ?? record.builderUrl,
+      record.path,
+      options.baseUrl,
+    );
+    if (!url) continue;
+    const name =
+      typeof record.name === "string" && record.name.trim()
+        ? record.name.trim()
+        : id;
+    const description =
+      typeof record.description === "string" ? record.description.trim() : "";
+    const icon =
+      typeof record.icon === "string" && record.icon.trim()
+        ? record.icon.trim()
+        : "LayoutBoard";
+    const color =
+      typeof record.color === "string" && /^#[0-9a-f]{6}$/i.test(record.color)
+        ? record.color
+        : undefined;
+
+    candidates.push({
+      id,
+      name,
+      icon,
+      description,
+      url,
+      devPort: 0,
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod",
+      ...(color ? { color } : {}),
+    });
+  }
+
+  const deduped = new Map<string, AppConfig>();
+  for (const app of candidates.sort(
+    (a, b) =>
+      a.id.localeCompare(b.id) ||
+      a.name.localeCompare(b.name) ||
+      a.url.localeCompare(b.url),
+  )) {
+    if (!deduped.has(app.id)) deduped.set(app.id, app);
+  }
+
+  return [...deduped.values()].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
 }
 
 /** Frame UI port */
@@ -66,20 +180,6 @@ export const CHAT_FIRST_DEFAULT_APP_IDS = [
   "calendar",
   "clips",
 ] as const;
-
-/** Settings for the local dev frame (persisted by the desktop app) */
-export interface FrameSettings {
-  /** Whether the frame is enabled */
-  enabled: boolean;
-  /** Whether to show the Agent-Native Code tab in Desktop */
-  showCodeTab: boolean;
-  /** Opt into the chat-first Codex/T3-like desktop workbench. */
-  chatFirstMode: boolean;
-  /** Load frame from localhost (dev) or production URL (prod) */
-  mode: "dev" | "prod";
-  /** Production URL for the frame (if deployed) */
-  prodUrl?: string;
-}
 
 export function templateToAppConfig(
   template: TemplateMeta,

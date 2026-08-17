@@ -2,9 +2,12 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  runFrameworkReleaseMigrations,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 // guard:allow-unscoped — isolated SQLite fixtures intentionally inspect exact rows.
 
@@ -14,8 +17,9 @@ const TEST_DB_PATH = join(
 );
 const TEST_DATABASE_URL =
   process.env.CONTENT_BLOCK_ACTION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
-const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
+let ownerSequence = 0;
+let ownerEmail = "block-owner-0@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -28,9 +32,14 @@ let setProperty: typeof import("./set-document-property.js").default;
 let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
 let compareAndSwapAdditionalBlocksField: typeof import("./_database-block-actions.js").compareAndSwapAdditionalBlocksField;
+let persistBlocksFieldIdentity: typeof import("./_blocks-field-identity.js").persistBlocksFieldIdentity;
 
 const asOwner = <T>(run: () => Promise<T>) =>
-  runWithRequestContext({ userEmail: OWNER }, run);
+  runWithRequestContext({ userEmail: ownerEmail }, run);
+
+beforeEach(() => {
+  ownerEmail = `block-owner-${++ownerSequence}@example.com`;
+});
 
 beforeAll(async () => {
   if (TEST_DATABASE_URL.startsWith("postgres")) {
@@ -56,6 +65,11 @@ beforeAll(async () => {
   compareAndSwapAdditionalBlocksField = (
     await import("./_database-block-actions.js")
   ).compareAndSwapAdditionalBlocksField;
+  persistBlocksFieldIdentity = (await import("./_blocks-field-identity.js"))
+    .persistBlocksFieldIdentity;
+  if (TEST_DATABASE_URL.startsWith("postgres")) {
+    await runFrameworkReleaseMigrations(undefined);
+  }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
@@ -126,6 +140,33 @@ function envelope(
 }
 
 describe("exact Content database block actions", () => {
+  it("rejects cross-field remapping of an action-preferred block ID", async () => {
+    const target = await fixture("Target");
+    const owner = await fixture("Owner");
+    const requestedId = owner.listed.blocks[0]!.id;
+
+    await expect(
+      persistBlocksFieldIdentity({
+        db: getDb(),
+        ownerEmail,
+        documentId: target.target.rowDocumentId,
+        propertyId: target.target.propertyId,
+        previousMarkdown: "Target",
+        markdown: "Target\nInserted",
+        expectedRevision: target.listed.fieldRevision,
+        preferredIdsByPath: {
+          "0": target.listed.blocks[0]!.id,
+          "1": requestedId,
+        },
+        rejectCrossFieldIdRemapping: true,
+        now: new Date().toISOString(),
+      }),
+    ).rejects.toMatchObject({
+      name: "BlocksFieldIdCollisionError",
+      blockId: requestedId,
+    });
+  });
+
   it("lists revision-pinned pages and performs every supported operation with verified retry receipts", async () => {
     const state = await fixture();
     const [alpha, beta, gamma] = state.listed.blocks;
@@ -234,9 +275,11 @@ describe("exact Content database block actions", () => {
         operation: "upsert",
         blockId: beta!.id,
         block: { kind: "paragraph", nfm: "Beta upserted" },
+        position: { placement: "start" },
       }),
     );
     expect(existingUpsert.receipt.affected.blockIds).toContain(beta!.id);
+    expect(existingUpsert.receipt.affected.order[0]).toBe(beta!.id);
 
     current = await asOwner(() =>
       listBlocks.run({ target: state.target, limit: 100 }),
@@ -307,9 +350,85 @@ describe("exact Content database block actions", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "BLOCK_ID_TOMBSTONED" });
 
-    const lateReplay = await asOwner(() => mutateBlock.run(insertInput));
-    expect(lateReplay.receipt.receiptId).toBe(inserted.receipt.receiptId);
-    expect(lateReplay.receipt.idempotency.result).toBe("replayed");
+    await expect(
+      asOwner(() => mutateBlock.run(insertInput)),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_REPLAY_DRIFT" });
+  });
+
+  it("keeps every primary Blocks identity current when one page belongs to multiple databases", async () => {
+    const first = await fixture("Alpha\nBeta");
+    const secondCreated = await asOwner(() =>
+      createDatabase.run({ title: "Second primary identity" }),
+    );
+    const secondDatabaseId = secondCreated.database.id;
+    const secondRead = await asOwner(() =>
+      getDatabase.run({ databaseId: secondDatabaseId }),
+    );
+    if (!("database" in secondRead) || !secondRead.mutationContract) {
+      throw new Error("Second fixture database has no mutation contract.");
+    }
+    const secondPrimary = secondRead.mutationContract.properties.find(
+      (property) => property.type === "blocks",
+    );
+    if (!secondPrimary)
+      throw new Error("Second fixture has no Blocks property.");
+    const now = new Date().toISOString();
+    const secondItemId = `shared-item-${Date.now()}`;
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: secondItemId,
+      ownerEmail,
+      orgId: secondRead.database.orgId,
+      databaseId: secondDatabaseId,
+      documentId: first.target.rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const secondTarget = {
+      ...secondRead.mutationContract.target,
+      itemId: secondItemId,
+      rowDocumentId: first.target.rowDocumentId,
+      propertyId: secondPrimary.id,
+    };
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: secondDatabaseId,
+        documentId: first.target.rowDocumentId,
+        propertyId: secondPrimary.id,
+        value: "Alpha\nBeta",
+        expectedBlocksFieldRevision: 0,
+      }),
+    );
+    const firstBefore = await asOwner(() =>
+      listBlocks.run({ target: first.target, limit: 100 }),
+    );
+    const secondBefore = await asOwner(() =>
+      listBlocks.run({ target: secondTarget, limit: 100 }),
+    );
+
+    await asOwner(() =>
+      mutateBlock.run({
+        target: first.target,
+        expectedSchemaRevision: firstBefore.schemaRevision,
+        expectedRowRevision: firstBefore.rowRevision,
+        expectedFieldRevision: firstBefore.fieldRevision,
+        idempotencyKey: "multi-primary-update",
+        operation: "update",
+        blockId: firstBefore.blocks[0]!.id,
+        block: { kind: "paragraph", nfm: "Alpha updated" },
+      }),
+    );
+
+    const secondAfter = await asOwner(() =>
+      listBlocks.run({ target: secondTarget, limit: 100 }),
+    );
+    expect(secondAfter.identityStatus).toBe("materialized");
+    expect(secondAfter.fieldRevision).toBe(secondBefore.fieldRevision + 1);
+    expect(secondAfter.blocks.map((block) => block.value.nfm)).toEqual([
+      "Alpha updated",
+      "Beta",
+    ]);
+    expect(secondAfter.order).toEqual(secondBefore.order);
   });
 
   it("rejects stale row, field, schema, target, access, and unsupported operations without clobbering", async () => {
@@ -333,6 +452,25 @@ describe("exact Content database block actions", () => {
     );
     expect(unchanged.order).toEqual(before);
     expect(unchanged.fieldRevision).toBe(state.listed.fieldRevision);
+
+    const sibling = state.listed.blocks.find(
+      (block) => block.kind === "paragraph",
+    )!;
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "leaf-parent"),
+          operation: "insert",
+          block: { kind: "paragraph", nfm: "Nested" },
+          position: { placement: "end", parentBlockId: sibling.id },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "INVALID_BLOCK_VALUE" });
+    const afterLeafRejection = await asOwner(() =>
+      listBlocks.run({ target: state.target, limit: 100 }),
+    );
+    expect(afterLeafRejection.order).toEqual(before);
+    expect(afterLeafRejection.fieldRevision).toBe(state.listed.fieldRevision);
 
     await expect(
       asOwner(() =>
@@ -487,6 +625,45 @@ describe("exact Content database block actions", () => {
     expect(stored?.content).toBe("Editor won\nSibling");
   });
 
+  it.skipIf(!TEST_DATABASE_URL.startsWith("postgres"))(
+    "serializes a direct title edit before validating the expected row revision",
+    async () => {
+      const state = await fixture("Before\nSibling");
+      let mutation!: Promise<unknown>;
+      await getDb().transaction(async (tx: any) => {
+        await tx
+          .update(schema.documents)
+          .set({ title: "UI title won", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, state.target.rowDocumentId));
+        mutation = asOwner(() =>
+          mutateBlock.run({
+            ...envelope(state, "title-race"),
+            operation: "update",
+            blockId: state.listed.blocks[0]!.id,
+            block: { kind: "paragraph", nfm: "Agent write" },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+
+      await expect(mutation).rejects.toMatchObject({
+        errorCode: "ROW_REVISION_CONFLICT",
+      });
+      const after = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      expect(after.blocks.map((block) => block.value.nfm)).toEqual([
+        "Before",
+        "Sibling",
+      ]);
+      const [document] = await getDb()
+        .select({ title: schema.documents.title })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, state.target.rowDocumentId));
+      expect(document?.title).toBe("UI title won");
+    },
+  );
+
   it("rejects stale existing and absent additional-field writes without clobbering", async () => {
     const state = await fixture("Primary stays");
     const added = await asOwner(() =>
@@ -529,7 +706,7 @@ describe("exact Content database block actions", () => {
     await expect(
       compareAndSwapAdditionalBlocksField({
         db: getDb(),
-        ownerEmail: OWNER,
+        ownerEmail,
         documentId: state.target.rowDocumentId,
         propertyId: additional.definition.id,
         expectedContent: "Agent read this\nSibling",
@@ -580,7 +757,7 @@ describe("exact Content database block actions", () => {
     await expect(
       compareAndSwapAdditionalBlocksField({
         db: getDb(),
-        ownerEmail: OWNER,
+        ownerEmail,
         documentId: state.target.rowDocumentId,
         propertyId: absent.definition.id,
         expectedContent: "",

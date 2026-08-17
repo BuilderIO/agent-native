@@ -516,6 +516,15 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Declares that a successful call returns real evidence retrieved from a data
+   *  source at call time — a provider API, a warehouse, a connected repo, or the
+   *  app's own event/observability store. Apps that police fabricated answers
+   *  (see the Analytics final-response guard) read this instead of keeping a
+   *  hand-maintained list of action names, which drifts the moment a new source
+   *  action ships. Orthogonal to `readOnly`: a write that probes a live endpoint
+   *  and returns the outcome is still grounding. Metadata-only reads (schema,
+   *  catalogs, saved config) are not. */
+  grounding?: boolean;
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode because they perform substantive work
    *  rather than lightweight inspection. Defaults to allowed when read-only. */
@@ -674,6 +683,9 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Declares that a successful call returns real evidence retrieved from a data
+   *  source at call time. See the schema overload above. */
+  grounding?: boolean;
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode. See the schema overload above. */
   allowInPlanMode?: boolean;
@@ -751,6 +763,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
+  readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly parallelSafe?: boolean;
@@ -1011,6 +1024,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof options.grounding === "boolean"
+      ? { grounding: options.grounding }
+      : {}),
     ...(typeof options.allowInPlanMode === "boolean"
       ? { allowInPlanMode: options.allowInPlanMode }
       : {}),

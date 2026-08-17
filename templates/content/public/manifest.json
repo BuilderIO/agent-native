@@ -3,7 +3,6 @@
   "short_name": "Content",
   "description": "Open-source Obsidian for MDX",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#10B981",
   "icons": [

@@ -68,6 +68,35 @@ describe("remix-workspace-template action", () => {
     );
   });
 
+  it("normalizes a human-friendly app name before scaffolding", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("NETLIFY", "");
+    mocks.scaffoldWorkspaceAppFromTemplate.mockResolvedValue({
+      appId: "customer-portal",
+      template: "mail",
+      output: "scaffolded",
+    });
+
+    await action.run({
+      templateId: "mail",
+      appId: "Customer Portal",
+    });
+
+    expect(mocks.scaffoldWorkspaceAppFromTemplate).toHaveBeenCalledWith({
+      template: "mail",
+      appId: "customer-portal",
+    });
+  });
+
+  it("rejects names that normalize to an empty app id", async () => {
+    await expect(
+      action.run({ templateId: "mail", appId: "---" }),
+    ).rejects.toThrow(
+      "Use a non-reserved app id with lowercase letters, numbers, and hyphens.",
+    );
+    expect(mocks.scaffoldWorkspaceAppFromTemplate).not.toHaveBeenCalled();
+  });
+
   it("starts a hosted private app without copying data or secrets", async () => {
     vi.stubEnv("NODE_ENV", "production");
     mocks.startWorkspaceAppCreation.mockResolvedValue({

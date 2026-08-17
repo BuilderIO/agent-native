@@ -3,7 +3,6 @@
   "short_name": "Slides",
   "description": "AI slide deck creator",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#EC4899",
   "icons": [

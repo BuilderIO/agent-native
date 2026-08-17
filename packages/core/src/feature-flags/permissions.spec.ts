@@ -10,10 +10,23 @@ vi.mock("../org/permissions.js", () => ({
   canManageOrg: (role: unknown) => role === "admin" || role === "owner",
 }));
 
-const { requireFeatureFlagManager } = await import("./permissions.js");
+const { isFeatureFlagAdminEmail, requireFeatureFlagManager } =
+  await import("./permissions.js");
 
 describe("feature flag manager permissions", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS;
+  });
+
+  it("normalizes emails against the explicit no-org administrator allowlist", () => {
+    process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS =
+      "admin@example.com, other@example.com";
+
+    expect(isFeatureFlagAdminEmail(" ADMIN@example.com ")).toBe(true);
+    expect(isFeatureFlagAdminEmail("member@example.com")).toBe(false);
+    expect(isFeatureFlagAdminEmail(undefined)).toBe(false);
+  });
 
   it("authorizes an organization admin through the shared role lookup", async () => {
     getOrgRoleForEmail.mockResolvedValue("admin");

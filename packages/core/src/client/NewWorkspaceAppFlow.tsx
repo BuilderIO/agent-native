@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { docsUrl } from "../shared/docs-url.js";
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
@@ -79,8 +80,9 @@ const ERROR_FAILURE_REASONS = new Set([
   "builder-not-connected",
   "credential-store-unavailable",
 ]);
-const LOCAL_APP_DOCS_URL =
-  "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app";
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
@@ -305,7 +307,13 @@ export function NewWorkspaceAppFlow({
         sendToAgentChat({ message, submit: true, type: "code" });
         setStatusMessage("Sent to Builder chat.");
       } else if (isDevMode) {
-        sendToAgentChat({ message, submit: true, type: "code", newTab: true });
+        sendToAgentChat({
+          message,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
         setStatusMessage("Sent to the local agent.");
       } else {
         const result = await fetchJson(
@@ -324,6 +332,15 @@ export function NewWorkspaceAppFlow({
         if (result?.mode === "builder") {
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
+        } else if (result?.mode === "local-agent") {
+          sendToAgentChat({
+            message: result.prompt ?? message,
+            submit: true,
+            type: "code",
+            newTab: true,
+            reuseEmptyTab: true,
+          });
+          setStatusMessage("Sent to the local agent.");
         } else {
           setStatusMessage(
             result?.message ||

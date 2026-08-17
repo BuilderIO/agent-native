@@ -45,6 +45,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   readOnly: true,
+  grounding: true,
   run: async (args) => {
     return matchErrorIssuesBySignatures(resolveScope(), args.signatures);
   },

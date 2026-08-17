@@ -6,9 +6,7 @@ exports through actions against the shared SQL state.
 
 ## Skills
 
-Keep this file essential — it is loaded into the agent's context every turn.
-Real depth lives in `.agents/skills/`; read the relevant skill before deeper
-work in that area.
+Read the relevant skill before deeper work in that area.
 
 - `design-generation` — 5-phase generation flow, aesthetic quality bar, code
   layers/code workspace, editor extensions, breakpoints/screen
@@ -23,19 +21,11 @@ work in that area.
 - `design-review-feedback` — persisted, element-anchored review comments to a
   verified close, one root thread at a time.
 - `export-handoff` — HTML/PNG/SVG/ZIP/code and coding-handoff export.
-- `visual-edit` — editing a real local app visually (localhost bridge, Code
-  tab, reprompt write boundary).
 - `full-app-build` — design source modes and flag-gated fusion-backed full app
   building.
 - `shader-fills` — code-backed GLSL shader fills/effects.
-- `sharing` — design and design-system visibility/grants.
-- `frontend-design`, `shadcn-ui` for UI; `actions`, `delegate-to-agent`,
-  `security`, `self-modifying-code` for framework patterns.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+- `capture-learnings` — record a user preference or correction so it outlives
+  the thread.
 
 ## Actions
 
@@ -58,10 +48,9 @@ ladder.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
 - A message beginning with `[Reprompt selection]` is preview-only: the only
-  mutation path is `propose-node-rewrite`; never call a content writer. See
-  `visual-edit`'s "Select And Reprompt". `[Selection question]` is read-only:
-  answer about the captured element and subtree without calling
-  content-writing actions.
+  mutation path is `propose-node-rewrite`; never call a content writer.
+  `[Selection question]` is read-only: answer about the captured element and
+  subtree without calling content-writing actions.
 - Call `view-screen` before editing a specific design if the current design or
   selected file is not already clear from context.
 - Generated files must be complete, standalone HTML (Alpine.js + Tailwind CDN)
@@ -75,8 +64,6 @@ ladder.
   promise lossless Figma import/export.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
-- In dev, call actions with `pnpm action <name>`; in production, call the
-  native tool.
 - For shared prototype feedback, use the persisted review actions — read
   `design-review-feedback` for the loop.
 - Follow linked design-system tokens and `customInstructions` whenever
@@ -105,5 +92,10 @@ ladder.
   see `design-generation`.
 - `design-reprompt-pending:<designId>:<fileId>` /
   `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` — the
-  compare-and-set reprompt request/proposal pair; see `visual-edit`'s
-  "Select And Reprompt" for the full lifecycle.
+  compare-and-set reprompt request/proposal pair. Both must be present and
+  matched before `propose-node-rewrite`; a stale pair is never applied.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

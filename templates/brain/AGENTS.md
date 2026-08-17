@@ -6,11 +6,6 @@ actions and shared state.
 
 ## Skills
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
-
 Read the matching skill before deeper work:
 
 - `brain` — ingestion, distillation, retrieval, and review flows, the
@@ -24,13 +19,6 @@ Read the matching skill before deeper work:
   worker, scheduled sync, Slack rollout, demo/eval, ingest payloads); read it
   only when operating or debugging internals. It is a file inside the `brain`
   skill, not its own skill slug.
-- `agent-native-toolkit` — check existing kits and package seams before
-  building workspace or agent UI.
-- `customizing-agent-native` — the configure → compose → eject → propose seam
-  ladder.
-- `adding-a-feature` — Brain feature changes.
-- `actions`, `real-time-sync`, `security`, `frontend-design`, and `shadcn-ui`
-  for framework work; `actions` covers the shared provider API pattern.
 
 ## Core Rules
 
@@ -89,15 +77,21 @@ Read the matching skill before deeper work:
 | `ask-brain` | Cited-answer endpoint with `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read or list distilled knowledge. |
 | `get-capture` / `list-captures` | Read or list raw captures (redacted by default). |
-| `import-capture` / `import-transcript` | Ingest and queue a capture or transcript for distillation. |
+| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest captures or a bounded Markdown batch and queue it for distillation. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue distillation; close the queue row. |
 | `write-knowledge` | Write/update knowledge; may return a pending proposal. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human review of gated writes. |
 | `set-knowledge-canonical` | Mirror approved knowledge into workspace resources. |
 | `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle. |
+| `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit access. |
 | `sync-source` / `sync-due-sources` | Run one connector, or sweep all due sources. |
 | `get-brain-health` | Source health, sync freshness, queue/proposal counts. |
 | `list-connection-providers` | Provider readiness and credential health. |
 | `test-slack-connection` / `run-slack-pilot` | Slack validation and first-sync report. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw provider HTTP. |
 | `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and eval checks. |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

@@ -1,6 +1,7 @@
 import { IconChartBar } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 
+import { DEFAULT_LOCALE, useOptionalLocale, useT } from "../../i18n.js";
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
 const LazyDataChartRenderer = lazy(() =>
@@ -10,6 +11,8 @@ const LazyDataChartRenderer = lazy(() =>
 );
 
 export function DataChartWidget({ chart }: { chart: DataChartWidgetData }) {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -18,7 +21,7 @@ export function DataChartWidget({ chart }: { chart: DataChartWidgetData }) {
 
   const fallback = (
     <div className="flex h-60 items-center justify-center rounded-md bg-muted/30 text-xs text-muted-foreground">
-      Chart
+      {t("agentChat.widget.chart")}
     </div>
   );
 
@@ -28,12 +31,14 @@ export function DataChartWidget({ chart }: { chart: DataChartWidgetData }) {
         <IconChartBar className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
-            {chart.title ?? "Data chart"}
+            {chart.title ?? t("agentChat.widget.dataChart")}
           </div>
           <div className="text-[11px] text-muted-foreground">
-            {chart.data.length.toLocaleString()} point
-            {chart.data.length === 1 ? "" : "s"}
-            {chart.sampled ? " sampled" : ""}
+            {t("agentChat.widget.points", {
+              count: chart.data.length,
+              formattedCount: chart.data.length.toLocaleString(locale),
+            })}
+            {chart.sampled ? ` ${t("agentChat.widget.sampled")}` : ""}
           </div>
         </div>
       </div>

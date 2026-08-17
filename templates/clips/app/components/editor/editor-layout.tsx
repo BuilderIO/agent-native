@@ -907,6 +907,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         durationMs={durationMs}
         currentThumbnailUrl={recording.thumbnailUrl}
         currentAnimatedUrl={recording.animatedThumbnailUrl}
+        currentThumbnail={edits.thumbnail}
       />
       <StitchManager
         open={stitchOpen}

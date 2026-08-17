@@ -46,7 +46,67 @@ type ToolDisplayPart = {
   toolName?: string;
   argsText?: string;
   args?: Record<string, unknown>;
+  result?: unknown;
+  outcome?: "unknown";
+  activity?: boolean;
+  structuredMeta?: Record<string, unknown>;
 };
+
+const ACTIVE_AGENT_ACTIVITY_PHASES = new Set([
+  "reasoning",
+  "tool",
+  "responding",
+]);
+
+export function isDelegatedAgentToolCall(part: ToolDisplayPart): boolean {
+  return (
+    part.type === "tool-call" && part.toolName?.startsWith("agent:") === true
+  );
+}
+
+function hasActiveDelegatedAgentActivity(part: ToolDisplayPart): boolean {
+  const snapshot = part.structuredMeta?.agentActivity;
+  if (!snapshot || typeof snapshot !== "object") return false;
+
+  const record = snapshot as {
+    activePhase?: unknown;
+    toolCalls?: unknown;
+  };
+  if (
+    typeof record.activePhase === "string" &&
+    ACTIVE_AGENT_ACTIVITY_PHASES.has(record.activePhase)
+  ) {
+    return true;
+  }
+
+  return (
+    Array.isArray(record.toolCalls) &&
+    record.toolCalls.some(
+      (tool) =>
+        tool != null &&
+        typeof tool === "object" &&
+        (tool as { status?: unknown }).status === "running",
+    )
+  );
+}
+
+/** True when a tool has not reported a result and the stream did not mark it unknown. */
+export function isToolCallInFlight(part: ToolDisplayPart): boolean {
+  if (part.type !== "tool-call") return false;
+  if (part.result !== undefined || part.outcome === "unknown") return false;
+  return part.activity !== true || isDelegatedAgentToolCall(part);
+}
+
+/** True when the UI must not present this tool as finished. */
+export function isToolCallActive(part: ToolDisplayPart): boolean {
+  if (isToolCallInFlight(part)) return true;
+  return (
+    isDelegatedAgentToolCall(part) &&
+    part.outcome !== "unknown" &&
+    (part.structuredMeta?.agentPending === true ||
+      hasActiveDelegatedAgentActivity(part))
+  );
+}
 
 function normalizedAgentName(value: unknown): string | null {
   if (typeof value !== "string") return null;

@@ -283,6 +283,8 @@ const messages = {
       "Cualquiera que haya iniciado sesión con el enlace puede ver",
     viewer: "Viewer",
     viewerDescription: "puede ver",
+    commenter: "Comentarista",
+    commenterDescription: "Puede ver y añadir comentarios",
     editor: "Editor",
     editorDescription: "puede editar",
     admin: "Administrador",

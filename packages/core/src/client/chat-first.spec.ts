@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHAT_FIRST_SURFACE_TABS_STORAGE_KEY,
   CHAT_FIRST_DEFAULT_APP_IDS,
   orderChatFirstAppIds,
   readChatFirstAppLayout,
@@ -55,6 +56,32 @@ describe("chat-first preference", () => {
         { pinnedIds: [], orderedIds: [] },
       ),
     ).toEqual(["content", "design", "mail", "calendar", "clips", "brain"]);
+  });
+
+  it("allows a host to provide its own default app order", () => {
+    expect(
+      orderChatFirstAppIds(
+        [
+          "brain",
+          "mail",
+          "calendar",
+          "design",
+          "clips",
+          "content",
+          "analytics",
+        ],
+        { pinnedIds: [], orderedIds: [] },
+        ["mail", "calendar", "design", "clips", "content", "analytics"],
+      ),
+    ).toEqual([
+      "mail",
+      "calendar",
+      "design",
+      "clips",
+      "content",
+      "analytics",
+      "brain",
+    ]);
   });
 
   it("defaults to enabled and persists an explicit opt-out", () => {
@@ -123,6 +150,23 @@ describe("chat-first preference", () => {
         orderedIds: ["design", "mail", "calendar"],
       }),
     ).toEqual(["calendar", "design", "mail"]);
+  });
+
+  it("uses pin order by default and preserves an explicit app order", () => {
+    const appIds = ["mail", "calendar", "design", "clips"];
+
+    expect(
+      orderChatFirstAppIds(appIds, {
+        pinnedIds: ["calendar", "mail", "missing"],
+        orderedIds: ["stale"],
+      }),
+    ).toEqual(["calendar", "mail", "design", "clips"]);
+    expect(
+      orderChatFirstAppIds(appIds, {
+        pinnedIds: ["calendar", "mail"],
+        orderedIds: ["mail", "design", "calendar", "clips"],
+      }),
+    ).toEqual(["mail", "calendar", "design", "clips"]);
   });
 });
 
@@ -206,6 +250,29 @@ describe("chat-first app target resolution", () => {
         url: "javascript:alert(1)",
       }),
     ).toEqual({ status: "unresolved", reason: "invalid-url" });
+  });
+
+  it("keeps Builder Visual Editor links out of the browser iframe", () => {
+    const builderBranchUrl =
+      "https://builder.io/app/projects/project-123/branch/qa-branch";
+
+    expect(resolveChatFirstBrowserTarget({ url: builderBranchUrl })).toEqual({
+      status: "ready",
+      target: {
+        url: builderBranchUrl,
+        openExternally: true,
+      },
+    });
+    expect(
+      resolveChatFirstBrowserTarget({
+        url: "https://preview.builder.cloud/app",
+      }),
+    ).toEqual({
+      status: "ready",
+      target: {
+        url: "https://preview.builder.cloud/app",
+      },
+    });
   });
 });
 
@@ -298,6 +365,67 @@ describe("chat-first session watch contract", () => {
     store.closeOthers("app:mail");
     expect(store.getSnapshot().tabs.map((tab) => tab.id)).toEqual(["app:mail"]);
     store.closeAll();
+  });
+
+  it("restores a valid app placement and rejects malformed persisted values", () => {
+    const scope = "placement-test";
+    const storage = createStorage();
+    vi.stubGlobal("window", { localStorage: storage });
+    storage.setItem(
+      CHAT_FIRST_SURFACE_TABS_STORAGE_KEY,
+      JSON.stringify({
+        [scope]: {
+          tabs: [
+            {
+              id: "app:analytics:/",
+              kind: "app",
+              title: "Analytics",
+              appId: "analytics",
+              placement: "main",
+            },
+            {
+              id: "app:legacy:/",
+              kind: "app",
+              title: "Legacy",
+              appId: "legacy",
+            },
+            {
+              id: "app:invalid:/",
+              kind: "app",
+              title: "Invalid",
+              appId: "invalid",
+              placement: "floating",
+            },
+          ],
+          activeTabId: "app:analytics:/",
+        },
+      }),
+    );
+
+    const store = getChatFirstSurfaceTabsStore(scope);
+    expect(store.getSnapshot().tabs).toEqual([
+      {
+        id: "app:analytics:/",
+        kind: "app",
+        title: "Analytics",
+        appId: "analytics",
+        placement: "main",
+      },
+      {
+        id: "app:legacy:/",
+        kind: "app",
+        title: "Legacy",
+        appId: "legacy",
+        placement: "main",
+      },
+    ]);
+    expect(
+      JSON.parse(storage.getItem(CHAT_FIRST_SURFACE_TABS_STORAGE_KEY)!)[scope]
+        .tabs[1].placement,
+    ).toBe("main");
+    store.closeAll();
+    storage.removeItem(CHAT_FIRST_SURFACE_TABS_STORAGE_KEY);
+    vi.unstubAllGlobals();
   });
 
   it("clamps and persists side-surface width without accepting invalid values", () => {

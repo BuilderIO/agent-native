@@ -132,6 +132,7 @@ function rowToCommand(row: Record<string, unknown>): RemoteCommand {
     result: parseJson(row.result_json, null),
     platform: (row.platform as string | null) ?? null,
     externalThreadId: (row.external_thread_id as string | null) ?? null,
+    idempotencyKey: (row.idempotency_key as string | null) ?? null,
     computerOperation:
       row.kind === "computer-operation"
         ? ((params as { envelope?: ComputerCommandEnvelope })?.envelope ?? null)
@@ -206,6 +207,7 @@ export async function enqueueRemoteCommand(input: {
   params?: unknown;
   platform?: string | null;
   externalThreadId?: string | null;
+  idempotencyKey?: string | null;
   nextCheckAt?: number;
 }): Promise<RemoteCommand> {
   if (input.kind === "computer-operation") {
@@ -218,29 +220,51 @@ export async function enqueueRemoteCommand(input: {
   const client = getDbExec();
   const now = Date.now();
   const id = `remote-command-${now}-${randomHex(8)}`;
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
 
-  await client.execute({
-    sql: `INSERT INTO integration_remote_commands
-      (id, device_id, owner_email, org_id, kind, params_json, status, result_json,
-       platform, external_thread_id, attempts, next_check_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      id,
-      input.deviceId,
-      input.ownerEmail,
-      input.orgId ?? null,
-      input.kind,
-      JSON.stringify(input.params ?? {}),
-      "pending",
-      null,
-      input.platform ?? null,
-      input.externalThreadId ?? null,
-      0,
-      input.nextCheckAt ?? now,
-      now,
-      now,
-    ],
-  });
+  if (idempotencyKey) {
+    const existing = await getRemoteCommandByIdempotencyKey({
+      deviceId: input.deviceId,
+      idempotencyKey,
+    });
+    if (existing) return existing;
+  }
+
+  try {
+    await client.execute({
+      sql: `INSERT INTO integration_remote_commands
+        (id, device_id, owner_email, org_id, kind, params_json, status, result_json,
+         platform, external_thread_id, idempotency_key, attempts, next_check_at,
+         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        id,
+        input.deviceId,
+        input.ownerEmail,
+        input.orgId ?? null,
+        input.kind,
+        JSON.stringify(input.params ?? {}),
+        "pending",
+        null,
+        input.platform ?? null,
+        input.externalThreadId ?? null,
+        idempotencyKey,
+        0,
+        input.nextCheckAt ?? now,
+        now,
+        now,
+      ],
+    });
+  } catch (error) {
+    if (idempotencyKey && isUniqueConstraintError(error)) {
+      const existing = await getRemoteCommandByIdempotencyKey({
+        deviceId: input.deviceId,
+        idempotencyKey,
+      });
+      if (existing) return existing;
+    }
+    throw error;
+  }
 
   const command = await getRemoteCommand(id);
   if (!command) throw new Error("remote command insert failed");
@@ -344,6 +368,20 @@ export async function getRemoteCommand(
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_remote_commands WHERE id = ? LIMIT 1`,
     args: [id],
+  });
+  return rows[0] ? rowToCommand(rows[0] as Record<string, unknown>) : null;
+}
+
+export async function getRemoteCommandByIdempotencyKey(input: {
+  deviceId: string;
+  idempotencyKey: string;
+}): Promise<RemoteCommand | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM integration_remote_commands
+          WHERE device_id = ? AND idempotency_key = ?
+          LIMIT 1`,
+    args: [input.deviceId, input.idempotencyKey],
   });
   return rows[0] ? rowToCommand(rows[0] as Record<string, unknown>) : null;
 }
@@ -652,6 +690,14 @@ function randomHex(byteLength: number): string {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function normalizeIdempotencyKey(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, 512) : null;
 }
 
 function affectedRows(result: {

@@ -26,6 +26,7 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { startDeckGeneration } from "@/lib/create-deck-generation";
 import {
+  forgetRecentReference,
   readRecentReferences,
   rememberRecentReference,
   type RecentReference,
@@ -45,11 +46,8 @@ export function FirstDeckOnboardingFlow({
   const { session } = useSession();
   const { decks, createDeck, ensureDeckPersisted, deleteDeck, reloadDecks } =
     useDecks();
-  const { designSystems, defaultSystem } = useDesignSystems();
-  const {
-    referenceDeck: workspaceReferenceDeck,
-    designSystem: workspaceDesignSystem,
-  } = useWorkspaceDefaults();
+  const { designSystems } = useDesignSystems();
+  const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
   const { submit: agentSubmit } = useAgentGenerating();
   const [step, setStep] = useState<FirstDeckStep>("prompt");
   const [prompt, setPrompt] = useState("");
@@ -63,19 +61,25 @@ export function FirstDeckOnboardingFlow({
   );
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
-  const workspaceReferenceDeckId =
-    workspaceReferenceDeck && !workspaceReferenceDeck.unavailable
-      ? workspaceReferenceDeck.id
-      : null;
   const workspaceDesignSystemId =
     workspaceDesignSystem && !workspaceDesignSystem.unavailable
       ? workspaceDesignSystem.id
       : null;
+  const lastUsedDesignSystemId =
+    recentReferences.find(
+      (reference) =>
+        reference.kind === "design-system" &&
+        designSystems.some((designSystem) => designSystem.id === reference.id),
+    )?.id ?? null;
+  const lastUsedReferenceDeckId =
+    recentReferences.find(
+      (reference) =>
+        reference.kind === "deck" &&
+        decks.some((deck) => deck.id === reference.id),
+    )?.id ?? null;
   const initialDesignSystemId =
-    designSystems.find((designSystem) => designSystem.isDefault)?.id ??
-    workspaceDesignSystemId ??
-    defaultSystem?.id ??
-    null;
+    lastUsedDesignSystemId ?? workspaceDesignSystemId;
+  const initialReferenceDeckId = lastUsedReferenceDeckId;
 
   useEffect(() => {
     const result = readRecentReferences();
@@ -103,6 +107,10 @@ export function FirstDeckOnboardingFlow({
     },
     [],
   );
+  const forgetReference = useCallback((kind: RecentReference["kind"]) => {
+    const result = forgetRecentReference(kind);
+    if (result.readable) setRecentReferences(result.items);
+  }, []);
 
   const handlePromptSubmit = useCallback(
     async (text: string, files: File[]) => {
@@ -137,7 +145,7 @@ export function FirstDeckOnboardingFlow({
         files,
         referenceSelection: selection,
         selectedDesignSystemId: initialDesignSystemId,
-        selectedReferenceDeckId: workspaceReferenceDeckId,
+        selectedReferenceDeckId: initialReferenceDeckId,
         designSystems,
         createDeck,
         ensureDeckPersisted,
@@ -185,24 +193,32 @@ export function FirstDeckOnboardingFlow({
       prompt,
       session,
       t,
-      workspaceReferenceDeckId,
+      initialReferenceDeckId,
     ],
   );
 
   const handleReferenceSelect = useCallback(
     async (selection: NewDeckReferenceSelection) => {
-      if (selection.designSystemId) {
-        rememberReference({
-          id: selection.designSystemId,
-          kind: "design-system",
-        });
+      if (selection.designSystemId !== undefined) {
+        if (selection.designSystemId) {
+          rememberReference({
+            id: selection.designSystemId,
+            kind: "design-system",
+          });
+        } else {
+          forgetReference("design-system");
+        }
       }
-      if (selection.referenceDeckId) {
-        rememberReference({ id: selection.referenceDeckId, kind: "deck" });
+      if (selection.referenceDeckId !== undefined) {
+        if (selection.referenceDeckId) {
+          rememberReference({ id: selection.referenceDeckId, kind: "deck" });
+        } else {
+          forgetReference("deck");
+        }
       }
       await startGeneration(promptFiles, selection);
     },
-    [promptFiles, rememberReference, startGeneration],
+    [forgetReference, promptFiles, rememberReference, startGeneration],
   );
 
   const handleReferenceImport = useCallback(
@@ -296,7 +312,6 @@ export function FirstDeckOnboardingFlow({
         setPromptFiles((current) => [...current, ...generationFiles]);
         if (importedReference) {
           await reloadDecks();
-          rememberReference({ id: importedReference.id, kind: "deck" });
         }
         return importedReference;
       } catch (error) {
@@ -311,15 +326,7 @@ export function FirstDeckOnboardingFlow({
         setReferenceImporting(false);
       }
     },
-    [
-      callAction,
-      createDeck,
-      deleteDeck,
-      ensureDeckPersisted,
-      reloadDecks,
-      rememberReference,
-      t,
-    ],
+    [callAction, createDeck, deleteDeck, ensureDeckPersisted, reloadDecks, t],
   );
 
   const handleReferenceSourceImport = useCallback(
@@ -357,7 +364,6 @@ export function FirstDeckOnboardingFlow({
           source: "google-slides",
         };
         await reloadDecks();
-        rememberReference({ id: importedReference.id, kind: "deck" });
         return importedReference;
       } catch (error) {
         toast.error(t("editorToolbar.uploadFailed"), {
@@ -371,15 +377,17 @@ export function FirstDeckOnboardingFlow({
         setReferenceImporting(false);
       }
     },
-    [callAction, reloadDecks, rememberReference, t],
+    [callAction, reloadDecks, t],
   );
 
   const handleReferenceSkip = useCallback(() => {
+    forgetReference("design-system");
+    forgetReference("deck");
     void startGeneration(promptFiles, {
       designSystemId: null,
       referenceDeckId: null,
     });
-  }, [promptFiles, startGeneration]);
+  }, [forgetReference, promptFiles, startGeneration]);
 
   if (step === "references") {
     return (
@@ -388,8 +396,7 @@ export function FirstDeckOnboardingFlow({
         decks={decks}
         designSystems={designSystems}
         defaultDesignSystemId={initialDesignSystemId}
-        defaultReferenceDeckId={workspaceReferenceDeckId}
-        recentReferences={recentReferences}
+        defaultReferenceDeckId={initialReferenceDeckId}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}
@@ -404,8 +411,6 @@ export function FirstDeckOnboardingFlow({
         chooseDeckLabel={t("home.referenceDeckPlaceholder")}
         importingLabel={t("raw.uploading")}
         skipLabel={t("home.referenceDeckNone")}
-        starredLabel={t("home.referenceDeckStarredGroup")}
-        otherDecksLabel={t("home.referenceDeckOtherGroup")}
         searchDecksLabel={t("root.searchDecks")}
         promptSummary={prompt}
       />
@@ -441,6 +446,7 @@ export function FirstDeckOnboardingFlow({
             className="mt-8"
             autoFocus
             attachmentsEnabled
+            voiceEnabled
             maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
             documentAttachmentLimitLabel="Slides reference files"
             disabled={uploading}

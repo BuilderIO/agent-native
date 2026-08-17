@@ -4,6 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  clearActiveRun,
+  setActiveRun,
+  updateActiveRunSeq,
+} from "./active-run-state.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
 
@@ -54,6 +59,7 @@ describe("RunStuckBanner", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     window.localStorage.clear();
+    clearActiveRun();
     vi.useRealTimers();
   });
 
@@ -152,6 +158,70 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("trusts fresh real SSE progress while durable progress catches up", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-streaming",
+        status: "running",
+        heartbeatAt: 390_000,
+        lastProgressAt: 10_000,
+        serverNow: 400_000,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    setActiveRun({
+      threadId: "thread-1",
+      runId: "run-streaming",
+      lastSeq: 1,
+    });
+
+    await act(async () => {
+      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(container.textContent).toBe("stuck");
+
+    await act(async () => {
+      updateActiveRunSeq("thread-1", "run-streaming", 2, true);
+    });
+    expect(container.textContent).toBe("healthy");
+  });
+
+  it("does not trust keepalive-only SSE cursor advancement as real progress", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-keepalive-only",
+        status: "running",
+        heartbeatAt: 390_000,
+        lastProgressAt: 10_000,
+        serverNow: 400_000,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    setActiveRun({
+      threadId: "thread-1",
+      runId: "run-keepalive-only",
+      lastSeq: 1,
+    });
+
+    await act(async () => {
+      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(container.textContent).toBe("stuck");
+
+    await act(async () => {
+      updateActiveRunSeq(2, false);
+    });
+    expect(container.textContent).toBe("stuck");
   });
 
   it("automatically aborts and retries a stuck active run once", async () => {

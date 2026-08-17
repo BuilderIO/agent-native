@@ -6,7 +6,7 @@
  * 2. Visibility — `'private' | 'org' | 'public'`. `org` grants read to anyone
  *    in the same org; `public` grants read to any authenticated user.
  * 3. Share rows — per-user or per-org grants in the `{type}_shares` table
- *    with a role (`viewer | editor | admin`).
+ *    with a role (`viewer | commenter | editor | admin`).
  *
  * Use `applyAccessFilter()` on list/read queries to filter rows the current
  * user can see. Use `assertAccess()` at the top of write actions to reject
@@ -234,6 +234,9 @@ function minRoleSql(minRole: ShareRole): SQL {
   if (minRole === "viewer") {
     // any role satisfies viewer
     return sql`1=1`;
+  }
+  if (minRole === "commenter") {
+    return sql`role in ('commenter','editor','admin')`;
   }
   if (minRole === "editor") {
     return sql`role in ('editor','admin')`;

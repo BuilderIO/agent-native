@@ -96,8 +96,6 @@ description: "代理驅動的電子郵件用戶端。連線您的 Gmail，代理
 
 線上示範：[mail.agent-native.com](https://mail.agent-native.com)。
 
-> **Google 可能會顯示警告：** 託管示範使用 Agent-Native 的共用 Google 應用程式進行 Gmail 存取，因此 Google 可能會要求您確認後再繼續。在本機執行以使用您自己的 Google OAuth 用戶端。
-
 首次開啟應用程式時：
 
 1. 點選側邊欄中的“**設定**”。
@@ -349,7 +347,7 @@ UI 中的路由：
 
 郵件由您更改。所有重要的事情都存在於少數幾個地方——從那裡開始。
 
-**新增代理功能。**使用 `defineAction` 在 `templates/mail/actions/` 下新增新檔案。您的操作將成為代理工具、CLI 指令 (`pnpm action <name>`) 以及透過 `useActionQuery` / `useActionMutation` 鍵入的前端鉤子表面。檢視 `templates/mail/actions/star-email.ts` 作為一個簡短範例，或者檢視 `templates/mail/actions/manage-automations.ts` 作為具有多個子 actions 的範例。有關完整模式，請參閱 [actions](/docs/actions) 檔案。
+**新增代理功能。**使用 `defineAction` 在 `templates/mail/actions/` 下新增新檔案。您的操作將成為代理工具、CLI 指令 (`pnpm action <name>`) 以及透過 `useActionQuery` / `useActionMutation` 鍵入的前端鉤子表面。檢視 `templates/mail/actions/star-email.ts` 作為一個簡短範例，或者檢視 `templates/mail/actions/manage-automations.ts` 作為具有多個子 actions 的範例。有關完整模式，請參閱 [actions](/docs/actions-overview) 檔案。
 
 **更改 UI。** 路由位於 `templates/mail/app/routes/` 中，元件位於 `templates/mail/app/components/email/` 和 `templates/mail/app/components/layout/` 中。該應用程式使用 `app/components/ui/` 和 Tabler 圖示中的 shadcn/ui 原語 - 堅持這些。
 
@@ -369,4 +367,4 @@ UI 中的路由：
 - [**開始使用**](/docs/getting-started) — 框架基礎：actions、application state 和即時同步
 - [**行事曆**](/docs/template-calendar) — 涵蓋排程和預約的相關領域範本
 - [**自動化**](/docs/automations) — Mail 自動分類規則所依據的事件觸發引擎
-- [**Actions**](/docs/actions) — 聊天、快速鍵和自動化共同呼叫的 action 系統
+- [**Actions**](/docs/actions-overview) — 聊天、快速鍵和自動化共同呼叫的 action 系統

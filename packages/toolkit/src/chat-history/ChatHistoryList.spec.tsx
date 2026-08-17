@@ -33,6 +33,27 @@ function typeIntoInput(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+async function openMenu(trigger: HTMLButtonElement) {
+  await act(async () => {
+    trigger.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        pointerType: "mouse",
+      }),
+    );
+    await Promise.resolve();
+  });
+}
+
+function getMenuItems() {
+  return Array.from(
+    document.body.querySelectorAll<HTMLElement>(
+      ".an-chat-history-row__menu-item",
+    ),
+  );
+}
+
 describe("ChatHistoryList", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -216,7 +237,7 @@ describe("ChatHistoryList", () => {
     expect(container.querySelector(".an-chat-history-row__menu")).toBeNull();
   });
 
-  it("supports pin toggling via the row action menu", () => {
+  it("supports pin toggling via the row action menu", async () => {
     const onTogglePin = vi.fn();
     const items: ChatHistoryItem[] = [
       item({ id: "thread-1", title: "First chat" }),
@@ -235,13 +256,11 @@ describe("ChatHistoryList", () => {
       ".an-chat-history-row__menu-trigger",
     );
     expect(trigger).not.toBeNull();
-    act(() => {
-      trigger!.click();
-    });
+    await openMenu(trigger!);
 
-    const pinItem = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
-    ).find((el) => el.textContent?.includes("Pin to top"));
+    const pinItem = getMenuItems().find((el) =>
+      el.textContent?.includes("Pin to top"),
+    );
     expect(pinItem).toBeDefined();
     act(() => {
       (pinItem as HTMLButtonElement).click();
@@ -249,7 +268,32 @@ describe("ChatHistoryList", () => {
     expect(onTogglePin).toHaveBeenCalledWith("thread-1");
   });
 
-  it("uses custom labels for localized row actions", () => {
+  it("ports rail row menus outside the scroll container", async () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          variant="rail"
+          items={[item({ id: "thread-1" })]}
+          onSelect={() => {}}
+          onDelete={() => {}}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    await openMenu(trigger!);
+
+    const menu = document.body.querySelector<HTMLElement>(
+      ".an-chat-history-row__menu-content",
+    );
+    expect(menu).not.toBeNull();
+    expect(menu?.closest(".an-chat-history__list")).toBeNull();
+    expect(menu?.getAttribute("role")).toBe("menu");
+  });
+
+  it("uses custom labels for localized row actions", async () => {
     const onTogglePin = vi.fn();
     const onDelete = vi.fn();
     const labels = {
@@ -281,16 +325,14 @@ describe("ChatHistoryList", () => {
       ".an-chat-history-row__menu-trigger",
     );
     expect(trigger?.getAttribute("aria-label")).toBe(labels.options);
-    act(() => {
-      trigger!.click();
-    });
-    expect(container.textContent).toContain(labels.rename);
-    expect(container.textContent).toContain(labels.pin);
-    expect(container.textContent).toContain(labels.delete);
+    await openMenu(trigger!);
+    expect(document.body.textContent).toContain(labels.rename);
+    expect(document.body.textContent).toContain(labels.pin);
+    expect(document.body.textContent).toContain(labels.delete);
 
-    const archiveItem = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
-    ).find((element) => element.textContent?.includes(labels.delete));
+    const archiveItem = getMenuItems().find((element) =>
+      element.textContent?.includes(labels.delete),
+    );
     act(() => {
       (archiveItem as HTMLButtonElement).click();
     });
@@ -300,12 +342,10 @@ describe("ChatHistoryList", () => {
     const renameTrigger = container.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      renameTrigger!.click();
-    });
-    const renameItem = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
-    ).find((element) => element.textContent?.includes(labels.rename));
+    await openMenu(renameTrigger!);
+    const renameItem = getMenuItems().find((element) =>
+      element.textContent?.includes(labels.rename),
+    );
     act(() => {
       (renameItem as HTMLButtonElement).click();
     });
@@ -319,13 +359,11 @@ describe("ChatHistoryList", () => {
     const pinnedTrigger = container.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      pinnedTrigger!.click();
-    });
-    expect(container.textContent).toContain(labels.unpin);
+    await openMenu(pinnedTrigger!);
+    expect(document.body.textContent).toContain(labels.unpin);
   });
 
-  it("supports inline rename via the row action menu", () => {
+  it("supports inline rename via the row action menu", async () => {
     const onRename = vi.fn();
     const items: ChatHistoryItem[] = [
       item({ id: "thread-1", title: "Old title", titleText: "Old title" }),
@@ -344,12 +382,10 @@ describe("ChatHistoryList", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      trigger!.click();
-    });
-    const renameItem = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
-    ).find((el) => el.textContent?.includes("Rename"));
+    await openMenu(trigger!);
+    const renameItem = getMenuItems().find((el) =>
+      el.textContent?.includes("Rename"),
+    );
     act(() => {
       (renameItem as HTMLButtonElement).click();
     });
@@ -372,7 +408,7 @@ describe("ChatHistoryList", () => {
     expect(onRename).toHaveBeenCalledWith("thread-1", "New title");
   });
 
-  it("supports item-aware labels and app-specific actions", () => {
+  it("supports item-aware labels and app-specific actions", async () => {
     const onShare = vi.fn();
     const items: ChatHistoryItem[] = [
       item({ id: "thread-1", title: "Campaign", titleText: "Campaign" }),
@@ -407,27 +443,23 @@ describe("ChatHistoryList", () => {
       ".an-chat-history-row__menu-trigger",
     );
     expect(trigger?.getAttribute("aria-label")).toBe("Options for Campaign");
-    act(() => {
-      trigger!.click();
-    });
+    await openMenu(trigger!);
 
-    const shareItem = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
-    ).find((element) => element.textContent === "Share");
+    const shareItem = getMenuItems().find(
+      (element) => element.textContent === "Share",
+    );
     act(() => {
       (shareItem as HTMLButtonElement).click();
     });
     expect(onShare).toHaveBeenCalledWith("thread-1");
     expect(
-      container.querySelector(".an-chat-history-row__menu-content"),
+      document.body.querySelector(".an-chat-history-row__menu-content"),
     ).toBeNull();
 
-    act(() => {
-      trigger!.click();
-    });
-    const renameItem = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
-    ).find((element) => element.textContent === "Rename");
+    await openMenu(trigger!);
+    const renameItem = getMenuItems().find(
+      (element) => element.textContent === "Rename",
+    );
     act(() => {
       (renameItem as HTMLButtonElement).click();
     });

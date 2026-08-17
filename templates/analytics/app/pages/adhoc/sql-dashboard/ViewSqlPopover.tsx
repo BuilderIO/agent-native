@@ -236,7 +236,7 @@ export function ViewSqlPopover({
           <p className="text-[11px] text-muted-foreground mt-1.5">
             {t("sqlDashboard.filterInterpolationHelp", {
               example: "{{varName}}",
-              shortcut: `${isMac ? "⌘" : "Ctrl"}+Enter`,
+              shortcut: `${isMac ? "Cmd" : "Ctrl"} Enter`,
             })}
           </p>
         ) : null}

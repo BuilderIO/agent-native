@@ -20,6 +20,7 @@ tmp/
 
 # Screenshot artifacts from design iterations
 packages/docs/*.png
+.artifacts/
 
 # Copied at publish time via prepack
 packages/core/README.md
@@ -87,6 +88,10 @@ wrangler.toml
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .claude/leases/
+# .claude/settings.json is tracked on purpose: it registers the hooks CLAUDE.md
+# documents as the repo's only behavioral enforcement. Ignoring it meant the
+# file-lease hook could not be reviewed, shared with a fresh checkout, or
+# restored after removal, so hook drift was invisible by construction.
 # Per-machine permission allow-lists routinely accumulate real connection
 # strings. Only a global core.excludesFile kept these out of history before.
 .claude/settings.local.json
@@ -129,3 +134,9 @@ packages/core/corpus.tmp-*/
 # Local output of `preview-dashboard-report.ts` — contains real internal
 # analytics data and is meant for local inspection only, never committed.
 .report-preview/
+
+# Local pnpm store (used for cached dependencies)
+.pnpm-store/
+
+# Throwaway PPTX/PDF fidelity verification screenshots (regenerable; kept on disk, not in git)
+.fidelity-shots/

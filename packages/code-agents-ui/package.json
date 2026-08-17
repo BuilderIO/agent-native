@@ -50,6 +50,7 @@
   "dependencies": {
     "@radix-ui/react-dialog": "1.1.19",
     "@radix-ui/react-dropdown-menu": "2.1.16",
+    "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-select": "2.2.6",
     "@tabler/icons-react": "catalog:",
     "qrcode.react": "4.2.0",

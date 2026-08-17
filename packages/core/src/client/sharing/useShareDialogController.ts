@@ -14,7 +14,7 @@ import {
 import type { ShareOrgMember } from "./share-controller-helpers.js";
 
 export type ShareVisibility = "private" | "org" | "public";
-export type ShareRole = "viewer" | "editor" | "admin";
+export type ShareRole = "viewer" | "commenter" | "editor" | "admin";
 export type ShareDialogTab = "link" | "invite" | "embed";
 
 export interface ResourceShare {
@@ -30,6 +30,7 @@ export interface ResourceSharesResponse {
   orgId: string | null;
   visibility: ShareVisibility | null;
   role?: "owner" | ShareRole;
+  agentReadable?: boolean;
   shares: ResourceShare[];
   policy?: { allowPublic: boolean; requireOrgMemberForUserShares?: boolean };
 }
@@ -77,10 +78,14 @@ export interface ShareDialogController {
     peopleWithAccess: string;
     addPeopleByEmail: string;
     notifyPeople: string;
+    addMessage: string;
+    hideMessage: string;
+    messagePlaceholder: string;
     role: string;
     remove: string;
     noAccess: string;
     copy: string;
+    copied: string;
     embedUrl: string;
     embedCode: string;
   };
@@ -102,6 +107,10 @@ export interface ShareDialogController {
     notifyPeople: boolean;
     setNotifyPeople: (notify: boolean) => void;
     showNotifyPeople: boolean;
+    message: string;
+    setMessage: (message: string) => void;
+    messageOpen: boolean;
+    setMessageOpen: (open: boolean) => void;
     disabled: boolean;
     pending: boolean;
     submit: () => void;
@@ -118,6 +127,7 @@ export interface ShareDialogController {
   error: unknown;
   refetch: () => unknown;
   canManage: boolean;
+  agentReadable: boolean;
 }
 
 export function useShareDialogController({
@@ -154,6 +164,8 @@ export function useShareDialogController({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<ShareRole>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const [message, setMessage] = useState("");
+  const [messageOpen, setMessageOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [visibilityOverride, setVisibilityOverride] =
     useState<ShareVisibility | null>(null);
@@ -189,7 +201,7 @@ export function useShareDialogController({
   );
   const roleOptions = useMemo(
     () =>
-      (["viewer", "editor", "admin"] as const).map((value) =>
+      (["viewer", "commenter", "editor", "admin"] as const).map((value) =>
         roleOption(value, t),
       ),
     [t],
@@ -269,6 +281,7 @@ export function useShareDialogController({
   const submitInvite = useCallback(() => {
     const principalId = email.trim();
     if (!canManage || !principalId) return;
+    const notificationMessage = notifyPeople ? message.trim() : "";
     const optimistic: ResourceShare = {
       id: `pending-${principalId}`,
       principalType: "user",
@@ -291,10 +304,13 @@ export function useShareDialogController({
         role,
         notify: notifyPeople,
         resourceUrl: getNotificationUrl(shareUrl),
+        ...(notificationMessage ? { message: notificationMessage } : {}),
       } as never,
       {
         onSuccess: () => {
           setEmail("");
+          setMessage("");
+          setMessageOpen(false);
           void refetch();
         },
         onError: (error: unknown) => {
@@ -306,6 +322,7 @@ export function useShareDialogController({
   }, [
     canManage,
     email,
+    message,
     notifyPeople,
     refetch,
     resourceId,
@@ -399,7 +416,6 @@ export function useShareDialogController({
       ...(hasLinkTab
         ? [{ value: "link" as const, label: t("share.link") }]
         : []),
-      { value: "invite", label: t("share.invite") },
       ...(hasEmbedTab
         ? [{ value: "embed" as const, label: t("share.embed") }]
         : []),
@@ -412,10 +428,14 @@ export function useShareDialogController({
       peopleWithAccess: t("share.peopleWithAccess"),
       addPeopleByEmail: t("share.addPeopleByEmail"),
       notifyPeople: t("share.notifyPeople"),
+      addMessage: t("share.addMessage"),
+      hideMessage: t("share.hideMessage"),
+      messagePlaceholder: t("share.messagePlaceholder"),
       role: t("share.role"),
       remove: t("share.remove"),
       noAccess: t("share.noAccess"),
       copy: t("share.copy"),
+      copied: t("share.copied"),
       embedUrl: t("share.embedUrl"),
       embedCode: t("share.embedCode"),
     },
@@ -437,6 +457,10 @@ export function useShareDialogController({
       notifyPeople,
       setNotifyPeople,
       showNotifyPeople: email.trim().length > 0,
+      message,
+      setMessage,
+      messageOpen,
+      setMessageOpen,
       disabled: !canManage || email.trim().length === 0,
       pending: shareMutation.isPending,
       submit: submitInvite,
@@ -453,6 +477,7 @@ export function useShareDialogController({
     error: sharesQuery.error ?? mutationError,
     refetch,
     canManage,
+    agentReadable: data?.agentReadable === true,
   };
 }
 
@@ -478,6 +503,7 @@ function roleOption(
 ): ShareOption<ShareRole> {
   const keys = {
     viewer: ["share.viewer", "share.viewerDescription"],
+    commenter: ["share.commenter", "share.commenterDescription"],
     editor: ["share.editor", "share.editorDescription"],
     admin: ["share.admin", "share.adminDescription"],
   } as const;

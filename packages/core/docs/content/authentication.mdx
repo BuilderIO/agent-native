@@ -161,6 +161,36 @@ These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`,
 subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
 `COOKIE_DOMAIN`.
 
+## Packaged Desktop workspace SSO {#desktop-workspace-sso}
+
+The signed Agent Native Desktop SSO Canary composes hosted federation into one
+workspace sign-in for canonical first-party apps. Dispatch remains the identity
+authority, while every app mints and owns its normal local session. Electron
+keeps the authority session in a dedicated partition and copies only the target
+app's allowlisted session cookie into `persist:app-<id>`; provider credentials,
+identity tokens, and another app's cookies never enter renderer IPC.
+
+The Dispatch-owned `desktop.workspace-sso` feature flag is default-off and
+controls availability only. Missing, malformed, unreadable, and explicit-Off
+state preserve ordinary per-app sign-in and sign-out. Nonce binding, signed
+exchange validation, exact origin and callback allowlists, authenticated-session
+requirements, session isolation, and revocation remain unconditional in every
+flag state. Custom and third-party apps are excluded.
+Canonical hosted apps recognize packaged Desktop requests without per-app
+identity-hub environment configuration. Ordinary browsers and self-hosted apps
+still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
+Every Desktop build may initialize the broker when the per-device
+`desktopSsoEnabled` preference is true (the default); an explicit persisted
+`false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
+be enabled. The Canary user-agent marker no longer gates broker initialization;
+it only identifies the update channel.
+The Canary user-agent marker is an availability hint rather than remote
+attestation. Authentication and authorization never trust it; supervised
+acceptance binds the client through exact signed-artifact provenance.
+For an eligible registered app, Desktop presents the workspace sign-in surface
+over the app's sign-in flow. If the rollout is unavailable or the app is not
+eligible, ordinary per-app sign-in remains available.
+
 ## QA Accounts {#qa-accounts}
 
 Local development and tests skip password-signup email verification by default,

@@ -156,6 +156,36 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 액션은 채팅 출력이 단순 텍스트가 아닌 명시적 네이티브 위젯 결과를 반환할 수 있습니다. 테이블, 차트, 타입이 지정된 제품 카드가 iframes 없이 채팅에서 1st-party React 컴포넌트로 렌더링됩니다. [Native Chat UI](/docs/native-chat-ui)를 참조하세요. 에이전트가 미리 정의된 React 위젯 대신 임의로 생성된 컨트롤이 필요할 때는 [Generative UI](/docs/generative-ui)를 사용하세요: Alpine/Tailwind UI를 인라인으로 샌드박스 렌더링하고, 앱 상태와 슬롯 컨텍스트를 읽을 수 있으며, 선택된 값을 채팅으로 다시 보낼 수 있습니다.
 
+### 요청 범위 액션 서피스
+
+선택된 에이전트나 스레드가 서버에서 승인한 네이티브 액션 일부만
+노출해야 할 때 `resolveActionSurface`를 사용하세요. 콜백은 각 대화형
+채팅 요청에서 `prepareRequest` 이후 실행됩니다. 반환된 이름은 엄격한
+허용 목록이 되며, 제외된 액션은 공급자 스키마, 실행 레지스트리, Plan
+모드 사전 로드 및 `tool-search` 검색 결과에 나타나지 않습니다.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+빈 목록은 네이티브 액션을 노출하지 않습니다. 알 수 없는 이름은 접근을
+넓히지 않고 요청을 실패시킵니다. 허용된 모든 액션은 첫 모델 요청에 직접
+로드됩니다. 이미 승인된 카탈로그 안에서 검색할 때만 `tool-search`를
+명시적으로 포함하세요. 이 콜백은 대화형 에이전트 채팅만 제한하며 HTTP,
+MCP, A2A, 작업 또는 트리거에는 영향을 주지 않습니다. 기본 프레임워크
+안내와 시작된 하위 에이전트도 같은 표면을 상속합니다. 제한 없는 shell은
+엄격한 액션 경계를 강제할 수 없으므로 trusted shell 도구는 요청으로 필터링된
+sandbox로 자동 제한됩니다.
+
 ## 네이티브 인라인 UI {#native-inline-ui}
 
 액션이 구조화된 데이터(레코드 목록, 차트 데이터셋, 상태 요약)를 반환하고, 이를 채팅 스레드에서 일반 텍스트 설명이 아닌 실제 UI 컴포넌트로 렌더링해야 할 때 사용하세요. 액션에 `chatUI` 렌더러를 정의하면 Agent-Native가 이를 1st-party React 컴포넌트로 렌더링합니다: iframes 없이, 별도의 렌더링 경로 없이.
@@ -569,7 +599,7 @@ OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI를 위�
 
 <Cards>
 
-### [액션](/docs/actions)
+### [액션](/docs/actions-overview)
 
 한 번 작업을 정의하세요. 위의 모든 서피스가 동일한 것을 호출합니다.
 

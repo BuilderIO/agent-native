@@ -75,7 +75,81 @@ const PATTERNS = [
     fixedBy: ".agents/skills/concurrent-agents + scripts/hooks/file-lease.mjs",
     re: /\b(collision|overwrit\w+|clobber\w*|reverted (my|our|their) work|lost (my|our) (work|edits)|another agent (is|was) (shipping|editing))\b/i,
   },
+  {
+    key: "unpushed-work",
+    label: "Had to demand local work be pushed",
+    fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",
+    re: /\b(push (up|it up|them up|all|everything|shit up)|not pushed|never pushed|unpushed|files to push|tons of (local|files)|push the local)\b/i,
+  },
+  {
+    key: "no-progress",
+    label: "Had to chase status on a long-running run",
+    fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
+    re: /\b(hows? (it going|we looking)|what'?s the status|are we done|you done|did you finish|how close|still (going|running|working)|progress check|any update)\b/i,
+  },
+  {
+    key: "cross-thread-interference",
+    label: "Agent acted on other agents' threads or work uninvited",
+    fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
+    re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
+  },
+  // Measured for the first time on 2026-08-12, after three prose rewrites of the
+  // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.
+  // That is why the 2026-08-09 attempt could delete its own concrete rules nine
+  // minutes after writing them and no number moved. Baseline the day the key
+  // landed: 51 · 28 over the two weeks to 2026-08-12, total 79 — the largest row
+  // in this table, and the only correction in it never previously counted.
+  // Windowing is by file mtime, so read a sample of matches, not just the count:
+  // a resumed session re-enters the window, a quiet fortnight cannot be told
+  // apart from a vocabulary change, and roughly one match in ten is an untagged
+  // subagent brief that `humanText` below does not recognize yet.
+  {
+    key: "text-heavy-ui",
+    label: "Told the UI has too much text / chrome upfront",
+    fixedBy:
+      "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
+    re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
+  },
+  // Measured for the first time on 2026-08-13, alongside the app-config schema
+  // and the `configuration` skill. There was no key while core grew to 301
+  // distinct environment variables, 253 of which are product behavior rather
+  // than secrets — so the habit was never counted, only noticed once the total
+  // was large enough to argue about. Baseline over the two weeks to 2026-08-13
+  // is recorded in plans/core-configuration-attack-plan.md; the number to watch
+  // is whether it stays flat while the schema absorbs domains, because a rising
+  // count means declaring a field is still more expensive than reaching for
+  // `process.env` and step 9 (generated docs and key sets) is the missing half.
+  {
+    key: "config-sprawl",
+    label: "Told to stop adding environment variables / bespoke config",
+    fixedBy:
+      ".agents/skills/configuration + packages/core/src/app-config (2026-08-13)",
+    re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
+  },
 ];
+
+/**
+ * Both harnesses replay machine-authored text through the user role. Two kinds
+ * arrive, and conflating them is how a pattern count lies in both directions.
+ *
+ * AUTHORED — a subagent brief, delegation envelope, or watchdog transcript. No
+ * human typed it. A brief that says "reduces text overload" is not the user
+ * asking for anything, and counting it inflated this table by roughly a third
+ * before these filters existed. Drop the whole message.
+ *
+ * ATTACHED — ambient UI state, a pasted screenshot, injected skill bodies:
+ * wrappers around text the user really did type. The user's sharpest UI
+ * corrections arrive with an `<image>` attached, so dropping these loses the
+ * signal being measured. Strip the wrapper and keep the remainder.
+ *
+ * Never returns text a human did not type, and never returns "" — "machine
+ * only" and "user said nothing" must stay the same answer, so a message that
+ * strips to empty is not counted as friction.
+ */
+const AUTHORED_BY_AGENT =
+  /<(subagent_notification|codex_delegation)\b|^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
+const ATTACHED_BLOCK =
+  /<(in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill|image)\b[\s\S]*?(<\/\1>|\/>|$)/g;
 
 const args = process.argv.slice(2);
 const weeks = Number(valueOf("--weeks") ?? 8);
@@ -163,29 +237,43 @@ async function scan(file, read) {
   }
 }
 
+function humanText(raw) {
+  const raw_ = String(raw ?? "");
+  if (AUTHORED_BY_AGENT.test(raw_)) return null;
+  const text = raw_.replace(ATTACHED_BLOCK, " ").replace(/\s+/g, " ").trim();
+  // A message that is still nothing but markup after stripping is machinery
+  // whose wrapper this script does not know yet — not a quiet user.
+  if (!text || text.startsWith("<")) return null;
+  return text.length > 2 ? text : null;
+}
+
 function claudeMessage(entry) {
   const at = Date.parse(entry?.timestamp ?? "");
   if (entry?.type === "queue-operation" && entry.operation === "enqueue") {
-    return { text: String(entry.content ?? ""), at };
+    const text = humanText(entry.content);
+    return text ? { text, at } : null;
   }
   if (entry?.type !== "user" || entry.isSidechain) return null;
   const content = entry?.message?.content;
-  if (typeof content === "string") return { text: content, at };
+  if (typeof content === "string") {
+    const text = humanText(content);
+    return text ? { text, at } : null;
+  }
   if (!Array.isArray(content)) return null;
-  const text = content
-    .filter((part) => part?.type === "text")
-    .map((part) => part.text ?? "")
-    .join("\n");
+  const text = humanText(
+    content
+      .filter((part) => part?.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n"),
+  );
   return text ? { text, at } : null;
 }
 
 function codexMessage(entry) {
   if (entry?.type !== "event_msg" || entry?.payload?.type !== "user_message")
     return null;
-  const text = String(entry.payload.message ?? "");
-  // Codex replays tool and automation traffic through the same event type.
-  if (!text || text.startsWith("<")) return null;
-  return { text, at: Date.parse(entry?.timestamp ?? "") };
+  const text = humanText(entry.payload.message);
+  return text ? { text, at: Date.parse(entry?.timestamp ?? "") } : null;
 }
 
 function report() {

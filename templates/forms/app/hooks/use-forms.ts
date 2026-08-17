@@ -4,6 +4,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { scrubPageUrl } from "@shared/page-url";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -189,7 +190,13 @@ export function useSubmitForm() {
       fetch(appApiPath(`/api/submit/${formId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, captchaToken, _hp, _t }),
+        body: JSON.stringify({
+          data,
+          captchaToken,
+          _hp,
+          _t,
+          _meta: { pageUrl: scrubPageUrl(window.location.href) },
+        }),
       }).then((r) => {
         if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
         return r.json();

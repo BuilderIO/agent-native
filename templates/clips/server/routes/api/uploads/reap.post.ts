@@ -59,10 +59,17 @@ export default defineEventHandler(async (event: H3Event) => {
   const result = await reapExpiredUploads({
     dryRun: query.dryRun === "1" || query.dryRun === "true",
   });
-  if (result.failed > 0 || result.scratchKeysDeleted > 0) {
+  if (
+    result.failed > 0 ||
+    result.scratchKeysDeleted > 0 ||
+    result.resumableSessionsAborted > 0 ||
+    result.resumableCleanupFailed > 0
+  ) {
     console.log("[uploads] reaped expired uploads", {
       failed: result.failed,
       scratchKeysDeleted: result.scratchKeysDeleted,
+      resumableSessionsAborted: result.resumableSessionsAborted,
+      resumableCleanupFailed: result.resumableCleanupFailed,
     });
   }
   return { ok: true, ...result };

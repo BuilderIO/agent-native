@@ -170,7 +170,7 @@ describe("prepareSlidesChatAttachments", () => {
     );
   });
 
-  it("strips raw PDF data after saving it as a Slides reference upload", async () => {
+  it("keeps raw PDF data for the shared durable upload boundary", async () => {
     saveUploadedReferenceFileMock.mockResolvedValue({
       path: "data/uploads/user/source.pdf",
       originalName: "source.pdf",
@@ -194,7 +194,9 @@ describe("prepareSlidesChatAttachments", () => {
 
     expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
     expect(result?.message).toContain("data/uploads/user/source.pdf");
-    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect(result?.attachments?.[0]?.data).toBe(
+      "data:application/pdf;base64,JVBERi0x",
+    );
     expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
       "data/uploads/user/source.pdf",
     );

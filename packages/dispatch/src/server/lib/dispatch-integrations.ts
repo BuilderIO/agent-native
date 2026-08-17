@@ -521,8 +521,8 @@ export async function resolveDispatchExecutionContext(
   }
   if (!scope) throw new Error("Slack channel is not enabled for Agent Native");
   const decision = evaluateIntegrationScopePolicy(scope, {
-    // Thread replies reached this point only after the adapter's active-task
-    // gate, so they are continuation steering rather than ambient chatter.
+    // Slack channel turns only arrive here after an explicit current-message
+    // mention; keep the generic thread_reply trigger for other adapters.
     mentioned:
       incoming.triggerKind === "mention" ||
       incoming.triggerKind === "thread_reply",

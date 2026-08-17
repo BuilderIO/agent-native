@@ -3,7 +3,6 @@ import {
   IconAlertTriangle,
   IconClock,
   IconExternalLink,
-  IconLoader2,
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
@@ -21,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import { Skeleton } from "./ui/skeleton";
 
 interface AutomationRun {
   id: string;
@@ -178,9 +178,13 @@ export function AutomationRunHistoryDialog({
 
               <div className="mt-3">
                 {runsQuery.isLoading ? (
-                  <div className="flex items-center gap-2 rounded-lg border p-4 text-sm text-muted-foreground">
-                    <IconLoader2 className="size-4 animate-spin" />
-                    Loading run history...
+                  <div className="space-y-3 rounded-lg border p-4">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className="space-y-2">
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    ))}
                   </div>
                 ) : runsQuery.isError ? (
                   <ActionQueryError

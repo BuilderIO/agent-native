@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
   IconX,
   IconCheck,
@@ -29,6 +30,7 @@ import {
 interface SlideCommentsPanelProps {
   deckId: string | null;
   slideId: string | null;
+  canComment: boolean;
   pendingComment: { quotedText: string } | null;
   onPendingDone: () => void;
   onClose: () => void;
@@ -59,9 +61,11 @@ function Avatar({ email, name }: { email: string; name?: string | null }) {
 function CommentItem({
   comment,
   onDelete,
+  canDelete,
 }: {
   comment: SlideComment;
   onDelete: () => void;
+  canDelete: boolean;
 }) {
   const t = useT();
   const [hovered, setHovered] = useState(false);
@@ -81,7 +85,7 @@ function CommentItem({
             <span className="text-[10px] text-muted-foreground">
               {formatRelativeTime(comment.created_at)}
             </span>
-            {hovered && (
+            {hovered && canDelete && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -96,9 +100,10 @@ function CommentItem({
             )}
           </div>
         </div>
-        <p className="text-[12px] text-foreground/90 mt-0.5 break-words leading-relaxed">
-          {comment.content}
-        </p>
+        <InlineMarkdown
+          content={comment.content}
+          className="mt-0.5 text-[12px] text-foreground/90 leading-relaxed"
+        />
       </div>
     </div>
   );
@@ -284,10 +289,12 @@ function ThreadCard({
   thread,
   deckId,
   slideId,
+  canComment,
 }: {
   thread: CommentThread;
   deckId: string;
   slideId: string;
+  canComment: boolean;
 }) {
   const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
@@ -330,7 +337,7 @@ function ThreadCard({
               <span className="text-[10px] text-muted-foreground">
                 {formatRelativeTime(rootComment.created_at)}
               </span>
-              {hovered && !thread.resolved && (
+              {hovered && !thread.resolved && canComment && (
                 <>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -369,9 +376,10 @@ function ThreadCard({
               )}
             </div>
           </div>
-          <p className="text-[12px] text-foreground/90 mt-0.5 break-words leading-relaxed">
-            {rootComment.content}
-          </p>
+          <InlineMarkdown
+            content={rootComment.content}
+            className="mt-0.5 text-[12px] text-foreground/90 leading-relaxed"
+          />
         </div>
       </div>
 
@@ -399,13 +407,14 @@ function ThreadCard({
               key={r.id}
               comment={r}
               onDelete={() => deleteComment.mutate({ id: r.id })}
+              canDelete={canComment}
             />
           ))}
         </div>
       )}
 
       {/* Reply & resolve actions */}
-      {!thread.resolved && (
+      {!thread.resolved && canComment && (
         <div className="mt-2 ml-7 flex items-center gap-3">
           {!replyOpen && (
             <button
@@ -418,7 +427,7 @@ function ThreadCard({
         </div>
       )}
 
-      {replyOpen && (
+      {replyOpen && canComment && (
         <div className="ml-7">
           <ReplyInput
             deckId={deckId}
@@ -435,6 +444,7 @@ function ThreadCard({
 export function SlideCommentsPanel({
   deckId,
   slideId,
+  canComment,
   pendingComment,
   onPendingDone,
   onClose,
@@ -452,20 +462,24 @@ export function SlideCommentsPanel({
 
   // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
+    if (pendingComment && !canComment) {
+      onPendingDone();
+      return;
+    }
     if (pendingComment) setAddingComment(false);
-  }, [pendingComment]);
+  }, [canComment, onPendingDone, pendingComment]);
 
-  const showInput = pendingComment || addingComment;
+  const showInput = canComment && Boolean(pendingComment || addingComment);
 
   return (
-    <div className="flex h-full w-[17rem] flex-shrink-0 flex-col border-l border-border bg-background">
+    <div className="flex h-full w-[17rem] flex-shrink-0 flex-col bg-[var(--slides-editor-surface)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center justify-between px-4 py-3">
         <span className="text-[13px] font-medium text-foreground/80">
           {t("comments.title")}
         </span>
         <div className="flex items-center gap-1">
-          {!showInput && deckId && slideId && (
+          {canComment && !showInput && deckId && slideId && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -536,6 +550,7 @@ export function SlideCommentsPanel({
               thread={thread}
               deckId={deckId ?? ""}
               slideId={slideId ?? ""}
+              canComment={canComment}
             />
           ))}
 
@@ -555,7 +570,7 @@ export function SlideCommentsPanel({
         {!showLoadError &&
           !showInput &&
           visibleThreads.length === 0 &&
-          (deckId && slideId ? (
+          (deckId && slideId && canComment ? (
             <button
               type="button"
               onClick={() => setAddingComment(true)}
@@ -572,6 +587,16 @@ export function SlideCommentsPanel({
                 {t("comments.clickToAddComment")}
               </p>
             </button>
+          ) : deckId && slideId ? (
+            <div className="text-center py-10">
+              <IconMessageCircle
+                size={28}
+                className="mx-auto mb-2 text-muted-foreground/60"
+              />
+              <p className="text-[12px] text-muted-foreground">
+                {t("comments.noCommentsYet")}
+              </p>
+            </div>
           ) : (
             <div className="text-center py-10">
               <IconMessageCircle

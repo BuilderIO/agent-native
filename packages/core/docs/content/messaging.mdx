@@ -124,8 +124,7 @@ Slack workspace, app, channel, and thread IDs are part of the conversation key.
    ```
 
 4. Turn on **Event Subscriptions**, set the **Request URL**, and subscribe to
-   `app_home_opened`, `app_context_changed`, `app_mention`, `message.channels`,
-   `message.groups`, `message.im`, and `message.mpim`:
+   `app_home_opened`, `app_context_changed`, `app_mention`, and `message.im`:
 
    ```text
    https://your-app.example.com/_agent-native/integrations/slack/webhook
@@ -171,10 +170,10 @@ take precedence.
 
 ### Slack-native collaboration
 
-- **Active thread steering.** Start in a channel with an `@mention`. While that
-  exact task is queued or running, ordinary replies in its Slack thread continue
-  the task without another mention. Inactive threads and general channel chatter
-  do not invoke the agent. DMs remain direct invocations.
+- **Explicit thread turns.** Start in a channel with an `@mention`. Each later
+  channel turn must explicitly mention the agent too. Ordinary thread replies,
+  inactive threads, and general channel chatter do not invoke it. DMs remain
+  direct invocations.
 - **Bounded native context.** Before execution, the adapter loads a bounded
   slice of the Slack thread plus channel, sender, reaction, and file metadata.
   It keeps file references and permalinks, never raw file bodies, in durable
@@ -228,7 +227,7 @@ and `link_shared` events to the Clips unfurl handler.
 
 ### Tips
 
-- **Channel mentions** — use an @mention to start work. Unmentioned replies are accepted only while that exact thread has active work.
+- **Channel mentions** — use an @mention to start work. Each channel turn must explicitly mention the agent; ordinary thread replies and general channel chatter do not invoke it.
 - **DMs** — accepted personal DMs are private conversations and require a verified organization member or linked Slack identity.
 - **Identity** — personal DMs require a verified Agent Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
 - **Production allowlists** — set `SLACK_ALLOWED_TEAM_IDS` and, for shared Slack apps, `SLACK_ALLOWED_API_APP_IDS` so a valid signing secret cannot be reused by an unexpected workspace.

@@ -4,7 +4,11 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
-import { emailStrong, renderEmail } from "../../server/email-template.js";
+import {
+  emailQuote,
+  emailStrong,
+  renderEmail,
+} from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
@@ -164,9 +168,11 @@ export default defineAction({
       .string()
       .describe("Email (user) or org id (org) of the principal."),
     role: z
-      .enum(["viewer", "editor", "admin"])
+      .enum(["viewer", "commenter", "editor", "admin"])
       .default("viewer")
-      .describe("Role to grant."),
+      .describe(
+        "Role to grant: viewer can only read; commenter can read and add comments; editor can edit; admin can edit and manage access.",
+      ),
     notify: z
       .boolean()
       .default(true)
@@ -178,6 +184,14 @@ export default defineAction({
       .optional()
       .describe(
         "Optional app-relative or same-origin URL recipients should open. External origins are ignored.",
+      ),
+    message: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe(
+        "Optional short note included in the notification email to an individual recipient.",
       ),
   }),
   run: async (args) => {
@@ -371,15 +385,24 @@ export default defineAction({
           }
         }
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const messageParagraph = args.message?.trim()
+          ? emailQuote(args.message)
+          : null;
+        const defaultParagraphs = [
+          `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+          ...(messageParagraph ? [messageParagraph] : []),
+          `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
+        ];
         const { html, text } = renderEmail({
           brandName,
           brandLogoUrl,
           preheader: subject,
           heading: `${senderDisplayName} shared "${resourceTitle}" with you`,
-          paragraphs: extras?.paragraphs ?? [
-            `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
-            `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
-          ],
+          paragraphs: extras?.paragraphs
+            ? messageParagraph
+              ? [messageParagraph, ...extras.paragraphs]
+              : extras.paragraphs
+            : defaultParagraphs,
           heroHtml,
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           secondaryCta: extras?.secondaryCta,

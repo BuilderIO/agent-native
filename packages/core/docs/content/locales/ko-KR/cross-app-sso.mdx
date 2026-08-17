@@ -177,17 +177,17 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **설정** → 앱에 위의 흐름을 실행하는 **"Agent-Native로 로그인"** 옵션이 표시됩니다. 직접 로컬 로그인(이메일/비밀번호, Google)은 여전히 함께 작동합니다.
-- **설정 해제(기본값)** → **동작 변경 없음.** 앱은 이전과 동일하게 인증합니다. 페더레이션 코드 경로가 휴면 상태입니다. 스키마 변경이나 마이그레이션할 사항이 없으므로 변수를 켜거나 끄는 것은 언제든지 완전히 되돌릴 수 있습니다.
+- **정식 호스팅 클라이언트** → 등록된 오리진의 앱에 **"Agent-Native로 로그인"** 옵션이 표시됩니다. 자체 호스팅 앱은 계속 변수를 설정해야 하며 스키마 변경이나 마이그레이션은 없습니다.
 
 ## 보안 {#security}
 
 전체 모델은 의도적으로 몇 가지 작은 보장을 기반으로 합니다:
 
 - **단기 서명된 토큰.** ID 어설션은 **≤ 2분** 만료 및 `scope: "identity"`가 있는 `A2A_SECRET` 서명 JWT입니다. 단일 로그인을 승인하며 장기간 재생하거나 API/A2A 액세스를 위해 용도를 변경할 수 없습니다.
-- **엄격한 `redirect_uri` 허용 목록.** 디스패치는 기본적으로 `*.agent-native.com` 또는 localhost로만 리디렉션됩니다. 임의, 스키마 상대(`//host`) 및 교차 출처 리디렉션 대상은 거부되므로 해당 권한은 공개 리디렉션 또는 토큰 추출 오라클로 전환될 수 없습니다.
+- **앱에 바인딩된 엄격한 `redirect_uri` 허용 목록.** 각 정식 앱 ID는 하나의 정확한 프로덕션 오리진과 콜백 경로에 매핑되며 localhost는 개발용으로 계속 사용할 수 있습니다. 알 수 없는 하위 도메인, 일치하지 않는 앱 ID, 임의 경로 및 교차 출처 대상은 거부됩니다.
 - **확인된 토큰의 이메일 전용 가입.** 신뢰 경계를 넘는 _유일한_ 것은 서명된 토큰의 확인된 이메일입니다. 앱은 유선에서 사용자 ID, 역할, 조직 멤버십 또는 권한 있는 상태를 허용하지 않습니다. 일치하는 계정에서 로컬로 모든 것을 가져옵니다.
 - **추가 전용 ID 쓰기.** 연결하면 기존의 동일한 이메일 계정을 그대로 재사용하거나 새 계정을 삽입합니다. 이 경로에서는 ID 행의 업데이트, 이름 변경, 위치 변경 또는 삭제가 발생하지 않습니다.
-- **기본적으로 꺼져 있습니다.** `AGENT_NATIVE_IDENTITY_HUB_URL`를 설정하지 않으면 전체 기능이 비활성화됩니다.
+- **정식 호스팅 클라이언트는 오리진에 따라 활성화됩니다.** 등록된 오리진을 사용하는 정식 호스팅 앱은 자동으로 활성화되고, 자체 호스팅 앱은 `AGENT_NATIVE_IDENTITY_HUB_URL`이 없으면 비활성 상태로 유지됩니다.
 
 <Callout id="doc-block-1ccuipn" tone="success">
 
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **리디렉션 허용 목록.** 허브(Dispatch)는 토큰을 발행하기 전에 승인 엔드포인트에서 `redirect_uri`의 유효성을 검사합니다. 허용 목록은 `templates/dispatch/server/lib/identity-sso.ts`에서 구성됩니다:
 
-- **기본값:** `*.agent-native.com` 및 localhost 전용(`DEFAULT_ALLOWED_HOST_SUFFIXES` 상수).
+- **기본값:** 정확히 등록된 Agent Native 앱 ID/오리진 쌍과 localhost만 허용합니다(`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **확장:** 쉼표로 구분된 추가 호스트 접미사 목록을 사용하여 Dispatch 배포에서 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 환경 변수를 설정합니다.
 
   ````배쉬
@@ -325,3 +325,8 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - [Dispatch](/docs/dispatch) — 작업 공간 ID 기관 및 라우팅 허브.
 - [Security & Data Scoping](/docs/security) — 추가 전용 데이터 쓰기 및 계정별 범위 지정.
 - [Multi-App Workspaces](/docs/multi-app-workspace) — 교차 도메인 SSO를 완전히 방지하는 통합 단일 원본 배포입니다.
+
+기본적으로 꺼진 Dispatch의 `desktop.workspace-sso` 플래그는 사용 가능 여부만 제어하며 인증, 서명, nonce, origin, callback, 세션, 해지 검사는 항상 적용됩니다. 플래그가 꺼져 있거나 읽을 수 없으면 Desktop은 앱별 로그인, 로그아웃 또는 설정을 변경하지 않습니다.
+User-Agent의 Canary 표시는 가용성 힌트일 뿐 원격 증명이 아니며, 인증과 권한 부여는 이를 신뢰하지 않습니다.
+정식 호스팅 앱은 앱별 identity hub 환경 설정 없이 패키지된 Desktop SSO Canary 요청과 일반 브라우저 로그인을 인식합니다. 자체 호스팅 앱에는 계속 `AGENT_NATIVE_IDENTITY_HUB_URL`이 필요합니다. 안정적인 Desktop 빌드는 이후 릴리스가 별도로 승인될 때까지 브로커를 초기화하지 않습니다.
+Canary는 익명 앱 로그인 탐색을 가로채지 않습니다. 사용자는 활성 등록 앱에 대해 Desktop 설정에서 워크스페이스 로그인을 명시적으로 선택해야 하며, 일반 앱 로그인은 기본 경로로 유지됩니다.

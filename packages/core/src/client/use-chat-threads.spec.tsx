@@ -447,7 +447,7 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("thread-1")).toBe(false);
   });
 
-  it("reclassifies a saved missing thread as a new empty tab after the thread list loads", async () => {
+  it("keeps a saved missing thread active so the chat can surface a restore error", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
       "empty-sidebar-tab",
@@ -496,11 +496,61 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
-    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(true);
-    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual(["real-thread"]);
+  });
+
+  it("keeps a saved missing thread active when auto-create is disabled", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms-list",
       "empty-sidebar-tab",
-      "real-thread",
-    ]);
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms-list:seen",
+      String(Date.now()),
+    );
+    const existingThread: ChatThreadSummary = {
+      id: "real-thread",
+      title: "Previous form work",
+      preview: "add a rating field",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      if (url === "/chat/threads/empty-sidebar-tab") {
+        return new Response(JSON.stringify({ error: "Thread not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "forms-list", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual(["real-thread"]);
   });
 
   it("can ignore a saved active thread and start fresh immediately", async () => {

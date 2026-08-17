@@ -1,5 +1,100 @@
 # @agent-native/mobile-app
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [831e915]
+  - @agent-native/core@0.160.2
+
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+- Updated dependencies [d3702a5]
+  - @agent-native/core@0.160.1
+
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [167be56]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+- Updated dependencies [ed0666b]
+  - @agent-native/core@0.160.0
+
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+  - @agent-native/core@0.159.6
+
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [94fc4d8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+- Updated dependencies [b676db8]
+  - @agent-native/core@0.159.5
+
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+- Updated dependencies [436340b]
+  - @agent-native/core@0.159.4
+
 ## Unreleased
 
 ### Added

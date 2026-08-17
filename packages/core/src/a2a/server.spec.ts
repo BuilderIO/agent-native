@@ -122,6 +122,55 @@ describe("mountA2A auth", () => {
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
   });
 
+  it("authenticates custom mounted cards from app or endpoint identity", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    process.env.APP_BASE_PATH = "/workspace";
+    const handler = await mountedAgentCardHandler(
+      {
+        ...config,
+        authenticatedSkills: [
+          {
+            id: "list-records",
+            name: "List records",
+            description: "List records",
+            readOnly: true,
+          },
+        ],
+      },
+      "/rpc",
+    );
+
+    for (const audience of [
+      "https://agent.example/workspace/rpc",
+      "https://agent.example/workspace",
+    ]) {
+      const token = await new jose.SignJWT({
+        sub: "alice+qa@builder.io",
+        aud: audience,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer("https://dispatch.agent-native.test")
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const response = await handler({
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "agent.example",
+          "x-forwarded-proto": "https",
+        },
+        path: "/",
+        context: {},
+      });
+
+      expect(response.skills).toEqual([
+        expect.objectContaining({ id: "list-records", readOnly: true }),
+      ]);
+    }
+  });
+
   it("filters public agent-card skills to explicit public-safe capabilities", async () => {
     const handler = await mountedAgentCardHandler({
       ...config,
@@ -171,11 +220,15 @@ describe("mountA2A auth", () => {
     ]);
   });
 
-  // The public card may only name actions with `requiresAuth !== true`, while
-  // `actions/invoke` only runs ones with `requiresAuth === true`. Advertising
-  // the public set to a verified sibling reported "no callable actions" for an
-  // app it could in fact call, so callers fell back to open-ended delegation.
-  it("shows a verified caller the skills it can actually invoke", async () => {
+  // The anonymous card cannot disclose authenticated capabilities. A verified
+  // caller needs both exact direct reads and message-only writes so it can
+  // choose delegation without learning a mutation schema.
+  it("shows a verified caller its direct and delegated capabilities", async () => {
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    delete process.env.APP_BASE_PATH;
     const cardConfig = {
       ...config,
       publicSkillsOnly: true,
@@ -185,7 +238,15 @@ describe("mountA2A auth", () => {
           id: "query-agent-native-analytics",
           name: "query-agent-native-analytics",
           description: "Read-only SQL over first-party analytics",
+          readOnly: true,
           publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+        {
+          id: "create-campaign",
+          name: "create-campaign",
+          description: "Create a campaign from an objective",
+          readOnly: false,
+          publicAgent: { expose: true, readOnly: false, requiresAuth: true },
         },
       ],
     } as unknown as A2AConfig;
@@ -220,7 +281,55 @@ describe("mountA2A auth", () => {
     });
     expect(
       authenticated.skills.map((skill: { id: string }) => skill.id),
-    ).toEqual(["query-agent-native-analytics"]);
+    ).toEqual(["query-agent-native-analytics", "create-campaign"]);
+    expect(authenticated.skills[1]).not.toHaveProperty("inputSchema");
+  });
+
+  it("shows legacy tokens only message-delegated capabilities", async () => {
+    const cardConfig = {
+      ...config,
+      publicSkillsOnly: true,
+      skills: [],
+      authenticatedSkills: [
+        {
+          id: "query-agent-native-analytics",
+          name: "query-agent-native-analytics",
+          description: "Read-only SQL over first-party analytics",
+          readOnly: true,
+          publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+        {
+          id: "create-campaign",
+          name: "create-campaign",
+          description: "Create a campaign from an objective",
+          readOnly: false,
+          publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+        },
+      ],
+    } as unknown as A2AConfig;
+
+    process.env.A2A_SECRET = "test-a2a-secret";
+    const token = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("legacy-sibling@example.com")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-a2a-secret"));
+
+    const authenticated = await (
+      await mountedAgentCardHandler(cardConfig)
+    )({
+      method: "GET",
+      headers: {
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+        authorization: `Bearer ${token}`,
+      },
+      context: {},
+    });
+
+    expect(
+      authenticated.skills.map((skill: { id: string }) => skill.id),
+    ).toEqual(["create-campaign"]);
   });
 
   it("requires the owner's browser session for approval pages", async () => {
@@ -405,6 +514,29 @@ describe("mountA2A auth", () => {
       .setExpirationTime("15m")
       .sign(new TextEncoder().encode("shared-global-secret"));
     const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aAudienceVerified).toBe(true);
+  });
+
+  it("accepts direct action identity bound to a custom mounted endpoint", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    process.env.APP_BASE_PATH = "/workspace";
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      aud: "https://agent.example/workspace/rpc",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://dispatch.agent-native.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config, "/rpc");
 
     const event = postEvent({ authorization: `Bearer ${token}` });
     const response = await handler(event);
@@ -657,6 +789,61 @@ describe("verifyA2AToken (exported)", () => {
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
   });
 
+  it("returns an exact org id claim without changing legacy token results", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_id: "org-builder",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+      orgId: "org-builder",
+    });
+  });
+
+  it("binds a path-mounted receiver to its app base path", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example/dispatch";
+    process.env.APP_BASE_PATH = "/slides";
+    const { verifyA2AToken } = await import("./server.js");
+    const scopedToken = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/slides",
+    });
+    const originToken = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example",
+    });
+
+    await expect(verifyA2AToken(scopedToken)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+    await expect(verifyA2AToken(originToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+  });
+
+  it("preserves an explicit receiver base path ending in /a2a", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example";
+    process.env.APP_BASE_PATH = "/tools/a2a";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/tools/a2a",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+  });
+
   it("rejects a token whose aud does not match the receiver's derived audience", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://receiver.example";
@@ -688,11 +875,12 @@ async function mountedAgentCardHandler(
 
 async function mountedA2AHandler(
   config: A2AConfig,
+  routePrefix = "/_agent-native",
 ): Promise<(event: any) => any> {
   const { mountA2A } = await import("./server.js");
   const app = { routes: [] as Array<{ path: string; handler: any }> };
-  mountA2A(app, config);
-  const route = app.routes.find((entry) => entry.path === "/_agent-native/a2a");
+  mountA2A(app, config, routePrefix);
+  const route = app.routes.find((entry) => entry.path === `${routePrefix}/a2a`);
   if (!route) throw new Error("A2A route was not mounted");
   return route.handler;
 }

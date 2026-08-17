@@ -56,10 +56,10 @@ import {
   setThreadSourceIfMissing,
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
-import { isLocalDatabase } from "../db/client.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
 import { reconcileTerminalA2AParentIfDisabled } from "./a2a-continuation-processor.js";
@@ -607,41 +607,16 @@ async function enqueueAndDispatch(
 
 /**
  * Resolve the base URL we should dispatch the processor request to.
- * Prefers explicit env vars (most reliable on serverless), falls back to the
- * inbound request's headers.
+ *
+ * This is self-dispatch — the request has to land on *this* deployment — so it
+ * shares one resolver with the rest of the framework rather than keeping its
+ * own copy. The copy that used to live here preferred `APP_URL` over the
+ * platform's own deploy URLs and did not consult `DEPLOY_PRIME_URL` at all, so
+ * on a Netlify deploy preview it dispatched integration work to production
+ * while agent background work correctly stayed on the preview.
  */
 export function resolveBaseUrl(event: H3Event): string {
-  const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
-  if (fromEnv) return withConfiguredAppBasePath(fromEnv);
-  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
-    throw new Error(
-      "Integration self-dispatch requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL in production/shared deployments.",
-    );
-  }
-
-  try {
-    const headers = (event as any).node?.req?.headers ?? (event as any).headers;
-    const get = (name: string): string | undefined => {
-      if (!headers) return undefined;
-      if (typeof headers.get === "function") {
-        return headers.get(name) ?? undefined;
-      }
-      const lower = String(name).toLowerCase();
-      const map = headers as Record<string, string | undefined>;
-      return map[name] ?? map[lower];
-    };
-    const proto = get("x-forwarded-proto") || "http";
-    const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return withConfiguredAppBasePath(`${proto}://${host}`);
-  } catch {
-    return withConfiguredAppBasePath(
-      `http://localhost:${process.env.PORT || 3000}`,
-    );
-  }
+  return resolveSelfDispatchBaseUrl(event);
 }
 
 /**
@@ -1351,7 +1326,7 @@ async function processIncomingMessage(
                 // leave a user-facing Slack reply empty.
                 maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
                 // Explicitly resolve the normal chat default so an empty-final
-                // retry can step its reasoning effort down rather than
+                // retry can step its effort down rather than
                 // repeatedly letting the engine choose Medium.
                 reasoningEffort: normalizeReasoningEffortForRequest(
                   resolvedModel,
@@ -2150,7 +2125,7 @@ function extractSlackInputRequest(
   completedRun: ActiveRun,
 ): { text: string } | null {
   const events = completedRun.events.map((runEvent) => runEvent.event);
-  const didRequestInput = events.some(
+  const delivered = events.find(
     (event) =>
       event.type === "tool_done" &&
       event.tool === "ask-question" &&
@@ -2158,11 +2133,21 @@ function extractSlackInputRequest(
         "Asked the user a clarifying question and rendered it in the chat.",
       ),
   );
-  if (!didRequestInput) return null;
+  if (!delivered) return null;
 
+  // Match the start to the delivered call by id. A turn can also contain
+  // `ask-question` calls that never ran — the loop skips the rest of the
+  // message once one of them ends the turn, but still emits their start events
+  // — and scanning for the last start would project a question the user's chat
+  // never showed.
+  const deliveredId = delivered.type === "tool_done" ? delivered.id : "";
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
-    if (event.type !== "tool_start" || event.tool !== "ask-question") {
+    if (
+      event.type !== "tool_start" ||
+      event.tool !== "ask-question" ||
+      event.id !== deliveredId
+    ) {
       continue;
     }
     const input = event.input as Record<string, unknown> | undefined;

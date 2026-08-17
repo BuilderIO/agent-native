@@ -6,7 +6,8 @@ import { captureError } from "./analytics.js";
 type AssistantUiRecoverableErrorKind =
   | "assistant-ui-stale-message-index"
   | "assistant-ui-duplicate-resource-key"
-  | "assistant-ui-react-fiber-unmount";
+  | "assistant-ui-react-fiber-unmount"
+  | "assistant-ui-react-update-depth";
 
 export function assistantUiRecoverableRenderErrorKind(
   error: unknown,
@@ -22,6 +23,10 @@ export function assistantUiRecoverableRenderErrorKind(
   }
   if (/^Tried to unmount a fiber that is already unmounted\b/.test(message)) {
     return "assistant-ui-react-fiber-unmount";
+  }
+  // guard:allow-raw-color — #185 is a React diagnostic code, not a UI color.
+  if (/Maximum update depth exceeded|Minified React error #185/.test(message)) {
+    return "assistant-ui-react-update-depth";
   }
   return null;
 }

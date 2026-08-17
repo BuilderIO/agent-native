@@ -16,6 +16,7 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { toast } from "sonner";
 
 import {
   documentPropertiesResponseMatchesScope,
@@ -50,6 +51,25 @@ interface DocumentBlockFieldsProps {
    * when there are multiple Blocks fields.
    */
   primaryEditor: ReactNode;
+}
+
+function isBlocksFieldRevisionConflict(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.message.includes("Blocks field revision conflict");
+  }
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    status?: unknown;
+    message?: unknown;
+    error?: unknown;
+    cause?: unknown;
+  };
+  if (candidate.status === 409) return true;
+  return [candidate.message, candidate.error, candidate.cause].some(
+    (value) =>
+      typeof value === "string" &&
+      value.includes("Blocks field revision conflict"),
+  );
 }
 
 export function blockFieldsFromProperties(
@@ -659,6 +679,7 @@ export function useBlockFieldEditor({
   initialContent,
   initialRevision,
   save,
+  onRevisionConflict,
 }: {
   documentId: string;
   propertyId: string;
@@ -670,7 +691,13 @@ export function useBlockFieldEditor({
     value: string;
     expectedBlocksFieldRevision: number;
   }) => Promise<unknown>;
-}): { content: string; onChange: (markdown: string) => void } {
+  onRevisionConflict?: () => void;
+}): {
+  content: string;
+  editorResetVersion: number;
+  onChange: (markdown: string) => void;
+  onSaveContent: (markdown: string) => Promise<boolean>;
+} {
   const key = `${documentId}:${propertyId}`;
 
   // The shared controller calls the freshest save impl through a per-key ref. The
@@ -678,6 +705,9 @@ export function useBlockFieldEditor({
   // identity changes per mount, never the field it writes to.
   const implRef = blockFieldSaveImplRef(key);
   const revisionRef = useRef(initialRevision);
+  const rejectedRevisionRef = useRef<number | null>(null);
+  const onRevisionConflictRef = useRef(onRevisionConflict);
+  onRevisionConflictRef.current = onRevisionConflict;
   if (initialRevision > revisionRef.current) {
     revisionRef.current = initialRevision;
   }
@@ -696,6 +726,8 @@ export function useBlockFieldEditor({
     return response;
   };
 
+  const controllerRef = useRef<BlockFieldSaveController | null>(null);
+
   // Build (but do not yet ref-count) the controller factory for this key. The
   // formal acquire/release happens in the effect below; we only need the factory
   // here so the first acquire can create the instance.
@@ -706,12 +738,24 @@ export function useBlockFieldEditor({
       // saves across ALL editor instances for the key (there is only ever one
       // controller per key), so no cross-instance serialization lane is needed.
       save: (value) => implRef.current(value),
-      onError: (error) =>
+      onError: (error) => {
+        if (isBlocksFieldRevisionConflict(error)) {
+          rejectedRevisionRef.current = revisionRef.current;
+          // A stale payload is not a retryable draft. If this editor unmounts
+          // before the invalidated query returns, flush must not replay it
+          // against the newly advanced revision and overwrite the winner.
+          // The request can reject after this hook unmounts. The per-field
+          // controller outlives that mount, so clear the rejected payload at
+          // the shared boundary instead of relying on the instance ref.
+          peekBlockFieldSaveController(key)?.discardPending();
+          onRevisionConflictRef.current?.();
+        }
         console.error("Failed to save Blocks field content", {
           documentId,
           propertyId,
           error,
-        }),
+        });
+      },
     });
 
   // Acquire the ONE shared controller for this field key, and release it on
@@ -726,7 +770,6 @@ export function useBlockFieldEditor({
   // `factory`/`implRef` are intentionally not effect deps: the impl ref is updated
   // every render, and the identity key forces a remount for a DIFFERENT key, so
   // within one mount the key is stable and we acquire exactly once.
-  const controllerRef = useRef<BlockFieldSaveController | null>(null);
   useEffect(() => {
     controllerRef.current = acquireBlockFieldSaveController(key, factory);
     return () => {
@@ -761,6 +804,7 @@ export function useBlockFieldEditor({
     }
     return initialContent;
   });
+  const [editorResetVersion, setEditorResetVersion] = useState(0);
 
   // Adopt fresh server content when it is a GENUINELY newer external update (e.g.
   // an agent edit) — not when it is merely stale server props lagging a local
@@ -781,6 +825,27 @@ export function useBlockFieldEditor({
   useEffect(() => {
     const controller = controllerRef.current;
     if (!controller) return;
+    const rejectedRevision = rejectedRevisionRef.current;
+    if (rejectedRevision !== null && initialRevision > rejectedRevision) {
+      if (controller.pending !== controller.lastSaved) {
+        // The user typed again while the winner was being refetched. Preserve
+        // that newer draft; revisionRef already reflects initialRevision, so
+        // its pending save will use the newly accepted boundary.
+        rejectedRevisionRef.current = null;
+        return;
+      }
+      // The server rejected our stale revision and the invalidated query has
+      // now delivered the winner. The rejected draft is not retryable against
+      // the new baseline: adopt the accepted value and clear the dirty latch.
+      setContent(initialContent);
+      controller.mark(initialContent);
+      rejectedRevisionRef.current = null;
+      // VisualEditor owns an imperative TipTap instance. Reset it only for this
+      // explicit conflict recovery so the accepted server value replaces the
+      // rejected draft without disrupting ordinary save cursor/undo state.
+      setEditorResetVersion((version) => version + 1);
+      return;
+    }
     // Never adopt over a dirty local edit.
     if (controller.pending !== controller.lastSaved) return;
     if (initialContent === controller.lastSaved) {
@@ -800,10 +865,10 @@ export function useBlockFieldEditor({
     }
     // else: server props are stale, lagging a local save the server hasn't
     // echoed yet. Keep showing lastSaved and wait for the echo above to clear
-    // the latch. (Cross-client concurrent same-field edits remain last-write-
-    // wins for v1; true coherence needs the deferred server-side versioning.)
+    // the latch. Concurrent writes are guarded by the field revision; a
+    // rejected stale write follows the explicit conflict branch above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialContent]);
+  }, [initialContent, initialRevision]);
 
   function onChange(markdown: string) {
     setContent(markdown);
@@ -812,7 +877,16 @@ export function useBlockFieldEditor({
     controllerRef.current?.change(markdown);
   }
 
-  return { content, onChange };
+  async function onSaveContent(markdown: string) {
+    setContent(markdown);
+    const controller = controllerRef.current;
+    if (!controller) return false;
+    controller.change(markdown);
+    await controller.flush();
+    return controller.lastSaved === markdown;
+  }
+
+  return { content, editorResetVersion, onChange, onSaveContent };
 }
 
 /**
@@ -831,6 +905,7 @@ function AdditionalBlockEditor({
   property: DocumentProperty;
   canEdit: boolean;
 }) {
+  const t = useT();
   const setProperty = useSetDocumentProperty(
     documentId,
     property.definition.databaseId!,
@@ -839,20 +914,24 @@ function AdditionalBlockEditor({
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
-  const { content, onChange } = useBlockFieldEditor({
-    documentId,
-    propertyId,
-    initialContent,
-    initialRevision: property.blocksField?.revision ?? 0,
-    save: setProperty.mutateAsync,
-  });
+  const { content, editorResetVersion, onChange, onSaveContent } =
+    useBlockFieldEditor({
+      documentId,
+      propertyId,
+      initialContent,
+      initialRevision: property.blocksField?.revision ?? 0,
+      save: setProperty.mutateAsync,
+      onRevisionConflict: () =>
+        toast.error(t("editor.blocksFieldRevisionConflict")),
+    });
 
   return (
     <VisualEditor
-      key={propertyId}
+      key={`${propertyId}:${editorResetVersion}`}
       documentId={documentId}
       content={content}
       onChange={onChange}
+      onSaveContent={onSaveContent}
       editable={canEdit}
       localFileMode
     />

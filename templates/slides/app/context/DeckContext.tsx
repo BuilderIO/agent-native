@@ -8,6 +8,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
+import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -39,12 +40,10 @@ type GranularOp =
       op: "add-slide";
       slideId: string;
       afterSlideId?: string;
-      fields: {
-        content: string;
-        notes?: string;
-        layout?: string;
-        background?: string;
-      };
+      /** Everything but `id` and the transient `imageLoading` flag. A slide
+       * copied or restored through this op keeps its transition, animations,
+       * and image/Excalidraw data instead of silently losing them on reload. */
+      fields: Omit<Partial<Slide>, "id" | "imageLoading"> & { content: string };
     }
   | {
       op: "patch-deck-fields";
@@ -56,6 +55,16 @@ type GranularOp =
   | { op: "full-replace"; deck: Deck };
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+
+/** Slide payload for an `add-slide` op. `imageLoading` is transient UI state
+ * and must not persist; everything else on the slide has to survive the round
+ * trip or a duplicated/restored slide comes back missing fields. */
+function addSlideFields(
+  slide: Slide,
+): Extract<GranularOp, { op: "add-slide" }>["fields"] {
+  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  return fields;
+}
 export type DeckReloadStatus = "loaded" | "failed" | "stale";
 export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
@@ -208,13 +217,18 @@ interface DeckContextType {
   ) => void;
   reloadDecks: () => Promise<void>;
   reloadDecksWithStatus: () => Promise<DeckReloadStatus>;
-  refreshOpenDeck: (deckId: string) => Promise<Deck | null>;
+  refreshOpenDeck: (
+    deckId: string,
+    options?: { clearPendingWrites?: boolean },
+  ) => Promise<Deck | null>;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
     layout?: SlideLayout,
     afterIndex?: number,
+    options?: { persistence?: "debounced" | "immediate" },
   ) => string;
+  flushDeckSave: (deckId: string) => Promise<void>;
   updateSlide: (
     deckId: string,
     slideId: string,
@@ -222,7 +236,7 @@ interface DeckContextType {
     options?: UpdateSlideOptions,
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
-  duplicateSlide: (deckId: string, slideId: string) => void;
+  duplicateSlide: (deckId: string, slideId: string) => string | undefined;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -301,6 +315,8 @@ function normalizeActionDeck(value: unknown): Deck | null {
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
+const inFlightSaveControllers = new Map<string, AbortController>();
+const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Set<string>();
 const deckSaveRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
@@ -312,17 +328,24 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 
-// Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
+// Cached snapshot for useSyncExternalStore. MUST be stable when either value
 // is unchanged or React will infinite-loop (it compares snapshots with
 // Object.is — a fresh object literal every call schedules a new update,
 // which calls getSnapshot again, which returns a new object… etc).
-let cachedSnapshot: { saving: boolean } = { saving: false };
+let cachedSnapshot: { saving: boolean; hasUnsavedChanges: boolean } = {
+  saving: false,
+  hasUnsavedChanges: false,
+};
 
 function recomputeSnapshot() {
   const saving =
     pendingSaves.size > 0 || inFlightSaves.size > 0 || pendingOpsQueue.size > 0;
-  if (saving !== cachedSnapshot.saving) {
-    cachedSnapshot = { saving };
+  const hasUnsavedChanges = saving || failedSaveDecks.size > 0;
+  if (
+    saving !== cachedSnapshot.saving ||
+    hasUnsavedChanges !== cachedSnapshot.hasUnsavedChanges
+  ) {
+    cachedSnapshot = { saving, hasUnsavedChanges };
   }
 }
 
@@ -341,8 +364,24 @@ export function subscribeSaveState(listener: () => void): () => void {
   return () => saveStateListeners.delete(listener);
 }
 
+/**
+ * True when a deck still has a local write that has not been confirmed by the
+ * server, including a save that exhausted its retry budget.
+ */
+export function hasUnsavedDeckChanges(deckId: string): boolean {
+  return (
+    pendingSaves.has(deckId) ||
+    inFlightSaves.has(deckId) ||
+    pendingOpsQueue.has(deckId) ||
+    failedSaveDecks.has(deckId)
+  );
+}
+
 /** Snapshot of save state — true when anything is debounced or in flight. */
-export function getSaveSnapshot(): { saving: boolean } {
+export function getSaveSnapshot(): {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+} {
   return cachedSnapshot;
 }
 
@@ -369,7 +408,11 @@ function deckPayload(deck: Deck): Record<string, unknown> {
  * the `save-deck` action is called first, then any trailing granular ops are
  * sent through `patch-deck`.
  */
-async function persistDeckOps(deckId: string, ops: GranularOp[]) {
+async function persistDeckOps(
+  deckId: string,
+  ops: GranularOp[],
+  signal?: AbortSignal,
+) {
   if (ops[0].op === "full-replace") {
     // Legacy full-deck write — used by undo/redo and setDeckSlides.
     // `callAction` bounds it so a stalled save can't wedge `inFlightSaves`
@@ -379,20 +422,28 @@ async function persistDeckOps(deckId: string, ops: GranularOp[]) {
     await callAction(
       "save-deck",
       { deckId, deck: deckPayload(deck) },
-      { method: "PUT" },
+      { method: "PUT", signal },
     );
     const trailingOps = ops.slice(1) as PatchDeckOp[];
     if (trailingOps.length > 0) {
-      await callAction("patch-deck", {
-        deckId,
-        operations: trailingOps,
-      });
+      await callAction(
+        "patch-deck",
+        {
+          deckId,
+          operations: trailingOps,
+        },
+        { signal },
+      );
     }
   } else {
-    await callAction("patch-deck", {
-      deckId,
-      operations: ops as PatchDeckOp[],
-    });
+    await callAction(
+      "patch-deck",
+      {
+        deckId,
+        operations: ops as PatchDeckOp[],
+      },
+      { signal },
+    );
   }
 }
 
@@ -421,15 +472,23 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
     return Promise.resolve();
   }
 
+  const generation = deckSaveGenerations.get(deckId) ?? 0;
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  if (controller) inFlightSaveControllers.set(deckId, controller);
   inFlightSaves.add(deckId);
-  let succeeded = false;
-  const next = persistDeckOps(deckId, ops)
+  const isCurrentGeneration = () =>
+    (deckSaveGenerations.get(deckId) ?? 0) === generation;
+  const next = persistDeckOps(deckId, ops, controller?.signal)
     .then(() => {
-      succeeded = true;
+      if (!isCurrentGeneration()) return;
       deckSaveRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
     })
     .catch((err) => {
+      // A restore or delete invalidated this request. Its result must not
+      // resurrect the old queue or schedule a retry after the boundary.
+      if (!isCurrentGeneration()) return;
       console.error(`Failed to save deck ${deckId}:`, err);
       const pending = pendingOpsQueue.get(deckId) ?? [];
       pendingOpsQueue.set(deckId, [...ops, ...pending]);
@@ -454,10 +513,13 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
     .finally(() => {
       if (inFlightSaveChains.get(deckId) === next) {
         inFlightSaveChains.delete(deckId);
+        if (controller && inFlightSaveControllers.get(deckId) === controller) {
+          inFlightSaveControllers.delete(deckId);
+        }
         inFlightSaves.delete(deckId);
         const flushImmediately = immediateFlushRequests.delete(deckId);
         notifySaveListeners();
-        if (succeeded && flushImmediately) {
+        if (flushImmediately) {
           void drainPendingDeckOps(deckId);
         }
       }
@@ -465,6 +527,39 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
   inFlightSaveChains.set(deckId, next);
   notifySaveListeners();
   return next;
+}
+
+/**
+ * Wait for a deck's in-flight save(s) to fully settle, including any
+ * follow-up drain chained by immediateFlushRequests for ops queued while a
+ * save was already running, and any requeued retry after a failed attempt.
+ * Used when a caller must not proceed (e.g. firing an agent request against
+ * a slide or restoring a saved version) until every write issued before that
+ * boundary has reached the server. Throws if the save ultimately fails after
+ * retries exhaust, since `drainPendingDeckOps` swallows save errors internally
+ * to drive its own retry loop and its promise always resolves regardless of
+ * outcome.
+ */
+async function flushDeckSave(deckId: string): Promise<void> {
+  while (true) {
+    const active = inFlightSaveChains.get(deckId);
+    if (active) {
+      await active;
+      continue;
+    }
+    if (failedSaveDecks.has(deckId)) {
+      throw new Error(
+        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
+      );
+    }
+    if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
+      // A failed op was requeued for retry, or a debounced save is armed;
+      // wait for it to actually run rather than declaring success early.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      continue;
+    }
+    return;
+  }
 }
 
 function enqueueDeckOp(
@@ -581,6 +676,8 @@ function flushPendingSaves() {
 }
 
 function discardPendingDeckOps(deckId: string) {
+  deckSaveGenerations.set(deckId, (deckSaveGenerations.get(deckId) ?? 0) + 1);
+  inFlightSaveControllers.get(deckId)?.abort();
   const timer = pendingSaves.get(deckId);
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);
@@ -613,13 +710,12 @@ type PatchDeckFields = Extract<
 export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
   switch (op.op) {
     case "patch-slide": {
-      let changed = false;
+      const prior = deck.slides.find((s) => s.id === op.slideId);
+      if (!prior || !hasChangedFields(prior, op.fields)) return deck;
       const slides = deck.slides.map((s) => {
         if (s.id !== op.slideId) return s;
-        changed = true;
         return { ...s, ...op.fields };
       });
-      if (!changed) return deck; // slide concurrently deleted — skip
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
     case "delete-slide": {
@@ -645,6 +741,12 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       for (const s of deck.slides) {
         if (!named.has(s.id)) reordered.push(s);
       }
+      if (
+        reordered.length === deck.slides.length &&
+        reordered.every((slide, index) => slide.id === deck.slides[index]?.id)
+      ) {
+        return deck;
+      }
       return {
         ...deck,
         slides: reordered,
@@ -654,13 +756,11 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
     case "add-slide": {
       if (deck.slides.some((s) => s.id === op.slideId)) return deck; // idempotent
       const newSlide: Slide = {
+        ...op.fields,
         id: op.slideId,
         content: op.fields.content,
         notes: op.fields.notes ?? "",
         layout: (op.fields.layout as SlideLayout) ?? "content",
-        ...(op.fields.background !== undefined
-          ? { background: op.fields.background }
-          : {}),
       };
       const slides = [...deck.slides];
       const afterIdx = op.afterSlideId
@@ -671,6 +771,7 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
     case "patch-deck-fields": {
+      if (!hasChangedFields(deck, op.fields)) return deck;
       return {
         ...deck,
         ...op.fields,
@@ -678,6 +779,27 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       } as Deck;
     }
   }
+}
+
+function equalDeckValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasChangedFields(current: object, fields: object): boolean {
+  const currentRecord = current as Record<string, unknown>;
+  const fieldRecord = fields as Record<string, unknown>;
+  return Object.keys(fieldRecord).some(
+    (key) => !equalDeckValue(currentRecord[key], fieldRecord[key]),
+  );
 }
 
 export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
@@ -750,8 +872,11 @@ export function deriveInverseOp(
         // Capture the prior value for every field this op touches, so undo
         // restores exactly what changed (including clearing fields back to
         // undefined).
-        (priorFields as Record<string, unknown>)[key] = prior[key];
+        if (!equalDeckValue(prior[key], op.fields[key])) {
+          (priorFields as Record<string, unknown>)[key] = prior[key];
+        }
       }
+      if (Object.keys(priorFields).length === 0) return null;
       return [{ op: "patch-slide", slideId: op.slideId, fields: priorFields }];
     }
     case "delete-slide": {
@@ -768,14 +893,7 @@ export function deriveInverseOp(
           op: "add-slide",
           slideId: prior.id,
           afterSlideId,
-          fields: {
-            content: prior.content,
-            notes: prior.notes,
-            layout: prior.layout,
-            ...(prior.background !== undefined
-              ? { background: prior.background }
-              : {}),
-          },
+          fields: addSlideFields(prior),
         },
         {
           op: "reorder-slides",
@@ -785,6 +903,7 @@ export function deriveInverseOp(
     }
     case "add-slide": {
       // Inverse of adding a slide is deleting it.
+      if (before.slides.some((slide) => slide.id === op.slideId)) return null;
       return [
         {
           op: "delete-slide",
@@ -795,6 +914,7 @@ export function deriveInverseOp(
     }
     case "reorder-slides": {
       // Inverse reorder = the order the slides were in before.
+      if (applyOpToDeck(before, op) === before) return null;
       return [
         { op: "reorder-slides", orderedIds: before.slides.map((s) => s.id) },
       ];
@@ -802,9 +922,13 @@ export function deriveInverseOp(
     case "patch-deck-fields": {
       const priorFields: Record<string, unknown> = {};
       const beforeRecord = before as unknown as Record<string, unknown>;
+      const nextRecord = op.fields as Record<string, unknown>;
       for (const key of Object.keys(op.fields)) {
-        priorFields[key] = beforeRecord[key];
+        if (!equalDeckValue(beforeRecord[key], nextRecord[key])) {
+          priorFields[key] = beforeRecord[key];
+        }
       }
+      if (Object.keys(priorFields).length === 0) return null;
       return [
         {
           op: "patch-deck-fields",
@@ -1003,12 +1127,7 @@ export function hasUncommittedDeckChanges(
   deckId: string,
   dirtyDeckIds: Set<string>,
 ): boolean {
-  return (
-    dirtyDeckIds.has(deckId) ||
-    pendingSaves.has(deckId) ||
-    inFlightSaves.has(deckId) ||
-    failedSaveDecks.has(deckId)
-  );
+  return dirtyDeckIds.has(deckId) || hasUnsavedDeckChanges(deckId);
 }
 
 /**
@@ -1137,6 +1256,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deckBaselineRequestIdRef = useRef(0);
+  const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
   // True only while the SSE channel is actually open. Stays false when SSE is
   // never started (embed auth), so the poll keeps its fast intervals there.
   const liveChannelConnectedRef = useRef(false);
@@ -1265,7 +1385,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
    * this, chat-driven edits land in the editor with Undo disabled.
    */
   const applyRemoteDeckUpdate = useCallback(
-    (updated: Deck, label = "Agent edit") => {
+    (
+      updated: Deck,
+      label = "Agent edit",
+      options?: { clearPendingWrites?: boolean },
+    ) => {
+      if (options?.clearPendingWrites) {
+        discardPendingDeckOps(updated.id);
+        dirtyDeckIdsRef.current.delete(updated.id);
+      }
       const before = decksRef.current.find((d) => d.id === updated.id);
       if (
         before &&
@@ -1358,12 +1486,28 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   //   - Dirty deck / unsaved local create → additive merge only: surface
   //     agent-added slides without ever overwriting or dropping local slides.
   const refetchOpenDeckIfChanged = useCallback(
-    async (currentOpenId: string): Promise<Deck | null> => {
+    async (
+      currentOpenId: string,
+      options?: { clearPendingWrites?: boolean },
+    ): Promise<Deck | null> => {
+      const requestId =
+        (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
+      openDeckRequestIdByDeckRef.current.set(currentOpenId, requestId);
       const serverDeck = await fetchDeckFromAPI(currentOpenId);
+      if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
+        return null;
+      }
       // Null means 404 (row not created yet), a transient failure, or a
       // still-pending create — nothing authoritative to reconcile.
       if (!serverDeck) return null;
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
+      if (options?.clearPendingWrites) {
+        lastExternalUpdateRef.current = Date.now();
+        applyRemoteDeckUpdate(serverDeck, "Deck restored", {
+          clearPendingWrites: true,
+        });
+        return serverDeck;
+      }
 
       const hasLocalEdits =
         pendingCreateIdsRef.current.has(currentOpenId) ||
@@ -1656,21 +1800,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             lastExternalUpdateRef.current = Date.now();
             setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
           } else if (data.type === "deck-changed") {
-            // Skip if a save for this deck is pending or in flight — this
-            // event is most likely the echo of our own write and the server
-            // copy may be a few hundred ms behind what the user just typed.
-            // Polling and the next save's response will bring the canonical
-            // state once the local burst settles.
-            if (
-              hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)
-            ) {
-              continue;
-            }
-            // Refetch the changed deck from the shared action surface.
-            void fetchDeckFromAPI(data.deckId).then((updated) => {
-              if (stopped || !updated) return;
-              lastExternalUpdateRef.current = Date.now(); // Suppress save-back
-              applyRemoteDeckUpdate(updated);
+            // Do not drop the event while a local edit/save is pending. The
+            // event may be an own-write echo, but it may also be an agent
+            // write that arrived during the same local edit. The reconciler
+            // preserves local slide bodies and local-only slides while still
+            // surfacing server-added slides immediately.
+            void refetchOpenDeckIfChanged(data.deckId).catch((error) => {
+              console.error(
+                `Failed to refresh deck ${data.deckId} after sync event:`,
+                error,
+              );
             });
           }
         }
@@ -1695,7 +1834,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       liveChannelConnectedRef.current = false;
       unsubscribe();
     };
-  }, [applyRemoteDeckUpdate, resyncDeckState]);
+  }, [refetchOpenDeckIfChanged, resyncDeckState]);
 
   // Flush pending (debounced) saves before the tab is hidden or unloaded so the
   // last ~500ms of edits aren't lost on close/navigation. `pagehide` is the
@@ -1733,7 +1872,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         target.tagName === "TEXTAREA" ||
         target.tagName === "INPUT" ||
         target.isContentEditable;
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+      const key = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && key === "z") {
         if (isTyping) return;
         e.preventDefault();
         if (e.shiftKey) {
@@ -1742,7 +1882,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           undo();
         }
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "y") {
+      if ((e.metaKey || e.ctrlKey) && key === "y") {
         if (isTyping) return;
         e.preventDefault();
         redo();
@@ -1760,7 +1900,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const insertIndex = decksRef.current.length;
       const newDeck: Deck = {
         id: nanoid(10),
-        title: title || "Untitled Deck",
+        title: title?.trim() || DEFAULT_DECK_TITLE,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdByMe: true,
@@ -1981,17 +2121,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
-      // Clear the external-update suppression window so a rename/update that
-      // happens within 2s of page load (or an SSE event) is not silently dropped.
-      markDeckDirty(id);
       const before = decksRef.current.find((d) => d.id === id);
-      setDecks((prev) =>
-        prev.map((d) =>
-          d.id === id
-            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
-            : d,
-        ),
-      );
       // Enqueue a granular patch-deck-fields op — only the changed fields are
       // sent to the server, so concurrent edits to slides are never clobbered.
       // Exclude internal/derived fields that live only in client state.
@@ -2006,11 +2136,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       void _slides;
       _ca;
-      if (Object.keys(persistableUpdates).length > 0) {
-        const op: PatchDeckOp = {
-          op: "patch-deck-fields",
-          fields: persistableUpdates as PatchDeckFields,
-        };
+      const hasPersistableUpdates = Object.keys(persistableUpdates).length > 0;
+      const op: PatchDeckOp | null = hasPersistableUpdates
+        ? {
+            op: "patch-deck-fields",
+            fields: persistableUpdates as PatchDeckFields,
+          }
+        : null;
+      if (before && op && !deriveInverseOp(before, op)) return;
+
+      // Clear the external-update suppression window so a rename/update that
+      // happens within 2s of page load (or an SSE event) is not silently dropped.
+      markDeckDirty(id);
+      setDecks((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
+            : d,
+        ),
+      );
+      if (op) {
         enqueueDeckOp(id, op);
         if (before) {
           // Coalesce rapid deck-field edits (e.g. title typing, tweak sliders)
@@ -2033,7 +2178,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const addSlide = useCallback(
-    (deckId: string, layout: SlideLayout = "content", afterIndex?: number) => {
+    (
+      deckId: string,
+      layout: SlideLayout = "content",
+      afterIndex?: number,
+      addOptions?: { persistence?: "debounced" | "immediate" },
+    ) => {
       markDeckDirty(deckId);
       const newSlide: Slide = {
         id: nanoid(8),
@@ -2064,14 +2214,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         op: "add-slide",
         slideId: newSlide.id,
         afterSlideId,
-        fields: {
-          content: newSlide.content,
-          notes: newSlide.notes,
-          layout: newSlide.layout,
-          background: newSlide.background,
-        },
+        fields: addSlideFields(newSlide),
       };
-      enqueueDeckOp(deckId, op);
+      enqueueDeckOp(deckId, op, addOptions);
       if (before) recordUndo(before, op, { label: "Add slide" });
 
       return newSlide.id;
@@ -2086,7 +2231,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       updates: Partial<Omit<Slide, "id">>,
       options?: UpdateSlideOptions,
     ) => {
-      markDeckDirty(deckId);
       const label = updates.layout
         ? "Change layout"
         : updates.background
@@ -2095,6 +2239,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ? "Update content"
             : "Edit slide";
       const before = decksRef.current.find((d) => d.id === deckId);
+      const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
+      if (before && !deriveInverseOp(before, op)) return;
+      markDeckDirty(deckId);
       setDecksLocal((prev: Deck[]) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -2108,7 +2255,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
       // Granular op — only this slide's changed fields reach the server.
-      const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
       enqueueDeckOp(deckId, op, options);
       if (before) {
         // Coalesce a burst of edits to the SAME slide's SAME field-set into one
@@ -2159,7 +2305,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     (deckId: string, slideId: string) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       const original = before?.slides.find((slide) => slide.id === slideId);
-      if (!before || !original) return;
+      if (!before || !original) return undefined;
 
       markDeckDirty(deckId);
       const copiedSlide: Slide = { ...original, id: nanoid(8) };
@@ -2176,20 +2322,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Granular add-slide op — inserts the copy after the original. Build it
       // from the current deck before scheduling the React state update; the
       // functional updater runs later and cannot be used to produce the op.
-      const { id: newSlideId, ...rest } = copiedSlide;
       const op: PatchDeckOp = {
         op: "add-slide",
-        slideId: newSlideId,
+        slideId: copiedSlide.id,
         afterSlideId: slideId,
-        fields: {
-          content: rest.content,
-          notes: rest.notes,
-          layout: rest.layout,
-          background: rest.background,
-        },
+        fields: addSlideFields(copiedSlide),
       };
       enqueueDeckOp(deckId, op);
       recordUndo(before, op, { label: "Duplicate slide" });
+      return copiedSlide.id;
     },
     [markDeckDirty, recordUndo, setDecksLocal],
   );
@@ -2222,11 +2363,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
-      markDeckDirty(deckId);
       const before = decksRef.current.find((deck) => deck.id === deckId);
       const after = before
         ? { ...before, slides, updatedAt: new Date().toISOString() }
         : null;
+      if (
+        before &&
+        after &&
+        deckContentSignature(before) === deckContentSignature(after)
+      ) {
+        return;
+      }
+      markDeckDirty(deckId);
       // setDeckSlides replaces ALL slides wholesale (used by AI generation and
       // imports), so its undo entry is a deck-level full replacement instead of
       // a fine-grained slide patch.
@@ -2269,6 +2417,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         refreshOpenDeck: refetchOpenDeckIfChanged,
         getDeck,
         addSlide,
+        flushDeckSave,
         updateSlide,
         deleteSlide,
         duplicateSlide,
@@ -2293,15 +2442,21 @@ export function useDecks() {
 }
 
 /**
- * Subscribe to deck save-state. Returns `{ saving: boolean }` — true while any
- * deck has a pending debounce timer or an in-flight PUT.
+ * Subscribe to deck save-state. `saving` is true while any deck has a pending
+ * debounce timer or an in-flight PUT. `hasUnsavedChanges` also stays true when
+ * a save has exhausted its retry budget, so navigation can warn before the
+ * user leaves work that is still only local.
  *
  * Used by SaveStatusIndicator in the toolbar so users always see whether
  * their work has been committed (Rochkind reported losing a full deck because
  * there was no save signal).
  */
-export function useSaveState(): { saving: boolean } {
+export function useSaveState(): {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+} {
   return useSyncExternalStore(subscribeSaveState, getSaveSnapshot, () => ({
     saving: false,
+    hasUnsavedChanges: false,
   }));
 }

@@ -71,6 +71,7 @@ import {
   IconPaperclip,
   IconPhone,
   IconPlus,
+  IconPlugConnected,
   IconSearch,
   IconSquareCheck,
   IconTrash,
@@ -3135,6 +3136,9 @@ export function AddProperty({
   popoversPortalled = true,
   source,
   sources,
+  onConnectSource,
+  openRequestId = 0,
+  onOpenRequestHandled,
 }: {
   documentId: string;
   databaseId: string;
@@ -3143,18 +3147,26 @@ export function AddProperty({
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
+  onConnectSource?: () => void;
+  openRequestId?: number;
+  onOpenRequestHandled?: (requestId: number) => void;
 }) {
   const t = useT();
   const configure = useConfigureDocumentProperty(documentId, databaseId);
   const addSourceFieldProperty =
     useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
+  const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
+  const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
   const query = typeQuery.trim().toLowerCase();
+  const connectSourceLabel = t("editor.properties.connectASource");
+  const connectSourceMatches =
+    !!onConnectSource && matchesConnectSourceQuery(connectSourceLabel, query);
   const sourceFieldGroups = allSources
     .map((src) => ({
       source: src,
@@ -3199,11 +3211,33 @@ export function AddProperty({
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
+  useEffect(() => {
+    if (openRequestId === 0 || openRequestId === handledOpenRequestId.current)
+      return;
+    handledOpenRequestId.current = openRequestId;
+    setTypeQuery("");
+    setAddPropertyError(null);
+    setSourceHandoffClosing(false);
+    setOpen(true);
+    onOpenRequestHandled?.(openRequestId);
+  }, [onOpenRequestHandled, openRequestId]);
+
   function closeAddPropertyPicker() {
     if (isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
     setOpen(false);
+  }
+
+  function connectSource() {
+    if (!onConnectSource || isAddingProperty) return;
+    setTypeQuery("");
+    setAddPropertyError(null);
+    // Radix keeps closing popovers mounted for their exit animation. Remove
+    // this one immediately so opening Sources cannot stack over it.
+    setSourceHandoffClosing(true);
+    setOpen(false);
+    onConnectSource();
   }
 
   async function add(type: DocumentPropertyType) {
@@ -3283,6 +3317,7 @@ export function AddProperty({
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
+          setSourceHandoffClosing(false);
           setOpen(true);
         } else if (!isAddingProperty) {
           closeAddPropertyPicker();
@@ -3310,7 +3345,11 @@ export function AddProperty({
         align={variant === "default" ? "start" : "end"}
         collisionPadding={12}
         portalled={popoversPortalled}
-        className="relative z-[300] w-80 p-2"
+        className={cn(
+          "relative z-[300] w-80 p-2",
+          sourceHandoffClosing &&
+            "data-[state=closed]:hidden data-[state=closed]:animate-none",
+        )}
       >
         <div className="grid gap-2">
           <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
@@ -3326,6 +3365,9 @@ export function AddProperty({
                 if (event.key === "Enter" && firstFilteredPropertyType) {
                   event.preventDefault();
                   void add(firstFilteredPropertyType);
+                } else if (event.key === "Enter" && connectSourceMatches) {
+                  event.preventDefault();
+                  connectSource();
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
@@ -3336,6 +3378,16 @@ export function AddProperty({
             />
           </div>
           <div className="max-h-80 overflow-auto rounded border p-1">
+            {connectSourceMatches ? (
+              <button
+                type="button"
+                className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={connectSource}
+              >
+                <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
+                <span className="flex-1">{connectSourceLabel}</span>
+              </button>
+            ) : null}
             {sourceFieldGroups.map((group) => (
               <div
                 key={group.source.id}
@@ -3407,7 +3459,7 @@ export function AddProperty({
                 })}
               </div>
             ))}
-            {filteredPropertyTypes.length === 0 ? (
+            {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
                 {t("editor.properties.noMatchingPropertyTypes")}
               </div>
@@ -3493,4 +3545,12 @@ export function filterDocumentPropertyTypes(
       aliases.some((alias) => alias.includes(normalizedQuery))
     );
   });
+}
+
+export function matchesConnectSourceQuery(label: string, query: string) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return (
+    normalizedQuery.length === 0 ||
+    label.toLocaleLowerCase().includes(normalizedQuery)
+  );
 }

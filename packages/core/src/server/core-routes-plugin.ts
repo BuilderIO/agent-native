@@ -37,6 +37,7 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
   putState,
@@ -65,7 +66,9 @@ import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
+  registerFileUploadProvider,
 } from "../file-upload/index.js";
+import { s3FileUploadProvider } from "../file-upload/s3.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -90,6 +93,7 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
+import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
 import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
@@ -109,7 +113,10 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
-import { readBrowserSessionIdHeader } from "./agent-run-context.js";
+import {
+  readAnalyticsClientPlatformHeader,
+  readBrowserSessionIdHeader,
+} from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
@@ -183,7 +190,6 @@ import {
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
-import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
@@ -285,9 +291,8 @@ export async function resolveAgentEngineStatus<
     };
   }
 
-  const envEntry = process.env.AGENT_ENGINE
-    ? lookupEntry(process.env.AGENT_ENGINE)
-    : undefined;
+  const configuredEngine = getAppConfig().agent.engine;
+  const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
   if (envEntry) {
     if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
       return { configured: false, openAiBaseUrlConfigured };
@@ -1015,7 +1020,7 @@ export async function resolveBuilderOwnerContextForRequest(
   } = {},
   mode?: "connect" | "callback",
 ): Promise<BuilderOwnerContext> {
-  const searchParams = getRequestURL(event).searchParams;
+  const searchParams = getFrameworkRouteRequestUrl(event).searchParams;
   const signedOwner =
     mode === "connect"
       ? verifyBuilderConnectTokenAndGetOwner(
@@ -1422,6 +1427,17 @@ function wireRouteErrorCapture(nitroApp: any): void {
   );
 }
 
+export function ensureS3FileUploadProvider(): void {
+  if (
+    listFileUploadProviders().some(
+      (provider) => provider.id === s3FileUploadProvider.id,
+    )
+  ) {
+    return;
+  }
+  registerFileUploadProvider(s3FileUploadProvider);
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1440,6 +1456,13 @@ export function createCoreRoutesPlugin(
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
+
+      // Keep the framework-owned S3-compatible provider available even when an
+      // app does not mount the optional onboarding plugin. The settings CTA and
+      // the upload route share this registry. An app may register its own
+      // provider under the conventional `s3` id, so preserve that explicit
+      // registration instead of replacing it during core bootstrap.
+      ensureS3FileUploadProvider();
 
       // This response is a side-effect-free static contract used by the SSR
       // shell. Mount it before optional default-plugin/bootstrap work so a
@@ -1658,7 +1681,6 @@ export function createCoreRoutesPlugin(
             : getAllowedCorsOrigin(origin, {
                 allowedOrigins: allowlist,
                 allowAnyOriginWhenNoAllowlist: false,
-                allowLocalhostWhenNoAllowlist: true,
               });
 
           // Reject preflights from disallowed cross-origin callers BEFORE
@@ -3654,8 +3676,14 @@ export function createCoreRoutesPlugin(
             /* org module not present in this template — keep userEmail-only */
           }
 
+          const clientPlatform = readAnalyticsClientPlatformHeader(event);
           const properties: Record<string, unknown> = {
             ...(validation.properties ?? {}),
+            ...(clientPlatform
+              ? {
+                  [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform,
+                }
+              : {}),
             source: "client",
           };
           if (orgId) properties.org_id = orgId;
@@ -4278,25 +4306,23 @@ export function createCoreRoutesPlugin(
         }
       }
 
-      // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Mounted
-      // ONLY when `AGENT_NATIVE_IDENTITY_HUB_URL` is set, so an unset env var
-      // means the route is never even registered: zero new surface, existing
-      // auth byte-for-byte unchanged. `/login` 302s to the identity hub;
+      // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. `/login`
+      // 302s to the identity hub;
       // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
       // links the verified email into this app's local Better Auth store. The
-      // handler 404s if disabled (defence in depth). The auth guard bypasses
-      // these two exact paths under the same env gate.
-      if (isIdentitySsoEnabled()) {
-        getH3App(nitroApp).use(
-          `${P}/identity`,
-          defineEventHandler(async (event: H3Event) => {
-            // Framework strips the mount prefix; what remains is the subpath
-            // after `/identity` (e.g. `/login`, `/callback`).
-            const subpath = event.url?.pathname || "";
-            return handleIdentitySso(event, subpath);
-          }),
-        );
-      }
+      // handler fails closed unless direct web SSO is configured or the
+      // packaged Desktop SSO Canary requests a canonical Agent Native app.
+      // Mounting the handler unconditionally lets that request-scoped decision
+      // work.
+      getH3App(nitroApp).use(
+        `${P}/identity`,
+        defineEventHandler(async (event: H3Event) => {
+          // Framework strips the mount prefix; what remains is the subpath
+          // after `/identity` (e.g. `/login`, `/callback`).
+          const subpath = event.url?.pathname || "";
+          return handleIdentitySso(event, subpath);
+        }),
+      );
 
       if (!options.disableOpenRoute) {
         // Stable deep-link route. External agents (MCP/A2A) surface

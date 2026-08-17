@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { AgentNativeI18nProvider } from "../i18n.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
   ApprovalContext,
@@ -17,6 +18,7 @@ import {
   formatWorkedDuration,
   ReasoningCell,
   RanToolsSummary,
+  SuppressInlineOpenAppContext,
   WorkedForSummary,
   toolInputPayload,
 } from "./tool-call-display.js";
@@ -232,6 +234,55 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
+  it("keeps an unresolved delegated agent visibly running when chat state dips", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "tool",
+              reasoning: [],
+              toolCalls: [
+                { id: "query-1", name: "query-warehouse", status: "running" },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Asking Analytics...");
+    expect(container.textContent).not.toContain("Asked Analytics");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("keeps a remote pending delegation out of the terminal state", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          result="Remote agent task is still pending"
+          isRunning={false}
+          structuredMeta={{ agentPending: true }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Asking Analytics...");
+    expect(container.textContent).not.toContain("Asked Analytics");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("shows activity tool cards as running while the chat runs", () => {
     act(() => {
       root.render(
@@ -310,10 +361,10 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBeNull();
-    expect(row?.className).not.toContain("agent-tool-call--entering");
+    expect(row?.className).toBe("agent-tool-call");
   });
 
-  it("animates and shimmers a resolved tool that is the active chat tail", () => {
+  it("shimmers a resolved tool that is the active chat tail without entry motion", () => {
     act(() => {
       root.render(
         <ToolCallDisplay
@@ -329,11 +380,11 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBeNull();
     expect(row?.getAttribute("data-active-tail")).toBeNull();
-    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(row?.className).toBe("agent-tool-call");
     expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
   });
 
-  it("animates a tool row that mounts running", () => {
+  it("does not animate a tool row that mounts running", () => {
     act(() => {
       root.render(
         <ToolCallDisplay toolName="read-file" args={{}} isRunning={true} />,
@@ -342,7 +393,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBe("true");
-    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(row?.className).toBe("agent-tool-call");
   });
 
   it("does not replay the entry when an existing row becomes the active tail", () => {
@@ -356,9 +407,9 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
-    expect(
-      container.querySelector(".agent-tool-call")?.className,
-    ).not.toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-tool-call")?.className).toBe(
+      "agent-tool-call",
+    );
 
     act(() => {
       root.render(
@@ -370,9 +421,9 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
-    expect(
-      container.querySelector(".agent-tool-call")?.className,
-    ).not.toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-tool-call")?.className).toBe(
+      "agent-tool-call",
+    );
   });
 
   it("shimmers only the newest running reconnect tool", () => {
@@ -702,6 +753,45 @@ describe("ToolCallDisplay native renderers", () => {
       container.querySelector('[data-testid="agent-call-progress"]'),
     ).toBeNull();
     expect(container.textContent).toContain("Thinking");
+  });
+
+  it("localizes delegated-agent labels and elapsed durations", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                tool: {
+                  askingAgent: "Localized asking {{agent}}",
+                  elapsed: "Localized elapsed {{duration}}",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            isRunning={true}
+            structuredMeta={{
+              agentProgress: {
+                state: "working",
+                elapsedSeconds: 30,
+                detail: "Querying the warehouse",
+              },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Localized asking Analytics");
+    expect(container.textContent).toContain("Localized elapsed 30s");
   });
 
   it("renders a reconnected raw call-agent result through the scroll-free agent cell", () => {
@@ -1044,6 +1134,48 @@ describe("ToolCallDisplay native renderers", () => {
           args={{}}
           result={JSON.stringify({ ok: true })}
           mcpApp={mcpApp}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("MCP APP");
+  });
+
+  it("keeps first-party open_app MCP Apps out of a chat-first transcript", () => {
+    act(() => {
+      root.render(
+        <SuppressInlineOpenAppContext.Provider value={true}>
+          <ToolCallDisplay
+            toolName="open_app"
+            args={{}}
+            result={JSON.stringify({ ok: true })}
+            mcpApp={{
+              ...mcpApp,
+              toolName: "open_app",
+              originalToolName: "open_app",
+            }}
+            isRunning={false}
+          />
+        </SuppressInlineOpenAppContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("MCP APP");
+  });
+
+  it("still renders open_app MCP Apps outside chat-first mode", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="open_app"
+          args={{}}
+          result={JSON.stringify({ ok: true })}
+          mcpApp={{
+            ...mcpApp,
+            toolName: "open_app",
+            originalToolName: "open_app",
+          }}
           isRunning={false}
         />,
       );
@@ -1450,7 +1582,7 @@ describe("ToolCallDisplay native renderers", () => {
       thoughtButtons.map((button) => button.getAttribute("aria-expanded")),
     ).toEqual(["false", "true"]);
     expect(container.textContent).not.toContain("First thought");
-    expect(container.textContent).not.toContain("Current thought");
+    expect(container.textContent).toContain("Current thought");
 
     act(() => {
       root.render(
@@ -1472,6 +1604,13 @@ describe("formatWorkedDuration", () => {
     expect(formatWorkedDuration(125_000)).toBe("2m 5s");
     expect(formatWorkedDuration(3_600_000)).toBe("1h");
     expect(formatWorkedDuration(3_900_000)).toBe("1h 5m");
+    expect(
+      formatWorkedDuration(125_000, {
+        locale: "de-DE",
+        minute: " Min.",
+        second: " Sek.",
+      }),
+    ).toBe("2 Min. 5 Sek.");
   });
 });
 
@@ -1568,14 +1707,14 @@ describe("ReasoningCell", () => {
     expect(shimmer?.textContent).toBe("Thinking");
   });
 
-  it("smoothly reveals reasoning text while streaming and completes it when done", () => {
+  it("shows the latest reasoning chunk immediately while streaming", () => {
     const text = "Weighing options carefully.";
 
     act(() => {
       root.render(<ReasoningCell text={text} isStreaming />);
     });
 
-    expect(container.textContent).not.toContain(text);
+    expect(container.textContent).toContain(text);
 
     act(() => {
       root.render(<ReasoningCell text={text} isStreaming={false} />);
@@ -2001,45 +2140,17 @@ describe("ToolCallStackMotion", () => {
     const retainedRowAnimation = animations.find(
       ({ element }) => element.dataset.agentToolCallId === "tool-b",
     );
-    expect(retainedRowAnimation?.keyframes[0]?.transform).toBe(
-      "translate3d(0px, -24px, 0)",
-    );
-    expect(retainedRowAnimation?.keyframes[1]?.transform).toBe(
-      "translate3d(0, 0, 0)",
-    );
-    expect(
-      container.querySelector('[data-agent-tool-call-id="tool-d"]')?.classList,
-    ).toContain("agent-tool-call--stack-entering");
-    expect(
-      container.querySelector("[data-agent-tool-summary]")?.classList,
-    ).not.toContain("agent-tool-summary--entering");
-    expect(
-      animations.some(
-        ({ element }) => element.dataset.agentToolSummary !== undefined,
-      ),
-    ).toBe(false);
-    expect(
-      document.querySelector(".agent-tool-call-stack__exit"),
-    ).not.toBeNull();
-
-    const exitAnimation = animations.find(({ element }) =>
-      element.classList.contains("agent-tool-call-stack__exit"),
-    );
-    expect(exitAnimation).toBeDefined();
-    exitAnimation?.animation.onfinish?.();
-    expect(document.querySelector(".agent-tool-call-stack__exit")).toBeNull();
+    expect(retainedRowAnimation).toBeUndefined();
+    expect(animations).toHaveLength(0);
   });
 
-  it("does not animate again when an entry class is removed", () => {
+  it("does not animate when the stack rows change", () => {
     const layout = new Map<string, number>([["tool-a", 24]]);
     Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
       configurable: true,
       value(this: HTMLElement) {
         const key = this.dataset.agentToolCallId ?? "";
-        const entryOffset = this.classList.contains("agent-tool-call--entering")
-          ? 6
-          : 0;
-        const top = (layout.get(key) ?? 0) + entryOffset;
+        const top = layout.get(key) ?? 0;
         return {
           top,
           left: 0,
@@ -2067,17 +2178,14 @@ describe("ToolCallStackMotion", () => {
       },
     });
 
-    const render = (entering: boolean) => (
+    const render = () => (
       <ToolCallStackMotion>
-        <div
-          className={entering ? "agent-tool-call--entering" : "agent-tool-call"}
-          data-agent-tool-call-id="tool-a"
-        />
+        <div className="agent-tool-call" data-agent-tool-call-id="tool-a" />
       </ToolCallStackMotion>
     );
 
-    act(() => root.render(render(true)));
-    act(() => root.render(render(false)));
+    act(() => root.render(render()));
+    act(() => root.render(render()));
 
     expect(animations).toHaveLength(0);
   });
@@ -2126,6 +2234,41 @@ describe("ApprovalAffordance", () => {
     act(() => denyButton.click());
 
     expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("keeps approval copy and every action visible in narrow chat cards", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), onAlwaysAllow: vi.fn() }}
+        >
+          <ToolCallDisplay
+            toolName="send-email"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const approvalCopy = Array.from(container.querySelectorAll("span")).find(
+      (span) => span.textContent === "Approve to run send-email?",
+    ) as HTMLSpanElement;
+    const approvalCard = approvalCopy.parentElement as HTMLDivElement;
+    const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
+
+    expect(approvalCard.className).toContain("flex-wrap");
+    expect(approvalCopy.className).toContain("min-w-0");
+    expect(approvalCopy.className).toContain("flex-1");
+    expect(actionButtons.map((button) => button.textContent)).toEqual([
+      "Approve",
+      "Always allow",
+      "Deny",
+    ]);
+    for (const button of actionButtons) {
+      expect(button.className).toContain("shrink-0");
+    }
   });
 
   it("keeps the default two-button layout when only onApprove is provided", () => {

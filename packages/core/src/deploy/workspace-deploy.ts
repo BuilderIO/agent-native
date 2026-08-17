@@ -87,6 +87,19 @@ const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
 
+const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
+  const directoryOrigin =
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
+    processRef.env.WORKSPACE_GATEWAY_URL ||
+    processRef.env.APP_URL ||
+    processRef.env.URL ||
+    processRef.env.DEPLOY_URL ||
+    processRef.env.BETTER_AUTH_URL;
+  if (directoryOrigin) {
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
+  }
+`;
+
 interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
@@ -268,6 +281,12 @@ function buildOneApp(
       workspaceAppRouteAccess.protectedPaths,
     ),
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
+    ...(workspaceGatewayUrl
+      ? {
+          AGENT_NATIVE_ORG_DIRECTORY_URL:
+            process.env.AGENT_NATIVE_ORG_DIRECTORY_URL || workspaceGatewayUrl,
+        }
+      : {}),
     ...(workspaceGatewayUrl
       ? {
           WORKSPACE_GATEWAY_URL:
@@ -720,6 +739,10 @@ function copyNetlifyFunctionIntoWorkspace(
  * Emit the per-app Netlify Scheduled Function that hands one recurring-job
  * sweep to that app's durable background worker. The worker owns the actual
  * scan so scheduled-function timeouts cannot strand the automation runner.
+ *
+ * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
+ * deploy packager only accepts an omitted `includedFiles` for scheduled
+ * functions whose entry file has no import/require edge at all.
  */
 function emitNetlifyRecurringJobsFunction(
   workspaceRoot: string,
@@ -787,6 +810,7 @@ export const config = {
   generator: "agent-native workspace deploy",
   schedule: "* * * * *",
   nodeBundler: "none",
+  includedFiles: ["**"],
 };
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
@@ -920,6 +944,7 @@ function processorPathFromBody(body) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1017,6 +1042,7 @@ globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1129,6 +1155,7 @@ function normalizeBasePathArgs(args) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1201,6 +1228,7 @@ function patchVercelFunctionEntry(
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
