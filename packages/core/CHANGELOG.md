@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.158.8
+
+### Patch Changes
+
+- 38e3471: Redact nested callback parameters in desktop magic-link diagnostics.
+
 ## 0.158.7
 
 ### Patch Changes
