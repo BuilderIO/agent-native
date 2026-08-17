@@ -91,6 +91,7 @@ import {
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
 import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
@@ -1533,6 +1534,9 @@ export function isRetryableError(err: unknown): boolean {
 
   return (
     code === "builder_gateway_error" ||
+    // The gateway's unhandled-500 envelope arriving in-stream, where there is no
+    // status to read. Same failure as `http_500` below, so same verdict.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "builder_gateway_network_error" ||
     code === "provider_network_error" ||
     code === "http_429" ||
@@ -6849,6 +6853,8 @@ export function isRecoverableContinuationError(event: {
     // the server read the sentence instead, which a Builder-credits deployment
     // replaces with one visitor line.
     code === "http_500" ||
+    // The same 500, delivered in-stream with no status attached.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||

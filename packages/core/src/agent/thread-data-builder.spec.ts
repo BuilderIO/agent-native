@@ -565,6 +565,38 @@ describe("buildAssistantMessage", () => {
     }
   });
 
+  // Uncoded, this stored Builder's internal correlation id as the assistant's
+  // visible answer — the exact text 14 Analytics turns ended on.
+  it("folds the gateway internal-error envelope by its code, not its sentence", () => {
+    for (const error of [
+      "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      "AI features aren't available on this site right now.",
+    ]) {
+      const message = buildAssistantMessage(
+        [
+          { seq: 0, event: { type: "text", text: "partial answer" } },
+          {
+            seq: 1,
+            event: {
+              type: "error",
+              error,
+              errorCode: "builder_gateway_internal_error",
+            },
+          },
+        ],
+        "run-gateway-internal",
+        { suppressInternalContinuation: true, turnId: "turn-gateway-internal" },
+      );
+
+      expect(message?.content).toEqual([
+        { type: "text", text: "partial answer" },
+      ]);
+      expect(message?.metadata).toMatchObject({
+        custom: { continued: true },
+      });
+    }
+  });
+
   // `providerRetryable` is the ENGINE's "another attempt may succeed", which is
   // not the same claim as "this run stopped at an internal boundary". Reading it
   // here would drop a provider throttle from the persisted turn and record the

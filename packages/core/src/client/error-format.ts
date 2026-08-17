@@ -1,4 +1,5 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
 
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
@@ -25,6 +26,14 @@ const START_NEW_CHAT_LABEL = "Start new chat";
 const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
 const BUILDER_AUTHENTICATION_ERROR =
   "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
+/**
+ * The gateway's unhandled-500 envelope is an internal correlation id and an
+ * apology: nothing the reader can act on, and nothing that says whether the
+ * failure was theirs. Say where it broke and keep the raw sentence in
+ * `details`, which is the only place the error id is useful.
+ */
+const GATEWAY_INTERNAL_ERROR_MESSAGE =
+  "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -127,6 +136,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
     "agentChat.errorMessages.gatewayNoDetails",
+  ],
+  [
+    GATEWAY_INTERNAL_ERROR_MESSAGE,
+    "agentChat.errorMessages.gatewayInternalError",
   ],
   [
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
@@ -298,6 +311,10 @@ export function normalizeChatError(
         "The provider behind this model rejected the request. Pick a different model, then retry.",
       details: text,
     };
+  }
+
+  if (code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE) {
+    return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
   }
 
   if (code === "builder_auth_error") {
