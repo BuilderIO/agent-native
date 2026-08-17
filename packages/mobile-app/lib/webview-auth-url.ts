@@ -5,6 +5,17 @@ export interface MobileWebViewAuthUrlOptions {
   workspaceEmbedUrl?: string | null;
 }
 
+function removeLegacySessionParam(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has("_session")) return url;
+    parsed.searchParams.delete("_session");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 /**
  * The native shell owns the parent credential. A WebView may only capture a
  * session into a distinct app-scoped key, never back into that shared key.
@@ -29,11 +40,12 @@ export function buildMobileWebViewAuthUrl(
 ): string {
   const { url, workspaceAppId, workspaceEmbedState, workspaceEmbedUrl } =
     options;
+  const safeUrl = removeLegacySessionParam(url);
 
   if (workspaceAppId) {
     return workspaceEmbedState === "ready" && workspaceEmbedUrl
       ? workspaceEmbedUrl
-      : url;
+      : safeUrl;
   }
-  return url;
+  return safeUrl;
 }
