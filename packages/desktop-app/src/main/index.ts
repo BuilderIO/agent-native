@@ -96,6 +96,7 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
+  type DesktopWorkspaceAppListResult,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
   type DesktopContentFileDeleteRequest,
@@ -355,6 +356,8 @@ let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
 let desktopIdentityBroker: DesktopIdentityBroker | null = null;
+let desktopWorkspaceApps: AppConfig[] = [];
+let desktopWorkspaceAppsGeneration = 0;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
@@ -643,11 +646,31 @@ function withCodeAgentApps(apps: AppConfig[]): AppConfig[] {
 
 function loadAppsForAuthContext(): AppConfig[] {
   try {
-    return withCodeAgentApps(AppStore.loadApps());
+    const localApps = AppStore.loadApps();
+    const localIds = new Set(localApps.map((appConfig) => appConfig.id));
+    return withCodeAgentApps([
+      ...localApps,
+      ...desktopWorkspaceApps.filter(
+        (appConfig) => !localIds.has(appConfig.id),
+      ),
+    ]);
   } catch (err) {
     console.error("[main] failed to load apps for auth context:", err);
     return withCodeAgentApps([]);
   }
+}
+
+function clearDesktopWorkspaceApps(): void {
+  desktopWorkspaceAppsGeneration += 1;
+  desktopWorkspaceApps = [];
+}
+
+function cacheDesktopWorkspaceApps(
+  result: DesktopWorkspaceAppListResult,
+  generation: number,
+): void {
+  if (generation !== desktopWorkspaceAppsGeneration) return;
+  desktopWorkspaceApps = result.enabled ? result.apps : [];
 }
 
 function findAppForSourceUrl(sourceUrl: string | undefined): AppConfig | null {
@@ -735,21 +758,30 @@ function resolveDesktopIdentityApp(
   const primaryCookieName = getCookieNameForApp(appId);
   const appSlug = primaryCookieName.replace(/^an_session_/, "");
   const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  const betterAuthCookieNames = [
+    `${betterAuthPrefix}.session_token`,
+    `__Secure-${betterAuthPrefix}.session_token`,
+    `${betterAuthPrefix}.session_data`,
+    `__Secure-${betterAuthPrefix}.session_data`,
+  ];
+  const cookieNames = [
+    primaryCookieName,
+    ...(primaryCookieName === "an_session" ? [] : ["an_session"]),
+    ...betterAuthCookieNames,
+  ];
   return {
     id: appId,
     origin,
     session: session.fromPartition(`persist:app-${appId}`),
-    cookieNames:
-      primaryCookieName === "an_session"
-        ? [primaryCookieName]
-        : [primaryCookieName, "an_session"],
+    cookieNames,
     cookieNamesToClear: [
-      primaryCookieName,
-      "an_session",
-      `${betterAuthPrefix}.session_token`,
-      `__Secure-${betterAuthPrefix}.session_token`,
-      "an.session_token",
-      "__Secure-an.session_token",
+      ...new Set([
+        ...cookieNames,
+        "an.session_token",
+        "__Secure-an.session_token",
+        "an.session_data",
+        "__Secure-an.session_data",
+      ]),
     ],
     identityAuthority: appId === "dispatch",
     workspaceSso: isCanonical || configured?.workspaceSso === true,
@@ -784,9 +816,8 @@ function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
 
 async function isDesktopIdentityAvailable(
   authorityApp: DesktopIdentityApp,
-  identitySession: Electron.Session,
 ): Promise<boolean> {
-  return fetchDesktopIdentityAvailability(authorityApp, identitySession);
+  return fetchDesktopIdentityAvailability(authorityApp, authorityApp.session);
 }
 
 function getOAuthInjectionTarget(
@@ -1388,6 +1419,9 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
     },
     onStatus: (status: DesktopIdentityStatus) => {
       if (appIsQuitting) return;
+      if (status === "idle" || status === "sign-in-required") {
+        clearDesktopWorkspaceApps();
+      }
       if (mainWindow && !mainWindow.isDestroyed()) {
         try {
           mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
@@ -10002,14 +10036,27 @@ registerAppsIpc({
   prepareDesktopAppForLocalCodeChange,
   showDesktopAppContextMenu,
   loadWorkspaceApps: () => {
+    const generation = ++desktopWorkspaceAppsGeneration;
     const dispatch = DESKTOP_DEFAULT_APPS.find(
       (appConfig) => appConfig.id === "dispatch",
     );
     const dispatchOrigin = dispatch ? getAppOrigin(dispatch) : null;
-    if (!dispatchOrigin) return Promise.resolve({ enabled: false, apps: [] });
+    if (!dispatchOrigin) {
+      const result = {
+        enabled: false,
+        apps: [],
+      } satisfies DesktopWorkspaceAppListResult;
+      cacheDesktopWorkspaceApps(result, generation);
+      return Promise.resolve(result);
+    }
+    const dispatchApp = resolveDesktopIdentityApp("dispatch");
     return loadDesktopWorkspaceApps({
-      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+      identitySession:
+        dispatchApp?.session ?? session.fromPartition("persist:app-dispatch"),
       dispatchOrigin,
+    }).then((result) => {
+      cacheDesktopWorkspaceApps(result, generation);
+      return result;
     });
   },
 });
