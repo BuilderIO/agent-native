@@ -110,6 +110,7 @@ import {
   useRestoreDashboardRevision,
 } from "@/hooks/use-dashboard-revisions";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
+import { useSelectAllOnEdit } from "@/hooks/use-select-all-on-edit";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
   DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
@@ -596,8 +597,11 @@ function SqlDashboardPageContent({
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const nameInputRef = useSelectAllOnEdit<HTMLInputElement>(editingName);
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionInput, setDescriptionInput] = useState("");
+  const descriptionInputRef =
+    useSelectAllOnEdit<HTMLTextAreaElement>(editingDescription);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
@@ -1732,6 +1736,7 @@ function SqlDashboardPageContent({
       <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
+            ref={nameInputRef}
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onBlur={handleSaveName}
@@ -2140,6 +2145,7 @@ function SqlDashboardPageContent({
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea
+          ref={descriptionInputRef}
           value={descriptionInput}
           onChange={(e) => setDescriptionInput(e.target.value)}
           onBlur={handleSaveDescription}

@@ -88,6 +88,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
+import { useSelectAllOnEdit } from "@/hooks/use-select-all-on-edit";
 import {
   resourceCanEdit,
   resourceCanManage,
@@ -206,6 +207,7 @@ export default function ExplorerDashboardPage() {
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const nameInputRef = useSelectAllOnEdit<HTMLInputElement>(editingName);
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -635,6 +637,7 @@ export default function ExplorerDashboardPage() {
           ) : null}
           {editingName && canEdit ? (
             <Input
+              ref={nameInputRef}
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={handleSaveName}
