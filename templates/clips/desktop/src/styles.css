@@ -3025,16 +3025,23 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Bound the stack when many clips are saved; each row keeps its actions. */
-  max-height: 168px;
+  /* Bound the stack when many clips are saved; each row keeps its actions.
+     Sized for two wrapped rows so a saved clip's failure reason is readable
+     without scrolling the section it lives in. */
+  max-height: 300px;
   overflow-y: auto;
 }
 
 .pending-upload-banner {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+  /* Wrapping flex row, not a fixed three-column grid. As a column the actions
+     permanently claimed the width the explanation needed, and on a wrapped row
+     they sat centred with dead space above and below. Here they stay inline
+     while the copy is short and drop to their own line — where they cost no
+     width at all — as soon as it isn't. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
   padding: 9px 10px;
   border: 1px solid #bfdbfe;
   border-radius: var(--radius);
@@ -3043,6 +3050,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-icon {
+  flex: 0 0 auto;
   width: 26px;
   height: 26px;
   display: inline-flex;
@@ -3055,6 +3063,9 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-copy {
+  /* Small basis so a short row keeps its actions inline; it still grows to
+     fill whatever the actions leave, and to the full width once they wrap. */
+  flex: 1 1 140px;
   min-width: 0;
 }
 
@@ -3075,8 +3086,13 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-sub-wrap {
-  overflow: visible;
   white-space: normal;
+  /* Bounded rather than unbounded: the popover window is sized to its content,
+     so an unclamped error string would push the whole tray off-screen. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
 }
 
 .pending-upload-why {
@@ -3100,8 +3116,12 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-actions {
-  display: inline-flex;
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -6063,7 +6083,6 @@ body[data-clips-route="recording-pill"] #root {
   border-color: var(--accent, #6366f1);
   background: color-mix(in srgb, var(--accent, #6366f1) 7%, transparent);
 }
-
 
 .whisper-model-name {
   display: flex;
