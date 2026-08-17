@@ -19,39 +19,33 @@ describe("mobile chat-first navigation", () => {
         { id: "calendar" },
         { id: "clips" },
       ]),
-    ).toEqual(["mail", "calendar", "content", "analytics"]);
+    ).toEqual(["mail", "calendar"]);
   });
 
   it("fills missing preferred slots with the next registered app", () => {
+    // Only one preferred app is available, so the spare slot falls through to
+    // an unpreferred one rather than being left empty.
     expect(
-      getDefaultMobileTabAppIds([
-        { id: "analytics" },
-        { id: "calendar" },
-        { id: "clips" },
-      ]),
-    ).toEqual(["calendar", "analytics", "clips"]);
+      getDefaultMobileTabAppIds([{ id: "clips" }, { id: "calendar" }]),
+    ).toEqual(["calendar", "clips"]);
   });
 
   it("does not choose disabled apps for default slots", () => {
+    // `content` outranks `design` in the preferred order, so it would take the
+    // second slot if being disabled were ignored.
     expect(
       getDefaultMobileTabAppIds([
         { id: "content", enabled: false },
         { id: "design", enabled: true },
         { id: "mail", enabled: true },
-        { id: "calendar", enabled: true },
       ]),
-    ).toEqual(["mail", "calendar", "design"]);
+    ).toEqual(["mail", "design"]);
   });
 
-  it("keeps Chat and More outside the four app slots", () => {
-    expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(4);
-    expect(
-      toggleMobileTabAppId(
-        ["mail", "calendar", "content", "analytics"],
-        "clips",
-      ),
-    ).toEqual({
-      ids: ["mail", "calendar", "content", "analytics"],
+  it("keeps Chat, More and the action button outside the app slots", () => {
+    expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(2);
+    expect(toggleMobileTabAppId(["mail", "calendar"], "clips")).toEqual({
+      ids: ["mail", "calendar"],
       changed: false,
       limitReached: true,
     });
@@ -59,12 +53,13 @@ describe("mobile chat-first navigation", () => {
 
   it("filters stale saved ids before applying the tab limit", () => {
     const currentIds = filterAvailableMobileTabAppIds(
-      ["mail", "content", "removed"],
-      new Set(["mail", "content", "analytics"]),
+      ["mail", "removed"],
+      new Set(["mail", "analytics"]),
     );
 
+    // "removed" is gone, so the second slot is free and the toggle lands.
     expect(toggleMobileTabAppId(currentIds, "analytics")).toEqual({
-      ids: ["mail", "content", "analytics"],
+      ids: ["mail", "analytics"],
       changed: true,
       limitReached: false,
     });

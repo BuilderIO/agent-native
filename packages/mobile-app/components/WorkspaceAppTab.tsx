@@ -5,6 +5,7 @@ import AppWebView from "@/components/AppWebView";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { getAppUrl } from "@/lib/get-app-url";
 import { SESSION_TOKEN_KEY } from "@/lib/session-token-store";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 export default function WorkspaceAppTab({
   appId,
@@ -15,6 +16,8 @@ export default function WorkspaceAppTab({
   appId: string;
   captureSessionToken?: boolean;
 }) {
+  // The tab bar floats over the screen, so the webview has to end above it.
+  const { contentInset } = useTabBarLayout();
   const app = TEMPLATE_APPS.find((candidate) => candidate.id === appId);
 
   if (!app) {
@@ -30,7 +33,11 @@ export default function WorkspaceAppTab({
   }
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
+    <SafeAreaView
+      edges={["top"]}
+      className="flex-1 bg-background-dark"
+      style={{ paddingBottom: contentInset }}
+    >
       <AppWebView
         url={getAppUrl(app)}
         captureSessionToken={captureSessionToken}
