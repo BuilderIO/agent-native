@@ -405,14 +405,15 @@ describe("server/auth", () => {
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       const signInMagicLink = vi.fn(async () => ({ status: true }));
+      const getSession = vi.fn(async () => ({
+        user: { id: "user_1", email: "owner@example.com" },
+        session: { token: "magic-session-token" },
+      }));
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
           handler: vi.fn(async () => new Response("{}")),
           api: {
-            getSession: vi.fn(async () => ({
-              user: { id: "user_1", email: "owner@example.com" },
-              session: { token: "magic-session-token" },
-            })),
+            getSession,
             signInEmail: vi.fn(),
             signInMagicLink,
             signUpEmail: vi.fn(),
@@ -421,10 +422,7 @@ describe("server/auth", () => {
         })),
         getBetterAuthSync: vi.fn(() => ({
           api: {
-            getSession: vi.fn(async () => ({
-              user: { id: "user_1", email: "owner@example.com" },
-              session: { token: "magic-session-token" },
-            })),
+            getSession,
           },
         })),
       }));
@@ -496,6 +494,33 @@ describe("server/auth", () => {
         "Sign-in complete. You can return to the app.",
       );
 
+      const electronFlowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      const electronCallbackResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: electronFlowResponse.flowId,
+            verifier: electronFlowResponse.verifier,
+          },
+          headers: {
+            "user-agent":
+              "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.215",
+          },
+        }),
+      );
+      const electronCallbackHtml = await (
+        electronCallbackResponse as Response
+      ).text();
+      expect(electronCallbackHtml).toContain(
+        "Sign-in complete. You can return to the app.",
+      );
+      expect(electronCallbackHtml).not.toContain("window.close()");
+
       const replayResponse = await callbackHandler(
         createMockEvent({
           path: "/_agent-native/auth/magic-link/desktop-callback",
@@ -541,6 +566,35 @@ describe("server/auth", () => {
           }),
         }),
       );
+
+      const errorFlowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      getSession.mockResolvedValueOnce(null as never);
+      await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: errorFlowResponse.flowId,
+            verifier: errorFlowResponse.verifier,
+          },
+        }),
+      );
+      const exchangeErrorEvent = createMockEvent({
+        path: "/_agent-native/auth/desktop-exchange",
+        query: {
+          flow_id: errorFlowResponse.flowId,
+          verifier: errorFlowResponse.verifier,
+        },
+      });
+      await expect(exchangeHandler(exchangeErrorEvent)).resolves.toMatchObject({
+        error: expect.any(String),
+        code: "callback_error",
+      });
+      expect(exchangeErrorEvent.res.status).toBe(400);
     });
 
     it("sets first-run onboarding only for an authenticated callback", async () => {
