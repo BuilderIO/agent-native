@@ -2205,7 +2205,7 @@ export default function RecordRoute() {
       });
     }
     try {
-      await engine?.cancel();
+      await engine?.cancel("Recording cancelled by user");
     } catch {
       // ignore
     }
@@ -2468,7 +2468,9 @@ export default function RecordRoute() {
       pendingRef.current = null;
       setCameraStream(null);
       setPreviewStream(null);
-      void engine?.cancel();
+      void engine?.cancel(
+        "The recorder page closed before the upload finished. The clip's video never reached the server.",
+      );
     };
     const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
       if (!engineRef.current?.hasRecordingAtRisk()) return;

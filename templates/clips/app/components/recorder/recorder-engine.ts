@@ -1743,8 +1743,14 @@ export class RecorderEngine {
     }
   }
 
-  /** Cancel: release tracks immediately, then abort server-side, reset state. */
-  async cancel(): Promise<void> {
+  /**
+   * Cancel: release tracks immediately, then abort server-side, reset state.
+   *
+   * `reason` is stored on the recording row as its failure reason, so callers
+   * that tear down for a reason other than "the user pressed Cancel" must say
+   * so — the server cannot tell a discarded recording from a page unmount.
+   */
+  async cancel(reason?: string): Promise<void> {
     // Release local hardware FIRST — synchronously, before any await. This
     // lets callers fire-and-forget cancel() (e.g. when navigating away) and
     // know the camera/screen capture is fully torn down by the time the
@@ -1799,6 +1805,7 @@ export class RecorderEngine {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            ...(reason ? { reason } : {}),
             ...(uploadGenerationId ? { uploadGenerationId } : {}),
           }),
         });

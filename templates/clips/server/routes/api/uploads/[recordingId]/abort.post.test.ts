@@ -184,6 +184,77 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  it("keeps a recorded failure reason when a teardown abort sends none", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        videoUrl: null,
+        failureReason: "Upload failed (413): payload too large",
+      },
+    ];
+    mockReadBody.mockResolvedValue({});
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockUpdateSets).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        failureReason: "Upload failed (413): payload too large",
+      }),
+    ]);
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({
+        key: "recording-upload-rec-1",
+        nextValue: expect.objectContaining({
+          failureReason: "Upload failed (413): payload too large",
+        }),
+      }),
+    ]);
+  });
+
+  it("records an explicit abort reason over an earlier failure", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        videoUrl: null,
+        failureReason: "Upload failed (413): payload too large",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Recording cancelled by user" });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual([
+      expect.objectContaining({
+        failureReason: "Recording cancelled by user",
+      }),
+    ]);
+  });
+
+  it("falls back to the generic reason when nothing was recorded yet", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+      },
+    ];
+    mockReadBody.mockResolvedValue({});
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual([
+      expect.objectContaining({ failureReason: "Upload aborted by user" }),
+    ]);
+  });
+
   it("does not let an older client abort durable media verification", async () => {
     mockSelectRows.rows = [
       {

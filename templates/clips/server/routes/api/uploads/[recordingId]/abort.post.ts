@@ -47,10 +47,14 @@ export default defineEventHandler(async (event: H3Event) => {
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
-  const failureReason =
+  // A teardown abort (page unmount, navigating away from /record) carries no
+  // reason. Keep "caller said why" distinct from "nobody said why" so the
+  // generic default can never overwrite an already-recorded diagnosis below.
+  const requestedReason =
     typeof body?.reason === "string" && body.reason.trim()
       ? body.reason.trim().slice(0, 1000)
-      : "Upload aborted by user";
+      : null;
+  const failureReason = requestedReason ?? "Upload aborted by user";
   const requestedAttemptId =
     typeof body?.attemptId === "string" &&
     body.attemptId.length > 0 &&
@@ -145,12 +149,23 @@ export default defineEventHandler(async (event: H3Event) => {
       ? null
       : await getResumableSession(recordingId, existingGenerationId);
 
+    // The recorder reports its real failure through this route and then fires
+    // a second, reasonless abort while the page tears down. Without this the
+    // second write replaces "413 payload too large" with the generic default,
+    // and the only record of why the upload broke is gone by the time the
+    // owner opens the recording.
+    const storedReason =
+      requestedReason ??
+      (existing.status === "failed" && existing.failureReason
+        ? existing.failureReason
+        : failureReason);
+
     const now = new Date().toISOString();
     const aborted = await db
       .update(schema.recordings)
       .set({
         status: "failed",
-        failureReason,
+        failureReason: storedReason,
         updatedAt: now,
       })
       .where(
@@ -184,7 +199,7 @@ export default defineEventHandler(async (event: H3Event) => {
           ...existingUploadState,
           recordingId,
           status: "failed",
-          failureReason,
+          failureReason: storedReason,
           updatedAt: now,
         },
       },
