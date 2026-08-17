@@ -16,6 +16,7 @@ import {
   type ResourceVisibility,
 } from "../../resources/store.js";
 import {
+  getAmbientUserEmail,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";

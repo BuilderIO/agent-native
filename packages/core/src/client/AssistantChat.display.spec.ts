@@ -52,18 +52,183 @@ import {
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
 
-describe("AssistantChat thread restore", () => {
-  it("keeps a failed restore visible and distinguishes a missing thread", () => {
+describe("shouldShowAssistantChatModelSelector", () => {
+  it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
+    expect(shouldShowAssistantChatModelSelector(undefined)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(true)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(false)).toBe(false);
+
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("showModelSelector?: boolean");
+    expect(source).toMatch(
+      /shouldShowAssistantChatModelSelector\(\s+showModelSelector,/,
+    );
+  });
+});
+
+describe("AssistantChat thread restore and composer recovery", () => {
+  it("keeps failed thread restores visible and retryable", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
     expect(source).not.toContain("knownAbsentThreadIds");
-    expect(source).toContain(
-      'res.status === 404 ? "not-found" : "unavailable"',
-    );
+    expect(source).toContain('setThreadRestoreError("unavailable")');
+    expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain('t("agentChat.message.threadNotFound")');
     expect(source).toContain("retryThreadRestore");
-    expect(source).toContain("This chat thread is no longer available");
+    expect(source).toContain('t("agentChat.common.retry")');
+  });
+
+  it("replays embedded transcript restoration safely under StrictMode", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const restoreStart = source.indexOf(
+      "// Restore messages from server on mount",
+    );
+    const restoreEnd = source.indexOf(
+      "  useEffect(() => {\n    if (\n      !loadHistoryRepository",
+      restoreStart,
+    );
+    const restoreSource = source.slice(restoreStart, restoreEnd);
+
+    expect(restoreSource).toContain("React StrictMode replays effects");
+    expect(restoreSource).toContain("hasRestoredRef.current = false;");
+  });
+
+  it("persists composer text before the toolkit draft debounce can run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "writeAssistantChatComposerDraft(composerDraftScope, text)",
+    );
+    expect(source).toContain("initialTextKey={composerDraftScope}");
+    expect(source).toContain("draftScope={composerDraftScope}");
+  });
+
+  it("synchronizes app context before a scope-switch paint", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const contextSyncStart = source.indexOf(
+      "useBrowserLayoutEffect(() => {\n    if (!isActiveComposer) return;",
+    );
+    const contextSyncEnd = source.indexOf(
+      "  // Tracks the JSON of the last queue",
+      contextSyncStart,
+    );
+    const contextSync = source.slice(contextSyncStart, contextSyncEnd);
+
+    expect(contextSync).toContain(
+      "applyVisibleItems(getAgentChatContextState());",
+    );
+    expect(contextSync).toContain(
+      "refreshAgentChatContext().then(applyVisibleItems)",
+    );
+  });
+});
+
+describe("assistantUiMessageListStructureKey", () => {
+  it("ignores text changes within existing message resources", () => {
+    const before = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "before", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const after = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "after", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+
+    expect(after).toBe(before);
+  });
+
+  it("changes when indexed message resources grow or shrink", () => {
+    const onePart = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }],
+      },
+    ]);
+    const twoParts = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }, { toolCallId: "tool-1" }],
+      },
+    ]);
+    const noMessages = assistantUiMessageListStructureKey([]);
+
+    expect(twoParts).not.toBe(onePart);
+    expect(noMessages).not.toBe(twoParts);
+  });
+
+  it("tracks attachment resource ids", () => {
+    const firstAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const secondAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-2" }],
+      },
+    ]);
+
+    expect(secondAttachment).not.toBe(firstAttachment);
+  });
+});
+
+describe("queuedMessageImageSources", () => {
+  it("renders images serialized into queued attachment content", () => {
+    const image = "data:image/png;base64,queued-image";
+
+    expect(
+      queuedMessageImageSources({
+        images: undefined,
+        attachments: [
+          {
+            id: "attachment-1",
+            type: "image",
+            name: "screenshot.png",
+            content: [{ type: "image", image }],
+            status: { type: "complete" },
+          },
+        ],
+      }),
+    ).toEqual([image]);
+  });
+
+  it("does not duplicate legacy image values also present in attachments", () => {
+    const image = "data:image/png;base64,queued-image";
+
+    expect(
+      queuedMessageImageSources({
+        images: [image],
+        attachments: [
+          {
+            id: "attachment-1",
+            type: "image",
+            name: "screenshot.png",
+            content: [{ type: "image", image }],
+            status: { type: "complete" },
+          },
+        ],
+      }),
+    ).toEqual([image]);
   });
 });
 

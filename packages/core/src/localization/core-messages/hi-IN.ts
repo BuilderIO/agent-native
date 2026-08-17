@@ -348,6 +348,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.threadNotFound":
+    "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
   "message.revertHere": "यहाँ तक वापस जाएँ",
   "message.sentAt": "{{time}} पर भेजा गया",

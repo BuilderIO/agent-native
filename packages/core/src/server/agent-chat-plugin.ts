@@ -560,20 +560,6 @@ export function resolveProductionCodeExecutionForActionSurface(
 }
 
 /**
- * Hosted runs need the Builder handoff tool in their initial and lean
- * registries so source-change requests do not depend on an explicit tool
- * discovery request. Local development keeps the existing broader surface.
- */
-export function resolveHostedBuilderHandoff(
-  browserTools: Record<string, ActionEntry>,
-  canToggle: boolean,
-): Record<string, ActionEntry> {
-  if (canToggle) return {};
-  const connectBuilder = browserTools["connect-builder"];
-  return connectBuilder ? { "connect-builder": connectBuilder } : {};
-}
-
-/**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
  * value is recent invocation timestamps within the rolling window. Stale
  * entries are pruned on read.
@@ -1478,12 +1464,20 @@ export function createAgentChatPlugin(
       // that never emit the corpus prompt (no provider/run-code tools
       // registered), so this never silently expands the initial set for
       // apps that don't teach these tools by name.
-      const corpusToolNames =
-        corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
+      const loadCorpusToolsInitially = options?.corpusTools !== "lazy";
+      const corpusToolNames = loadCorpusToolsInitially
+        ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
+        : [];
       const effectiveInitialToolNames = [
         ...new Set([
           ...templateInitialToolNames,
           ...corpusToolNames,
+          // Attachment setup is a recovery action, but it must be available on
+          // the first request so a missing provider renders the CTA immediately
+          // instead of spending another turn in tool-search.
+          ...(browserTools["connect-file-storage"]
+            ? ["connect-file-storage"]
+            : []),
           ...Object.keys(hostedBuilderHandoff),
         ]),
       ];

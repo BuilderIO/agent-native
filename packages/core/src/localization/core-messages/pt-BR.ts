@@ -105,6 +105,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Falha ao restaurar ({{status}}).",
   "message.restoreQuestion": "Restaurar até aqui?",
   "message.restoreRequestFailed": "Falha na solicitação de restauração.",
+  "message.threadNotFound":
+    "Esta conversa não está mais disponível. Inicie uma nova conversa ou tente novamente se isso for inesperado.",
   "message.restoring": "Restaurando...",
   "message.revertHere": "Reverter até aqui",
   "message.sentAt": "Enviado às {{time}}",

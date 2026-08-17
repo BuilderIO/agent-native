@@ -505,12 +505,54 @@ export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
 
-export function shouldKeepAgentPanelHeaderVisible(
-  headerMenuOpen: boolean,
-  feedbackOpen: boolean,
-  shareOpen: boolean,
-): boolean {
-  return headerMenuOpen || feedbackOpen || shareOpen;
+export function shouldShowAgentPanelModeButtons(isSidebar: boolean) {
+  return !isSidebar;
+}
+
+export function shouldShowAgentPanelFullViewAction(
+  agentPageHref: string | undefined,
+  mode: PanelMode,
+  isSidebar = false,
+  currentPath?: string,
+) {
+  return (
+    Boolean(agentPageHref) &&
+    currentPath !== agentPageHref &&
+    (isSidebar || mode === "resources" || mode === "settings")
+  );
+}
+
+export function resolveAgentPanelFullViewAction(
+  agentPageHref: string | undefined,
+  onFullViewRequest: (() => void) | undefined,
+  mode: PanelMode,
+  isSidebar = false,
+  currentPath?: string,
+) {
+  if (
+    !agentPageHref ||
+    !shouldShowAgentPanelFullViewAction(
+      agentPageHref,
+      mode,
+      isSidebar,
+      currentPath,
+    )
+  ) {
+    return null;
+  }
+
+  return onFullViewRequest
+    ? ({ kind: "callback" } as const)
+    : ({ kind: "link", href: agentPageHref } as const);
+}
+
+export function getAgentPanelShortcutHints(isMac: boolean) {
+  return {
+    closeTab: isMac ? "⌃W" : "⌥W",
+    closeAllTabs: isMac ? "⌃⌥W" : "^⌥W",
+    toggleSidebar: isMac ? "⌘\\" : "^\\",
+    widenChat: isMac ? "⌘⇧\\" : "^⇧\\",
+  };
 }
 
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
@@ -1245,7 +1287,12 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
+  const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
+  const preventHeaderMenuFocusRestoreRef = useRef(false);
+  const closeHeaderMenuForOverlay = useCallback(() => {
+    preventHeaderMenuFocusRestoreRef.current = true;
+    setHeaderMenuOpen(false);
+  }, []);
 
   const getChatThreadShareUrl = useCallback(
     (threadId: string) => {
@@ -1336,46 +1383,50 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
-        {(() => {
-          const activeTab =
-            mode === "chat" && activeChatSessionId
-              ? tabs.find((tab) => tab.id === activeChatSessionId)
-              : undefined;
-          if (
-            !activeTab ||
-            (activeTabMessageCount <= 0 && activeTab.status === "idle")
-          ) {
-            return null;
-          }
-          return (
-            <ShareButton
-              resourceType="chat_thread"
-              resourceId={activeTab.id}
-              resourceTitle={activeTab.label || "Chat"}
-              shareUrl={getChatThreadShareUrl(activeTab.id)}
-              trigger="icon"
-              triggerClassName="h-7 w-7"
-              onOpenChange={setShareOpen}
-            />
-          );
-        })()}
-        <FeedbackButton
-          variant="icon"
-          side="bottom"
-          align="end"
-          chatSessionId={activeChatSessionId}
-          chatStorageKey={storageKey}
-          open={feedbackOpen}
-          onOpenChange={setFeedbackOpen}
-          trigger={
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
-            />
-          }
-        />
+        {(!onCollapse || shareFromMenuOpen) &&
+          (() => {
+            const activeTab =
+              mode === "chat" && activeChatSessionId
+                ? tabs.find((tab) => tab.id === activeChatSessionId)
+                : undefined;
+            if (
+              !activeTab ||
+              (activeTabMessageCount <= 0 && activeTab.status === "idle")
+            ) {
+              return null;
+            }
+            return (
+              <ShareButton
+                resourceType="chat_thread"
+                resourceId={activeTab.id}
+                allowedRoles={["viewer", "editor", "admin"]}
+                resourceTitle={activeTab.label || t("agentPanel.chat")}
+                shareUrl={getChatThreadShareUrl(activeTab.id)}
+                triggerClassName="h-7 px-2"
+                defaultOpen={onCollapse && shareFromMenuOpen}
+                onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
+              />
+            );
+          })()}
+        {feedbackEnabled ? (
+          <FeedbackButton
+            variant="icon"
+            side="bottom"
+            align="end"
+            chatSessionId={activeChatSessionId}
+            chatStorageKey={storageKey}
+            open={feedbackOpen}
+            onOpenChange={setFeedbackOpen}
+            trigger={
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
+              />
+            }
+          />
+        ) : null}
         {mode === "chat" && (
           <IconTooltip content={t("agentPanel.newChat")}>
             <button
@@ -1798,21 +1849,15 @@ function AgentPanelInner({
       closeAllTabs,
       showHistory,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => (
-      <div
-        className="agent-sidebar-chat-header flex flex-col shrink-0"
-        data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
-        data-agent-sidebar-chat-header-active={
-          shouldKeepAgentPanelHeaderVisible(
-            headerMenuOpen,
-            feedbackOpen,
-            shareOpen,
-          )
-            ? ""
-            : undefined
-        }
-      >
-        {/* Top bar: mode buttons + actions */}
+    }: MultiTabAssistantChatHeaderProps) => {
+      const { activeTab, childTabs, focusParentId, hasSubTabs, mainTabs } =
+        getAgentPanelChatTabGroups(tabs, activeTabId);
+      const showSidebarChatTabs =
+        Boolean(onCollapse) &&
+        mode === "chat" &&
+        shouldShowAgentPanelSidebarChatTabs(tabs);
+
+      return (
         <div
           className="agent-sidebar-chat-header flex flex-col shrink-0"
           data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
@@ -2122,7 +2167,6 @@ function AgentPanelInner({
       canUseCodeTools,
       feedbackOpen,
       headerMenuOpen,
-      shareOpen,
       onCollapse,
       showTabBar,
       cliTabs,

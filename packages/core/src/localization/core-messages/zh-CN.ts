@@ -331,6 +331,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "恢复失败（{{status}}）。",
   "message.restoreQuestion": "恢复到此处？",
   "message.restoreRequestFailed": "恢复请求失败。",
+  "message.threadNotFound":
+    "此聊天线程已不可用。请开始新聊天；如果这是意外情况，也可以重试。",
   "message.restoring": "正在恢复...",
   "message.revertHere": "还原到此处",
   "message.sentAt": "发送于 {{time}}",

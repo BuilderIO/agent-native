@@ -3,9 +3,18 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanSystemPrompt,
+  buildLeanRunPolicyPrompt,
+  filterFrameworkPromptToSurface,
+  filterPromptActionsToSurface,
+  filterRuntimeActionsToSurface,
+  resolveProductionCodeExecutionForActionSurface,
   resolveHostedBuilderHandoff,
+  resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
@@ -527,52 +536,6 @@ describe("agent teams prompt guidance", () => {
     expect(agentTeams).toContain(
       'Never say the delegated task "completed", "ran successfully", or "finished"',
     );
-  });
-});
-
-describe("hosted Builder handoff surface", () => {
-  const connectBuilder: ActionEntry = {
-    tool: { description: "Render the Builder handoff.", parameters: {} },
-    run: async () => "card",
-  };
-
-  it("promotes connect-builder only for hosted registries", () => {
-    expect(
-      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, false),
-    ).toEqual({ "connect-builder": connectBuilder });
-    expect(
-      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, true),
-    ).toEqual({});
-    expect(resolveHostedBuilderHandoff({}, false)).toEqual({});
-  });
-
-  it("wires the hosted handoff into the first-request and lean registries", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
-      encoding: "utf-8",
-    });
-    expect(source).toMatch(
-      /const hostedBuilderHandoff = resolveHostedBuilderHandoff\(\s*browserTools,\s*canToggle,\s*\);/,
-    );
-
-    const initialNamesStart = source.indexOf(
-      "const effectiveInitialToolNames = [",
-    );
-    const initialNamesBlock = source.slice(
-      initialNamesStart,
-      initialNamesStart + 900,
-    );
-    expect(initialNamesBlock).toContain(
-      "...Object.keys(hostedBuilderHandoff),",
-    );
-
-    const leanEntriesStart = source.indexOf(
-      "const leanActionEntries: Record<string, ActionEntry> = {",
-    );
-    const leanEntriesBlock = source.slice(
-      leanEntriesStart,
-      leanEntriesStart + 700,
-    );
-    expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
   });
 });
 

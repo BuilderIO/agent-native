@@ -618,11 +618,10 @@ export function useChatThreads(
   // - savedId in newlyCreatedRef (we just created it this session) → keep
   //   it; the server hasn't seen it yet because there's no POST anymore,
   //   the row gets written when the user sends a message.
-  // - savedId is set but not in the server list → keep the id until the detail
-  //   restore path can distinguish a real thread from a missing or unreachable
-  //   one. A paginated list is not evidence that a specific saved thread is
-  //   absent, and reclassifying it here turns a restore failure into a blank
-  //   chat before the detail surface can explain or recover it.
+  // - savedId is set but not on the current page → look it up directly. A
+  //   found thread stays active. An unavailable lookup keeps the saved id so
+  //   the detail surface can preserve cached state and offer recovery instead
+  //   of replacing a shared/reopened conversation with a blank local tab.
   // - No savedId → synthesize a fresh local id (no POST; server creates the
   //   row on first message). The server may contain chats from another
   //   branch, preview, or project that shares the same user/database, so
@@ -701,6 +700,32 @@ export function useChatThreads(
         // response. Keep it route-owned so AssistantChat can restore it via
         // /threads/:id instead of reclassifying it as a new empty tab.
         setActiveThreadId(savedId);
+      } else if (
+        savedId &&
+        !newlyCreatedRef.current.has(savedId) &&
+        !loadedHasSavedId &&
+        !restoredIsUnavailable
+      ) {
+        // The tab the user left open isn't a server thread and we didn't
+        // create it this session (newlyCreatedRef was wiped by the
+        // reload). Treat it as the empty tab it is — keep its id and
+        // surface it as an optimistic thread so the tab bar restores it
+        // verbatim instead of yanking in the most-recent old chat.
+        newlyCreatedRef.current.add(savedId);
+        // Seed from the persisted last-seen time (not now) so a tab the
+        // user abandoned >12h ago is correctly recognized as stale and
+        // pruned by the downstream cleanup instead of living forever.
+        let seenAt: number | undefined;
+        try {
+          const raw = localStorage.getItem(activeThreadSeenKey);
+          const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+          if (Number.isFinite(parsed)) seenAt = parsed;
+        } catch {
+          // localStorage unavailable — fall back to now (current behaviour).
+        }
+        addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
+        // activeThreadId already === savedId from the localStorage
+        // initializer; nothing else to set.
       } else if (!savedId && autoCreate) {
         // Brand new surface — synthesize a local id so the composer has a
         // target. No POST: the server creates the row on first send.

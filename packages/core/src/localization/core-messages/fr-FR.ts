@@ -108,6 +108,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Échec de la restauration ({{status}}).",
   "message.restoreQuestion": "Restaurer jusqu’ici ?",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
+  "message.threadNotFound":
+    "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
   "message.revertHere": "Revenir jusqu’ici",
   "message.sentAt": "Envoyé à {{time}}",

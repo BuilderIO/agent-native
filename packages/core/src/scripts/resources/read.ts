@@ -14,6 +14,7 @@ import {
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import {
+  getAmbientUserEmail,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";

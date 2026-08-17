@@ -354,6 +354,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
+  "message.threadNotFound":
+    "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
   "message.sentAt": "{{time}} に送信",

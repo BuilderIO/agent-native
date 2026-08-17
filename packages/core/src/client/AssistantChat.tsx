@@ -3895,6 +3895,7 @@ const AssistantChatInner = forwardRef<
       // Client-created empty tabs do not have a server row until the first
       // message is sent. Avoid probing /threads/:id on mount; that request
       // can only 404 and makes normal app startup look broken in DevTools.
+      setThreadRestoreError(null);
       setIsRestoring(false);
     } else if (threadId) {
       let cancelled = false;
@@ -3905,16 +3906,25 @@ const AssistantChatInner = forwardRef<
             `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
           );
           if (!res.ok) {
-            setThreadRestoreError(
-              res.status === 404 ? "not-found" : "unavailable",
-            );
+            if (!cancelled) {
+              setThreadRestoreError(
+                res.status === 404 ? "not-found" : "unavailable",
+              );
+            }
             return;
           }
+
           const data = await res.json();
-          if (!data || typeof data !== "object") {
-            setThreadRestoreError("unavailable");
+          if (cancelled || !data || typeof data !== "object") {
+            if (!cancelled) setThreadRestoreError("unavailable");
             return;
           }
+
+          if (!data.threadData) {
+            if (!cancelled) setThreadRestoreError("unavailable");
+            return;
+          }
+
           if (data.threadData) {
             const repo = importThreadData(data.threadData, {
               markTitleGenerated: true,
@@ -3944,17 +3954,17 @@ const AssistantChatInner = forwardRef<
                 });
               }
             }
-          } else {
-            setThreadRestoreError("unavailable");
-            return;
+            // Also skip title generation if thread already has a title
+            if (data.title) {
+              titleGeneratedRef.current = true;
+            }
+            if (!cancelled) {
+              setThreadRestoreError(null);
+              canReconnect = true;
+            }
           }
-          // Also skip title generation if thread already has a title
-          if (data.title) {
-            titleGeneratedRef.current = true;
-          }
-          setThreadRestoreError(null);
         } catch {
-          setThreadRestoreError("unavailable");
+          if (!cancelled) setThreadRestoreError("unavailable");
         } finally {
           // Clear the skeleton as soon as the persisted messages are imported.
           // The active-run reconnect probe below must NOT gate first paint — it
@@ -3998,6 +4008,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     loadHistoryRepository,
     isNewThread,
+    isThreadStateLoading,
     restoreAttempt,
   ]);
 
@@ -5574,15 +5585,15 @@ const AssistantChatInner = forwardRef<
       <IconRefresh className="h-5 w-5 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
         {threadRestoreError === "not-found"
-          ? "This chat thread is no longer available. Start a new chat or retry if this was unexpected."
-          : "Chat history could not be restored. Try again."}
+          ? t("agentChat.message.threadNotFound")
+          : t("agentChat.message.restoreRequestFailed")}
       </p>
       <button
         type="button"
         onClick={retryThreadRestore}
         className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
       >
-        Retry
+        {t("agentChat.common.retry")}
       </button>
     </div>
   ) : null;
@@ -5740,82 +5751,437 @@ const AssistantChatInner = forwardRef<
                               aria-hidden="true"
                               className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
                             >
-                              Refresh chat
-                            </button>
-                          </div>
-                        </div>
-                      ) : isRestoring && centeredRestoringState ? (
-                        <div
-                          className={cn(
-                            "agent-empty-state",
-                            emptyStateDisplay === "hidden"
-                              ? "sr-only"
-                              : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
+                              <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                                {t("agentChat.composer.dropToAttach")}
+                              </span>
+                            </div>
                           )}
-                          aria-busy="true"
-                        >
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <IconMessage className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <p className="sr-only">
-                            {emptyStateText ?? "Loading chat..."}
-                          </p>
-                        </div>
-                      ) : isRestoring ? (
-                        <div className="flex flex-col gap-3 p-4">
-                          <div className="flex justify-end">
-                            <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <div className="h-4 w-48 rounded bg-muted animate-pulse" />
-                            <div className="h-4 w-64 rounded bg-muted animate-pulse" />
-                            <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-                          </div>
-                        </div>
-                      ) : showEmptyState ? (
-                        <div
-                          className={cn(
-                            "agent-empty-state",
-                            emptyStateDisplay === "hidden"
-                              ? "sr-only"
-                              : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
-                          )}
-                        >
-                          {threadRestoreError ? (
-                            threadRestoreErrorSurface
-                          ) : (
-                            <>
-                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                                <IconMessage className="h-5 w-5 text-muted-foreground" />
+                          {showHeader && (
+                            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+                              <span className="text-[13px] font-medium text-muted-foreground">
+                                Agent
+                              </span>
+                              <div className="flex items-center gap-1">
+                                {onSwitchToCli && (
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          onClick={onSwitchToCli}
+                                          aria-label={t(
+                                            "agentChat.header.switchToCli",
+                                          )}
+                                          className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+                                        >
+                                          <IconTerminal className="h-3.5 w-3.5" />
+                                          CLI
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {t("agentChat.header.switchToCli")}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
                               </div>
-                              <p className="sr-only">
-                                {emptyStateText ?? "How can I help you?"}
-                              </p>
-                              {emptyStateAddon}
-                              {resolvedSuggestions &&
-                              resolvedSuggestions.length > 0 ? (
-                                <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                                  {resolvedSuggestions.map((suggestion) => (
-                                    <button
-                                      key={suggestion}
-                                      onClick={() => {
-                                        if (missingApiKey) {
-                                          requestMissingKeySetup();
-                                          return;
-                                        }
-                                        void addToQueue(suggestion);
-                                      }}
-                                      className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                                    >
-                                      {suggestion}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </>
+                            </div>
                           )}
-                          {showInlineEmptyThreadFooterSlot ? (
-                            <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
+
+                          {/* Messages area */}
+                          <MessageScrollerProvider
+                            key={chatScrollResetKey}
+                            autoScroll
+                          >
+                            <AssistantChatScrollerControls
+                              resumeFollowingRef={resumeFollowingRef}
+                            />
+                            <MessageScroller className="agent-chat-scroll">
+                              <MessageScrollerViewport>
+                                {authError ? (
+                                  <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                                      {authSessionAvailable ? (
+                                        <IconRefresh className="h-5 w-5 text-muted-foreground" />
+                                      ) : (
+                                        <IconMessage className="h-5 w-5 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                    <div className="text-center max-w-[280px]">
+                                      <p className="text-sm font-medium text-foreground mb-1">
+                                        {authSessionAvailable
+                                          ? t("agentChat.auth.refreshTitle")
+                                          : authError.sessionExpired
+                                            ? t("agentChat.auth.expiredTitle")
+                                            : t("agentChat.auth.requiredTitle")}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground leading-relaxed">
+                                        {authSessionAvailable
+                                          ? t(
+                                              "agentChat.auth.refreshDescription",
+                                            )
+                                          : authError.sessionExpired
+                                            ? t(
+                                                "agentChat.auth.expiredDescription",
+                                              )
+                                            : t(
+                                                "agentChat.auth.requiredDescription",
+                                              )}
+                                      </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      {!authError.sessionExpired &&
+                                        !authSessionAvailable && (
+                                          <button
+                                            onClick={() => {
+                                              window.location.href =
+                                                buildSignInReturnHref();
+                                            }}
+                                            className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                          >
+                                            {t("agentChat.auth.logIn")}
+                                          </button>
+                                        )}
+                                      {authError.sessionExpired &&
+                                        !authSessionAvailable && (
+                                          <button
+                                            onClick={async () => {
+                                              try {
+                                                await fetch(
+                                                  agentNativePath(
+                                                    "/_agent-native/auth/logout",
+                                                  ),
+                                                  {
+                                                    method: "POST",
+                                                  },
+                                                );
+                                              } catch (error) {
+                                                console.error(
+                                                  "Failed to log out before reloading the chat",
+                                                  error,
+                                                );
+                                              }
+                                              window.location.reload();
+                                            }}
+                                            className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                                          >
+                                            {t("agentChat.auth.logOut")}
+                                          </button>
+                                        )}
+                                      <button
+                                        onClick={() => {
+                                          setAuthError(null);
+                                          window.location.reload();
+                                        }}
+                                        className={
+                                          authSessionAvailable
+                                            ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                            : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+                                        }
+                                      >
+                                        {t("agentChat.auth.refreshChat")}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : isRestoring && centeredRestoringState ? (
+                                  <div
+                                    className={cn(
+                                      "agent-empty-state",
+                                      emptyStateDisplay === "hidden"
+                                        ? "sr-only"
+                                        : "flex h-full flex-col items-center justify-center gap-3 px-4 py-16",
+                                    )}
+                                    aria-busy="true"
+                                  >
+                                    <IconMessage className="h-5 w-5 text-muted-foreground/60" />
+                                    <p className="sr-only">
+                                      {emptyStateText ??
+                                        t("agentChat.empty.loadingChat")}
+                                    </p>
+                                  </div>
+                                ) : isRestoring ? (
+                                  <div className="flex flex-col gap-3 p-4">
+                                    <div className="flex justify-end">
+                                      <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                      <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+                                      <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+                                      <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+                                    </div>
+                                  </div>
+                                ) : threadRestoreError &&
+                                  messages.length === 0 ? (
+                                  <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-16">
+                                    {threadRestoreErrorSurface}
+                                  </div>
+                                ) : showEmptyState ? (
+                                  <div
+                                    className={cn(
+                                      "agent-empty-state",
+                                      emptyStateDisplay === "hidden"
+                                        ? "sr-only"
+                                        : "flex h-full flex-col items-center justify-center gap-3 px-4 py-16",
+                                    )}
+                                  >
+                                    <IconMessage className="h-5 w-5 text-muted-foreground/60" />
+                                    <p className="sr-only">
+                                      {emptyStateText ??
+                                        t("agentChat.empty.prompt")}
+                                    </p>
+                                    {emptyStateAddon}
+                                    {resolvedSuggestions &&
+                                    resolvedSuggestions.length > 0 ? (
+                                      <div className="flex w-full max-w-[280px] flex-col gap-1">
+                                        {resolvedSuggestions.map(
+                                          (suggestion) => (
+                                            <button
+                                              key={suggestion}
+                                              onClick={() => {
+                                                if (engineSetupRequired) {
+                                                  return;
+                                                }
+                                                void addToQueue(suggestion);
+                                              }}
+                                              className="w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                            >
+                                              {suggestion}
+                                            </button>
+                                          ),
+                                        )}
+                                      </div>
+                                    ) : null}
+                                    {showInlineEmptyThreadFooterSlot ? (
+                                      <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
+                                        {resolvedThreadFooterSlot}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
+                                    {threadRestoreErrorSurface ? (
+                                      <MessageScrollerItem>
+                                        {threadRestoreErrorSurface}
+                                      </MessageScrollerItem>
+                                    ) : null}
+                                    <AssistantMessageListErrorBoundary
+                                      resetKey={messageListResetKey}
+                                    >
+                                      <UserStoppedRunContext.Provider
+                                        value={wasRecentlyStoppedRun}
+                                      >
+                                        <ThreadPrimitive.Messages
+                                          // Deliberately NOT keyed on part structure. Doing that
+                                          // remounted the whole transcript every time a tool call
+                                          // started or a placeholder id was rewritten — a flash and a
+                                          // lost scroll position in the middle of an answer. The
+                                          // error boundary above is the mechanism for assistant-ui's
+                                          // stale tap-resource errors: it catches them, clears, and
+                                          // retries, and its retry signature includes the reset key so
+                                          // a genuinely new structure always gets a fresh budget.
+                                          // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                          // rename and splice through both the import and streaming
+                                          // paths and records that no such error occurs.
+                                          components={{
+                                            UserMessage:
+                                              AssistantChatUserMessageItem,
+                                            AssistantMessage:
+                                              AssistantChatAssistantMessageItem,
+                                          }}
+                                        />
+                                      </UserStoppedRunContext.Provider>
+                                    </AssistantMessageListErrorBoundary>
+                                    {visibleLoopLimit && !showRunningInUI && (
+                                      <MessageScrollerItem>
+                                        <LoopLimitContinueCard
+                                          info={visibleLoopLimit}
+                                          onContinue={() => {
+                                            setShowContinue(false);
+                                            setLoopLimitInfo(null);
+                                            addToQueue(
+                                              "Continue from where you left off.",
+                                              undefined,
+                                              undefined,
+                                              undefined,
+                                              undefined,
+                                              "queued",
+                                              "continue",
+                                            );
+                                          }}
+                                        />
+                                      </MessageScrollerItem>
+                                    )}
+                                    {shouldShowRunError && visibleRunError && (
+                                      <MessageScrollerItem>
+                                        <RunErrorRecoveryCard
+                                          info={visibleRunError}
+                                          onContinue={() => {
+                                            setRunErrorInfo(null);
+                                            addToQueue(
+                                              RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
+                                              undefined,
+                                              undefined,
+                                              undefined,
+                                              undefined,
+                                              "queued",
+                                              "continue",
+                                            );
+                                          }}
+                                          onRetry={retryAfterRunError}
+                                          onFork={onForkChat}
+                                          onProviderConnected={
+                                            handleBuilderConnected
+                                          }
+                                          onDismiss={() => {
+                                            if (visibleRunErrorKey) {
+                                              setDismissedRunErrorKey(
+                                                visibleRunErrorKey,
+                                              );
+                                            }
+                                            setRunErrorInfo(null);
+                                          }}
+                                        />
+                                      </MessageScrollerItem>
+                                    )}
+                                    {showReconnectOverlay &&
+                                      visibleReconnectContent.length > 0 && (
+                                        <MessageScrollerItem>
+                                          <ReconnectStreamMessage
+                                            content={visibleReconnectContent}
+                                            allowActivitySpinner={
+                                              !reconnectFrozen
+                                            }
+                                          />
+                                        </MessageScrollerItem>
+                                      )}
+                                    {showReconnectOverlay &&
+                                      visibleReconnectContent.length === 0 &&
+                                      reconnectContent.length === 0 &&
+                                      reconnectActivityContent.length > 0 && (
+                                        <MessageScrollerItem>
+                                          <ReconnectStreamMessage
+                                            content={reconnectActivityContent}
+                                            allowActivitySpinner={
+                                              !reconnectFrozen
+                                            }
+                                          />
+                                        </MessageScrollerItem>
+                                      )}
+                                    {showGlobalRunningStatus && (
+                                      <MessageScrollerItem>
+                                        <RunningActivityStatus
+                                          label={runningStatusLabel}
+                                        />
+                                      </MessageScrollerItem>
+                                    )}
+                                    {visibleQueuedMessages.length > 0 && (
+                                      <MessageScrollerItem>
+                                        <div className="flex items-center justify-end gap-1.5 pr-0.5 text-xs text-muted-foreground">
+                                          <IconClock className="h-3 w-3" />
+                                          <span>
+                                            {t("agentChat.queue.count", {
+                                              count:
+                                                visibleQueuedMessages.length,
+                                            })}
+                                          </span>
+                                        </div>
+                                      </MessageScrollerItem>
+                                    )}
+                                    {visibleQueuedMessages.map((msg) => {
+                                      const displayText =
+                                        displayableUserMessageText(msg.text);
+                                      const imageSources =
+                                        queuedMessageImageSources(msg);
+                                      return (
+                                        <MessageScrollerItem
+                                          key={msg.id}
+                                          messageId={msg.id}
+                                        >
+                                          <div className="group flex items-start justify-end gap-1.5">
+                                            {isRunning && (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      sendQueuedMessageNow(
+                                                        msg.id,
+                                                      )
+                                                    }
+                                                    aria-label={t(
+                                                      "agentChat.queue.sendNow",
+                                                    )}
+                                                    className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                                  >
+                                                    <IconArrowUp className="h-3 w-3" />
+                                                  </button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                  {t(
+                                                    "agentChat.queue.sendNowHint",
+                                                  )}
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                applyLocalQueuedMessages(
+                                                  (prev) =>
+                                                    prev.filter(
+                                                      (m) => m.id !== msg.id,
+                                                    ),
+                                                )
+                                              }
+                                              aria-label={t(
+                                                "agentChat.queue.remove",
+                                              )}
+                                              className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                            >
+                                              <IconX className="h-3 w-3" />
+                                            </button>
+                                            <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
+                                              {displayText}
+                                              {imageSources.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                  {imageSources.map(
+                                                    (img, j) => (
+                                                      <img
+                                                        key={j}
+                                                        src={img}
+                                                        alt=""
+                                                        className="h-12 w-12 rounded object-cover border border-border/50"
+                                                      />
+                                                    ),
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </MessageScrollerItem>
+                                      );
+                                    })}
+                                    {resolvedThreadFooterSlot ? (
+                                      <MessageScrollerItem>
+                                        <div className="agent-thread-footer-slot">
+                                          {resolvedThreadFooterSlot}
+                                        </div>
+                                      </MessageScrollerItem>
+                                    ) : null}
+                                  </MessageScrollerContent>
+                                )}
+                              </MessageScrollerViewport>
+                              {!authError && !isRestoring && !showEmptyState ? (
+                                <MessageScrollerButton />
+                              ) : null}
+                            </MessageScroller>
+                          </MessageScrollerProvider>
+
+                          {showComposerSlot ? composerSlot : null}
+                          {isActiveComposer && (
+                            <McpConnectionSuggestion text={composerText} />
+                          )}
+                          {showCenteredEmptyThreadFooterSlot ? (
+                            <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
                               {resolvedThreadFooterSlot}
                             </div>
                           ) : null}
