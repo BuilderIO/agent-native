@@ -38,6 +38,11 @@ merged PR and a fresh post-merge branch.
 
 ## Owned-Path Push
 
+A worktree is a valid publishing checkout. When `/ship` is authorized from a
+worktree, use that worktree's current branch and cwd for validation, commit,
+push, and PR creation or update. Do not copy its changes into the shared
+checkout; the same owned-path and no-second-PR rules apply.
+
 ```bash
 git add -- <owned-paths>
 git commit -m "<message>"

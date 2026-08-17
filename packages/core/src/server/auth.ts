@@ -2735,6 +2735,19 @@ function createAuthGuardFn(
       return;
     }
 
+    // Remote hosts authenticate these relay calls with their device token,
+    // not a browser session. Keep this list exact: sibling remote routes such
+    // as register, enqueue, and computer controls are session-authenticated.
+    if (
+      p === "/_agent-native/integrations/remote/unregister" ||
+      p === "/_agent-native/integrations/remote/heartbeat" ||
+      p === "/_agent-native/integrations/remote/poll" ||
+      p === "/_agent-native/integrations/remote/result" ||
+      p === "/_agent-native/integrations/remote/run-events"
+    ) {
+      return;
+    }
+
     // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Both the
     // `/login` entry point and the `/callback` (hit by a user who is, by
     // definition, NOT yet signed in to THIS app) must bypass the blanket

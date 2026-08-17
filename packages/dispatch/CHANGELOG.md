@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.27.19
+
+### Patch Changes
+
+- 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
+
 ## 0.27.18
 
 ### Patch Changes
