@@ -1766,6 +1766,7 @@ export class BrowserControlService {
       const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
       await this.hideCursor(session.tabId, session.taskId);
       session.lastCursor = undefined;
+      await this.revalidate(taskId, expectedGeneration);
       const result = await this.sendCommand<Record<string, unknown>>(
         taskId,
         expectedGeneration,
