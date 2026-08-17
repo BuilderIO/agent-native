@@ -1,3 +1,4 @@
+// ── Imports ──────────────────────────────────────────────────────────────────
 import {
   generateTabId,
   AgentChatSurface,
@@ -34,7 +35,6 @@ import {
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
-  useReconciledState,
   useChangeVersion,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
@@ -59,7 +59,6 @@ import {
   RemoteSelectionRings,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
-import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
   isBoardFile,
@@ -120,11 +119,6 @@ import {
   type NodeRewriteProposal,
 } from "@shared/node-rewrite";
 import { parsePenNodes, type PenPath } from "@shared/pen-path";
-import {
-  resolveTweaksToCssVars,
-  tweakSelectionsHash,
-  type TweakSelections,
-} from "@shared/resolve-tweaks";
 import {
   breakpointUpperBoundPx,
   utilityStem,
@@ -613,7 +607,6 @@ import { runPasteSelection } from "./design-editor/commands/paste-selection";
 import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
 import { runPastedImageFiles } from "./design-editor/commands/pasted-image-files";
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
-import { runPersistTweakSave } from "./design-editor/commands/persist-tweak-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
 import { runRecordPendingLiveStructureEdit } from "./design-editor/commands/record-pending-live-structure-edit";
@@ -668,8 +661,6 @@ import {
 import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
 import { deriveOverviewScreens } from "./design-editor/derive/overview-screens";
 import {
-  areTweakSelectionsEqual,
-  buildAuthoritativeTweakSelections,
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
   getDesignDataRecord,
@@ -681,6 +672,7 @@ import {
 } from "./design-editor/design-data-geometry-utils";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 import { escapeHtmlAttributeValue } from "./design-editor/dom-utils";
+import { useTweaks } from "./design-editor/domains/use-tweaks";
 import {
   AUTO_RETRY_DELAY_MS,
   BOARD_SURFACE_SIZE,
@@ -994,15 +986,6 @@ import {
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
-  classifyTweakSaveFailure,
-  clearCompletedTweakSave,
-  createQueuedTweakSave,
-  rebaseTweakSaveForSend,
-  retainLatestFailedTweakSave,
-  sendJournaledTweakSaveKeepalive,
-  type PendingTweakSave,
-} from "./design-editor/tweak-save";
-import {
   type DesignData,
   type DesignFile,
   type DesignLeftPanel,
@@ -1017,6 +1000,7 @@ import {
 /* i18n-ignore */
 /* i18n-ignore */
 
+// ── Route wrapper — remounts editor state per design id ──────────────────────
 /**
  * React Router reuses the same route component when only `:id` changes. Key
  * the stateful editor by design id so pending refs, collaboration docs, tools,
@@ -1029,6 +1013,7 @@ export default function DesignEditorRoute() {
 }
 
 function DesignEditor() {
+  // ── Session, route params, design identity ─────────────────────────────────
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
@@ -1093,6 +1078,7 @@ function DesignEditor() {
     null,
   );
 
+  // ── Tool, mode, zoom, camera, and view state ───────────────────────────────
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
@@ -1151,6 +1137,7 @@ function DesignEditor() {
   // Used to restrict outgoing postMessage calls that carry user data so they
   // are never broadcast to an arbitrary embedding page.
   const parentOriginRef = useRef<string | null>(null);
+  // ── Selection and pending live-edit state ──────────────────────────────────
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
@@ -1406,6 +1393,7 @@ function DesignEditor() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [pendingLayerStateReplayRequest]);
+  // ── Text editing, hover, sidebar, and layers-panel state ───────────────────
   const [textEditingState, setTextEditingState] = useState<{
     active: boolean;
     selector?: string;
@@ -1515,6 +1503,7 @@ function DesignEditor() {
       }
     >
   >(new Map());
+  // ── Overview selection, layer lock/hide, clipboard state ───────────────────
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -1849,6 +1838,7 @@ function DesignEditor() {
     },
     [clearMotionAutosaveTimer],
   );
+  // ── Shader fill preview state ──────────────────────────────────────────────
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
@@ -2207,6 +2197,7 @@ function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
+  // ── Local content history (undo/redo checkpoints) ──────────────────────────
   const recordLocalContentHistoryEntry = useCallback(
     (change: ContentHistoryChange) => {
       if (change.before === change.after) return;
@@ -2337,6 +2328,7 @@ function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
+  // ── Save refs: selection, frame geometry, tweaks, annotations ──────────────
   const persistedSelectionStateRef = useRef<string | null>(null);
   const persistedSelectionContextRef = useRef<string | null>(null);
   const pendingPersistedSelectionWriteRef = useRef<{
@@ -2368,7 +2360,6 @@ function DesignEditor() {
   // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
   // and one debounced server write instead of one of each per tick.
   const lastGeometryCommitAtRef = useRef(0);
-  const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Localhost write-consent dialog state. When the agent wants to write a local
   // file and no valid grant exists for the active connection, we show the dialog
   // with a pending payload; the user clicks "Allow writes" to mint a grant.
@@ -2412,6 +2403,7 @@ function DesignEditor() {
     },
     [],
   );
+  // ── Prompt, export, and Figma hydration state ──────────────────────────────
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const [pngExporting, setPngExporting] = useState(false);
@@ -2440,6 +2432,7 @@ function DesignEditor() {
     }
     lastOverviewSelectedScreenIdsRef.current = [...overviewSelectedScreenIds];
   }, [overviewSelectedScreenIds, viewMode]);
+  // ── Generation lifecycle ───────────────────────────────────────────────────
   const [hasPendingGeneration, setHasPendingGeneration] = useState(false);
   const [generationChatTabId, setGenerationChatTabId] = useState<string | null>(
     null,
@@ -2718,6 +2711,7 @@ function DesignEditor() {
     pendingQuestionsVisible,
   ]);
 
+  // ── Identity, review comments, pending local file contents ─────────────────
   // Current user info for collaborative presence. The avatar (if the user has
   // uploaded one) is plumbed through so peers see the user's face on cursors,
   // selection rings, edit highlights, and the presence bar.
@@ -2935,6 +2929,7 @@ function DesignEditor() {
     return () => window.clearTimeout(timer);
   }, [id, hasPendingGeneration, markGenerationStale]);
 
+  // ── Action mutations ───────────────────────────────────────────────────────
   const updateFileMutation = useActionMutation("update-file");
   const renameScreenMutation = useActionMutation("rename-screen");
   const createFileMutation = useActionMutation("create-file");
@@ -3068,6 +3063,7 @@ function DesignEditor() {
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
   const [, setPatchProof] = useState<PatchProofState | null>(null);
+  // ── File-content save queue (outbox) ───────────────────────────────────────
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
   );
@@ -3406,160 +3402,30 @@ function DesignEditor() {
     };
   }, [saveFileContent, sendFileContentSaveKeepalive]);
 
-  // Debounced persistence of the user's live tweak knob values into
-  // designs.data.tweakSelections (additive JSON merge, server-side). This is
-  // what makes the visual-tune survive reload and feeds the snapshot/handoff
-  // round-trip so external agents continue from the *tuned* design.
-  const pendingTweakSaveRef = useRef<PendingTweakSave | null>(null);
-  const tweakSaveTimerRef = useRef<number | null>(null);
-  const tweakSaveRevisionRef = useRef(0);
-  const tweakSaveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const tweakSaveInFlightRef = useRef(false);
-  const confirmedTweakSelectionsHashRef = useRef(tweakSelectionsHash({}));
-  const journalTweakOutboxEntry = useCallback(
-    async (entry: DesignSaveOutboxEntry) => {
-      try {
-        await journalDesignSaveOutboxEntry(entry);
-        return true;
-      } catch {
-        // Do not claim an offline retry exists when IndexedDB itself failed.
-        // The mutation path below distinguishes durable retries from edits
-        // that must stay in this tab's memory.
-        return false;
-      }
-    },
-    [],
-  );
-  const createTweakSaveOutboxEntry = useCallback(
-    (pending: PendingTweakSave) => {
-      if (!id) return null;
-      return createDesignSaveOutboxEntry({
-        designId: id ?? "",
-        actorScope: designSaveActorScope,
-        actionName: "apply-tweaks",
-        resourceId: id,
-        operationSource: designSaveOperationSourceRef.current,
-        operationRevision: pending.revision,
-        payload: {
-          designId: id,
-          selections: pending.selections,
-          expectedSelectionsHash: pending.expectedSelectionsHash,
-        },
-      });
-    },
-    [designSaveActorScope, id],
-  );
-  const persistTweakSave = useCallback(
-    (pending: PendingTweakSave) =>
-      runPersistTweakSave(
-        {
-          acknowledgeOutboxEntry,
-          applyTweaksAsync,
-          canEditDesignRef,
-          confirmedTweakSelectionsHashRef,
-          createTweakSaveOutboxEntry,
-          id,
-          journalTweakOutboxEntry,
-          pendingTweakSaveRef,
-          queryClient,
-          setTweakSaveActive,
-          t,
-          tweakSaveChainRef,
-          tweakSaveInFlightRef,
-          tweakSaveRevisionRef,
-          warnChangesWillRetry,
-        },
-        pending,
-      ),
-    [
-      acknowledgeOutboxEntry,
-      applyTweaksAsync,
-      createTweakSaveOutboxEntry,
-      id,
-      journalTweakOutboxEntry,
-      queryClient,
-      t,
-      warnChangesWillRetry,
-    ],
-  );
-  const flushPendingTweakSave = useCallback(() => {
-    if (tweakSaveTimerRef.current !== null) {
-      window.clearTimeout(tweakSaveTimerRef.current);
-      tweakSaveTimerRef.current = null;
-    }
-    const pending = pendingTweakSaveRef.current;
-    pendingTweakSaveRef.current = null;
-    if (pending) persistTweakSave(pending);
-  }, [persistTweakSave]);
-  const queueTweakSave = useCallback(
-    (selections: TweakSelections) => {
-      if (!id || !canEditDesignRef.current) return;
-      const revision = tweakSaveRevisionRef.current + 1;
-      tweakSaveRevisionRef.current = revision;
-      setTweakSaveActive(true);
-      const pending = createQueuedTweakSave(
-        selections,
-        revision,
-        confirmedTweakSelectionsHashRef.current,
-        pendingTweakSaveRef.current,
-      );
-      pendingTweakSaveRef.current = pending;
-      const entry = createTweakSaveOutboxEntry(pending);
-      if (entry) void journalTweakOutboxEntry(entry);
-      if (tweakSaveTimerRef.current !== null) {
-        window.clearTimeout(tweakSaveTimerRef.current);
-      }
-      tweakSaveTimerRef.current = window.setTimeout(flushPendingTweakSave, 600);
-    },
-    [
-      createTweakSaveOutboxEntry,
-      flushPendingTweakSave,
-      id,
-      journalTweakOutboxEntry,
-    ],
-  );
-
-  useEffect(() => {
-    const handlePageHide = () => {
-      const pending = pendingTweakSaveRef.current;
-      if (!id || !pending || !canEditDesignRef.current) return;
-      if (tweakSaveInFlightRef.current) return;
-      // Keep the normal timer/pending entry intact for bfcache restores. The
-      // keepalive is the unload safety net; if the page survives, the regular
-      // mutation still settles state and confirms persistence.
-      const entry = createTweakSaveOutboxEntry(pending);
-      if (!entry) return;
-      void sendJournaledTweakSaveKeepalive({
-        journal: () => journalTweakOutboxEntry(entry),
-        send: () =>
-          tryCallActionKeepalive("apply-tweaks", entry.payload as any),
-        acknowledge: () => acknowledgeOutboxEntry(entry),
-      }).catch(() => {});
-    };
-    const handleOnline = () => {
-      if (pendingTweakSaveRef.current && !tweakSaveInFlightRef.current) {
-        flushPendingTweakSave();
-      }
-    };
-    window.addEventListener("pagehide", handlePageHide);
-    window.addEventListener("online", handleOnline);
-    return () => {
-      window.removeEventListener("pagehide", handlePageHide);
-      window.removeEventListener("online", handleOnline);
-      // Client-side navigation used to cancel the 600 ms debounce and drop
-      // the user's final knob position. Flush it synchronously into the
-      // mutation pipeline before this keyed editor instance unmounts.
-      flushPendingTweakSave();
-    };
-  }, [
-    acknowledgeOutboxEntry,
-    createTweakSaveOutboxEntry,
+  // ── Tweaks: definitions, selections, CSS vars, and the save queue ──────────
+  const {
+    cssVarValues,
     flushPendingTweakSave,
+    handleTweakChange,
+    setTweakSelections,
+    tweakSelections,
+    tweaks,
+  } = useTweaks({
+    acknowledgeOutboxEntry,
+    applyTweaksAsync,
+    canEditDesign,
+    canEditDesignRef,
+    design,
+    designSaveActorScope,
+    designSaveOperationSourceRef,
     id,
-    journalTweakOutboxEntry,
-  ]);
+    queryClient,
+    t,
+    warnChangesWillRetry,
+  });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
+  // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
     return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
@@ -3774,6 +3640,7 @@ function DesignEditor() {
       setPendingLocalFileContentsRevision((revision) => revision + 1);
     }
   }, [serverFiles]);
+  // ── Design data: files, snapshots, derived geometry ────────────────────────
   const pendingLocalFileContentsSnapshot = useMemo(
     () => new Map(pendingLocalFileContentsRef.current),
     [pendingLocalFileContentsRevision],
@@ -4011,6 +3878,7 @@ function DesignEditor() {
     };
   }, [boardFileId]);
 
+  // ── Frame-geometry persistence ─────────────────────────────────────────────
   const createFrameGeometryOutboxEntry = useCallback(
     (dataOperations: readonly DesignDataOperation[], revision: number) => {
       if (!id) return null;
@@ -4467,6 +4335,7 @@ function DesignEditor() {
   selectedLayerIdsStateRef.current = selectedLayerIdsState;
   overviewSelectedScreenIdsRef.current = overviewSelectedScreenIds;
 
+  // ── Breakpoints ────────────────────────────────────────────────────────────
   // §6.4 — The design's breakpoint definitions (id/label/width), parsed once
   // from designs.data.breakpointSet for the breakpoint bar and edit-scope
   // routing. Stable empty array when the design has no breakpoints yet.
@@ -4673,6 +4542,7 @@ function DesignEditor() {
     setReviewAuditLoading(false);
   }, [activeFile?.id, reviewFileId]);
 
+  // ── Overview screens, zoom basis, URL-driven commands ──────────────────────
   const selectedScreenIds = useMemo(
     () =>
       getSelectedScreenIdsForEditorState({
@@ -4921,6 +4791,7 @@ function DesignEditor() {
     id,
   ]);
 
+  // ── Screen creation ────────────────────────────────────────────────────────
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
       fileId: string;
@@ -5183,6 +5054,7 @@ function DesignEditor() {
     user: currentUser,
   });
 
+  // ── Collaboration sync (Yjs) ───────────────────────────────────────────────
   // Track collab-sourced content for the active file.
   // When Y.Doc is synced and has content, use it as the source of truth
   // instead of the DB-fetched content so live remote edits appear instantly.
@@ -5469,6 +5341,7 @@ function DesignEditor() {
     }
   }, [awareness, activeFileId]);
 
+  // ── Presence, canvas refs, overlay rect resolution ─────────────────────────
   // Presence kit — others + setPresence for cursor/selection broadcasting.
   const { others, setPresence } = usePresence(
     awareness,
@@ -6053,6 +5926,7 @@ function DesignEditor() {
     [overviewRecentEdits, overviewCanvasZoom],
   );
 
+  // ── Follow collaborator, screen content, runtime snapshots ─────────────────
   // Follow mode — clicking an avatar in the toolbar follows that participant.
   const [followingEmail, setFollowingEmail] = useState<string | null>(null);
   const followingId = useMemo(() => {
@@ -6369,6 +6243,7 @@ function DesignEditor() {
       t,
     ],
   );
+  // ── Pending live-edit recorders ────────────────────────────────────────────
   const recordPendingVisualStyleEdit = useCallback(
     (
       screenId: string,
@@ -6576,6 +6451,7 @@ function DesignEditor() {
     activeFile?.id !== undefined
       ? getProjectionContentForScreen(activeFile.id)
       : activeContent;
+  // ── Code-layer projection and selection ────────────────────────────────────
   const pageStyles = useMemo(
     () => getBodyInlineStyles(activeContent),
     [activeContent],
@@ -6890,6 +6766,7 @@ function DesignEditor() {
     return getElementOuterHtml(activeContent, selectedElement.selector);
   }, [activeContent, selectedElement?.selector]);
 
+  // ── Motion tracks and keyframes ────────────────────────────────────────────
   // §6.3 — the motion-dock target: the selected element's literal
   // `data-agent-native-node-id` (the value the motion compiler + preview bridge
   // match on, NOT the hashed projection id) plus a friendly label. Single-screen
@@ -7180,6 +7057,7 @@ function DesignEditor() {
   const hoveredChildScreenId = hoveredElementIsScreenRoot
     ? null
     : hoveredElementScreenId;
+  // ── Projection caches and content-update appliers ──────────────────────────
   // PF9: cache non-active-screen projections by content identity. Hover
   // (handleScreenElementHover) calls this on every pointermove over a
   // non-active screen's iframe; without caching that's a full HTML parse
@@ -7547,6 +7425,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Component instances and review feedback routing ────────────────────────
   const handleComponentPropApplied = useCallback(
     // Also the GLSL shader picker's onApplied host-sync (glslShaderContext in
     // EditPanel.tsx reuses this contract for apply/remove/knob commits). Must
@@ -7919,6 +7798,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Primitive creation and vector (pen) editing ────────────────────────────
   const handleCreatePrimitive = useCallback(
     (screenId: string, primitive: CanvasPrimitiveInsert) =>
       runCreatePrimitive(
@@ -8227,6 +8107,7 @@ function DesignEditor() {
     vectorEditingState,
   ]);
 
+  // ── Canvas tool handlers ───────────────────────────────────────────────────
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
@@ -8628,69 +8509,7 @@ function DesignEditor() {
     if (files.length > 0) resetAgentGenerating();
   }, [files.length, resetAgentGenerating]);
 
-  // Parse design.data for agent-supplied tweaks. The agent writes a JSON blob
-  // to designs.data containing { tweaks: TweakDefinition[], ... }; we surface
-  // the tweaks as live controls bound to the design's CSS custom properties.
-  const tweaks: TweakDefinition[] = useMemo(() => {
-    if (!design?.data) return [];
-    try {
-      const parsed = JSON.parse(design.data);
-      if (Array.isArray(parsed?.tweaks)) return parsed.tweaks;
-      return [];
-      // coercion-ok: unreadable design data means "no tweaks configured", which the empty list already expresses.
-    } catch {
-      return [];
-    }
-  }, [design?.data]);
-
-  // Persisted user knob values live in designs.data.tweakSelections (written by
-  // the apply-tweaks action). Restoring them on load is what makes the
-  // visual-tune round-trip survive a refresh and feed the snapshot/handoff.
-  const persistedSelections: TweakSelections = useMemo(() => {
-    if (!design?.data) return {};
-    try {
-      const parsed = JSON.parse(design.data);
-      const sel = parsed?.tweakSelections;
-      return sel && typeof sel === "object" && !Array.isArray(sel) ? sel : {};
-      // coercion-ok: unreadable design data means "no tweak selections", which the empty object already expresses.
-    } catch {
-      return {};
-    }
-  }, [design?.data]);
-  useLayoutEffect(() => {
-    if (
-      !tweakSaveActive &&
-      !tweakSaveInFlightRef.current &&
-      pendingTweakSaveRef.current === null
-    ) {
-      confirmedTweakSelectionsHashRef.current =
-        tweakSelectionsHash(persistedSelections);
-    }
-  }, [persistedSelections, tweakSaveActive]);
-
-  // Tweak values are keyed by tweak id while in the panel, then mapped to
-  // CSS-var -> value for the iframe so the design's :root block picks them up.
-  // Persisted selections are authoritative for agent edits; a local queued
-  // save temporarily pauses adoption so stale refetches don't clobber a drag.
-  const authoritativeTweakSelections = useMemo(
-    () => buildAuthoritativeTweakSelections(tweaks, persistedSelections),
-    [tweaks, persistedSelections],
-  );
-  const [tweakSelections, setTweakSelections] = useReconciledState(
-    authoritativeTweakSelections,
-    {
-      active: tweakSaveActive,
-      equals: areTweakSelectionsEqual,
-    },
-  );
-
-  // Map tweak selections (id -> value) to CSS-var assignments (--var -> value)
-  // for the iframe bridge. Shared with the snapshot/handoff actions via
-  // `@shared/resolve-tweaks` so the UI and external agents resolve identically.
-  const cssVarValues = useMemo(
-    () => resolveTweaksToCssVars(tweaks, tweakSelections),
-    [tweaks, tweakSelections],
-  );
+  // ── Tweaks, composer mirroring, asset insert ───────────────────────────────
 
   const handleTweakPromptSubmit = useCallback(
     (
@@ -8981,6 +8800,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Element select, hover, and context menu ────────────────────────────────
   const handleScreenElementSelect = useCallback(
     (
       screenId: string,
@@ -9441,6 +9261,7 @@ function DesignEditor() {
     [activeFile?.id, activeFileId, openRepromptComposer],
   );
 
+  // ── Style commit ───────────────────────────────────────────────────────────
   const commitVisualStyles = useCallback(
     (
       selector: string,
@@ -9965,6 +9786,7 @@ function DesignEditor() {
     [activeFile?.id, commitVisualStyles],
   );
 
+  // ── Visual structure and text-content handlers ─────────────────────────────
   const handleVisualStructureChange = useCallback(
     (
       selector: string,
@@ -10293,6 +10115,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Clipboard copy and paste ───────────────────────────────────────────────
   const getSelectedLayerSnapshots = useCallback(
     () =>
       runGetSelectedLayerSnapshots({
@@ -11002,6 +10825,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Delete, group, frame, and semantic handoff ─────────────────────────────
   const handleDeleteSelection = useCallback(
     () =>
       runDeleteSelection({
@@ -11187,6 +11011,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Layout geometry: align, distribute, tidy, auto-layout ──────────────────
   // Selection alignment (item 3) + distribute/tidy (item 4) + Shift+A add
   // auto layout (item 5) share the same in-screen-layer building block: read
   // each selected DOM node's authored geometry straight from its inline
@@ -11746,6 +11571,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
   // Figma's Minimize UI action. Fully wired: uiHidden gates the
   // left rail, right inspector panel, and bottom toolbar chrome containers
   // declared above.
@@ -12098,6 +11924,7 @@ function DesignEditor() {
     }
   }, [pendingScreenDeletion, performDeleteFiles]);
 
+  // ── Props/animation clipboard, transforms, nudge ───────────────────────────
   const handleCopyProps = useCallback(() => {
     if (!selectedElement) return;
     copiedStylePropsRef.current = {
@@ -12395,6 +12222,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Undo and redo ──────────────────────────────────────────────────────────
   // Handle undo: pop from UndoManager, then queue SQL persist.
   // The Y.Text observer already calls setCollabContent when the doc changes,
   // but undo/redo transactions use the UndoManager as origin so we must also
@@ -12615,6 +12443,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Zoom, view transitions, and mode changes ───────────────────────────────
   const handleZoomIn = useCallback(() => {
     trace("tool", "zoom-in", {});
     setZoom((z) => getNextZoomStepUp(z));
@@ -13039,6 +12868,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Review rewrite, pin tool, shortcuts dialog ─────────────────────────────
   const handleReviewNodeRewrite = useCallback(
     (proposal: NodeRewriteProposal) => {
       pendingOverviewScreenSelectionRef.current = null;
@@ -13208,6 +13038,7 @@ function DesignEditor() {
       });
   }, [embedded, handleToggleKeyboardShortcuts]);
 
+  // ── Editor hotkeys ─────────────────────────────────────────────────────────
   const handleEscapeHotkey = useCallback(
     () =>
       runEscapeHotkey({
@@ -13787,6 +13618,7 @@ function DesignEditor() {
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
+  // ── Generation retry, coding handoff, navigation guard ─────────────────────
   const startRetryGeneration = useCallback(
     async (
       promptState: NonNullable<typeof retryablePrompt>,
@@ -14097,6 +13929,7 @@ function DesignEditor() {
     t,
   ]);
 
+  // ── Export: HTML, ZIP, PNG, PDF, SVG, Figma ────────────────────────────────
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -14877,6 +14710,7 @@ function DesignEditor() {
     motionDockOpen,
     viewMode,
   ]);
+  // ── Code-layer models and effective layer state ────────────────────────────
   const activeCodeLayerTree = useMemo(
     () => buildCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],
@@ -15289,6 +15123,7 @@ function DesignEditor() {
     ],
   );
 
+  // ── Layer panel model and selection sync ───────────────────────────────────
   // Board objects shown as top-level peer rows in the layers panel, right
   // alongside the screen frames. Derived from the same code-layer model that
   // feeds codeLayerOwnerByNodeId so a layer-row click resolves to the board
@@ -15689,6 +15524,7 @@ function DesignEditor() {
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
   /** Design-level canvas background (the surround, not a screen's body). */
+  // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
     () => getDesignCanvasBackground(designDataJson),
     [designDataJson],
@@ -15964,17 +15800,6 @@ function DesignEditor() {
   // PF8: hoisted EditPanel callback props. These were previously inline
   // arrows created fresh on every DesignEditor render, which defeats any
   // memoization EditPanel does internally on its own prop identities.
-  const handleTweakChange = useCallback(
-    (tweakId: string, value: string | number | boolean) => {
-      setTweakSelections((prev) => {
-        if (!canEditDesign) return prev;
-        const next = { ...prev, [tweakId]: value };
-        queueTweakSave(next);
-        return next;
-      });
-    },
-    [canEditDesign, queueTweakSave],
-  );
 
   const handleStatesPanelBreakpointSelect = useCallback(
     (breakpointId: string) => {
@@ -16037,6 +15862,7 @@ function DesignEditor() {
 
   const publishDesignTitle = design?.title?.trim() || "Untitled design";
 
+  // ── Preview, publish waitlist, gradient, interaction states ────────────────
   const handleOpenDesignPreview = useCallback(() => {
     if (activeScreenPreviewUrl) {
       window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
@@ -16404,6 +16230,7 @@ function DesignEditor() {
    * The files parameter is for display in the consent dialog only; the actual
    * write must be performed by the caller via the write-local-file action.
    */
+  // ── Localhost write and apply-to-source ────────────────────────────────────
   const requestLocalhostWrite = useCallback(
     (opts: {
       files: string[];
@@ -16716,6 +16543,7 @@ function DesignEditor() {
       return Boolean(node) && node!.children.length > 0;
     });
 
+  // ── Layer move, rename, lock, and hide ─────────────────────────────────────
   const handleScreenLayerMove = useCallback(
     (intent: LayersPanelMoveIntent) => {
       const nextOrder = reorderCanonicalScreenStack({
@@ -17254,6 +17082,7 @@ function DesignEditor() {
     setOpenZoomControl(null);
   }, [setZoom, zoomInputValue, zoomLabel]);
 
+  // ── Design tokens ──────────────────────────────────────────────────────────
   const handleTokensApplied = useCallback(
     (resolvedCssVars: Record<string, string>) => {
       if (!canEditDesign || !id) return;
@@ -17312,6 +17141,7 @@ function DesignEditor() {
   >;
   type OverviewScreenRendererArgs = Parameters<OverviewScreenRenderer>;
   type OverviewBreakpointRendererArgs = Parameters<OverviewBreakpointRenderer>;
+  // ── Render callbacks — route-refresh boundary ──────────────────────────────
   const renderEditableScreenContent = useCallback(
     (
       screen: OverviewScreenRendererArgs[0],
@@ -17697,6 +17527,7 @@ function DesignEditor() {
     [renderEditableScreenContent],
   );
 
+  // ── Board element handlers ─────────────────────────────────────────────────
   // PF8: the board <DesignCanvas> callbacks below curry `boardFileId` into the
   // shared `handleScreen*` handlers. Previously these were inline arrows
   // built fresh on every MultiScreenCanvas render, which defeated
@@ -17894,6 +17725,7 @@ function DesignEditor() {
    *  since the mutation is design-wide and widens every screen's row. Widths are
    *  derived on resolve and unioned with what is persisted — capturing them at
    *  call time makes concurrent adds under-measure the group. */
+  // ── Breakpoint bar handlers and review feedback apply ──────────────────────
   const addDesignBreakpoint = useCallback(
     (widthPx: number, label?: string) => {
       if (!id) return;
@@ -18119,6 +17951,7 @@ function DesignEditor() {
     if (!id) navigate("/");
   }, [id, navigate]);
 
+  // ── Early returns and derived render values ────────────────────────────────
   if (!id) return null;
 
   if (designLoading || (!design && pendingGenerationActive)) {
@@ -18165,6 +17998,7 @@ function DesignEditor() {
 
   const questionFlowActive = pendingQuestionsVisible;
 
+  // ── Header chrome fragments ────────────────────────────────────────────────
   // BP-DEEP v2 (items 4/6/7) — the unified breakpoint/device targeting
   // control. Replaces BOTH the old device-preview dropdown that used to live
   // in this header slot AND the floating/chrome-row BreakpointBar that used
@@ -18446,6 +18280,7 @@ function DesignEditor() {
       </span>
     );
 
+  // ── Zoom control, signed-out actions, node-rewrite control ─────────────────
   const renderZoomControl = (controlId: "toolbar" | "inspector") => (
     <DropdownMenu
       open={openZoomControl === controlId}
@@ -18687,6 +18522,7 @@ function DesignEditor() {
       </DropdownMenu>
     );
 
+  // ── Right sidebar actions ──────────────────────────────────────────────────
   const rightSidebarActions = (
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
       <div className="flex min-h-8 items-center gap-1">
@@ -18979,6 +18815,7 @@ function DesignEditor() {
     // works because main itself has a definite height (flex-1 inside a
     // flex-col page shell). Without this the canvas collapses to ~150px.
     <div className="h-full flex flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]">
+      {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
           <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background px-2">
@@ -19007,7 +18844,7 @@ function DesignEditor() {
           />
         </div>
       )}
-      {/* Main canvas area */}
+      {/* ── Render: main canvas area ── */}
       <div className="flex-1 flex overflow-hidden relative">
         {!embedded && !uiHidden ? (
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
@@ -19304,7 +19141,7 @@ function DesignEditor() {
           />
         ) : null}
 
-        {/* Canvas */}
+        {/* ── Render: canvas ── */}
         {questionFlowActive ? (
           /* Panel background, not canvas: these are the agent's own follow-up
              questions, and on the canvas grey they read as an unrelated object
@@ -19714,6 +19551,7 @@ function DesignEditor() {
                   ) : null}
                   {viewMode === "overview" ? (
                     <>
+                      {/* ── Render: overview canvas ── */}
                       <MultiScreenCanvas
                         screens={overviewScreens}
                         zoom={overviewCanvasZoom}
@@ -19907,6 +19745,7 @@ function DesignEditor() {
                     </>
                   ) : (
                     <>
+                      {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
                         screenId={activeFile.id}
                         content={activeContent}
@@ -20278,7 +20117,7 @@ function DesignEditor() {
           </CanvasContextMenu>
         )}
 
-        {/* Right rail */}
+        {/* ── Render: right rail ── */}
         {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
@@ -20370,6 +20209,7 @@ function DesignEditor() {
         ) : null}
       </div>
 
+      {/* ── Render: mobile inspector sheet ── */}
       {!embedded &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
@@ -20466,6 +20306,7 @@ function DesignEditor() {
         </Sheet>
       ) : null}
 
+      {/* ── Render: dialogs ── */}
       <PendingVisualStyleWarningDialog
         open={pendingVisualStyleWarningOpen}
         pendingVisualEditCount={pendingVisualEditCount}
@@ -20499,6 +20340,7 @@ function DesignEditor() {
         onConfirm={handleConfirmScreenDeletion}
       />
 
+      {/* ── Render: motion dock ── */}
       {/* Motion dock (§6.3) — bottom timeline mounted while opening, open, or
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
@@ -20524,6 +20366,7 @@ function DesignEditor() {
         />
       ) : null}
 
+      {/* ── Render: prompt popovers ── */}
       <PromptPopover
         open={showPrompt}
         onOpenChange={handlePromptOpenChange}
@@ -20677,6 +20520,7 @@ function DesignEditor() {
         }}
       />
 
+      {/* ── Render: node rewrite and localhost dialogs ── */}
       {id && activeNodeRewriteProposal ? (
         <NodeRewriteProposalPanel
           designId={id}
