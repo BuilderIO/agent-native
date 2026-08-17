@@ -924,7 +924,14 @@ export function deriveInverseOp(
         // restores exactly what changed (including clearing fields back to
         // undefined).
         if (!equalDeckValue(prior[key], op.fields[key])) {
-          (priorFields as Record<string, unknown>)[key] = prior[key];
+          let priorValue: unknown = prior[key];
+          // `skipped` is undefined on a slide that was never skipped, but
+          // `undefined` doesn't survive JSON transport to the server — its
+          // `patch-slide` handler treats an absent field as "don't touch",
+          // so the persisted deck would stay skipped after undo. `false` is
+          // equivalent for this boolean field and does survive.
+          if (key === "skipped" && priorValue === undefined) priorValue = false;
+          (priorFields as Record<string, unknown>)[key] = priorValue;
         }
       }
       if (Object.keys(priorFields).length === 0) return null;
