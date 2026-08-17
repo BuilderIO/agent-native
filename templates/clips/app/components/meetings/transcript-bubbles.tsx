@@ -79,14 +79,15 @@ export interface SpeakerIdentity {
  * from it. A per-segment `speaker` label from a diarizing provider counts as
  * signal even when `source` is absent.
  *
- * Only meaningful with two or more participants; a solo recording that is all
- * mic genuinely is all one person.
+ * Only meaningful when two people could have spoken; a solo recording that is
+ * all mic genuinely is all one person.
  */
 export function transcriptDistinguishesSpeakers(
   segments: TranscriptSegment[],
   participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
 ): boolean {
-  if (participants.length < 2) return true;
+  if (countPossibleSpeakers(participants, ownerEmail) < 2) return true;
   const signals = new Set<string>();
   for (const segment of segments) {
     const speaker = segment.speaker?.trim();
@@ -95,6 +96,32 @@ export function transcriptDistinguishesSpeakers(
     if (signals.size > 1) return true;
   }
   return false;
+}
+
+/**
+ * How many people could have spoken in this meeting.
+ *
+ * The participant roster is the calendar attendee list, which routinely omits
+ * the recording owner — `create-meeting` deliberately does not synthesize a row
+ * for a non-attendee owner, because that table feeds the public share payload.
+ * So counting rows alone reads an owner-plus-one-attendee meeting as solo and
+ * hands a mic-only transcript back to attribution, which is what labels the
+ * remote side's bleed as the owner.
+ *
+ * A withheld owner (`null`, from the public share page) still counts: it means
+ * an owner exists and is not among the participants. An owner we were never
+ * told about (`undefined`) also counts, because "we cannot name them" is not
+ * the same as "they are not there" — the cost of over-counting is a lost label,
+ * and the cost of under-counting is a false one.
+ */
+function countPossibleSpeakers(
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): number {
+  const ownerInRoster = ownerEmail
+    ? Boolean(findParticipant(ownerEmail, participants))
+    : false;
+  return participants.length + (ownerInRoster ? 0 : 1);
 }
 
 const UNATTRIBUTED_SPEAKER: SpeakerIdentity = {
@@ -246,7 +273,11 @@ function groupConsecutive(
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
 ): BubbleGroup[] {
-  const attributable = transcriptDistinguishesSpeakers(segments, participants);
+  const attributable = transcriptDistinguishesSpeakers(
+    segments,
+    participants,
+    ownerEmail,
+  );
   const groups: BubbleGroup[] = [];
   segments.forEach((seg, index) => {
     const speaker = attributable

@@ -134,11 +134,73 @@ describe("transcriptDistinguishesSpeakers", () => {
 
   // A solo recording that is all mic genuinely is all one person, so the
   // owner attribution there is a fact rather than a guess.
-  it("attributes freely when the meeting has fewer than two participants", () => {
+  it("attributes freely when only one person could have spoken", () => {
+    // The single participant *is* the owner, so there is no second speaker.
     expect(
-      transcriptDistinguishesSpeakers([seg("hello", { source: "mic" })], [bob]),
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [bob],
+        bob.email,
+      ),
     ).toBe(true);
+    // No roster at all: the owner is the only possible speaker.
     expect(transcriptDistinguishesSpeakers([seg("hello")], [])).toBe(true);
+  });
+
+  // The roster is the calendar attendee list and routinely omits the recording
+  // owner — `create-meeting` does not synthesize a row for a non-attendee
+  // owner. Counting rows alone read owner + one attendee as solo and handed a
+  // mic-only transcript back to attribution, labelling the remote side's mic
+  // bleed as the owner.
+  it("counts an owner missing from the roster as a second speaker", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [alice],
+        bob.email,
+      ),
+    ).toBe(false);
+  });
+
+  // A withheld owner (public share page) still means an owner exists who is
+  // not among the public participants.
+  it("counts a withheld owner as a second speaker", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [alice],
+        null,
+      ),
+    ).toBe(false);
+  });
+
+  // "We were never told who owns this" is not "nobody else is here".
+  it("counts an unknown owner as a second speaker", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [alice],
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not double-count an owner already on the roster", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(false);
+    // Matching is normalized, so casing must not resurrect the extra count.
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [bob],
+        "BOB@EXAMPLE.COM",
+      ),
+    ).toBe(true);
   });
 
   it("treats an empty transcript as unattributable rather than owned", () => {
