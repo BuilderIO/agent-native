@@ -110,6 +110,22 @@ const PATTERNS = [
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
   },
+  // Measured for the first time on 2026-08-13, alongside the app-config schema
+  // and the `configuration` skill. There was no key while core grew to 301
+  // distinct environment variables, 253 of which are product behavior rather
+  // than secrets — so the habit was never counted, only noticed once the total
+  // was large enough to argue about. Baseline over the two weeks to 2026-08-13
+  // is recorded in plans/core-configuration-attack-plan.md; the number to watch
+  // is whether it stays flat while the schema absorbs domains, because a rising
+  // count means declaring a field is still more expensive than reaching for
+  // `process.env` and step 9 (generated docs and key sets) is the missing half.
+  {
+    key: "config-sprawl",
+    label: "Told to stop adding environment variables / bespoke config",
+    fixedBy:
+      ".agents/skills/configuration + packages/core/src/app-config (2026-08-13)",
+    re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
+  },
 ];
 
 /**
