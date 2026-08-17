@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(lsof:*)",
+      "Read(//Users/steve/Projects/builder/agent-native/framework/**)",
+      "Bash(/Users/steve/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh --project-dir /Users/steve/Projects/builder/agent-native/framework/templates/mail)"
+    ]
+  }
+}
