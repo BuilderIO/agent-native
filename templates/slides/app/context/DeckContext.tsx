@@ -1181,6 +1181,52 @@ export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
   return { ...local, slides: merged };
 }
 
+/**
+ * True when some queued-or-in-flight write for `deckId` could still touch
+ * `slideId`, so adopting the server's copy of that slide would race a local
+ * write instead of reflecting it. A deck-wide op (`full-replace` /
+ * `reorder-slides`) or an in-flight save (its op list already left the
+ * queue) counts as "could touch anything".
+ */
+function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
+  if (inFlightSaves.has(deckId)) return true;
+  const queue = pendingOpsQueue.get(deckId);
+  if (!queue) return false;
+  return queue.some(
+    (op) =>
+      op.op === "full-replace" ||
+      op.op === "reorder-slides" ||
+      ("slideId" in op && op.slideId === slideId),
+  );
+}
+
+/**
+ * Same additive merge as `mergeServerAddedSlides`, but additionally adopts
+ * the server's content for `changedSlideId` when no local write is pending
+ * for that specific slide. This closes the gap where an agent edit to a
+ * slide that already exists locally (e.g. removing a table row) was
+ * otherwise invisible until the deck went fully clean or the page reloaded —
+ * see the module doc on `refetchOpenDeckIfChanged`.
+ */
+export function mergeServerSlideUpdate(
+  local: Deck,
+  server: Deck,
+  changedSlideId: string | undefined,
+  deckId: string,
+): Deck {
+  const merged = mergeServerAddedSlides(local, server);
+  if (!changedSlideId || hasPendingWriteForSlide(deckId, changedSlideId)) {
+    return merged;
+  }
+  const serverSlide = server.slides.find((s) => s.id === changedSlideId);
+  if (!serverSlide) return merged;
+  const idx = merged.slides.findIndex((s) => s.id === changedSlideId);
+  if (idx < 0 || merged.slides[idx] === serverSlide) return merged;
+  const nextSlides = [...merged.slides];
+  nextSlides[idx] = serverSlide;
+  return { ...merged, slides: nextSlides };
+}
+
 export const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
@@ -1488,7 +1534,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const refetchOpenDeckIfChanged = useCallback(
     async (
       currentOpenId: string,
-      options?: { clearPendingWrites?: boolean },
+      options?: { clearPendingWrites?: boolean; changedSlideId?: string },
     ): Promise<Deck | null> => {
       const requestId =
         (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
@@ -1515,7 +1561,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       if (hasLocalEdits && clientDeck) {
         // Content-preserving: only ADD server slides missing locally.
-        const merged = mergeServerAddedSlides(clientDeck, serverDeck);
+        const merged = mergeServerSlideUpdate(
+          clientDeck,
+          serverDeck,
+          options?.changedSlideId,
+          currentOpenId,
+        );
         if (merged === clientDeck) return serverDeck; // nothing new to surface
         lastExternalUpdateRef.current = Date.now();
         setDecks((prev) => {
@@ -1805,7 +1856,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             // write that arrived during the same local edit. The reconciler
             // preserves local slide bodies and local-only slides while still
             // surfacing server-added slides immediately.
-            void refetchOpenDeckIfChanged(data.deckId).catch((error) => {
+            const changedSlideId =
+              typeof data.slideId === "string" ? data.slideId : undefined;
+            const refetchPromise = refetchOpenDeckIfChanged(data.deckId, {
+              changedSlideId,
+            });
+            void refetchPromise.catch((error) => {
               console.error(
                 `Failed to refresh deck ${data.deckId} after sync event:`,
                 error,

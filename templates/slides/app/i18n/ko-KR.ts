@@ -444,6 +444,12 @@ const messages = {
     pasteStyle: "스타일 붙여넣기",
     copy: "복사",
     paste: "붙여넣기",
+    insertRowAbove: "위에 행 삽입",
+    insertRowBelow: "아래에 행 삽입",
+    deleteRow: "행 삭제",
+    insertColumnLeft: "왼쪽에 열 삽입",
+    insertColumnRight: "오른쪽에 열 삽입",
+    deleteColumn: "열 삭제",
   },
   animations: {
     appear: "出现",

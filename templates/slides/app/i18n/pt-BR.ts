@@ -447,6 +447,12 @@ const messages = {
     pasteStyle: "Colar estilo",
     copy: "Copiar",
     paste: "Colar",
+    insertRowAbove: "Inserir linha acima",
+    insertRowBelow: "Inserir linha abaixo",
+    deleteRow: "Excluir linha",
+    insertColumnLeft: "Inserir coluna à esquerda",
+    insertColumnRight: "Inserir coluna à direita",
+    deleteColumn: "Excluir coluna",
   },
   animations: {
     appear: "Aparecer",

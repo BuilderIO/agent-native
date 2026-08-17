@@ -1181,6 +1181,11 @@ export default function SlideEditor({
     () => getCopiedElementStyle() !== null,
   );
   const contextMenuTargetRef = useRef<HTMLElement | null>(null);
+  const contextMenuTableCellRef = useRef<HTMLTableCellElement | null>(null);
+  const [contextMenuTableInfo, setContextMenuTableInfo] = useState<{
+    rowCount: number;
+    colCount: number;
+  } | null>(null);
   const selectionOverlayMeasurementKey = createSelectionOverlayMeasurementKey({
     slideId: slide.id,
     content,
@@ -2609,6 +2614,81 @@ export default function SlideEditor({
     resolveSelectedElement,
   ]);
 
+  const commitTableMutation = useCallback(() => {
+    const html = readCurrentSlideContentHtml();
+    if (html !== null) onUpdateSlideRef.current({ content: html });
+  }, [readCurrentSlideContentHtml]);
+
+  const insertTableRow = useCallback(
+    (cell: HTMLTableCellElement, position: "above" | "below") => {
+      const row = cell.closest("tr");
+      if (!row) return;
+      const newRow = row.cloneNode(true) as HTMLTableRowElement;
+      Array.from(newRow.cells).forEach((c) => {
+        c.innerHTML = "";
+      });
+      row.insertAdjacentElement(
+        position === "above" ? "beforebegin" : "afterend",
+        newRow,
+      );
+      commitTableMutation();
+    },
+    [commitTableMutation],
+  );
+
+  const deleteTableRow = useCallback(
+    (cell: HTMLTableCellElement) => {
+      const row = cell.closest("tr");
+      const table = row?.closest("table");
+      if (!row || !table || table.rows.length <= 1) return;
+      row.remove();
+      commitTableMutation();
+    },
+    [commitTableMutation],
+  );
+
+  // Column ops assume a regular grid (no colspan/rowspan) and index columns
+  // by position within each row — the same simplification the AI-authored
+  // table markup this editor targets already relies on.
+  const insertTableColumn = useCallback(
+    (cell: HTMLTableCellElement, position: "left" | "right") => {
+      const table = cell.closest("table");
+      if (!table) return;
+      const columnIndex = cell.cellIndex;
+      Array.from(table.rows).forEach((row) => {
+        const refCell = row.cells[columnIndex];
+        if (!refCell) return;
+        const newCell = document.createElement(
+          refCell.tagName,
+        ) as HTMLTableCellElement;
+        newCell.className = refCell.className;
+        const style = refCell.getAttribute("style");
+        if (style) newCell.setAttribute("style", style);
+        refCell.insertAdjacentElement(
+          position === "left" ? "beforebegin" : "afterend",
+          newCell,
+        );
+      });
+      commitTableMutation();
+    },
+    [commitTableMutation],
+  );
+
+  const deleteTableColumn = useCallback(
+    (cell: HTMLTableCellElement) => {
+      const table = cell.closest("table");
+      if (!table) return;
+      const columnIndex = cell.cellIndex;
+      const firstRow = table.rows[0];
+      if (!firstRow || firstRow.cells.length <= 1) return;
+      Array.from(table.rows).forEach((row) => {
+        row.cells[columnIndex]?.remove();
+      });
+      commitTableMutation();
+    },
+    [commitTableMutation],
+  );
+
   // Delete/Backspace removes the selected slide content (single or
   // multi-select). Only active when something is selected for styling (not
   // while inline-editing text, where Backspace should delete a character) and
@@ -2688,6 +2768,23 @@ export default function SlideEditor({
           continue;
         }
         if (el.getAttribute("data-builder-id")) return el;
+        el = el.parentElement;
+      }
+      return null;
+    },
+    [],
+  );
+
+  const findTableCell = useCallback(
+    (
+      target: HTMLElement,
+      slideContent: HTMLElement,
+    ): HTMLTableCellElement | null => {
+      let el: HTMLElement | null = target;
+      while (el && slideContent.contains(el) && el !== slideContent) {
+        if (el.tagName === "TD" || el.tagName === "TH") {
+          return el as HTMLTableCellElement;
+        }
         el = el.parentElement;
       }
       return null;
@@ -4826,13 +4923,27 @@ export default function SlideEditor({
       const slideContent = getSlideContent();
       if (!slideContent) {
         contextMenuTargetRef.current = null;
+        contextMenuTableCellRef.current = null;
+        setContextMenuTableInfo(null);
         return;
       }
+
+      const tableCell = readOnly ? null : findTableCell(target, slideContent);
+      contextMenuTableCellRef.current = tableCell;
+      const table = tableCell?.closest("table") ?? null;
+      setContextMenuTableInfo(
+        table
+          ? {
+              rowCount: table.rows.length,
+              colCount: tableCell ? tableCell.parentElement?.childElementCount ?? 0 : 0,
+            }
+          : null,
+      );
 
       const selectable = findSelectableElement(target, slideContent);
       if (!selectable) {
         contextMenuTargetRef.current = null;
-        clearCanvasSelection();
+        if (!tableCell) clearCanvasSelection();
         return;
       }
 
@@ -4854,8 +4965,10 @@ export default function SlideEditor({
       clearCanvasSelection,
       clearMultiSelection,
       findSelectableElement,
+      findTableCell,
       getSlideContent,
       multiSelection,
+      readOnly,
       selectElementForStyling,
     ],
   );

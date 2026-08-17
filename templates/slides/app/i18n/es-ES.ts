@@ -452,6 +452,12 @@ const messages = {
     pasteStyle: "Pegar estilo",
     copy: "Copiar",
     paste: "Pegar",
+    insertRowAbove: "Insertar fila arriba",
+    insertRowBelow: "Insertar fila abajo",
+    deleteRow: "Eliminar fila",
+    insertColumnLeft: "Insertar columna a la izquierda",
+    insertColumnRight: "Insertar columna a la derecha",
+    deleteColumn: "Eliminar columna",
   },
   animations: {
     appear: "Aparecer",

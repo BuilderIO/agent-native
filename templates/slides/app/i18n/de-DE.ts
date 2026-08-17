@@ -450,6 +450,12 @@ const messages = {
     pasteStyle: "Stil einfügen",
     copy: "Kopieren",
     paste: "Einfügen",
+    insertRowAbove: "Zeile oberhalb einfügen",
+    insertRowBelow: "Zeile unterhalb einfügen",
+    deleteRow: "Zeile löschen",
+    insertColumnLeft: "Spalte links einfügen",
+    insertColumnRight: "Spalte rechts einfügen",
+    deleteColumn: "Spalte löschen",
   },
   animations: {
     appear: "Aparecer",

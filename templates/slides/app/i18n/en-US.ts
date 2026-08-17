@@ -444,6 +444,12 @@ const messages = {
     pasteStyle: "Paste style",
     copy: "Copy",
     paste: "Paste",
+    insertRowAbove: "Insert row above",
+    insertRowBelow: "Insert row below",
+    deleteRow: "Delete row",
+    insertColumnLeft: "Insert column left",
+    insertColumnRight: "Insert column right",
+    deleteColumn: "Delete column",
   },
   animations: {
     appear: "Appear",
