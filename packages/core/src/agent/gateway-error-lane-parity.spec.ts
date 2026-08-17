@@ -311,6 +311,13 @@ async function runLane(
 ): Promise<LaneOutcome> {
   credentialState.lane = lane;
   vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+  // Pinned here rather than inherited: `isBuilderGatewayDeployConfigured` treats
+  // any of these as "preview/hosted workspace, not a visitor surface", so a
+  // runner that has one set silently exercises the owner path and every visitor
+  // assertion below passes for the wrong reason.
+  vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+  vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+  vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
   if (lane === "gateway-deploy") {
     vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");
   }

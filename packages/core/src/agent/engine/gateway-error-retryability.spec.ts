@@ -84,6 +84,13 @@ describe("Builder gateway error retryability", () => {
   beforeEach(() => {
     credentialState.lane = "identity";
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+    // The deploy-lane predicate treats these as "this is a preview/hosted
+    // workspace, not a visitor surface", so a runner that has them set executes
+    // the owner path and the visitor assertions below fail. Pin them rather than
+    // inherit whatever the environment happened to have.
+    vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+    vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+    vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
   });
 
   afterEach(() => {

@@ -61,6 +61,12 @@ describe("transcribe-voice Builder provider gate", () => {
     state.status = 0;
     state.provider = "builder";
     delete process.env.BUILDER_GATEWAY_TOKEN;
+    // Pinned rather than inherited: the deploy-lane predicate reads these, and a
+    // runner with a preview/hosted value set takes the owner path, so the visitor
+    // assertions below would silently test the wrong branch.
+    delete process.env.FUSION_ENVIRONMENT;
+    delete process.env.FUSION_ENV_ORIGIN;
+    delete process.env.VITE_FUSION_ENV_ORIGIN;
     transcribeWithBuilder.mockReset();
     transcribeWithBuilder.mockResolvedValue({
       text: "hello",

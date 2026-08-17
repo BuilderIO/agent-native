@@ -714,6 +714,13 @@ describe("createBuilderEngine", () => {
     beforeEach(() => {
       credentialState.lane = "gateway-deploy";
       vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");
+      // `isBuilderCreditsLane()` also evaluates the real deploy-runtime
+      // predicate, which these flags turn off. Setting the lane alone is not
+      // enough: an inherited preview value makes the suite assert visitor copy
+      // against the owner path.
+      vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+      vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+      vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
     });
 
     const rejections: Array<{ label: string; response: () => Response }> = [

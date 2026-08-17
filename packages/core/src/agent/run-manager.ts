@@ -1531,6 +1531,14 @@ export function startRun(
         ...(err instanceof EngineError && err.providerRetryable === true
           ? { providerRetryable: true }
           : {}),
+        // Same reasoning as `providerRetryable`: on the credits lane the message
+        // is the visitor line and the code is `invalid_request_error`, so this
+        // flag is the only thing left that says "trim and retry once". Dropping
+        // it here turns a recoverable overflow into a terminal failure on exactly
+        // the sites that cannot read the real reason.
+        ...(err instanceof EngineError && err.contextOverflow === true
+          ? { contextOverflow: true }
+          : {}),
       });
     })
     .finally(async () => {
