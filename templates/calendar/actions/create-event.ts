@@ -22,6 +22,7 @@ import {
   ensureOrganizerInAttendees,
   normalizeAttendees,
   normalizeCreateEventInput,
+  normalizeRecurrence,
   resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
@@ -99,9 +100,11 @@ export default defineAction({
       "Google Calendar event color id, 1 through 11.",
     ),
     recurrence: z
-      .array(z.string())
+      .union([z.string(), z.array(z.string())])
       .optional()
-      .describe("Google recurrence rules such as RRULE:FREQ=WEEKLY;BYDAY=MO."),
+      .describe(
+        "Google recurrence rules, such as RRULE:FREQ=DAILY. Pass an empty string or [] for a non-recurring event.",
+      ),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
     ),
@@ -176,6 +179,7 @@ export default defineAction({
       reminderMethod: args.reminderMethod,
       useDefaultReminders: args.remindersUseDefault,
     });
+    const recurrence = normalizeRecurrence(args.recurrence);
     const statusEventFields = buildStatusEventFields({
       eventType: args.eventType,
       title: normalized.title,
@@ -204,7 +208,7 @@ export default defineAction({
       attendees,
       attachments: args.attachments,
       colorId: args.colorId,
-      recurrence: args.recurrence,
+      ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
       ...reminderFields,
       ...statusEventFields,
       createdAt: new Date().toISOString(),

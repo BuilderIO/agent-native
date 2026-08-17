@@ -346,6 +346,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "복원 실패({{status}}).",
   "message.restoreQuestion": "여기로 복원하시겠습니까?",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
+  "message.threadNotFound":
+    "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
   "message.revertHere": "여기로 되돌리기",
   "message.sentAt": "{{time}}에 전송",

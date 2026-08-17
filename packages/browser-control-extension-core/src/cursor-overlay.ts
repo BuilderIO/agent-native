@@ -58,61 +58,112 @@ const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
       "  position: fixed;",
       "  left: 0;",
       "  top: 0;",
-      "  width: 30px;",
-      "  height: 36px;",
+      "  width: 70px;",
+      "  height: 44px;",
       "  z-index: 2147483647;",
       "  pointer-events: none;",
-      "  contain: layout style paint;",
+      "  contain: layout style;",
       "  opacity: 0;",
+      "  --agent-native-pointer-x: 0px;",
+      "  --agent-native-pointer-y: 0px;",
+      "  --agent-native-label-x: 16px;",
+      "  --agent-native-label-y: 20px;",
       "  transform: translate3d(var(--agent-native-x), var(--agent-native-y), 0);",
-      "  transition: opacity 180ms ease-out;",
+      "  transition: opacity 140ms ease-out;",
       "}",
       ":host([data-state=visible]) { opacity: 1; }",
       ":host([data-state=fading]) { opacity: 0; transition-duration: 420ms; }",
+      ".pointer-outline {",
+      "  position: absolute;",
+      "  left: var(--agent-native-pointer-x);",
+      "  top: var(--agent-native-pointer-y);",
+      "  width: 19px;",
+      "  height: 23px;",
+      "  background: white;",
+      "  clip-path: polygon(0 0, 0 19px, 5px 15px, 9.5px 23px, 13.5px 20.5px, 9px 14px, 18.5px 14px);",
+      // guard:allow-raw-color — the isolated overlay has no app theme tokens.
+      "  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .22));",
+      "}",
       ".pointer {",
       "  position: absolute;",
-      "  inset: 0 auto auto 0;",
-      "  width: 26px;",
-      "  height: 34px;",
-      "  background: white;",
-      "  clip-path: polygon(1px 1px, 1px 30px, 9px 22px, 15px 34px, 19px 32px, 13px 20px, 26px 20px);",
-      "  filter: drop-shadow(0 1px 2px black);",
+      "  left: var(--agent-native-pointer-x);",
+      "  top: var(--agent-native-pointer-y);",
+      "  width: 17px;",
+      "  height: 21px;",
+      // guard:allow-raw-color — the isolated overlay has no app theme tokens.
+      "  background: #7b61ff;",
+      "  clip-path: polygon(0 0, 0 17px, 5px 13px, 9px 20px, 12px 18px, 8px 12px, 16px 12px);",
+      // guard:allow-raw-color — the isolated overlay has no app theme tokens.
+      "  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .26));",
       "}",
-      ".hotspot {",
+      ".pointer {",
+      "  z-index: 1;",
+      "}",
+      ".label {",
       "  position: absolute;",
-      "  left: -2px;",
-      "  top: -2px;",
-      "  width: 12px;",
-      "  height: 12px;",
-      "  border: 2px solid royalblue;",
-      "  border-radius: 999px;",
+      "  left: var(--agent-native-label-x);",
+      "  top: var(--agent-native-label-y);",
       "  box-sizing: border-box;",
-      "  opacity: .6;",
-      "  transform: scale(.9);",
-      "}",
-      ":host([data-action=click]) .hotspot {",
-      "  animation: agent-native-cursor-click 520ms ease-out both;",
-      "}",
-      "@keyframes agent-native-cursor-click {",
-      "  0% { opacity: .85; transform: scale(.75); }",
-      "  100% { opacity: 0; transform: scale(2.4); }",
+      "  min-height: 20px;",
+      "  padding: 2px 6px;",
+      // guard:allow-raw-color — the isolated overlay has no app theme tokens.
+      "  background: #7b61ff;",
+      "  color: white;",
+      "  border-radius: 2px;",
+      // guard:allow-raw-color — the isolated overlay has no app theme tokens.
+      "  box-shadow: 0 1px 2px rgba(0, 0, 0, .22);",
+      "  font: 12px/16px -apple-system, BlinkMacSystemFont, \"Inter\", \"Helvetica Neue\", sans-serif;",
+      "  white-space: nowrap;",
+      "  z-index: 2;",
       "}",
       "@media (prefers-reduced-motion: reduce) {",
       "  :host { transition: none; }",
-      "  :host([data-action=click]) .hotspot { animation: none; opacity: .5; }",
       "}",
     ].join("");
+    const pointerOutline = document.createElement("span");
+    pointerOutline.className = "pointer-outline";
     const pointer = document.createElement("span");
     pointer.className = "pointer";
-    const hotspot = document.createElement("span");
-    hotspot.className = "hotspot";
-    shadow.append(style, pointer, hotspot);
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = "Agent";
+    shadow.append(style, pointerOutline, pointer, label);
     document.documentElement.append(host);
   }
 
   clearTimers(host);
-  host.style.setProperty("--agent-native-x", x + "px");
-  host.style.setProperty("--agent-native-y", y + "px");
+  const overlayWidth = 70;
+  const overlayHeight = 44;
+  const pointerWidth = 17;
+  const pointerHeight = 21;
+  const labelWidth = 48;
+  const labelHeight = 20;
+  const labelGap = 2;
+  const labelOnLeft = x + pointerWidth + labelGap + labelWidth > window.innerWidth;
+  const labelAbove =
+    y + pointerHeight + labelGap + labelHeight > window.innerHeight;
+  const desiredOriginX = labelOnLeft ? x - 52 : x;
+  const desiredOriginY = labelAbove ? y - 22 : y;
+  const originX = Math.max(
+    0,
+    Math.min(desiredOriginX, window.innerWidth - overlayWidth),
+  );
+  const originY = Math.max(
+    0,
+    Math.min(desiredOriginY, window.innerHeight - overlayHeight),
+  );
+  // Keep the arrow tip anchored to the action point. The viewport clips only
+  // the artwork that naturally extends beyond a physical page edge.
+  const pointerX = x - originX;
+  const pointerY = y - originY;
+  const labelX = labelOnLeft ? Math.max(0, pointerX - labelWidth - labelGap) : 16;
+  const labelY = labelAbove ? Math.max(0, pointerY - labelHeight - labelGap) : 20;
+  host.style.setProperty("--agent-native-x", originX + "px");
+  host.style.setProperty("--agent-native-y", originY + "px");
+  host.style.setProperty("--agent-native-pointer-x", pointerX + "px");
+  host.style.setProperty("--agent-native-pointer-y", pointerY + "px");
+  host.style.setProperty("--agent-native-label-x", labelX + "px");
+  host.style.setProperty("--agent-native-label-y", labelY + "px");
   host.dataset.action = action.click ? "click" : "move";
   host.dataset.state = "visible";
   void host.offsetWidth;
