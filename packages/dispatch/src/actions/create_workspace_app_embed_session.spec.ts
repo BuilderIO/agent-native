@@ -49,6 +49,18 @@ describe("assertWorkspaceEmbedSessionCaller", () => {
     expect(apps.listWorkspaceApps).not.toHaveBeenCalled();
   });
 
+  it("allows the native marker when Chromium adds cross-site fetch metadata", async () => {
+    await expect(
+      assertWorkspaceEmbedSessionCaller(
+        new Headers({
+          "Sec-Fetch-Site": "cross-site",
+          "X-Agent-Native-CSRF": "1",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    expect(apps.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
   it("allows a same-origin Dispatch browser caller", async () => {
     await expect(
       assertWorkspaceEmbedSessionCaller(

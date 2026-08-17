@@ -87,6 +87,11 @@ export {
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
 export {
+  NATIVE_AUTH_COPY,
+  resolveNativeAuthCopy,
+  type NativeAuthCopy,
+} from "./auth-copy.js";
+export {
   createPollEngine,
   type PollEngineOptions,
   type PollEngineHandle,

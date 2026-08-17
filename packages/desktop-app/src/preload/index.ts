@@ -54,6 +54,8 @@ import {
   type DesktopAppRuntimeStatus,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
+  type DesktopIdentityMagicLinkRequest,
+  type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
   type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
@@ -272,6 +274,10 @@ const electronAPI = {
       request: DesktopIdentityAuthRequest,
     ): Promise<DesktopIdentityAuthResult> =>
       ipcRenderer.invoke(IPC.IDENTITY_AUTHENTICATE, request),
+    requestMagicLink: (
+      request: DesktopIdentityMagicLinkRequest,
+    ): Promise<DesktopIdentityMagicLinkResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_MAGIC_LINK_REQUEST, request),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (
       cb: (status: DesktopIdentityStatus) => void,

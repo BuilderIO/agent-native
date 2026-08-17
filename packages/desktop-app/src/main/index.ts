@@ -114,6 +114,7 @@ import {
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
   type DesktopIdentitySettings,
+  type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -1380,6 +1381,32 @@ ipcMain.handle(IPC.IDENTITY_AUTHENTICATE, async (event, request) => {
   });
 });
 
+ipcMain.handle(IPC.IDENTITY_MAGIC_LINK_REQUEST, async (event, request) => {
+  if (!isShellIdentityIpc(event)) {
+    return {
+      ok: false,
+      error: "The desktop identity surface is unavailable.",
+    };
+  }
+  if (!isDesktopSsoEnabled()) {
+    return { ok: false, error: "Desktop workspace sign-in is turned off." };
+  }
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) {
+    return { ok: false, error: "Desktop workspace sign-in is unavailable." };
+  }
+  if (
+    !request ||
+    typeof request !== "object" ||
+    typeof (request as DesktopIdentityMagicLinkRequest).email !== "string"
+  ) {
+    return { ok: false, error: "Enter your email to continue." };
+  }
+  return broker.requestMagicLink({
+    email: (request as DesktopIdentityMagicLinkRequest).email,
+  });
+});
+
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   if (!isShellIdentityIpc(event)) return false;
   const broker = ensureDesktopIdentityBroker();
@@ -1394,10 +1421,11 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     isAvailable: isDesktopIdentityAvailable,
-    // The identity window must own the login request so its browser cookie jar
-    // retains the PKCE verifier across the cross-origin redirect chain.
+    // Parent Google and magic-link verification runs in the system browser;
+    // this persistent partition receives only the one-time exchange result.
     resolveApp: resolveDesktopIdentityApp,
     listApps: () => listDesktopIdentityApps(),
+    openExternal: (url) => openExternalUrl(url),
     createWindow: (options) => new BrowserWindow(options),
     parentWindow: () => mainWindow,
     handleWindowOpen: (contents, url) =>
