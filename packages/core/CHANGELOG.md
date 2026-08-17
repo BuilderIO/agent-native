@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.158.5
+
+### Patch Changes
+
+- 4d2e3a2: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 4d2e3a2: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 4d2e3a2: Format the Portal reference table in the shared core documentation.
+
 ## 0.158.4
 
 ### Patch Changes
