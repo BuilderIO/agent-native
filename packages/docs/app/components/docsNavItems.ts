@@ -601,11 +601,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
-        id: "agent-web-surfaces",
-        labelKey: "publicAgentWeb",
-        slug: "agent-web-surfaces",
-      },
-      {
         id: "internationalization",
         labelKey: "internationalization",
         slug: "internationalization",
@@ -795,6 +790,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "external-agents-catalog",
         labelKey: "externalAgentsCatalog",
         slug: "external-agents-catalog",
+      },
+      {
+        id: "agent-web-surfaces",
+        labelKey: "publicAgentWeb",
+        slug: "agent-web-surfaces",
       },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
