@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.158.4
+
+### Patch Changes
+
+- 2b618ab: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 2b618ab: Format the Portal reference table in the shared core documentation.
+
 ## 0.158.3
 
 ### Patch Changes
