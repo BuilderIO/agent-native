@@ -456,6 +456,12 @@ const messages = {
     pasteStyle: "Coller le style",
     copy: "Copier",
     paste: "Coller",
+    insertRowAbove: "Insérer une ligne au-dessus",
+    insertRowBelow: "Insérer une ligne en dessous",
+    deleteRow: "Supprimer la ligne",
+    insertColumnLeft: "Insérer une colonne à gauche",
+    insertColumnRight: "Insérer une colonne à droite",
+    deleteColumn: "Supprimer la colonne",
   },
   animations: {
     appear: "Aparecer",

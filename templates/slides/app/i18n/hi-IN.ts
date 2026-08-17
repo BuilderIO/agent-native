@@ -442,6 +442,12 @@ const messages = {
     pasteStyle: "शैली पेस्ट करें",
     copy: "कॉपी करें",
     paste: "पेस्ट करें",
+    insertRowAbove: "ऊपर पंक्ति जोड़ें",
+    insertRowBelow: "नीचे पंक्ति जोड़ें",
+    deleteRow: "पंक्ति हटाएं",
+    insertColumnLeft: "बाईं ओर कॉलम जोड़ें",
+    insertColumnRight: "दाईं ओर कॉलम जोड़ें",
+    deleteColumn: "कॉलम हटाएं",
   },
   animations: {
     appear: "दिखाएं",

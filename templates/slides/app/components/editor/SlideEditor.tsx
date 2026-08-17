@@ -5352,7 +5352,11 @@ export default function SlideEditor({
                   >
                     <ContextMenu
                       onOpenChange={(open) => {
-                        if (!open) contextMenuTargetRef.current = null;
+                        if (!open) {
+                          contextMenuTargetRef.current = null;
+                          contextMenuTableCellRef.current = null;
+                          setContextMenuTableInfo(null);
+                        }
                       }}
                     >
                       <ContextMenuTrigger asChild disabled={readOnly}>
@@ -5442,6 +5446,62 @@ export default function SlideEditor({
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
+                        {contextMenuTableInfo && (
+                          <>
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableRow(cell, "above");
+                              }}
+                            >
+                              {t("styleInspector.insertRowAbove")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableRow(cell, "below");
+                              }}
+                            >
+                              {t("styleInspector.insertRowBelow")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={contextMenuTableInfo.rowCount <= 1}
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) deleteTableRow(cell);
+                              }}
+                            >
+                              {t("styleInspector.deleteRow")}
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableColumn(cell, "left");
+                              }}
+                            >
+                              {t("styleInspector.insertColumnLeft")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableColumn(cell, "right");
+                              }}
+                            >
+                              {t("styleInspector.insertColumnRight")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={contextMenuTableInfo.colCount <= 1}
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) deleteTableColumn(cell);
+                              }}
+                            >
+                              {t("styleInspector.deleteColumn")}
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                          </>
+                        )}
                         <ContextMenuItem
                           disabled={!hasObjectSelection}
                           onSelect={copySelectedObjects}

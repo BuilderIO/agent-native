@@ -447,6 +447,12 @@ const messages = {
     pasteStyle: "لصق النمط",
     copy: "نسخ",
     paste: "لصق",
+    insertRowAbove: "إدراج صف أعلاه",
+    insertRowBelow: "إدراج صف أسفله",
+    deleteRow: "حذف الصف",
+    insertColumnLeft: "إدراج عمود إلى اليسار",
+    insertColumnRight: "إدراج عمود إلى اليمين",
+    deleteColumn: "حذف العمود",
   },
   animations: {
     appear: "Aparecer",
