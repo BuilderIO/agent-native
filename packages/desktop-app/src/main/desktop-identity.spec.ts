@@ -1348,13 +1348,13 @@ describe("DesktopIdentityBroker", () => {
     const state = `${Buffer.from(JSON.stringify({ f: "desktop-flow" })).toString("base64url")}.signature`;
     navigationHandler(
       { preventDefault: vi.fn() },
-      `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+      `https://accounts.google.com/o/oauth2/v2/auth?state=${state}&verifier=magic-link-verifier`,
     );
 
     await expect(signIn).resolves.toBe(true);
     expect(identityFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow",
+        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow&verifier=magic-link-verifier",
       ),
       expect.objectContaining({ credentials: "include" }),
     );
