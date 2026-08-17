@@ -40,10 +40,12 @@ import {
   useRef,
   useMemo,
   Fragment,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import { getIdToken } from "@/lib/auth";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
@@ -143,11 +145,13 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
+  dashboardCacheScope,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
 
+import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { SidebarLoadError } from "./SidebarLoadError";
 
@@ -1124,17 +1128,22 @@ async function fetchSqlDashboards(
 ): Promise<SqlDashboardListItem[]> {
   const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
   return (Array.isArray(rows) ? rows : [])
-    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .filter(
+      (d: any) =>
+        d &&
+        typeof d.id === "string" &&
+        d.id.length > 0 &&
+        (d.visibility === "private" ||
+          d.visibility === "org" ||
+          d.visibility === "public"),
+    )
     .map((d: any) => ({
       id: d.id,
       name:
         typeof d.name === "string" && d.name.trim().length > 0
           ? d.name
           : t("sidebar.untitledDashboard"),
-      visibility:
-        d.visibility === "org" || d.visibility === "public"
-          ? (d.visibility as Visibility)
-          : ("private" as Visibility),
+      visibility: d.visibility as Visibility,
       parentId:
         typeof d.parentId === "string" && d.parentId.trim().length > 0
           ? d.parentId
@@ -1463,6 +1472,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
+  const { auth } = useAuth();
+  const dashboardScope = dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1604,6 +1615,27 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
   }, []);
 
+  const handleAskClick = useCallback(
+    (event: ReactMouseEvent<HTMLAnchorElement>) => {
+      const action = resolveAskNavigationAction(
+        isAskRoute,
+        event.metaKey || event.ctrlKey || event.shiftKey || event.altKey,
+      );
+      if (action === "browser") return;
+
+      event.preventDefault();
+      if (action === "toggle") {
+        toggleAskOpen();
+        return;
+      }
+
+      setAskOpen(true);
+      setStoredBoolean(ASK_OPEN_KEY, true);
+      navigateWithAgentChatViewTransition(navigate, "/ask");
+    },
+    [isAskRoute, navigate, toggleAskOpen],
+  );
+
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
   // Domain counters keep these lists targeted. Folding the generic `action`
@@ -1623,10 +1655,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     isError: sqlDashboardsError,
     refetch: refetchSqlDashboards,
   } = useQuery({
-    queryKey: ["sql-dashboards-sidebar", dashboardsSync],
+    queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
   });
 
   const {
@@ -1655,7 +1686,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const prefetchDashboard = useCallback(
     (d: SidebarDashboard) => {
       if (d.source !== "sql") return;
-      const queryKey = sqlDashboardPrefetchKey(d.id);
+      const queryKey = sqlDashboardPrefetchKey(d.id, dashboardScope);
       const cached =
         queryClient.getQueryData<
           PrefetchSnapshot<PrefetchedSqlDashboard | null>
@@ -1670,7 +1701,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
       });
     },
-    [dashboardsSync, queryClient, t],
+    [dashboardScope, dashboardsSync, queryClient, t],
   );
 
   const visibleDashboards = useMemo<SidebarDashboard[]>(() => {
@@ -1824,7 +1855,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       // Optimistic: remove from the sidebar query cache immediately so the row
       // disappears without waiting for the DELETE round-trip. Snapshot the
       // prior value so we can roll back on failure.
-      const activeKey = ["sql-dashboards-sidebar"] as const;
+      const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
@@ -1835,14 +1866,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await deleteSqlDashboard({ id: d.id });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
       }
     },
-    [deleteAnalysisMut, deleteSqlDashboard, queryClient],
+    [dashboardScope, deleteAnalysisMut, deleteSqlDashboard, queryClient],
   );
 
   const handleDashboardArchive = useCallback(
@@ -1855,7 +1888,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      const activeKey = ["sql-dashboards-sidebar"] as const;
+      const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
@@ -1866,7 +1899,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await archiveDashboardMut({ id: d.id, archived: true });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
@@ -1874,7 +1909,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, archiveDashboardMut, t],
+    [dashboardScope, queryClient, archiveDashboardMut, t],
   );
 
   const handleDashboardRename = useCallback(
@@ -1901,7 +1936,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return;
       }
 
-      const queryKey = ["sql-dashboards-sidebar"] as const;
+      const queryKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         queryKey,
@@ -1913,17 +1948,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await renameDashboard({ id: d.id, name: trimmed });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({
-          queryKey: ["sql-dashboards-palette"],
+          queryKey: ["sql-dashboards-palette", dashboardScope],
         });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
-    [queryClient, renameAnalysis, renameDashboard],
+    [dashboardScope, queryClient, renameAnalysis, renameDashboard],
   );
 
   const handleDashboardSetVisibility = useCallback(
@@ -1946,6 +1983,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       const queryKey = [
         "sql-dashboards-sidebar",
+        dashboardScope,
         dashboardsSyncRef.current,
       ] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
@@ -1974,7 +2012,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, setResourceVisibility, t],
+    [dashboardScope, queryClient, setResourceVisibility, t],
   );
 
   const sensors = useSensors(
@@ -2060,18 +2098,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       label: t("navigation.ask"),
       href: "/ask",
       active: location.pathname === "/ask",
-      onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
-        if (
-          location.pathname !== "/ask" &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey
-        ) {
-          event.preventDefault();
-          navigateWithAgentChatViewTransition(navigate, "/ask");
-        }
-      },
+      onClick: handleAskClick,
     },
     {
       icon: IconChartBar,
@@ -2131,7 +2158,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </TooltipTrigger>
       <TooltipContent side="top">
         {t("sidebar.searchShortcut", {
-          shortcut: `${shortcutModifierLabel()}+K`,
+          shortcut: `${shortcutModifierLabel()} K`,
         })}
       </TooltipContent>
     </Tooltip>
@@ -2186,7 +2213,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2197,7 +2224,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onClick={item.onClick}
                       aria-label={item.label}
                       className={cn(
-                        "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                        "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
                         item.active
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
@@ -2246,8 +2273,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </span>
             </Link>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
-            <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-1">
                 <div
@@ -2260,18 +2287,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 >
                   <Link
                     to="/ask"
-                    onClick={(event) => {
-                      if (
-                        !isAskRoute &&
-                        !event.metaKey &&
-                        !event.ctrlKey &&
-                        !event.shiftKey &&
-                        !event.altKey
-                      ) {
-                        event.preventDefault();
-                        navigateWithAgentChatViewTransition(navigate, "/ask");
-                      }
-                    }}
+                    onClick={handleAskClick}
                     className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
                   >
                     <IconMessageCircle className="h-4 w-4 shrink-0" />
@@ -2298,10 +2314,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                <AnalyticsChatsSection
-                  isAskRoute={isAskRoute}
-                  open={askOpen && isAskRoute}
-                />
+                <AnalyticsChatsSection isAskRoute={isAskRoute} open={askOpen} />
               </div>
 
               {/* Sessions link */}
@@ -2561,8 +2574,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
-              <nav className="grid min-w-0 items-start space-y-1 pb-1">
+            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+              <nav className="flex min-w-0 flex-col gap-1 pb-1">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.href;

@@ -1,34 +1,40 @@
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/core/client/chat-first";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconCalendar,
   IconChevronDown,
   IconChevronRight,
   IconClockHour4,
-  IconDots,
   IconEdit,
   IconEye,
   IconEyeOff,
   IconFileText,
-  IconWorld,
+  IconKey,
+  IconPin,
+  IconSettings,
   IconTrash,
   IconUser,
   IconUsersGroup,
+  IconWorld,
 } from "@tabler/icons-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
-  isPendingBuilderHref,
   workspaceAppHref,
+  workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
-import { AppKeysPopover } from "./app-keys-popover";
+import { AppIcon } from "./app-icon";
+import { AppKeysPanel } from "./app-keys-popover";
+import { AppListRow } from "./app-list-row";
+import { AppOpenActions } from "./app-open-actions";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -38,7 +44,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "./ui/dialog";
 import {
   DropdownMenu,
@@ -60,19 +65,26 @@ const APP_CARD_ACTION_CLASS =
 export function WorkspaceAppCard({
   app,
   className,
+  isPinned = false,
+  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   className?: string;
+  isPinned?: boolean;
+  onTogglePinned?: () => void;
 }) {
   const t = useT();
-  const { formatDate } = useFormatters();
   const href = workspaceAppHref(app);
-  const openInNewTab = isPendingBuilderHref(app);
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";
+  const pendingOpenLabel = t("dispatch.pages.openBuilderBranch", {
+    defaultValue: "Open in Builder",
+  });
   const isArchived = !!app.archived;
   const audience = app.audience ?? "internal";
   const [editOpen, setEditOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
   const [draftName, setDraftName] = useState(app.name);
   const [draftDescription, setDraftDescription] = useState(
     app.description || "",
@@ -130,147 +142,81 @@ export function WorkspaceAppCard({
       description: draftDescription.trim(),
     });
   };
+  const pinLabel = t(
+    isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
+    {
+      name: app.name,
+      defaultValue: `${isPinned ? "Unpin" : "Pin"} ${app.name}`,
+    },
+  );
 
   return (
-    <div
-      aria-disabled={!href}
-      className={cn(
-        "group relative rounded-xl bg-card/40 p-4 transition-[background-color] hover:bg-accent/15 focus-within:bg-accent/15 aria-disabled:opacity-60",
-        isArchived && "opacity-70",
-        className,
-      )}
-    >
-      {href ? (
-        <a
-          href={href}
-          target={openInNewTab ? "_blank" : undefined}
-          rel={openInNewTab ? "noreferrer" : undefined}
-          aria-label={`Open ${app.name}`}
-          className="absolute inset-0 z-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        />
-      ) : null}
-
-      <div className="pointer-events-none relative z-10 flex h-full min-w-0 items-start justify-between gap-3">
+    <>
+      <AppListRow
+        className={cn(
+          !href && "opacity-60",
+          isArchived && "opacity-70",
+          className,
+        )}
+      >
+        <AppIcon id={app.id} name={app.name} size="sm" />
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-              {app.name}
-            </h3>
+          <h3 className="truncate text-sm font-semibold text-foreground">
+            {app.name}
+          </h3>
+          {app.description || isPending ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {app.description || pendingLabel}
+            </p>
+          ) : null}
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             {isPending ? (
-              <Badge
-                variant="outline"
-                className="shrink-0 gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-              >
+              <span className="inline-flex min-w-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">
                 <IconClockHour4 size={12} />
-                {pendingLabel}
-              </Badge>
+                <span className="truncate">{pendingLabel}</span>
+              </span>
             ) : null}
             {isArchived ? (
-              <Badge variant="outline" className="shrink-0 gap-1">
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
                 <IconEyeOff size={12} />
                 Hidden
-              </Badge>
+              </span>
             ) : null}
             {audience === "public" ? (
-              <Badge variant="outline" className="shrink-0 gap-1">
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
                 <IconWorld size={12} />
                 Public
-              </Badge>
+              </span>
             ) : null}
           </div>
-          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-            {app.path}
-          </p>
-          {isPending && app.branchName ? (
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              Builder branch: {app.branchName}
-            </p>
-          ) : null}
-          {app.description ? (
-            <p className="mt-2 min-h-10 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
-              {app.description}
-            </p>
-          ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {!isPending && !isArchived ? (
-            <div className="pointer-events-auto">
-              <AppResourcesDialog app={app} />
-            </div>
-          ) : null}
-          {!isPending && !isArchived ? (
-            <div className="pointer-events-auto">
-              <AppKeysPopover appId={app.id} appName={app.name} />
-            </div>
-          ) : null}
-          <div className="pointer-events-auto">
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={`More actions for ${app.name}`}
-                      className={cn(
-                        APP_CARD_ACTION_CLASS,
-                        "inline-flex cursor-pointer items-center justify-center",
-                      )}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <IconDots size={15} />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>More actions</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setEditOpen(true);
-                  }}
-                >
-                  <IconEdit size={14} className="mr-2" />
-                  Edit details
-                </DropdownMenuItem>
-                {isPending ? (
-                  <DropdownMenuItem
-                    onSelect={handleRemovePending}
-                    className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                  >
-                    <IconTrash size={14} className="mr-2" />
-                    Remove from list
-                  </DropdownMenuItem>
-                ) : isArchived ? (
-                  <DropdownMenuItem onSelect={handleUnarchive}>
-                    <IconEye size={14} className="mr-2" />
-                    Restore to list
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onSelect={handleArchive}>
-                    <IconEyeOff size={14} className="mr-2" />
-                    Hide from list
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="font-normal">
-                  <WorkspaceAppMetadata
-                    app={app}
-                    formatDate={formatDate}
-                    labels={{
-                      created: t("agents.dashboardMetadataCreated"),
-                      createdBy: t("agents.dashboardMetadataCreatedBy"),
-                      owner: t("dispatch.pages.appMetadataOwner"),
-                      teams: t("dispatch.pages.appMetadataTeams"),
-                      notTracked: t("agents.notTracked"),
-                    }}
-                  />
-                </DropdownMenuLabel>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <WorkspaceAppOpenActions
+            app={app}
+            href={href}
+            isPinned={isPinned}
+            pinLabel={pinLabel}
+            pendingOpenLabel={pendingOpenLabel}
+            onTogglePinned={onTogglePinned}
+          />
+          <WorkspaceAppSettings
+            app={app}
+            isArchived={isArchived}
+            isPending={isPending}
+            onEdit={() => setEditOpen(true)}
+            onKeys={() => setKeysOpen(true)}
+            onResources={() => setResourcesOpen(true)}
+            onArchive={handleArchive}
+            onUnarchive={handleUnarchive}
+            onRemovePending={handleRemovePending}
+            labels={{
+              createdBy: t("agents.dashboardMetadataCreatedBy"),
+              owner: t("dispatch.pages.appMetadataOwner"),
+              teams: t("dispatch.pages.appMetadataTeams"),
+            }}
+          />
         </div>
-      </div>
+      </AppListRow>
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
@@ -311,63 +257,252 @@ export function WorkspaceAppCard({
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+      <Dialog open={keysOpen} onOpenChange={setKeysOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Manage keys for {app.name}</DialogTitle>
+            <DialogDescription>
+              Choose which workspace credentials this app can use.
+            </DialogDescription>
+          </DialogHeader>
+          <AppKeysPanel appId={app.id} appName={app.name} />
+          <DialogFooter>
+            <Button type="button" onClick={() => setKeysOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AppResourcesDialog
+        app={app}
+        open={resourcesOpen}
+        onOpenChange={setResourcesOpen}
+      />
+    </>
+  );
+}
+
+function WorkspaceAppOpenActions({
+  app,
+  href,
+  isPinned,
+  pinLabel,
+  pendingOpenLabel,
+  onTogglePinned,
+}: {
+  app: WorkspaceAppSummary;
+  href: string | null;
+  isPinned: boolean;
+  pinLabel: string;
+  pendingOpenLabel: string;
+  onTogglePinned?: () => void;
+}) {
+  const navigate = useNavigate();
+  const appRoute = workspaceAppRoute(app.id);
+  const isPending = app.status === "pending";
+
+  if (isPending) {
+    return href ? (
+      <Button asChild size="sm" variant="outline">
+        <a href={href} target="_blank" rel="noreferrer">
+          {pendingOpenLabel}
+        </a>
+      </Button>
+    ) : (
+      <Button size="sm" variant="outline" disabled>
+        {pendingOpenLabel}
+      </Button>
+    );
+  }
+
+  if (!href) {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        Open app
+      </Button>
+    );
+  }
+
+  return (
+    <AppOpenActions
+      name={app.name}
+      href={href}
+      showNewTabOption
+      onOpen={() => {
+        navigate(appRoute);
+      }}
+      menuItems={
+        onTogglePinned
+          ? [
+              {
+                id: "pin",
+                label: pinLabel,
+                icon: <IconPin size={14} strokeWidth={isPinned ? 2.2 : 1.7} />,
+                onSelect: onTogglePinned,
+              },
+            ]
+          : undefined
+      }
+    />
+  );
+}
+
+type WorkspaceAppMetadataLabels = {
+  createdBy: string;
+  owner: string;
+  teams: string;
+};
+
+function WorkspaceAppSettings({
+  app,
+  isArchived,
+  isPending,
+  onEdit,
+  onKeys,
+  onResources,
+  onArchive,
+  onUnarchive,
+  onRemovePending,
+  labels,
+}: {
+  app: WorkspaceAppSummary;
+  isArchived: boolean;
+  isPending: boolean;
+  onEdit: () => void;
+  onKeys: () => void;
+  onResources: () => void;
+  onArchive: () => void;
+  onUnarchive: () => void;
+  onRemovePending: () => void;
+  labels: WorkspaceAppMetadataLabels;
+}) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`Settings for ${app.name}`}
+              className={APP_CARD_ACTION_CLASS}
+            >
+              <IconSettings size={15} />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>App settings</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        align="end"
+        className={APP_ACTION_MENU_CONTENT_CLASS}
+      >
+        <DropdownMenuItem onSelect={onEdit}>
+          <IconEdit size={14} aria-hidden="true" />
+          Edit details
+        </DropdownMenuItem>
+        {!isPending && !isArchived ? (
+          <>
+            <DropdownMenuItem onSelect={onKeys}>
+              <IconKey size={14} aria-hidden="true" />
+              Manage keys
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onResources}>
+              <IconFileText size={14} aria-hidden="true" />
+              Agent resources
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        {isPending ? (
+          <DropdownMenuItem
+            onSelect={onRemovePending}
+            className="text-destructive focus:text-destructive"
+          >
+            <IconTrash size={14} aria-hidden="true" />
+            Remove from list
+          </DropdownMenuItem>
+        ) : isArchived ? (
+          <DropdownMenuItem onSelect={onUnarchive}>
+            <IconEye size={14} aria-hidden="true" />
+            Restore to list
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={onArchive}>
+            <IconEyeOff size={14} aria-hidden="true" />
+            Hide from list
+          </DropdownMenuItem>
+        )}
+        <WorkspaceAppMetadata app={app} labels={labels} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 function WorkspaceAppMetadata({
   app,
-  formatDate,
   labels,
 }: {
   app: WorkspaceAppSummary;
-  formatDate: ReturnType<typeof useFormatters>["formatDate"];
-  labels: {
-    created: string;
-    createdBy: string;
-    owner: string;
-    teams: string;
-    notTracked: string;
-  };
+  labels: WorkspaceAppMetadataLabels;
 }) {
-  function formatMetadataDate(value: string | null | undefined): string {
-    if (!value) return labels.notTracked;
-    try {
-      return formatDate(value, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    } catch {
-      return value;
-    }
+  const trackedText = (value: string | null | undefined): string | null => {
+    const normalized = value?.trim();
+    return normalized && normalized.toLowerCase() !== "not tracked"
+      ? normalized
+      : null;
+  };
+  const rows: Array<{
+    id: string;
+    icon: typeof IconUser;
+    label: string;
+    value: string;
+  }> = [];
+
+  const createdBy = trackedText(app.createdBy);
+  if (createdBy) {
+    rows.push({
+      id: "created-by",
+      icon: IconUser,
+      label: labels.createdBy,
+      value: createdBy,
+    });
+  }
+  const owner = trackedText(app.owner);
+  if (owner) {
+    rows.push({
+      id: "owner",
+      icon: IconUser,
+      label: labels.owner,
+      value: owner,
+    });
+  }
+  const teams = app.teams
+    ?.map(trackedText)
+    .filter((team): team is string => Boolean(team))
+    .join(", ");
+  if (teams) {
+    rows.push({
+      id: "teams",
+      icon: IconUsersGroup,
+      label: labels.teams,
+      value: teams,
+    });
   }
 
+  if (rows.length === 0) return null;
+
   return (
-    <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-      <WorkspaceAppMetadataRow
-        icon={IconCalendar}
-        label={labels.created}
-        value={formatMetadataDate(app.createdAt)}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUser}
-        label={labels.createdBy}
-        value={app.createdBy || labels.notTracked}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUser}
-        label={labels.owner}
-        value={app.owner || labels.notTracked}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUsersGroup}
-        label={labels.teams}
-        value={app.teams?.join(", ") || labels.notTracked}
-      />
-    </div>
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel className="font-normal">
+        <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+          {rows.map((row) => (
+            <WorkspaceAppMetadataRow key={row.id} {...row} />
+          ))}
+        </div>
+      </DropdownMenuLabel>
+    </>
   );
 }
 
@@ -376,7 +511,7 @@ function WorkspaceAppMetadataRow({
   label,
   value,
 }: {
-  icon: typeof IconCalendar;
+  icon: typeof IconUser;
   label: string;
   value: string;
 }) {
@@ -389,8 +524,15 @@ function WorkspaceAppMetadataRow({
   );
 }
 
-function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
-  const [open, setOpen] = useState(false);
+function AppResourcesDialog({
+  app,
+  open,
+  onOpenChange,
+}: {
+  app: WorkspaceAppSummary;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [inspectedResourceId, setInspectedResourceId] = useState<string | null>(
     null,
   );
@@ -408,27 +550,10 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
+        onOpenChange(nextOpen);
         if (!nextOpen) setInspectedResourceId(null);
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={`View agent resources for ${app.name}`}
-              className={APP_CARD_ACTION_CLASS}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <IconFileText size={14} />
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent>View agent resources</TooltipContent>
-      </Tooltip>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{app.name} agent resources</DialogTitle>
@@ -546,7 +671,7 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
           )}
         </div>
         <DialogFooter>
-          <Button type="button" onClick={() => setOpen(false)}>
+          <Button type="button" onClick={() => onOpenChange(false)}>
             Done
           </Button>
         </DialogFooter>

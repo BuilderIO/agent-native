@@ -25,6 +25,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -37,6 +39,21 @@ export interface CodeAgentModelListResult {
 export type CodeAgentPromptAttachment = AgentPromptAttachment;
 
 export type CodeAgentFollowUpMode = "immediate" | "queued";
+
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
 
 export interface CodeAgentProjectCommand {
   kind: "command";
@@ -206,6 +223,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -232,6 +250,8 @@ export interface CodeAgentFollowUpRequest {
   model?: string;
   effort?: CodeAgentReasoningEffort;
   attachments?: CodeAgentPromptAttachment[];
+  /** Bounded provenance for host-side coordination such as session watch. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentFollowUpResult {
@@ -286,6 +306,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -305,6 +326,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {
@@ -349,6 +371,7 @@ export interface CodeAgentRetryRunRequest {
   engine?: string;
   model?: string;
   effort?: CodeAgentReasoningEffort;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentRetryRunResult {
@@ -363,6 +386,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;

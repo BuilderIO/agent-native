@@ -2,6 +2,7 @@ import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
   type JobFrontmatter,
@@ -20,9 +21,13 @@ import {
 
 export type AutomationScope = "personal" | "organization";
 
+/** Conservative default for new scheduled automations when no cadence is given. */
+export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
+
 export interface AutomationActor {
   userEmail: string;
   orgId?: string | null;
+  appId?: string | null;
 }
 
 export interface AutomationDefinition {
@@ -57,6 +62,9 @@ export interface DefineAutomationInput {
   domain?: string;
   delegatedPolicyId?: string;
   model?: string;
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
   mcpTools?: unknown;
   delivery?: AutomationDelivery;
 }
@@ -73,6 +81,9 @@ export interface UpdateAutomationInput {
   schedule?: string;
   timezone?: string;
   model?: string | null;
+  executionHostId?: string | null;
+  executionEngine?: string | null;
+  executionCwd?: string | null;
   mcpTools?: unknown;
 }
 
@@ -84,10 +95,36 @@ function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
+function normalizeExecutionTarget(
+  value: string | null | undefined,
+  label: string,
+  options: { opaque?: boolean; max?: number } = {},
+): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const max = options.max ?? (options.opaque ? 128 : 1024);
+  if (
+    normalized.length > max ||
+    /[\r\n]/.test(normalized) ||
+    (options.opaque && !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(normalized))
+  ) {
+    throw httpError(
+      `${label} must be a bounded identifier${options.opaque ? " using letters, numbers, dots, underscores, colons, or hyphens" : ""}.`,
+      400,
+    );
+  }
+  return normalized;
+}
+
 function normalizeActor(actor: AutomationActor): AutomationActor {
   const userEmail = actor.userEmail.trim().toLowerCase();
   if (!userEmail) throw httpError("Not authenticated.", 401);
-  return { userEmail, orgId: actor.orgId?.trim() || null };
+  return {
+    userEmail,
+    orgId: actor.orgId?.trim() || null,
+    appId: actor.appId?.trim() || null,
+  };
 }
 
 function automationName(path: string): string {
@@ -187,7 +224,9 @@ export async function canUpdateAutomationResource(
   resource: Resource,
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
-  return (await mutationAccess(actorInput, resource, meta)).canUpdate;
+  const actor = normalizeActor(actorInput);
+  if (!jobBelongsToApp(meta, actor.appId)) return false;
+  return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
 function assertExplicitAutomation(
@@ -225,6 +264,9 @@ async function readDefinition(
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
   const definition = assertExplicitAutomation(resource);
+  if (!jobBelongsToApp(definition.meta, actor.appId)) {
+    throw httpError(`Automation "${automationName(path)}" not found.`, 404);
+  }
   const access = await mutationAccess(actor, resource, definition.meta);
   return {
     ...definition,
@@ -258,6 +300,7 @@ export async function listAutomationDefinitions(
     if (!resource) continue;
     const parsed = parseJobResource(resource.content);
     if (parsed.classification.kind !== "automation") continue;
+    if (!jobBelongsToApp(parsed.meta, actor.appId)) continue;
     const isCreator =
       parsed.meta.createdBy?.trim().toLowerCase() === actor.userEmail;
     automations.push({
@@ -299,7 +342,10 @@ export async function defineAutomation(
   const body = input.body.trim();
   if (!body) throw httpError("body is required.", 400);
 
-  const schedule = input.schedule?.trim() ?? "";
+  const schedule =
+    input.triggerType === "schedule"
+      ? input.schedule?.trim() || DEFAULT_AUTOMATION_SCHEDULE
+      : "";
   const event = input.event?.trim() ?? "";
   if (input.triggerType === "schedule" && !isValidCron(schedule)) {
     throw httpError(
@@ -324,6 +370,26 @@ export async function defineAutomation(
       : undefined;
 
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
+  const executionHostId = normalizeExecutionTarget(
+    input.executionHostId,
+    "execution_host_id",
+    { opaque: true },
+  );
+  const executionEngine = normalizeExecutionTarget(
+    input.executionEngine,
+    "execution_engine",
+    { opaque: true },
+  );
+  const executionCwd = normalizeExecutionTarget(
+    input.executionCwd,
+    "execution_cwd",
+  );
+  if (executionHostId && input.triggerType !== "schedule") {
+    throw httpError(
+      "Execution hosts are currently supported for scheduled code automations only.",
+      400,
+    );
+  }
   const meta: JobFrontmatter = {
     schedule: input.triggerType === "schedule" ? schedule : "",
     timezone,
@@ -333,6 +399,7 @@ export async function defineAutomation(
     condition: input.condition?.trim() || undefined,
     mode: "agentic",
     domain: input.domain?.trim() || undefined,
+    appId: actor.appId || undefined,
     delegatedPolicyId: input.delegatedPolicyId?.trim() || undefined,
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,
@@ -342,6 +409,9 @@ export async function defineAutomation(
         ? nextOccurrence(schedule, undefined, timezone).toISOString()
         : undefined,
     model: input.model?.trim() || undefined,
+    executionHostId,
+    executionEngine,
+    executionCwd,
     mcpTools: mcpTools?.length ? mcpTools : undefined,
     originScopeId: input.delivery?.originScopeId,
     deliveryPlatform: input.delivery?.platform,
@@ -419,6 +489,32 @@ export async function updateAutomation(
   }
   if (input.model !== undefined) {
     meta.model = input.model?.trim() || undefined;
+  }
+  if (input.executionHostId !== undefined) {
+    if (input.executionHostId && meta.triggerType !== "schedule") {
+      throw httpError(
+        "Execution hosts are currently supported for scheduled code automations only.",
+        400,
+      );
+    }
+    meta.executionHostId = normalizeExecutionTarget(
+      input.executionHostId,
+      "execution_host_id",
+      { opaque: true },
+    );
+  }
+  if (input.executionEngine !== undefined) {
+    meta.executionEngine = normalizeExecutionTarget(
+      input.executionEngine,
+      "execution_engine",
+      { opaque: true },
+    );
+  }
+  if (input.executionCwd !== undefined) {
+    meta.executionCwd = normalizeExecutionTarget(
+      input.executionCwd,
+      "execution_cwd",
+    );
   }
   if (input.mcpTools !== undefined) {
     const mcpTools = normalizeJobMcpTools(input.mcpTools);

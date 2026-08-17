@@ -1,5 +1,6 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import type { ActionAutomationContext, ActionCaller } from "../action.js";
+import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -28,6 +29,7 @@ import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { resolveBuilderCredentialsDetailed } from "../server/credential-provider.js";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -40,7 +42,7 @@ import {
 } from "./run-history.js";
 
 const BACKGROUND_RUN_STUCK_MS = 10 * 60_000;
-const BACKGROUND_RUN_HARD_TIMEOUT_MS = 5 * 60_000;
+export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
 export interface BackgroundAutomationContext {
   name: string;
@@ -52,7 +54,7 @@ export interface BackgroundAutomationContext {
 export interface BackgroundAutomationDeps {
   getActions: (
     automation?: BackgroundAutomationContext,
-  ) => Record<string, ActionEntry>;
+  ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
@@ -277,6 +279,7 @@ export async function runBackgroundAutomation(
         path: automation.resource.path,
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
+        appId: deps.appId,
       });
     } catch (err) {
       console.error(
@@ -356,7 +359,7 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
-      const baseActions = deps.getActions(automation);
+      const baseActions = await deps.getActions(automation);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);
@@ -373,12 +376,25 @@ async function executeBackgroundAutomation(
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-      const engine =
+      const resolvedEngine =
         deps.engine ??
         (await resolveEngine({
           apiKey: userApiKey ?? deps.apiKey,
           appId: deps.appId,
         }));
+      // The run manager invokes its detached callback after the scheduler's
+      // setup stack has yielded. Capture the verified Builder pair while the
+      // owner/org identity is explicit, then keep it on the engine so a
+      // concurrent serverless run cannot make this call look unauthenticated.
+      const engine =
+        !deps.engine && resolvedEngine.name === "builder"
+          ? createBuilderEngine({
+              credentials: await resolveBuilderCredentialsDetailed({
+                userEmail: ownerEmail,
+                orgId,
+              }),
+            })
+          : resolvedEngine;
       const modelCandidate =
         automation.meta.model ??
         deps.model ??
@@ -386,7 +402,10 @@ async function executeBackgroundAutomation(
         engine.defaultModel;
       const model = normalizeModelForEngine(engine, modelCandidate);
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
-      const thread = await createThread(ownerEmail, { title: threadTitle });
+      const thread = await createThread(ownerEmail, {
+        title: threadTitle,
+        orgId: orgId ?? null,
+      });
       const runId = createRunId(options.runIdPrefix);
       await recordRunThread(historyId, thread.id, runId);
 
@@ -459,9 +478,12 @@ async function executeBackgroundAutomation(
                 threadId: thread.id,
                 ownerEmail,
                 orgId,
+                appId: deps.appId,
                 actionCaller: options.actionCaller,
                 automation: options.actionAutomation,
                 runId,
+                maxIterations: automation.meta.maxIterations,
+                maxRunInputTokens: automation.meta.maxRunInputTokens,
               },
               softTimeoutMs,
               { backgroundFunction: true },
@@ -507,7 +529,9 @@ async function executeBackgroundAutomation(
           if (activeRun.status === "running") {
             activeRun.abort.abort("background_automation_hard_timeout");
             reject(
-              new Error("Background automation timed out after 5 minutes"),
+              new Error(
+                `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+              ),
             );
           }
         }, BACKGROUND_RUN_HARD_TIMEOUT_MS);

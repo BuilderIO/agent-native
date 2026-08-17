@@ -236,7 +236,7 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
-const migrations = runMigrations(
+export const migrations = runMigrations(
   [
     // ---------------------------------------------------------------------------
     // Workspaces & members
@@ -1145,6 +1145,19 @@ const migrations = runMigrations(
         holder TEXT NOT NULL,
         expires_at INTEGER NOT NULL
       )`,
+    },
+    {
+      version: 64,
+      name: "recording-transcripts-failure-code",
+      // Additive. Existing rows keep failure_code NULL and their prose; new
+      // failures record a code that owns retryability instead of having it
+      // re-derived by regex over the message.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN failure_code TEXT`,
+    },
+    {
+      version: 65,
+      name: "recording-media-updated-at",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
     },
   ],
   { table: "clips_migrations" },

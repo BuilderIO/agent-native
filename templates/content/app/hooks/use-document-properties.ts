@@ -132,7 +132,7 @@ export function useSetDocumentProperty(
       );
       return { previous };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, variables, context) => {
       const rollback = context as
         | {
             previous?: Array<[readonly unknown[], unknown]>;
@@ -141,6 +141,9 @@ export function useSetDocumentProperty(
       for (const [queryKey, data] of rollback?.previous ?? []) {
         queryClient.setQueryData(queryKey, data);
       }
+      queryClient.invalidateQueries({
+        queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
+      });
     },
     onSuccess: (data, variables) => {
       const savedValue =

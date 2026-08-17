@@ -13,45 +13,6 @@ const INJECTED_CONTEXT_BLOCKS = [
   "response-guard",
 ];
 
-export const DATA_QUERY_ACTIONS = new Set([
-  "account-deep-dive",
-  "bigquery",
-  "content-calendar",
-  "content-calendar-schema",
-  // First-party observability reads are grounded data for incident triage,
-  // even though they are not provider queries. Keep the final-response guard
-  // from replacing valid session/error/replay evidence with the generic
-  // "connect a source" fallback.
-  "get-error-issue",
-  "get-session-replay-events",
-  "get-session-replay-summary",
-  "get-session-replay-timeline",
-  "list-error-issues",
-  "list-session-recordings",
-  "match-error-issues",
-  "gcloud",
-  "gong-calls",
-  "gong-native-insights",
-  "grafana",
-  "hubspot-deals",
-  "hubspot-metrics",
-  "hubspot-pipelines",
-  "hubspot-records",
-  "jira",
-  "jira-search",
-  "provider-api-request",
-  "provider-corpus-job",
-  "query-staged-dataset",
-  "query-agent-native-analytics",
-  "query-inbound-forms",
-  "sentry",
-  "seo-blog-pages",
-  "seo-page-keywords",
-  "seo-top-keywords",
-  "slack-messages",
-  "stripe",
-]);
-
 export const CORPUS_SOURCE_ACTIONS = new Set([
   "provider-api-request",
   "provider-corpus-job",
@@ -72,7 +33,9 @@ export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 // includes one of these read actions, the bypass still applies even when an
 // authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "search-dashboard-references",
   "get-sql-dashboard",
+  "get-explorer-dashboard",
   "list-sql-dashboards",
   "list-extensions",
   "get-extension",
@@ -127,8 +90,63 @@ function isToolName(name: string, expected: string): boolean {
   return normalizeActionToolName(name) === expected;
 }
 
-function isDataQueryActionName(name: string): boolean {
-  return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+let groundingActionNames: ReadonlySet<string> | null = null;
+
+/**
+ * Read the action names whose definitions declare `grounding: true`.
+ *
+ * Takes the registry as an argument rather than importing
+ * `.generated/actions-registry` because that registry imports every action, and
+ * `save-analysis` imports this module — importing it back here would close an
+ * evaluation cycle. The agent-chat plugin passes it in once at module load.
+ */
+export function deriveGroundingActionNames(
+  registry: Record<string, unknown>,
+): string[] {
+  return Object.entries(registry)
+    .filter(([, module]) => {
+      // Action modules reach the registry either as the module namespace or as
+      // an already-unwrapped definition, the same two shapes
+      // `loadActionsFromStaticRegistry` normalizes.
+      const candidate = module as
+        | { grounding?: boolean; default?: { grounding?: boolean } }
+        | undefined;
+      return (
+        candidate?.grounding === true || candidate?.default?.grounding === true
+      );
+    })
+    .map(([name]) => name);
+}
+
+/** Publish the derived set for the response guard to consult. */
+export function registerGroundingActions(names: Iterable<string>): void {
+  groundingActionNames = new Set(
+    [...names].map((name) => normalizeActionToolName(name)),
+  );
+  // An empty set is never a real deployment: it means the installed core build
+  // predates `grounding` and dropped it from every definition. Registration
+  // runs at plugin module scope, so throwing here would take the whole server
+  // down for a response-guard heuristic; the failure is raised at first use
+  // instead, where it costs one turn.
+  if (groundingActionNames.size === 0) {
+    console.error(
+      "[analytics] no action declares grounding: true; the installed @agent-native/core cannot carry the flag, so the response guard is unusable",
+    );
+  }
+}
+
+function isGroundingActionName(name: string): boolean {
+  if (!groundingActionNames) {
+    throw new Error(
+      "grounding actions were never registered: the analytics response guard cannot tell a grounded turn from an ungrounded one",
+    );
+  }
+  if (groundingActionNames.size === 0) {
+    throw new Error(
+      "no action declares grounding: true; the installed @agent-native/core cannot carry the flag",
+    );
+  }
+  return groundingActionNames.has(normalizeActionToolName(name));
 }
 
 function isDashboardConstructionActionName(name: string): boolean {
@@ -143,7 +161,7 @@ function isDashboardMutationActionName(name: string): boolean {
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
-  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+  /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
@@ -214,7 +232,7 @@ function getRunCodeBridgeToolNames(content: string | undefined): string[] {
 
 function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
   return getRunCodeBridgeToolNames(content).some(
-    (name) => isDataQueryActionName(name) || isMcpDataSourceTool(name),
+    (name) => isGroundingActionName(name) || isMcpDataSourceTool(name),
   );
 }
 
@@ -530,10 +548,9 @@ export function hasIncompleteDataEvidence(
     const name = String(result.name ?? "");
     if (
       name &&
-      !isDataQueryActionName(name) &&
+      !isGroundingActionName(name) &&
       !isMcpDataSourceTool(name) &&
-      !isToolName(name, "run-code") &&
-      !isToolName(name, "provider-api-request")
+      !isToolName(name, "run-code")
     ) {
       return false;
     }
@@ -594,7 +611,7 @@ export function hasDataQueryAttempt(
     if (isToolName(name, "run-code")) {
       return hasRunCodeDataQueryAttempt(result.content);
     }
-    return isDataQueryActionName(name) || isMcpDataSourceTool(name);
+    return isGroundingActionName(name) || isMcpDataSourceTool(name);
   });
 }
 
@@ -605,7 +622,7 @@ function isFailedDataQueryAttempt(result: {
 }): boolean {
   const name = String(result.name ?? "");
   const isDataQuery =
-    isDataQueryActionName(name) ||
+    isGroundingActionName(name) ||
     isMcpDataSourceTool(name) ||
     (isToolName(name, "run-code") &&
       hasRunCodeDataQueryAttempt(result.content));

@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
+import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
 import {
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
+  filterDelegatedA2ACapabilityActions,
   filterDirectA2AActions,
+  resolveInitialToolNames,
 } from "./action-filters-a2a.js";
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
@@ -190,5 +193,105 @@ describe("filterDirectA2AActions", () => {
     );
 
     expect(Object.keys(result)).toEqual(["allowed"]);
+  });
+
+  it("advertises exposed writes as message-only delegated capabilities", () => {
+    const write = action({
+      tool: {
+        description: "Create a campaign.",
+        parameters: {
+          type: "object",
+          properties: { title: { type: "string" } },
+          required: ["title"],
+        },
+      },
+      http: { method: "POST" },
+      readOnly: false,
+      publicAgent: {
+        expose: true,
+        readOnly: false,
+        requiresAuth: true,
+      },
+    });
+
+    const skills = buildAuthenticatedAgentA2ASkills(
+      { "create-campaign": write },
+      {},
+    );
+
+    expect(skills).toEqual([
+      {
+        id: "create-campaign",
+        name: "create-campaign",
+        description: "Create a campaign.",
+        publicAgent: write.publicAgent,
+        readOnly: false,
+      },
+    ]);
+    expect(skills[0]).not.toHaveProperty("inputSchema");
+    expect(filterDirectA2AActions({ "create-campaign": write }, {})).toEqual(
+      {},
+    );
+    expect(buildPublicAgentA2ASkills({ "create-campaign": write })).toEqual([]);
+  });
+
+  it("applies agentTool and deny policy to delegated capabilities", () => {
+    const write = (overrides: Partial<ActionEntry> = {}) =>
+      action({
+        http: { method: "POST" },
+        readOnly: false,
+        publicAgent: {
+          expose: true,
+          readOnly: false,
+          requiresAuth: true,
+        },
+        ...overrides,
+      });
+    const actions = {
+      allowed: write(),
+      denied: write(),
+      hidden: write({ agentTool: false }),
+      unexposed: write({ publicAgent: undefined }),
+    };
+
+    expect(
+      Object.keys(
+        filterDelegatedA2ACapabilityActions(actions, {
+          externalAgents: { denyActions: ["denied"] },
+        }),
+      ),
+    ).toEqual(["allowed"]);
+  });
+});
+
+describe("resolveInitialToolNames", () => {
+  it("keeps core framework kits out of the default first-request list", () => {
+    // Guard for the untagged path: `frameworkGroup` is stamped only by
+    // `mergeCoreSharingActions`, which runs against the ungated `httpActions`,
+    // so apps loading core kits from a generated registry or their own actions
+    // directory hold untagged entries — and were promoting ~45 framework
+    // schemas into every first request. Build the fixture the way those apps
+    // do, with no tag, so a regression fails here.
+    const untagged = Object.fromEntries(
+      Object.keys(CORE_ACTION_GROUPS).map((name) => [name, action()]),
+    );
+
+    expect(
+      resolveInitialToolNames({ ...untagged, "create-form": action() }),
+    ).toEqual(["create-form"]);
+  });
+
+  it("does not mistake an app action for a kit it merely resembles", () => {
+    expect(resolveInitialToolNames({ "share-portfolio": action() })).toEqual([
+      "share-portfolio",
+    ]);
+  });
+
+  it("returns the configured list verbatim when one is given", () => {
+    expect(
+      resolveInitialToolNames({ "share-resource": action() }, [
+        "share-resource",
+      ]),
+    ).toEqual(["share-resource"]);
   });
 });

@@ -10,7 +10,7 @@ A **서피스**는 사용자(또는 다른 시스템)가 앱과 상호작용하�
 
 ## 서피스 간의 관계
 
-네 가지 주요 제품 형태는 가장 인터랙티브한 것부터 완전히 헤드리스인 것까지 스펙트럼 위에 위치합니다. 이들이 조합 가능한 이유는 기반이 동일하게 유지되기 때문입니다: 동일한 액션, 동일한 SQL 데이터베이스, 동일한 에이전트 루프가 모든 형태를 지원합니다. 새로운 서피스를 추가한다고 해서 기반을 다시 작성할 필요가 없습니다 — 동일한 작업에 접근하는 새로운 방법을 추가하는 것뿐입니다.
+네 가지 주요 제품 형태는 가장 인터랙티브한 것부터 완전히 헤드리스인 것까지 스펙트럼 위에 위치합니다. 이들이 조합 가능한 이유는 동일한 액션과 SQL 기반 앱 상태를 공유하기 때문입니다. 서피스에 에이전트가 필요할 때 프레임워크 에이전트 루프를 사용하세요. 새로운 서피스를 추가한다고 해서 기반을 다시 작성할 필요가 없습니다 — 동일한 작업에 접근하는 새로운 방법을 추가하는 것뿐입니다.
 
 <Diagram id="doc-block-hvdxgh" title="서피스 스펙트럼" summary={"하나의 액션 서피스, 네 가지 제품 형태, 각각 하위 작업을 변경하지 않고 UI를 추가합니다."}>
 
@@ -38,7 +38,7 @@ A **서피스**는 사용자(또는 다른 시스템)가 앱과 상호작용하�
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >동일한 액션 · 동일한 SQL · 동일한 에이전트 루프</span
+    >동일한 액션 · SQL 기반 상태 · 필요한 경우 에이전트 루프</span
   >
 </div>
 ```
@@ -156,6 +156,36 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 액션은 채팅 출력이 단순 텍스트가 아닌 명시적 네이티브 위젯 결과를 반환할 수 있습니다. 테이블, 차트, 타입이 지정된 제품 카드가 iframes 없이 채팅에서 1st-party React 컴포넌트로 렌더링됩니다. [Native Chat UI](/docs/native-chat-ui)를 참조하세요. 에이전트가 미리 정의된 React 위젯 대신 임의로 생성된 컨트롤이 필요할 때는 [Generative UI](/docs/generative-ui)를 사용하세요: Alpine/Tailwind UI를 인라인으로 샌드박스 렌더링하고, 앱 상태와 슬롯 컨텍스트를 읽을 수 있으며, 선택된 값을 채팅으로 다시 보낼 수 있습니다.
 
+### 요청 범위 액션 서피스
+
+선택된 에이전트나 스레드가 서버에서 승인한 네이티브 액션 일부만
+노출해야 할 때 `resolveActionSurface`를 사용하세요. 콜백은 각 대화형
+채팅 요청에서 `prepareRequest` 이후 실행됩니다. 반환된 이름은 엄격한
+허용 목록이 되며, 제외된 액션은 공급자 스키마, 실행 레지스트리, Plan
+모드 사전 로드 및 `tool-search` 검색 결과에 나타나지 않습니다.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+빈 목록은 네이티브 액션을 노출하지 않습니다. 알 수 없는 이름은 접근을
+넓히지 않고 요청을 실패시킵니다. 허용된 모든 액션은 첫 모델 요청에 직접
+로드됩니다. 이미 승인된 카탈로그 안에서 검색할 때만 `tool-search`를
+명시적으로 포함하세요. 이 콜백은 대화형 에이전트 채팅만 제한하며 HTTP,
+MCP, A2A, 작업 또는 트리거에는 영향을 주지 않습니다. 기본 프레임워크
+안내와 시작된 하위 에이전트도 같은 표면을 상속합니다. 제한 없는 shell은
+엄격한 액션 경계를 강제할 수 없으므로 trusted shell 도구는 요청으로 필터링된
+sandbox로 자동 제한됩니다.
+
 ## 네이티브 인라인 UI {#native-inline-ui}
 
 액션이 구조화된 데이터(레코드 목록, 차트 데이터셋, 상태 요약)를 반환하고, 이를 채팅 스레드에서 일반 텍스트 설명이 아닌 실제 UI 컴포넌트로 렌더링해야 할 때 사용하세요. 액션에 `chatUI` 렌더러를 정의하면 Agent-Native가 이를 1st-party React 컴포넌트로 렌더링합니다: iframes 없이, 별도의 렌더링 경로 없이.
@@ -182,7 +212,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 ### SQL 상태
 
-앱 데이터, 내비게이션, 설정, 채팅 히스토리가 모두 영구적입니다. 에이전트는 UI가 사용하는 것과 동일한 행을 읽고 씁니다.
+앱 데이터, 내비게이션, 설정, 채팅 히스토리는 SQL에 영구적으로 저장됩니다. 에이전트는 UI가 사용하는 것과 동일한 행을 읽고 씁니다.
 
 ### 컨텍스트 인식
 
@@ -190,7 +220,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 ### 실시간 동기화
 
-에이전트 변경 사항이 UI를 실시간으로 업데이트하고, UI 변경 사항이 에이전트의 컨텍스트를 업데이트합니다. 폴링 없이, 새로고침 없이.
+에이전트 변경 사항은 라이브 동기화를 통해 UI를 업데이트하고, UI 변경 사항은 에이전트의 컨텍스트를 업데이트합니다. 프레임워크는 SSE와 폴링 대체 방식을 사용하므로 사용자가 직접 새로고침할 필요가 없습니다.
 
 ### 딥 링크
 
@@ -212,9 +242,9 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 모든 Agent-Native 앱은 결국 사용자가 에이전트를 구성할 수 있는 공간이 필요합니다: 상시 지침 설정, 완료된 작업 검토, MCP 서버 연결, 자동화 관리, 접근 제어. 처음부터 해당 UI를 구축하는 것은 많은 작업이 필요합니다. Agent-Native는 열두 개의 탭에 걸쳐 이 모든 것을 처리하는 미리 구축된 전체 페이지 컴포넌트 `AgentTabsPage`를 제공합니다.
 
-앱의 `/agent`에 마운트하세요. 현재 템플릿은 해당 경로를 앱 내비게이션 항목과 연결하고 `AgentSidebar`에 `agentPageHref="/agent"`를 전달하여, 사이드바의 Resources 및 Settings 모드가 해당 흐름을 중복하지 않고 전체 페이지로 연결할 수 있습니다.
+앱의 `/settings/agent`에 마운트하세요. 현재 템플릿은 이 경로를 표준 경로로 사용하고 `AgentSidebar`에 `agentPageHref="/settings/agent"`를 전달합니다. `/agent`는 기존 호환 리디렉션으로 유지됩니다.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -450,7 +480,7 @@ await runAgentLoop({
 });
 ```
 
-대부분의 앱에서 예약된 프롬프트와 통합 웹훅이 이미 이 루프를 자동으로 호출합니다. 커스텀 브라우저 없는 호스트, 평가 실행기, 또는 서버 측 오케스트레이션 서피스를 구축할 때만 직접 사용하세요. 전체 시그니처는 [Server: Production agent handler](/docs/server#agent-handler)를 참조하세요.
+대부분의 앱에서 예약된 프롬프트와 통합 웹훅이 이미 이 루프를 자동으로 호출합니다. 커스텀 브라우저 없는 호스트, 평가 실행기, 또는 서버 측 오케스트레이션 서피스를 구축할 때만 직접 사용하세요. 전체 시그니처는 [Server: Production agent handler](/docs/server-plugins#agent-chat-plugin)를 참조하세요.
 
 ### 폴더에 대해 실행 {#folder-loop}
 
@@ -569,7 +599,7 @@ OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI를 위�
 
 <Cards>
 
-### [액션](/docs/actions)
+### [액션](/docs/actions-overview)
 
 한 번 작업을 정의하세요. 위의 모든 서피스가 동일한 것을 호출합니다.
 

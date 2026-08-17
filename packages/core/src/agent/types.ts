@@ -123,6 +123,17 @@ export interface AgentChatAttachment {
   type: string;
   name: string;
   data?: string;
+  /** Stable object-storage URL for this attachment, when uploaded. */
+  url?: string;
+  /** Provider that owns `url` (for example Builder or S3). */
+  uploadProvider?: string;
+  /** SVG and other unsafe files must stay references, never inline content. */
+  referenceOnly?: boolean;
+  securityNote?: string;
+  /** Set when the current turn could not create a durable object-storage URL. */
+  storageRequired?: boolean;
+  /** Set when a configured object-storage provider rejected or failed the upload. */
+  storageUploadFailed?: boolean;
   contentType?: string;
   text?: string;
 }
@@ -131,6 +142,11 @@ export interface AgentChatScope {
   type: string;
   id: string;
   label?: string;
+}
+
+export interface AgentChatHarnessRequest {
+  /** Hosted tools-only runtime selected in the production app picker. */
+  runtime: "claude-code" | "codex" | "pi" | "opencode";
 }
 
 export interface AgentChatRequest {
@@ -198,6 +214,15 @@ export interface AgentChatRequest {
     payloadRef?: boolean;
   };
   /**
+   * Server-resolved action authorization carried across authenticated durable
+   * background dispatches. Normal client requests must not trust this field;
+   * the foreground handler deletes and replaces it before persistence.
+   */
+  __resolvedActionSurface?: {
+    orgId: string | null;
+    allowedActionNames: string[];
+  };
+  /**
    * Stable identity for the logical assistant turn this request belongs to.
    * The client sends the SAME turnId for the initial POST and every
    * auto-continuation re-POST of one turn, so the server can fold each
@@ -211,7 +236,7 @@ export interface AgentChatRequest {
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */
   engine?: string;
-  /** Per-request reasoning effort override (ephemeral, from the composer picker). */
+  /** Per-request effort override (ephemeral, from the composer picker). */
   effort?: ReasoningEffort;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
@@ -219,6 +244,8 @@ export interface AgentChatRequest {
   browserTabId?: string;
   /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
   scope?: AgentChatScope | null;
+  /** Optional hosted tools-only harness selection. */
+  harness?: AgentChatHarnessRequest;
   /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
   /**
@@ -347,7 +374,11 @@ export type AgentChatEvent =
       taskId: string;
       summary: string;
     }
-  | { type: "done" }
+  | {
+      type: "done";
+      /** Set when a human explicitly stopped the current turn. */
+      reason?: "user";
+    }
   | {
       type: "error";
       error: string;

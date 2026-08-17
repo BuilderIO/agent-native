@@ -34,7 +34,10 @@ import http from "node:http";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -56,8 +59,13 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
+const TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS = 32;
+const TOOL_ORCHESTRATION_MAX_CALLS = 128;
+const TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES = 20;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+export type SandboxCodeMode = "run-code" | "tool-orchestration";
 
 /** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
@@ -256,6 +264,10 @@ export interface ExecuteSandboxCodeOptions {
   getActions: () => Record<string, ActionEntry>;
   /** Extra bridge tool names beyond the defaults. */
   extraBridgeTools?: Set<string>;
+  /** Host policy and helper surface to use inside the sandbox. */
+  mode?: SandboxCodeMode;
+  /** Maximum number of bridged child-tool calls for orchestration mode. */
+  maxToolCalls?: number;
   /** Request context (owner/org) applied to bridged tool calls. */
   context?: ActionRunContext;
 }
@@ -281,6 +293,7 @@ export async function executeSandboxCode(
 ): Promise<ExecuteSandboxCodeResult> {
   const actions = options.getActions();
   const bridgeToken = crypto.randomBytes(32).toString("hex");
+  const mode = options.mode ?? "run-code";
 
   // Start bridge server — resolves once the server is listening.
   const {
@@ -293,6 +306,8 @@ export async function executeSandboxCode(
     options.context,
     DEFAULT_BRIDGE_TOOLS,
     options.extraBridgeTools ?? new Set(),
+    mode,
+    options.maxToolCalls,
   );
 
   try {
@@ -319,7 +334,12 @@ export async function executeSandboxCode(
     // regardless of adapter.
     const { stdout, stderr, exitCode, timedOut } =
       await resolveExecutionSandboxAdapter().run({
-        moduleSource: buildSandboxModule(options.code, bridgePort, bridgeToken),
+        moduleSource: buildSandboxModule(
+          options.code,
+          bridgePort,
+          bridgeToken,
+          mode,
+        ),
         env: safeEnv,
         timeoutMs: options.timeoutMs,
         bridgePort,
@@ -401,6 +421,7 @@ async function enqueueBackgroundRunCode(input: {
     owner,
     orgId: input.context?.orgId ?? null,
     threadId: input.context?.threadId ?? null,
+    allowedActionNames: getRequestRunContext()?.allowedActionNames,
   });
 
   const hasGetTool = Boolean(input.getActions()["get-code-execution"]);
@@ -642,8 +663,17 @@ async function startBridgeServer(
   context: ActionRunContext | undefined,
   defaultTools: Set<string>,
   extraTools: Set<string>,
+  mode: SandboxCodeMode,
+  maxToolCalls: number | undefined,
 ): Promise<BridgeResult> {
   const usedTools = new Set<string>();
+  const callBudget =
+    mode === "tool-orchestration"
+      ? {
+          count: 0,
+          max: normalizeToolCallBudget(maxToolCalls),
+        }
+      : undefined;
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/tool") {
       res.writeHead(404);
@@ -682,6 +712,8 @@ async function startBridgeServer(
         defaultTools,
         extraTools,
         usedTools,
+        mode,
+        callBudget,
         res,
       );
     });
@@ -720,9 +752,11 @@ function handleBridgeRequest(
   defaultTools: Set<string>,
   extraTools: Set<string>,
   usedTools: Set<string>,
+  mode: SandboxCodeMode,
+  callBudget: { count: number; max: number } | undefined,
   res: http.ServerResponse,
 ): void {
-  let parsed: { tool?: string; args?: Record<string, string> };
+  let parsed: { tool?: string; args?: Record<string, unknown> };
   try {
     parsed = JSON.parse(rawBody);
   } catch {
@@ -754,7 +788,32 @@ function handleBridgeRequest(
     entry.readOnly === true &&
     entry.agentTool !== false &&
     entry.toolCallable !== false;
-  if (
+  const toolArgs = parsed.args ?? {};
+  const childArgs =
+    mode === "tool-orchestration"
+      ? boundToolOrchestrationArgs(toolName, toolArgs)
+      : toolArgs;
+
+  if (mode === "tool-orchestration") {
+    if (callBudget && callBudget.count >= callBudget.max) {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: `Tool-orchestration child-call budget exceeded (${callBudget.max}). Aggregate the current results or increase maxToolCalls within its limit.`,
+        }),
+      );
+      return;
+    }
+    if (!isAllowedToolOrchestrationCall(toolName, childArgs, entry)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: `Tool "${toolName}" is not permitted by tool-orchestration. Only read-only tools and GET/HEAD provider or web reads without staging or saving files are allowed; call mutating tools directly.`,
+        }),
+      );
+      return;
+    }
+  } else if (
     !defaultTools.has(toolName) &&
     !extraTools.has(toolName) &&
     !isReadOnlyAction
@@ -777,12 +836,12 @@ function handleBridgeRequest(
     return;
   }
 
-  const toolArgs = parsed.args ?? {};
+  if (callBudget) callBudget.count += 1;
   usedTools.add(toolName);
   // Run the tool with the parent request context so auth/org/owner resolution
   // works exactly as it does in the normal agent loop.
   entry
-    .run(toolArgs, context)
+    .run(childArgs, context)
     .then((result: unknown) => {
       const body =
         typeof result === "string" ? result : JSON.stringify(result, null, 2);
@@ -794,6 +853,155 @@ function handleBridgeRequest(
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: message }));
     });
+}
+
+function normalizeToolCallBudget(value: number | undefined): number {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS;
+  }
+  return Math.min(Math.floor(value), TOOL_ORCHESTRATION_MAX_CALLS);
+}
+
+function isAllowedToolOrchestrationCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (toolName === "workspace-files") {
+    // This is an internal bridge action by design, so agentTool/toolCallable
+    // are intentionally not required here. Its operation enum is the policy
+    // boundary for the read-only workspace surface.
+    return isCallableWithoutApproval(entry) && isReadOnlyWorkspaceRequest(args);
+  }
+  if (toolName === "provider-api-request") {
+    return isReadOnlyProviderApiRequest(args, entry);
+  }
+  return isReadOnlyOrchestrationAction(args, entry);
+}
+
+function isCallableWithoutApproval(entry: ActionEntry): boolean {
+  // The bridge calls ActionEntry.run directly for child reads. A predicate
+  // approval gate must therefore fail closed rather than being silently
+  // bypassed by this bounded path.
+  return entry.needsApproval === undefined || entry.needsApproval === false;
+}
+
+function isReadOnlyWorkspaceRequest(args: Record<string, unknown>): boolean {
+  const action = typeof args.action === "string" ? args.action : "";
+  return action === "read" || action === "list" || action === "grep";
+}
+
+function isReadOnlyProviderApiRequest(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+  const method = String(args.method ?? "GET").toUpperCase();
+  return (
+    (method === "GET" || method === "HEAD") &&
+    args.stageAs == null &&
+    args.saveToFile == null
+  );
+}
+
+function isReadOnlyOrchestrationAction(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.toolCallable === false ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+
+  const planMode = entry.planMode;
+  if (!planMode) return entry.readOnly === true;
+
+  const input = args as any;
+  if (
+    planMode.allowedProperties &&
+    Object.keys(args).some((key) => !planMode.allowedProperties!.includes(key))
+  ) {
+    return false;
+  }
+  if (
+    planMode.omittedProperties?.some((key) =>
+      Object.prototype.hasOwnProperty.call(args, key),
+    )
+  ) {
+    return false;
+  }
+  if (
+    Object.entries(planMode.allowedValues ?? {}).some(([key, allowed]) => {
+      const value = args[key];
+      return (
+        value !== null &&
+        value !== undefined &&
+        (typeof value !== "string" || !allowed.includes(value))
+      );
+    })
+  ) {
+    return false;
+  }
+
+  try {
+    const effect =
+      typeof planMode.effect === "function"
+        ? planMode.effect(input)
+        : planMode.effect;
+    return effect === "read";
+  } catch (error) {
+    console.warn(
+      "[run-code] tool-orchestration read-only policy classifier failed closed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return false;
+  }
+}
+
+function boundToolOrchestrationArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (toolName !== "provider-api-request") return args;
+  const fetchAllPages = args.fetchAllPages;
+  if (
+    !fetchAllPages ||
+    typeof fetchAllPages !== "object" ||
+    Array.isArray(fetchAllPages)
+  ) {
+    return args;
+  }
+
+  const requestedMaxPages = Number(
+    (fetchAllPages as Record<string, unknown>).maxPages,
+  );
+  const maxPages =
+    Number.isInteger(requestedMaxPages) && requestedMaxPages > 0
+      ? Math.min(
+          Math.floor(requestedMaxPages),
+          TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES,
+        )
+      : TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES;
+
+  return {
+    ...args,
+    fetchAllPages: {
+      ...(fetchAllPages as Record<string, unknown>),
+      maxPages,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -810,7 +1018,64 @@ function buildSandboxModule(
   userCode: string,
   bridgePort: number,
   bridgeToken: string,
+  mode: SandboxCodeMode = "run-code",
 ): string {
+  const orchestrationHelpers =
+    mode === "tool-orchestration"
+      ? `
+/**
+ * Search the live registry for read-only or conditionally read-only tools, then call one
+ * of the returned names with toolCall(). The parent host enforces the same
+ * policy again, so this is discovery guidance rather than an authorization
+ * boundary.
+ */
+async function toolSearch(query = "", options = {}) {
+  const rawResult = await _bridgeCall("tool-search", {
+    ...(query ? { query } : {}),
+    ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    includeSchemas: true,
+    readOnlyOnly: true,
+  });
+  return _parseBridgeResult(rawResult);
+}
+
+async function toolCall(name, args = {}) {
+  return _parseBridgeResult(await _bridgeCall(name, args));
+}
+`
+      : "";
+  const workspaceMutationHelpers =
+    mode === "run-code"
+      ? `
+/**
+ * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
+ * temporary staging files.
+ * \`content\` must be a string. Returns metadata
+ * { resourceId, path, contentType, sizeBytes, updatedAt }.
+ */
+async function workspaceWrite(path, content, contentType = "text/plain") {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "write",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+    contentType,
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+
+/**
+ * Append text to a workspace file (creates if absent).
+ */
+async function workspaceAppend(path, content) {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "append",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+`
+      : "";
   return `
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -866,6 +1131,8 @@ function _parseBridgeResult(rawResult) {
 async function appAction(name, args = {}) {
   return _parseBridgeResult(await _bridgeCall(name, args));
 }
+
+${orchestrationHelpers}
 
 async function providerRequest(provider, apiPath, init = {}) {
   const method = (init.method || "GET").toUpperCase();
@@ -1609,33 +1876,7 @@ async function workspaceReadMeta(path, opts = {}) {
   return _parseBridgeResult(rawResult);
 }
 
-/**
- * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
- * temporary staging files.
- * \`content\` must be a string. Returns metadata
- * { resourceId, path, contentType, sizeBytes, updatedAt }.
- */
-async function workspaceWrite(path, content, contentType = "text/plain") {
-  const rawResult = await _bridgeCall("workspace-files", {
-    action: "write",
-    path,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-    contentType,
-  });
-  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-}
-
-/**
- * Append text to a workspace file (creates if absent).
- */
-async function workspaceAppend(path, content) {
-  const rawResult = await _bridgeCall("workspace-files", {
-    action: "append",
-    path,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-  });
-  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-}
+${workspaceMutationHelpers}
 
 /**
  * List workspace files, optionally filtered by path prefix.

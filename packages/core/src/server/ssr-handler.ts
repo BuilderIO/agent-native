@@ -22,6 +22,7 @@ import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -35,6 +36,7 @@ import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
+import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -50,6 +52,7 @@ export {
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
@@ -257,6 +260,14 @@ function isSsrHtmlOrDataResponse(
  * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
  * │ for the whole deployment cannot.                                           │
  * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * The same sharing rule governs any DIAGNOSTIC header on this response. A
+ * per-request timing written here is stored once by the origin render and
+ * replayed unchanged to every later visitor, so it must not wear a live-looking
+ * phase name. `installHttpResponseTelemetryHooks` detects the shared-cacheable
+ * policy stamped below and collapses `server-timing` to one `origin` entry
+ * carrying the render's wall-clock time; do not add a per-request header here
+ * that contradicts that.
  */
 function applyDefaultSsrCacheHeader(
   headers: Headers,
@@ -292,6 +303,9 @@ function applyDefaultSsrCacheHeader(
   // actually serves SSR HTML/.data from the edge instead of forwarding every
   // request to origin — for every visitor, authenticated or not.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
+    headers.set(name, value);
+  }
+  for (const [name, value] of Object.entries(resolveSsrCacheKeyHeaders())) {
     headers.set(name, value);
   }
 }
@@ -384,6 +398,7 @@ async function rewriteMountedResponse(
       getSentryClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
+      getAppOriginClientConfigScript(),
     ]
       .filter(Boolean)
       .join("") || null;

@@ -26,6 +26,10 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   configured: boolean;
+  /** Provider-owned connection state shown at the far edge of the row. */
+  statusLabel?: string;
+  /** Marks a configured local subscription so setup CTAs can stay hidden. */
+  isSubscription?: boolean;
 }
 
 export interface ComposerModelState {
@@ -106,6 +110,7 @@ export interface VoiceContextPack {
 export interface ComposerRuntimeAdapters {
   resolvePath?: (path: string) => string;
   translate?: ComposerTranslate;
+  formatNumber?: (value: number, options?: Intl.NumberFormatOptions) => string;
   models?: {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
@@ -174,13 +179,20 @@ export interface ComposerRuntimeAdapters {
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) =>
-  typeof options?.defaultValue === "string" ? options.defaultValue : key;
+const fallbackTranslate: ComposerTranslate = (key, options) => {
+  const template =
+    typeof options?.defaultValue === "string" ? options.defaultValue : key;
+
+  return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
+    const value = options?.[name];
+    return value == null ? match : String(value);
+  });
+};
 const fallbackModels = {
   useChatModels: () => ({
     selectedModel: "auto",
     selectedEngine: "auto",
-    selectedEffort: "medium" as ReasoningEffort,
+    selectedEffort: "high" as ReasoningEffort,
     availableModels: [],
     isLoading: false,
     onModelChange: () => {},
@@ -206,6 +218,8 @@ const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
   ComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
+  formatNumber: (value, options) =>
+    new Intl.NumberFormat("en-US", options).format(value),
   models: fallbackModels,
   agentChat: {
     sendToAgentChat: () => {},
@@ -277,7 +291,7 @@ export function useComposerRuntimeAdapters() {
   return useContext(ComposerRuntimeAdaptersContext);
 }
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 export function getReasoningEffortOptionsForModel(
   _model?: string,
 ): ReasoningEffort[] {

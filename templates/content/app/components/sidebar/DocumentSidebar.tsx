@@ -2254,6 +2254,13 @@ export function DocumentSidebar({
       <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
         {brandButton(true)}
         {renderCollapsedNewButton()}
+        <SidebarFooterActions
+          collapsed
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+          className="mt-auto"
+        />
         <Tooltip>
           <TooltipTrigger asChild>
             <Link
@@ -2270,12 +2277,6 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
-        <SidebarFooterActions
-          collapsed
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
       </div>
     );
   }

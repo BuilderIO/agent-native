@@ -4,7 +4,6 @@ import {
   normalizeReferenceUrls,
 } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
-import { IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
@@ -80,7 +79,7 @@ export function buildImageGenerationContext({
   }
 
   contextParts.push(
-    '\nGenerate 3 variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. Let the user pick their favorite, then insert the chosen generated image into the slide content in the right place.',
+    '\nGenerate 3 preview-only variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. After the user chooses one, place that preview URL with update-slide and then get-deck to verify the persisted slide HTML contains it before claiming success. For a direct one-image request instead, call `generate-image-api` with insertIntoSlide: true plus deckId and slideId; claim it was added only if the action returns inserted: true.',
   );
 
   return contextParts.join("\n");
@@ -98,7 +97,7 @@ export default function ImageGenPanel({
   const [disabledDefaults, setDisabledDefaults] = useState<Set<number>>(
     new Set(),
   );
-  const { generating, submit: agentSubmit } = useAgentGenerating();
+  const { submit: agentSubmit } = useAgentGenerating();
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -148,6 +147,11 @@ export default function ImageGenPanel({
 
     agentSubmit(label, context);
     setPrompt("");
+    // Generation happens asynchronously in the agent chat, which already
+    // surfaces its own progress/failure state — keeping this popup open with
+    // a separate loading flag risks it getting stuck if the two states
+    // diverge (e.g. the chat run keeps going after this request finishes).
+    onOpenChange(false);
   };
 
   if (!open) return null;
@@ -246,17 +250,9 @@ export default function ImageGenPanel({
         {/* Generate button */}
         <button
           onClick={handleGenerate}
-          disabled={generating}
-          className="w-full px-4 py-2 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-70 disabled:cursor-not-allowed text-black text-sm font-medium transition-colors flex items-center justify-center gap-2"
+          className="w-full px-4 py-2 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
-          {generating ? (
-            <>
-              <IconLoader2 className="w-4 h-4 animate-spin" />
-              {t("raw.generatingImage")}
-            </>
-          ) : (
-            "Generate"
-          )}
+          Generate
         </button>
       </div>
     </div>,

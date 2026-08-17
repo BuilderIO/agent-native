@@ -68,7 +68,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#0f172a" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -191,7 +190,7 @@ function AppContent() {
         changelogKey="dispatch"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
             <IconHierarchy2 size={16} />
             {t("root.openAgent")}
           </CommandMenu.Item>
@@ -203,7 +202,10 @@ function AppContent() {
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <AppLayout extensions={dispatchExtensions} agentPageHref="/agent">
+      <AppLayout
+        extensions={dispatchExtensions}
+        agentPageHref="/settings/agent"
+      >
         <Outlet />
       </AppLayout>
     </>

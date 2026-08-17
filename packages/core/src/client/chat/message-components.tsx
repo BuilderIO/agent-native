@@ -1,11 +1,12 @@
 // Owns: message-timestamp helpers, SelectionAttachedPill, UserMessage,
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
-// RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
+// UserStoppedRunContext, RunningActivityStatus, ThinkingIndicator, and
+// displayableUserMessageText.
 
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
-  useThread,
+  useThreadRuntime,
   useMessageRuntime,
   useComposer,
   MessagePrimitive,
@@ -49,6 +50,12 @@ import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -62,17 +69,26 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { localizeKnownChatErrorText } from "../error-format.js";
+import {
+  DEFAULT_LOCALE,
+  useFormatters,
+  useOptionalLocale,
+  useT,
+} from "../i18n.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
   isCallAgentToolCallShadowed,
+  isToolCallActive,
   shadowedCallAgentToolCallIds,
 } from "../tool-display.js";
 import { cn } from "../utils.js";
 import {
   MarkdownText,
   renderMarkdownToClipboardHtml,
+  SmoothMarkdownText,
 } from "./markdown-renderer.js";
 import { getAssistantRunDurationMs } from "./repo-helpers.js";
 import {
@@ -84,13 +100,15 @@ import {
 import {
   ToolCallFallback,
   ToolActivityPresentation,
+  ToolCallStackMotion,
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunningRunIdContext,
+  ChatRunningTurnIdContext,
   ChatRunDurationContext,
-  formatWorkedDuration,
-  RanToolsSummary,
   ReasoningCell,
+  useLocalizedWorkedDuration,
   WorkedForSummary,
   toolCallHasPendingApproval,
 } from "./tool-call-display.js";
@@ -105,7 +123,7 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 
 export function displayableUserMessageText(text: string): string {
   return text
-    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "") // i18n-ignore -- parsing regex, not UI copy.
     .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
     .replace(/<\/context>/gi, "")
     .trim();
@@ -158,6 +176,8 @@ function isSameCalendarDay(a: Date, b: Date): boolean {
 
 export function formatMessageTimestamp(
   value: unknown,
+  locale?: string,
+  yesterdayLabel = "Yesterday",
 ): FormattedMessageTimestamp | null {
   const date = coerceMessageDate(value);
   if (!date) return null;
@@ -165,7 +185,7 @@ export function formatMessageTimestamp(
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  const time = new Intl.DateTimeFormat(undefined, {
+  const time = new Intl.DateTimeFormat(locale, {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
@@ -174,14 +194,14 @@ export function formatMessageTimestamp(
   if (isSameCalendarDay(date, now)) {
     short = time;
   } else if (isSameCalendarDay(date, yesterday)) {
-    short = `Yesterday ${time}`;
+    short = `${yesterdayLabel} ${time}`;
   } else if (date.getFullYear() === now.getFullYear()) {
-    short = `${new Intl.DateTimeFormat(undefined, {
+    short = `${new Intl.DateTimeFormat(locale, {
       month: "short",
       day: "numeric",
     }).format(date)}, ${time}`;
   } else {
-    short = `${new Intl.DateTimeFormat(undefined, {
+    short = `${new Intl.DateTimeFormat(locale, {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -190,7 +210,7 @@ export function formatMessageTimestamp(
 
   return {
     short,
-    full: new Intl.DateTimeFormat(undefined, {
+    full: new Intl.DateTimeFormat(locale, {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -224,6 +244,8 @@ export function MessageTimestamp({
 // ─── SelectionAttachedPill ────────────────────────────────────────────────────
 
 export function SelectionAttachedPill() {
+  const t = useT();
+  const { formatNumber } = useFormatters();
   const [length, setLength] = useState<number | null>(null);
 
   useEffect(() => {
@@ -269,10 +291,15 @@ export function SelectionAttachedPill() {
     <div className="agent-selection-attached-pill shrink-0 px-3 pt-1.5 -mb-1">
       <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
         <IconQuote size={11} />
-        <span>{length.toLocaleString()} chars of selection attached</span>
+        <span>
+          {t("agentChat.selection.attached", {
+            count: length,
+            formattedCount: formatNumber(length),
+          })}
+        </span>
         <button
           type="button"
-          aria-label="Clear selection context"
+          aria-label={t("agentChat.selection.clear")}
           onClick={() => {
             setLength(null);
             // Dispatch clear event; AssistantChat owns the DELETE call.
@@ -313,6 +340,17 @@ export const MessageActionsContext = React.createContext<{
   bannerRunErrorKey?: string | null;
 } | null>(null);
 
+export function isLocalDevelopmentHost(hostname: string): boolean {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  return (
+    normalizedHostname === "localhost" ||
+    normalizedHostname === "127.0.0.1" ||
+    normalizedHostname === "0.0.0.0" ||
+    normalizedHostname === "::1" ||
+    normalizedHostname === "[::1]"
+  );
+}
+
 /**
  * Restore rewrites the working tree, so only offer it when the server actually
  * has a checkpoint for this turn. Auto-checkpointing skips turns that started
@@ -325,8 +363,10 @@ export function shouldOfferRestore(args: {
   isLast: boolean;
   runId: string | undefined;
   checkpointRunIds: ReadonlySet<string> | undefined;
+  hostname: string;
 }): boolean {
   return Boolean(
+    isLocalDevelopmentHost(args.hostname) &&
     args.devMode &&
     args.isComplete &&
     !args.isLast &&
@@ -350,9 +390,42 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
+/** Stable logical-turn identity shared by chained continuation run IDs. */
+export function assistantMessageTurnId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { turnId?: unknown }; turnId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.turnId === "string"
+    ? metadata.custom.turnId
+    : typeof metadata?.turnId === "string"
+      ? metadata.turnId
+      : undefined;
+}
+
+export function assistantMessageWasUserStopped(message: unknown): boolean {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { userStopped?: unknown }; userStopped?: unknown }
+    | undefined;
+  return (
+    metadata?.custom?.userStopped === true || metadata?.userStopped === true
+  );
+}
+
+export function resolveAssistantRequestId(
+  message: unknown,
+  activeRun: { threadId: string; runId: string } | null,
+  threadId: string,
+): string | undefined {
+  return (
+    assistantMessageRunId(message) ||
+    (activeRun?.threadId === threadId ? activeRun.runId : undefined)
+  );
+}
+
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
+  const t = useT();
   return (
     <BranchPickerPrimitive.Root
       hideWhenSingleBranch
@@ -361,7 +434,7 @@ export function MessageBranchPicker() {
       <BranchPickerPrimitive.Previous asChild>
         <button
           type="button"
-          aria-label="Previous branch"
+          aria-label={t("agentChat.message.previousBranch")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
           <IconChevronLeft className="h-3.5 w-3.5" />
@@ -375,7 +448,7 @@ export function MessageBranchPicker() {
       <BranchPickerPrimitive.Next asChild>
         <button
           type="button"
-          aria-label="Next branch"
+          aria-label={t("agentChat.message.nextBranch")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
           <IconChevronRight className="h-3.5 w-3.5" />
@@ -521,17 +594,11 @@ function UserMessageAttachments() {
         const imageSrc = uploadUrl || imagePart?.image || null;
         if (imageSrc) {
           return (
-            <div
+            <ChatImageAttachmentPreview
               key={att.id}
-              className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-              title={att.name}
-            >
-              <img
-                src={imageSrc}
-                alt={att.name}
-                className="h-full w-full object-cover"
-              />
-            </div>
+              src={imageSrc}
+              alt={att.name}
+            />
           );
         }
         return (
@@ -549,9 +616,70 @@ function UserMessageAttachments() {
   );
 }
 
+export function ChatImageAttachmentPreview({
+  src,
+  alt,
+}: {
+  src: string;
+  alt: string;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t("agentChat.composer.previewAttachment", { name: alt })}
+        title={alt}
+        onClick={() => setOpen(true)}
+        className="h-16 w-16 cursor-zoom-in overflow-hidden rounded-lg border border-border/70 bg-muted/50 p-0 transition-[border-color,box-shadow] hover:border-foreground/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <img src={src} alt={alt} className="h-full w-full object-cover" />
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          hideClose
+          aria-describedby={undefined}
+          className="fixed inset-0 left-0 top-0 flex h-screen max-h-none w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 overflow-hidden rounded-none border-0 bg-foreground/90 p-0 text-background shadow-none backdrop-blur-sm dark:bg-background/95 dark:text-foreground"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <DialogTitle className="sr-only">
+            {alt || t("agentChat.composer.imagePreview")}
+          </DialogTitle>
+          <div
+            className="flex h-full w-full items-center justify-center overflow-auto p-6"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setOpen(false);
+            }}
+          >
+            <img
+              src={src}
+              alt={alt}
+              draggable={false}
+              className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+            />
+          </div>
+          <DialogClose asChild>
+            <button
+              type="button"
+              aria-label={t("agentChat.composer.closePreview")}
+              className="absolute end-4 top-4 inline-flex size-9 items-center justify-center rounded-full border border-background/25 bg-background/10 text-background transition-colors hover:bg-background/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-foreground/25 dark:bg-foreground/10 dark:text-foreground dark:hover:bg-foreground/20"
+            >
+              <IconX className="size-4" />
+            </button>
+          </DialogClose>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // ─── UserMessageEditComposer ──────────────────────────────────────────────────
 
 function UserMessageEditComposer() {
+  const t = useT();
   return (
     <ComposerPrimitive.Root className="flex flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
       <ComposerPrimitive.Input
@@ -565,7 +693,7 @@ function UserMessageEditComposer() {
             type="button"
             className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            Cancel
+            {t("agentChat.common.cancel")}
           </button>
         </ComposerPrimitive.Cancel>
         <ComposerPrimitive.Send asChild>
@@ -573,7 +701,7 @@ function UserMessageEditComposer() {
             type="submit"
             className="cursor-pointer rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
           >
-            Save
+            {t("agentChat.common.save")}
           </button>
         </ComposerPrimitive.Send>
       </div>
@@ -586,15 +714,23 @@ function UserMessageEditComposer() {
 export function MessageActionsMenu({
   showRevert,
   onRevert,
+  threadId = "",
 }: {
   showRevert?: boolean;
   onRevert?: () => void;
+  threadId?: string;
 } = {}) {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
-  const timestamp = formatMessageTimestamp(messageRuntime.getState().createdAt);
+  const timestamp = formatMessageTimestamp(
+    messageRuntime.getState().createdAt,
+    locale,
+    t("agentChat.history.yesterday"),
+  );
 
   const handleCopyMessage = useCallback(() => {
     const m = messageRuntime.getState();
@@ -617,24 +753,23 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    // If the message carries no run id (e.g. the run is still in flight and
-    // this is the first message), fall back to the active-run state so a hung /
-    // mid-stream chat still surfaces a usable trace ID. Last resort is the
-    // assistant-ui local message id.
-    const runId =
-      assistantMessageRunId(m) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
-      m.id ||
-      "";
+    const runId = resolveAssistantRequestId(m, getActiveRun(), threadId);
+    if (!runId) {
+      setCopied("id-unavailable");
+      return;
+    }
     void writeClipboardText(runId).then((ok) => {
-      if (!ok) return;
+      if (!ok) {
+        setCopied("id-failed");
+        return;
+      }
       setCopied("id");
       setTimeout(() => {
         setCopied(null);
         setOpen(false);
       }, 1000);
     });
-  }, [messageRuntime]);
+  }, [messageRuntime, threadId]);
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
@@ -650,7 +785,7 @@ export function MessageActionsMenu({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label="Message actions"
+          aria-label={t("agentChat.message.actions")}
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
             open && "bg-accent text-foreground",
@@ -667,7 +802,7 @@ export function MessageActionsMenu({
         {actionsCtx?.onForkChat && (
           <DropdownMenuItem onSelect={handleForkChat}>
             <IconGitFork className="h-3.5 w-3.5" />
-            Fork Chat
+            {t("agentChat.message.forkChat")}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
@@ -681,7 +816,9 @@ export function MessageActionsMenu({
           ) : (
             <IconCopy className="h-3.5 w-3.5" />
           )}
-          {copied === "message" ? "Copied!" : "Copy Message"}
+          {copied === "message"
+            ? t("agentChat.common.copied")
+            : t("agentChat.message.copyMessage")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={(e) => {
@@ -694,19 +831,25 @@ export function MessageActionsMenu({
           ) : (
             <IconId className="h-3.5 w-3.5" />
           )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
+          {copied === "id"
+            ? t("agentChat.common.copied")
+            : copied === "id-unavailable"
+              ? t("agentChat.message.requestIdUnavailable")
+              : copied === "id-failed"
+                ? t("agentChat.recovery.copyFailed")
+                : t("agentChat.message.copyRequestId")}
         </DropdownMenuItem>
         {showRevert && (
           <DropdownMenuItem onSelect={handleRevert}>
             <IconArrowBackUp className="h-3.5 w-3.5" />
-            Revert to here
+            {t("agentChat.message.revertHere")}
           </DropdownMenuItem>
         )}
         {timestamp && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
-              Sent {timestamp.short}
+              {t("agentChat.message.sentAt", { time: timestamp.short })}
             </DropdownMenuLabel>
           </>
         )}
@@ -718,12 +861,18 @@ export function MessageActionsMenu({
 // ─── UserMessage ──────────────────────────────────────────────────────────────
 
 export function UserMessage() {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
-  const timestamp = formatMessageTimestamp(message.createdAt);
+  const timestamp = formatMessageTimestamp(
+    message.createdAt,
+    locale,
+    t("agentChat.history.yesterday"),
+  );
   const isEditing = useComposer((state) => state.isEditing);
   const chatRunning = React.useContext(ChatRunningContext);
   const hidden = isHiddenUserMessage(message);
@@ -814,7 +963,7 @@ export function UserMessage() {
                     <ActionBarPrimitive.Edit asChild>
                       <button
                         type="button"
-                        aria-label="Edit message"
+                        aria-label={t("agentChat.message.edit")}
                         className="absolute -left-8 top-1 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/0 transition-colors duration-150 group-hover:text-muted-foreground/70 group-hover:hover:bg-accent group-hover:hover:text-foreground"
                       >
                         <IconPencil className="h-3.5 w-3.5" />
@@ -822,7 +971,7 @@ export function UserMessage() {
                     </ActionBarPrimitive.Edit>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="text-xs">
-                    Edit message
+                    {t("agentChat.message.edit")}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -841,7 +990,9 @@ export function UserMessage() {
                 expanded && "rotate-180",
               )}
             />
-            {expanded ? "Collapse" : "Expand"}
+            {expanded
+              ? t("agentChat.common.collapse")
+              : t("agentChat.common.expand")}
           </button>
         )}
         <div className="mt-1 flex items-center justify-end gap-1">
@@ -901,6 +1052,56 @@ export function messageTextFromContent(content: unknown): string {
     .join("\n");
 }
 
+export function isMissingFinalResponseWarningText(text: string): boolean {
+  const normalized = text.trim();
+  if (
+    normalized ===
+    "The agent stopped without sending a final message. Ask the agent to continue or retry."
+  ) {
+    return true;
+  }
+  return (
+    normalized.includes("stopped before sending a final message") ||
+    normalized.includes("stopped without sending a final message")
+  );
+}
+
+function finalResponseTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const record = part as { type?: unknown; text?: unknown };
+      if (
+        record.type !== "text" ||
+        typeof record.text !== "string" ||
+        isMissingFinalResponseWarningText(record.text)
+      ) {
+        return [];
+      }
+      return [record.text];
+    })
+    .join("\n");
+}
+
+function missingFinalResponseWarningText(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    const part = content[index];
+    if (
+      part &&
+      typeof part === "object" &&
+      (part as { type?: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string" &&
+      isMissingFinalResponseWarningText((part as { text: string }).text)
+    ) {
+      return (part as { text: string }).text;
+    }
+  }
+  return null;
+}
+
 export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -938,6 +1139,14 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
     if (!part || typeof part !== "object") return false;
     const record = part as { type?: unknown; result?: unknown };
     return record.type === "tool-call" && record.result === undefined;
+  });
+}
+
+export function assistantMessageHasActiveTool(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part): boolean => {
+    if (!part || typeof part !== "object") return false;
+    return isToolCallActive(part as ContentPart);
   });
 }
 
@@ -982,6 +1191,7 @@ export function assistantMessageHasCompletedCustomUi(
     }
     hasCompletedTool = true;
     lastCompletedToolIsCustomUi =
+      isAlwaysVisibleAssistantTool(record) ||
       record.chatUI !== undefined ||
       record.mcpApp !== undefined ||
       toolCallHasPendingApproval(record);
@@ -1001,7 +1211,8 @@ export function assistantMessageHasCustomUi(content: unknown): boolean {
     };
     return (
       record.type === "tool-call" &&
-      (record.chatUI !== undefined ||
+      (isAlwaysVisibleAssistantTool(record) ||
+        record.chatUI !== undefined ||
         record.mcpApp !== undefined ||
         toolCallHasPendingApproval(record))
     );
@@ -1032,19 +1243,43 @@ export function computeActiveTailToolCallId(
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
+  activeRunId,
+  messageRunId,
+  activeTurnId,
+  messageTurnId,
   hasRenderableContent,
   statusIsTerminal,
   hasUnresolvedTool,
+  hasActiveTool,
 }: {
   isLast: boolean;
   chatRunning: boolean;
+  activeRunId?: string | null;
+  messageRunId?: string;
+  activeTurnId?: string | null;
+  messageTurnId?: string;
   hasRenderableContent: boolean;
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
+  hasActiveTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  const ownsActiveTurn =
+    activeTurnId != null &&
+    (messageTurnId == null || activeTurnId === messageTurnId);
+  // Keep the run-id comparison only for legacy messages that predate the
+  // turn-id metadata. Once either side has a logical-turn identity, absent
+  // turn evidence must not be treated as proof of a different run.
+  const ownsLegacyRun =
+    activeTurnId == null &&
+    messageTurnId == null &&
+    activeRunId != null &&
+    messageRunId != null &&
+    activeRunId === messageRunId;
+  const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
+  if (chatRunning && ownsActiveRun) return false;
+  if (hasActiveTool) return false;
   if (!isLast) return true;
-  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
 }
@@ -1056,6 +1291,9 @@ export function shouldShowAssistantMessageFooter({
  * that the agent stopped.
  */
 export const ServerRunActiveContext = React.createContext(false);
+export const UserStoppedRunContext = React.createContext<
+  (runId?: string) => boolean
+>(() => false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1064,6 +1302,8 @@ export function shouldShowMissingFinalResponse({
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
+  hasActiveTool,
+  userStoppedRun,
 }: {
   isCurrentTurnRunning: boolean;
   serverRunActive?: boolean;
@@ -1071,7 +1311,10 @@ export function shouldShowMissingFinalResponse({
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
+  hasActiveTool?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
+  if (userStoppedRun) return false;
   if (serverRunActive) return false;
   // A completed tool can make the latest message look terminal before the
   // active turn attaches its follow-up text.
@@ -1080,6 +1323,7 @@ export function shouldShowMissingFinalResponse({
     statusIsTerminal &&
     !hasAssistantText &&
     !hasUnresolvedTool &&
+    !hasActiveTool &&
     !hasCompletedCustomUi
   );
 }
@@ -1090,7 +1334,7 @@ export function shouldShowMissingFinalResponse({
  * still alive server-side. Requiring the shape to hold for a beat keeps the
  * notice off the screen for those gaps without hiding a real stop for long.
  */
-const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
+const MISSING_FINAL_RESPONSE_SETTLE_MS = 250;
 
 export function useSettledFlag(active: boolean, delayMs: number): boolean {
   const [settled, setSettled] = useState(false);
@@ -1110,15 +1354,18 @@ export function shouldShowAssistantWorkSummary({
   isComplete,
   hasCollapsibleWork,
   hasUnresolvedTool,
+  hasActiveTool,
   chatRunning,
 }: {
   isLast: boolean;
   isComplete: boolean;
   hasCollapsibleWork: boolean;
   hasUnresolvedTool: boolean;
+  hasActiveTool?: boolean;
   chatRunning: boolean;
 }): boolean {
   if (!hasCollapsibleWork) return false;
+  if (hasActiveTool) return false;
 
   // An unresolved tool means "still working" only while the turn is actually
   // running. On a stalled or interrupted turn it used to hide the summary
@@ -1129,6 +1376,14 @@ export function shouldShowAssistantWorkSummary({
   // Removing the wrapper exposes/remounts ReasoningCell and resets its
   // disclosure state to the default-open value on every new submission.
   return isComplete || !isLast;
+}
+
+export function getAssistantWorkSummaryDurationMs(
+  durationMs: number | null | undefined,
+  groupStartIndex: number,
+  firstWorkPartIndex: number,
+): number | null | undefined {
+  return groupStartIndex === firstWorkPartIndex ? durationMs : null;
 }
 
 function ReasoningMessagePart() {
@@ -1173,7 +1428,21 @@ function ReasoningMessagePart() {
   );
 }
 
-const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
+const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set([
+  "connect-builder",
+  "connect-file-storage",
+]);
+
+export function isAlwaysVisibleAssistantTool(part: {
+  type?: unknown;
+  toolName?: unknown;
+}): boolean {
+  return (
+    part.type === "tool-call" &&
+    typeof part.toolName === "string" &&
+    ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName)
+  );
+}
 
 export function isCollapsibleAssistantWorkPart(part: {
   type?: string;
@@ -1185,7 +1454,7 @@ export function isCollapsibleAssistantWorkPart(part: {
   if (part.type === "reasoning") return true;
   return (
     part.type === "tool-call" &&
-    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
+    !isAlwaysVisibleAssistantTool(part) &&
     part.chatUI === undefined &&
     part.mcpApp === undefined &&
     // Keep the Approve/Deny affordance outside "Worked for…" - needsApproval
@@ -1231,7 +1500,7 @@ export function getAssistantToolSummaryInfo(
   };
 }
 
-function groupAssistantWorkParts(
+export function groupAssistantWorkParts(
   part: {
     type?: string;
     toolCallId?: string;
@@ -1251,59 +1520,17 @@ function groupAssistantWorkParts(
     mcpApp?: unknown;
     approval?: { approvalKey?: string; dismissed?: boolean };
   }[],
-): ["group-work"] | ["group-work", "group-ran-tools"] | null {
-  if (isCallAgentToolCallShadowed(parts, index)) return null;
-  if (isCollapsibleAssistantWorkPart(part)) {
-    const { startIndex } = getAssistantToolSummaryInfo(parts);
-    if (isAssistantToolSummaryPart(parts, index, startIndex)) {
-      return ["group-work", "group-ran-tools"];
-    }
-    return ["group-work"];
+): ["group-work"] | null {
+  if (isCallAgentToolCallShadowed(parts, index)) {
+    const previousPart = parts[index - 1];
+    const previousPartIsInWorkGroup =
+      previousPart != null &&
+      (isCollapsibleAssistantWorkPart(previousPart) ||
+        isCallAgentToolCallShadowed(parts, index - 1));
+    return previousPartIsInWorkGroup ? ["group-work"] : null;
   }
+  if (isCollapsibleAssistantWorkPart(part)) return ["group-work"];
   return null;
-}
-
-function isAssistantToolSummaryPart(
-  parts: readonly {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-  }[],
-  index: number,
-  startIndex: number,
-): boolean {
-  if (startIndex < 0 || index >= startIndex) return false;
-  if (
-    isCallAgentToolCallShadowed(parts, index) ||
-    !isCollapsibleAssistantWorkPart(parts[index]!)
-  ) {
-    return false;
-  }
-
-  let segmentStart = index;
-  while (
-    segmentStart > 0 &&
-    !isCallAgentToolCallShadowed(parts, segmentStart - 1) &&
-    isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
-  ) {
-    segmentStart--;
-  }
-
-  let segmentEnd = index + 1;
-  while (
-    segmentEnd < startIndex &&
-    !isCallAgentToolCallShadowed(parts, segmentEnd) &&
-    isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
-  ) {
-    segmentEnd++;
-  }
-
-  return parts
-    .slice(segmentStart, segmentEnd)
-    .some((candidate) => candidate.type === "tool-call");
 }
 
 export function shouldShowInlineRunError({
@@ -1326,11 +1553,19 @@ export function InlineRunErrorNotice({
   durationMs?: number | null;
   onRetry?: (() => void) | undefined;
 }) {
+  const t = useT();
+  const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(false);
-  const headline = runErrorHeadline(info);
+  const headline = runErrorHeadline(info, {
+    recoverable: t("agentChat.error.stopped"),
+    terminal: t("agentChat.error.failed"),
+  });
   const label =
     durationMs != null && durationMs >= 1000
-      ? `${headline} after ${formatWorkedDuration(durationMs)}`
+      ? t("agentChat.error.afterDuration", {
+          headline,
+          duration: formatDuration(durationMs),
+        })
       : headline;
 
   return (
@@ -1352,7 +1587,9 @@ export function InlineRunErrorNotice({
       </button>
       {open && (
         <div className="mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground">
-          <p className="whitespace-pre-wrap break-words">{info.message}</p>
+          <p className="whitespace-pre-wrap break-words">
+            {localizeKnownChatErrorText(info.message, t)}
+          </p>
           {info.errorCode && (
             <div className="mt-1 font-mono">code: {info.errorCode}</div>
           )}
@@ -1369,7 +1606,7 @@ export function InlineRunErrorNotice({
               className="mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
             >
               <IconRefresh className="size-3" />
-              Retry
+              {t("agentChat.common.retry")}
             </button>
           )}
         </div>
@@ -1378,24 +1615,67 @@ export function InlineRunErrorNotice({
   );
 }
 
+function MissingFinalResponseNotice({
+  messageId,
+  text,
+  animate,
+  onRevealComplete,
+}: {
+  messageId: string;
+  text: string;
+  animate: boolean;
+  onRevealComplete?: () => void;
+}) {
+  return (
+    <div
+      className="my-1 w-full text-muted-foreground"
+      role="status"
+      aria-live="polite"
+      data-testid="missing-final-response"
+    >
+      <SmoothMarkdownText
+        text={text}
+        streaming={animate}
+        resetKey={`missing-final-response:${messageId}`}
+        statusType={animate ? "running" : "complete"}
+        onRevealComplete={animate ? onRevealComplete : undefined}
+      />
+    </div>
+  );
+}
+
 export function AssistantMessage() {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring" | "error"
   >("idle");
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
-  const thread = useThread();
+  const threadRuntime = useThreadRuntime();
   const chatRunning = React.useContext(ChatRunningContext);
+  const activeRunId = React.useContext(ChatRunningRunIdContext);
+  const activeTurnId = React.useContext(ChatRunningTurnIdContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
-  const timestamp = formatMessageTimestamp(msg.createdAt);
-  const isLast =
-    thread.messages.length > 0 &&
-    thread.messages[thread.messages.length - 1].id === msg.id;
+  const timestamp = formatMessageTimestamp(
+    msg.createdAt,
+    locale,
+    t("agentChat.history.yesterday"),
+  );
+  const isLast = msg.isLast;
+  const wasLiveRef = useRef(false);
+  const messageRunId = assistantMessageRunId(msg);
+  const messageTurnId = assistantMessageTurnId(msg);
+  const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const isUserStoppedRun =
+    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
-  const responseConnectionText = messageTextFromContent(msg.content);
+  const hasActiveTool = assistantMessageHasActiveTool(msg.content);
+  const missingWarningText = missingFinalResponseWarningText(msg.content);
+  const responseConnectionText = finalResponseTextFromContent(msg.content);
   const statusIsTerminal = assistantMessageStatusIsTerminal(msg);
   const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
     msg.content,
@@ -1404,33 +1684,105 @@ export function AssistantMessage() {
   const serverRunActive = React.useContext(ServerRunActiveContext);
   const messageRunError = getRunErrorMetadata(msg);
   const messageActions = React.useContext(MessageActionsContext);
-  const showInlineRunError = shouldShowInlineRunError({
-    runError: messageRunError,
-    bannerRunErrorKey: messageActions?.bannerRunErrorKey,
-  });
-  const showMissingFinalResponse = useSettledFlag(
+  const showInlineRunError =
+    !isUserStoppedRun &&
+    shouldShowInlineRunError({
+      runError: messageRunError,
+      bannerRunErrorKey: messageActions?.bannerRunErrorKey,
+    });
+  const missingFinalResponseCandidate =
+    missingWarningText == null &&
     shouldShowMissingFinalResponse({
       isCurrentTurnRunning: isLast && chatRunning,
       serverRunActive: isLast && serverRunActive,
       statusIsTerminal,
       hasAssistantText: responseConnectionText.trim().length > 0,
       hasUnresolvedTool,
+      hasActiveTool,
       hasCompletedCustomUi,
-    }),
+      userStoppedRun: isUserStoppedRun,
+    });
+  const showMissingFinalResponse = useSettledFlag(
+    missingFinalResponseCandidate,
     isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
   );
-  const responseConnectionContext = userMessageTextBeforeAssistant(
-    thread.messages,
-    msg.id,
+  const shouldShowUserStoppedNotice =
+    isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
+  const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
+    ? t("agentChat.error.stopped")
+    : isUserStoppedRun
+      ? null
+      : (missingWarningText ??
+        (showMissingFinalResponse
+          ? t("agentChat.message.missingFinal")
+          : null));
+  const animateMissingFinalResponse = Boolean(
+    isLast && missingFinalResponseNoticeText && wasLiveRef.current,
   );
-  const isComplete = shouldShowAssistantMessageFooter({
-    isLast,
-    chatRunning,
-    hasRenderableContent,
-    statusIsTerminal,
-    hasUnresolvedTool,
-  });
+  const missingFinalResponseAnimationKey = animateMissingFinalResponse
+    ? missingFinalResponseNoticeText
+    : null;
+  const [revealedMissingFinalResponseKey, setRevealedMissingFinalResponseKey] =
+    useState<string | null>(null);
+  useEffect(() => {
+    if (missingFinalResponseAnimationKey == null) {
+      setRevealedMissingFinalResponseKey(null);
+      return;
+    }
+    setRevealedMissingFinalResponseKey((current) =>
+      current === missingFinalResponseAnimationKey ? current : null,
+    );
+  }, [missingFinalResponseAnimationKey]);
+  const missingFinalResponseRevealed =
+    missingFinalResponseAnimationKey == null ||
+    revealedMissingFinalResponseKey === missingFinalResponseAnimationKey;
+  const handleMissingFinalResponseReveal = useCallback(() => {
+    if (missingFinalResponseAnimationKey == null) return;
+    setRevealedMissingFinalResponseKey(missingFinalResponseAnimationKey);
+  }, [missingFinalResponseAnimationKey]);
+  const shouldHoldCompletionFooter =
+    isLast &&
+    ((missingFinalResponseCandidate && !showMissingFinalResponse) ||
+      (animateMissingFinalResponse && !missingFinalResponseRevealed));
+  const responseConnectionContext = React.useMemo(() => {
+    let parentId = msg.parentId;
+    while (parentId) {
+      const parentMessage = threadRuntime.getMessageById(parentId).getState();
+      if (
+        parentMessage.role === "user" &&
+        !isHiddenUserMessage(parentMessage)
+      ) {
+        return displayableUserMessageText(
+          messageTextFromContent(parentMessage.content),
+        );
+      }
+      parentId = parentMessage.parentId;
+    }
+    return "";
+  }, [msg.parentId, threadRuntime]);
+  const isComplete =
+    !shouldHoldCompletionFooter &&
+    shouldShowAssistantMessageFooter({
+      isLast,
+      chatRunning,
+      activeRunId,
+      messageRunId,
+      activeTurnId,
+      messageTurnId,
+      hasRenderableContent,
+      statusIsTerminal,
+      hasUnresolvedTool,
+      hasActiveTool,
+    });
   const cpCtx = React.useContext(CheckpointContext);
+
+  useEffect(() => {
+    if (isLast && chatRunning) {
+      wasLiveRef.current = true;
+    } else if (!isLast) {
+      wasLiveRef.current = false;
+    }
+  }, [chatRunning, isLast]);
 
   // Capture live run duration when this message finishes streaming.
   const runStartedAtRef = useRef<number | null>(null);
@@ -1466,8 +1818,6 @@ export function AssistantMessage() {
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
 
-  const messageRunId = assistantMessageRunId(msg);
-
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle" || restoreState === "error") {
       setRestoreError(null);
@@ -1476,7 +1826,7 @@ export function AssistantMessage() {
     }
     if (restoreState !== "confirming" || !cpCtx) return;
     if (!messageRunId) {
-      setRestoreError("This message has no run to restore to.");
+      setRestoreError(t("agentChat.message.noRestoreRun"));
       setRestoreState("error");
       return;
     }
@@ -1497,16 +1847,20 @@ export function AssistantMessage() {
       setRestoreError(
         typeof payload?.error === "string"
           ? payload.error
-          : `Restore failed (${restoreRes.status}).`,
+          : t("agentChat.message.restoreFailed", {
+              status: restoreRes.status,
+            }),
       );
       setRestoreState("error");
     } catch (err) {
       setRestoreError(
-        err instanceof Error ? err.message : "Restore request failed.",
+        err instanceof Error
+          ? err.message
+          : t("agentChat.message.restoreRequestFailed"),
       );
       setRestoreState("error");
     }
-  }, [restoreState, cpCtx, messageRunId]);
+  }, [restoreState, cpCtx, messageRunId, t]);
 
   const cancelRestore = useCallback(() => {
     setRestoreError(null);
@@ -1519,6 +1873,7 @@ export function AssistantMessage() {
     isLast,
     runId: messageRunId,
     checkpointRunIds: cpCtx?.checkpointRunIds,
+    hostname: window.location.hostname,
   });
 
   // Collect parts for the files-changed summary (code-agent turns only).
@@ -1540,6 +1895,14 @@ export function AssistantMessage() {
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
+  const firstWorkPartIndex = Array.isArray(msgContent)
+    ? msgContent.findIndex(
+        (p, index) =>
+          !isCallAgentToolCallShadowed(msgContent, index) &&
+          (p.type !== "tool-call" || p.activity !== true) &&
+          isCollapsibleAssistantWorkPart(p),
+      )
+    : -1;
   const shadowedToolCallIds = Array.isArray(msgContent)
     ? shadowedCallAgentToolCallIds(msgContent)
     : new Set<string>();
@@ -1556,63 +1919,92 @@ export function AssistantMessage() {
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
-        <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
-          {({ part, children }) => {
-            switch (part.type) {
-              case "group-work": {
-                const showSummary = shouldShowAssistantWorkSummary({
-                  isLast,
-                  isComplete,
-                  hasCollapsibleWork,
-                  hasUnresolvedTool,
-                  chatRunning,
-                });
-                if (!showSummary) return <>{children}</>;
-                return (
-                  <WorkedForSummary
-                    durationMs={capturedDurationMs ?? persistedDurationMs}
-                    defaultOpen={hasCustomUi}
-                    autoCollapse={animateCollapse && !hasCustomUi}
-                  >
-                    {children}
-                  </WorkedForSummary>
-                );
+        {isComplete && (
+          <McpConnectionSuggestion
+            text={responseConnectionText}
+            contextText={responseConnectionContext}
+            variant="response"
+          />
+        )}
+        <ToolCallStackMotion>
+          <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
+            {({ part, children }) => {
+              switch (part.type) {
+                case "group-work": {
+                  const showSummary = shouldShowAssistantWorkSummary({
+                    isLast,
+                    isComplete,
+                    hasCollapsibleWork,
+                    hasUnresolvedTool,
+                    hasActiveTool,
+                    chatRunning,
+                  });
+                  if (!showSummary) return <>{children}</>;
+                  return (
+                    <WorkedForSummary
+                      durationMs={getAssistantWorkSummaryDurationMs(
+                        capturedDurationMs ?? persistedDurationMs,
+                        part.indices[0] ?? -1,
+                        firstWorkPartIndex,
+                      )}
+                      defaultOpen={hasCustomUi}
+                      autoCollapse={animateCollapse && !hasCustomUi}
+                    >
+                      {children}
+                    </WorkedForSummary>
+                  );
+                }
+                case "text":
+                  if (
+                    isUserStoppedRun &&
+                    isMissingFinalResponseWarningText(part.text)
+                  ) {
+                    return shouldShowUserStoppedNotice ? (
+                      <MissingFinalResponseNotice
+                        messageId={msg.id}
+                        text="Stopped"
+                        animate={false}
+                      />
+                    ) : null;
+                  }
+                  if (
+                    missingWarningText != null &&
+                    part.text === missingWarningText
+                  ) {
+                    return (
+                      <MissingFinalResponseNotice
+                        messageId={msg.id}
+                        text={part.text}
+                        animate={animateMissingFinalResponse}
+                        onRevealComplete={handleMissingFinalResponseReveal}
+                      />
+                    );
+                  }
+                  return <MarkdownText />;
+                case "reasoning":
+                  return <ReasoningMessagePart />;
+                case "tool-call":
+                  if (shadowedToolCallIds.has(part.toolCallId)) return null;
+                  return part.toolUI ? (
+                    <ToolActivityPresentation
+                      toolName={part.toolName}
+                      isRunning={part.status?.type === "running"}
+                      toolCallId={part.toolCallId}
+                    >
+                      {part.toolUI}
+                    </ToolActivityPresentation>
+                  ) : (
+                    <ToolCallFallback
+                      {...part}
+                      isActiveTail={part.toolCallId === activeTailToolCallId}
+                    />
+                  );
+                default:
+                  return null;
               }
-              case "group-ran-tools": {
-                const toolCount = part.indices.filter(
-                  (index) => msgContent?.[index]?.type === "tool-call",
-                ).length;
-                return (
-                  <RanToolsSummary toolCount={toolCount}>
-                    {children}
-                  </RanToolsSummary>
-                );
-              }
-              case "text":
-                return <MarkdownText />;
-              case "reasoning":
-                return <ReasoningMessagePart />;
-              case "tool-call":
-                if (shadowedToolCallIds.has(part.toolCallId)) return null;
-                return part.toolUI ? (
-                  <ToolActivityPresentation
-                    toolName={part.toolName}
-                    isRunning={part.status?.type === "running"}
-                    isActiveTail={part.toolCallId === activeTailToolCallId}
-                  >
-                    {part.toolUI}
-                  </ToolActivityPresentation>
-                ) : (
-                  <ToolCallFallback
-                    {...part}
-                    isActiveTail={part.toolCallId === activeTailToolCallId}
-                  />
-                );
-              default:
-                return null;
-            }
-          }}
-        </MessagePrimitive.GroupedParts>
+            }}
+          </MessagePrimitive.GroupedParts>
+        </ToolCallStackMotion>
         {showInlineRunError && messageRunError && (
           <InlineRunErrorNotice
             info={messageRunError}
@@ -1624,21 +2016,18 @@ export function AssistantMessage() {
             }
           />
         )}
-        {showMissingFinalResponse && !showInlineRunError && (
-          <p role="status" className="text-muted-foreground">
-            The agent stopped without sending a final message. Ask it to
-            continue or retry.
-          </p>
-        )}
+        {missingWarningText == null &&
+          missingFinalResponseNoticeText != null &&
+          !showInlineRunError && (
+            <MissingFinalResponseNotice
+              messageId={msg.id}
+              text={missingFinalResponseNoticeText}
+              animate={animateMissingFinalResponse}
+              onRevealComplete={handleMissingFinalResponseReveal}
+            />
+          )}
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
-        )}
-        {isComplete && (
-          <McpConnectionSuggestion
-            text={responseConnectionText}
-            contextText={responseConnectionContext}
-            variant="response"
-          />
         )}
       </div>
       {isComplete && (
@@ -1647,6 +2036,7 @@ export function AssistantMessage() {
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
+              threadId={cpCtx?.threadId ?? ""}
             />
             {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
             {isLast && (
@@ -1656,7 +2046,7 @@ export function AssistantMessage() {
                     <ActionBarPrimitive.Reload asChild>
                       <button
                         type="button"
-                        aria-label="Regenerate response"
+                        aria-label={t("agentChat.message.regenerate")}
                         className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         <IconRefresh className="h-3.5 w-3.5" />
@@ -1664,7 +2054,7 @@ export function AssistantMessage() {
                     </ActionBarPrimitive.Reload>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs">
-                    Regenerate response
+                    {t("agentChat.message.regenerate")}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -1683,19 +2073,19 @@ export function AssistantMessage() {
                 onClick={handleRestore}
                 className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
               >
-                Restore to here?
+                {t("agentChat.message.restoreQuestion")}
               </button>
               <button
                 onClick={cancelRestore}
                 className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
               >
-                Cancel
+                {t("agentChat.common.cancel")}
               </button>
             </div>
           ) : showRestore && restoreState === "restoring" ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <IconLoader2 className="h-3 w-3 animate-spin" />
-              Restoring...
+              {t("agentChat.message.restoring")}
             </span>
           ) : restoreState === "error" ? (
             <span className="flex items-center gap-1 text-xs text-destructive">
@@ -1705,14 +2095,14 @@ export function AssistantMessage() {
                 onClick={cancelRestore}
                 className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
               >
-                Dismiss
+                {t("agentChat.common.dismiss")}
               </button>
             </span>
           ) : (
             <ThumbsFeedback
               threadId={cpCtx?.threadId ?? ""}
               runId={messageRunId ?? ""}
-              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
+              messageSeq={msg.index}
             />
           )}
         </div>
@@ -1731,17 +2121,17 @@ export function RunningActivityStatus({ label }: { label: string }) {
   );
 }
 
-export function ThinkingIndicator({
-  label = "Thinking",
-}: { label?: string } = {}) {
+export function ThinkingIndicator({ label }: { label?: string } = {}) {
+  const t = useT();
+  const resolvedLabel = label ?? t("agentChat.status.thinking");
   return (
     <div
       className="agent-thinking-indicator"
       role="status"
       aria-live="polite"
-      aria-label={label}
+      aria-label={resolvedLabel}
     >
-      <span className="agent-thinking-indicator__text">{label}</span>
+      <span className="agent-thinking-indicator__text">{resolvedLabel}</span>
     </div>
   );
 }

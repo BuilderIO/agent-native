@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -20,7 +20,12 @@ import {
 } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
 import { registerShareableResource } from "./registry.js";
-import { createSharesTable, type ShareRole } from "./schema.js";
+import {
+  createSharesTable,
+  ROLE_RANK,
+  roleSatisfies,
+  type ShareRole,
+} from "./schema.js";
 
 const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
@@ -130,6 +135,13 @@ afterEach(() => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("keeps viewer read-only while granting commenter comment capability", () => {
+    expect(ROLE_RANK.commenter).toBeGreaterThan(ROLE_RANK.viewer);
+    expect(roleSatisfies("viewer", "commenter")).toBe(false);
+    expect(roleSatisfies("commenter", "commenter")).toBe(true);
+    expect(roleSatisfies("commenter", "editor")).toBe(false);
+  });
+
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
@@ -775,6 +787,42 @@ describe("shareable resource access helpers", () => {
       .from(docs)
       .where(eq(docs.id, "doc-actions"));
     expect(doc).toMatchObject({ visibility: "org" });
+  });
+
+  it("delegates visibility persistence to a resource-owned hook", async () => {
+    const persistVisibilityChange = vi.fn(async () => undefined);
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      persistVisibilityChange,
+    });
+    await insertDoc({ id: "doc-hook" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-hook",
+          visibility: "org",
+        }),
+      ).resolves.toEqual({ ok: true, visibility: "org" });
+    });
+
+    expect(persistVisibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceId: "doc-hook",
+        visibility: "org",
+        update: { visibility: "org" },
+        userEmail: ownerEmail,
+        orgId,
+      }),
+    );
+    const [row] = await db.select().from(docs).where(eq(docs.id, "doc-hook"));
+    expect(row).toMatchObject({ visibility: "private" });
   });
 
   it("upserts and revokes user shares case-insensitively", async () => {

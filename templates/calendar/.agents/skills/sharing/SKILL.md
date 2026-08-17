@@ -31,6 +31,7 @@ Visibility is coarse. Explicit share grants are fine-grained (per user or per or
 ### Roles on a share grant
 
 - **`viewer`** — read only.
+- **`commenter`** — read + add comments, but cannot edit the resource or manage shares.
 - **`editor`** — read + write.
 - **`admin`** — read + write + manage shares. Does NOT replace the single `owner_email` on the resource.
 
@@ -183,13 +184,34 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 
 For list views, show `<VisibilityBadge visibility={row.visibility} />` next to each resource.
 
+## Standard share surface
+
+All app share popovers should use the same compact surface contract:
+
+- Use the text-only `ShareTrigger` from `@agent-native/toolkit/sharing`.
+- Render ordinary links with `ShareCopyRow`, which exposes a Copy action without
+  printing the raw URL.
+- Keep general access and individual people access in the standard Core sharing
+  flow. The people flow supports email invites, roles, notifications, and
+  removal through the shared share actions.
+- Add `ShareAgentsSection` only when the resource has a real agent-readable
+  link or prompt. Keep it collapsed by default and supply domain-specific
+  content through the shared section shell.
+- App-specific tabs or controls may remain when they represent a real domain
+  action (for example, an embed-code editor), but they should retain the same
+  trigger, copy-row, access, and spacing language.
+
+`ShareDisclosureSection` is the toolkit-owned shell for optional expandable
+share details; use its `ShareAgentsSection` or `SharePeopleSection` wrappers
+instead of creating another collapsible share panel in a template.
+
 ## Actions available everywhere
 
 The framework auto-mounts these actions in every template — no per-template boilerplate:
 
 | Action                     | Args                                                                           | Purpose                                   |
 | -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?` | Grant a user or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link used in the notification email. |
+| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
 | `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |

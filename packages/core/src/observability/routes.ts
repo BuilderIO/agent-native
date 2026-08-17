@@ -8,7 +8,7 @@
  *   GET    /traces/:runId              — get trace detail (spans + summary)
  *   GET    /traces/:runId/evals        — get evals for a run
  *   POST   /feedback                   — submit feedback
- *   GET    /feedback?since=N&limit=N   — list feedback entries
+ *   GET    /feedback?since=N&limit=N&feedbackType=text — list feedback entries
  *   GET    /feedback/stats?since=N     — feedback aggregation stats
  *   GET    /satisfaction?since=N       — satisfaction scores
  *   GET    /evals/stats?since=N        — eval stats
@@ -52,6 +52,20 @@ import {
 } from "./store.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { FeedbackType, ExperimentStatus } from "./types.js";
+
+const FEEDBACK_TYPES = [
+  "thumbs_up",
+  "thumbs_down",
+  "category",
+  "text",
+] as const satisfies readonly FeedbackType[];
+
+function isFeedbackType(value: unknown): value is FeedbackType {
+  return (
+    typeof value === "string" &&
+    (FEEDBACK_TYPES as readonly string[]).includes(value)
+  );
+}
 
 function nanoid(size = 21): string {
   const alphabet =
@@ -182,11 +196,8 @@ export function createObservabilityHandler() {
         setResponseStatus(event, 400);
         return { error: "Invalid JSON body" };
       }
-      const feedbackType = body?.feedbackType as FeedbackType | undefined;
-      if (
-        !feedbackType ||
-        !["thumbs_up", "thumbs_down", "category", "text"].includes(feedbackType)
-      ) {
+      const feedbackType = body?.feedbackType;
+      if (!isFeedbackType(feedbackType)) {
         setResponseStatus(event, 400);
         return { error: "feedbackType is required" };
       }
@@ -283,6 +294,9 @@ export function createObservabilityHandler() {
       return getFeedback({
         sinceMs: parseSince(q),
         limit: parseLimit(q),
+        feedbackType: isFeedbackType(q.feedbackType)
+          ? q.feedbackType
+          : undefined,
         userId: owner,
       });
     }

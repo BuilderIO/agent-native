@@ -22,10 +22,11 @@ import {
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 import {
   listVaultOverview,
-  listSecrets,
+  listSecretOptions,
   listGrants,
   listRequests,
   getVaultAccessSettings,
+  canManageVault,
 } from "../server/lib/vault-store.js";
 import {
   listWorkspaceResourceOptions,
@@ -92,6 +93,19 @@ export default defineAction({
         purpose:
           "Create apps, manage workspace resources, route work to connected agents, and continue Dispatch conversations.",
       };
+      const agentPath =
+        typeof navigation.agentPath === "string"
+          ? navigation.agentPath.trim()
+          : "";
+      if (agentPath) {
+        const agents = await listWorkspaceResourceOptions({ kind: "agent" });
+        const agent = agents.find((resource) => resource.path === agentPath);
+        screen.chatSurface = {
+          ...(screen.chatSurface as Record<string, unknown>),
+          agentPath,
+          ...(agent ? { agent } : {}),
+        };
+      }
     }
     if (navigation?.view === "overview") {
       screen.recentAudit = overview.recentAudit.slice(0, 5);
@@ -100,13 +114,18 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "agents") {
+    if (navigation?.view === "connected-agents") {
       const [connectedAgents, mcpAccess] = await Promise.all([
         runLocalDispatchAction("list-connected-agents", {}),
         runLocalDispatchAction("list-mcp-app-access", {}),
       ]);
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
+    }
+    if (navigation?.view === "agents") {
+      screen.simpleAgents = await listWorkspaceResourceOptions({
+        kind: "agent",
+      });
     }
     if (navigation?.view === "operations") {
       const nav = navigation as { operationsView?: string };
@@ -154,9 +173,21 @@ export default defineAction({
     }
     if (navigation?.view === "metrics") {
       try {
-        const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+        const usageScope =
+          navigation.usageScope === "workspace" ? "workspace" : "me";
+        const usageUserEmail =
+          typeof navigation.usageUserEmail === "string"
+            ? navigation.usageUserEmail
+            : undefined;
+        const metrics = await listDispatchUsageMetrics({
+          sinceDays: 30,
+          scope: usageScope,
+          userEmail: usageUserEmail,
+        });
         screen.usageMetrics = {
           billing: metrics.billing,
+          viewScope: metrics.viewScope,
+          selectedUserEmail: metrics.selectedUserEmail,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),
@@ -170,9 +201,10 @@ export default defineAction({
       }
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
+      const isVaultAdmin = await canManageVault();
       const [secrets, grants, requests, access] = await Promise.all([
-        listSecrets(),
-        listGrants(),
+        listSecretOptions(),
+        isVaultAdmin ? listGrants() : Promise.resolve([]),
         listRequests({ status: "pending" }),
         getVaultAccessSettings(),
       ]);

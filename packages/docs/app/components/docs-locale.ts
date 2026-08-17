@@ -135,6 +135,25 @@ export function sitePathForLocale(
   return unprefixedPath === "/" ? `/${locale}` : `/${locale}${unprefixedPath}`;
 }
 
+/**
+ * Rewrite a same-site `/docs/...` href written in a doc's markdown body so it
+ * stays in the given locale, e.g. `/docs/client-data#usedbsync` becomes
+ * `/de-DE/docs/client-data#usedbsync` for a non-default locale. Leaves
+ * already-locale-prefixed, external, in-page (`#anchor`), and non-docs hrefs
+ * untouched.
+ */
+export function localizeDocsHref(href: string, locale: DocsLocale): string {
+  if (locale === DEFAULT_DOCS_LOCALE) return href;
+  const hashIndex = href.indexOf("#");
+  const path = hashIndex === -1 ? href : href.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+  if (!path || !isDocsPath(path) || routeLocaleFromPathname(path)) {
+    return href;
+  }
+  const slug = docsSlugFromPathname(path);
+  return slug ? `${docsPathForSlug(slug, locale)}${hash}` : href;
+}
+
 export function browserDocsLocale() {
   if (typeof navigator === "undefined") return DEFAULT_DOCS_LOCALE;
   return resolveLocaleFromCandidates(

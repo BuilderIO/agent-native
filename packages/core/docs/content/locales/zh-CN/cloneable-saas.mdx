@@ -1,17 +1,17 @@
 ---
 title: "应用"
-description: "从一个可用的 SaaS 产品开始，将它变成您的产品 - 包括代理。"
+description: "从一个已经构建好 UI、数据库、身份验证和代理的完整 SaaS 产品开始。"
 ---
 
 # 应用
 
-想要发布您自己的人工智能分析工具吗？邮件客户端？表格生成器？选择一个示例应用，您只需几分钟即可获得一个可运行的 SaaS — 代理、数据库、身份验证和部署管道已连接完毕。
+Agent Native 应用有两种形态：模板（拥有完整的浏览器 UI）和自动化优先应用（没有浏览器 UI，例如 Slack 机器人、每夜报告或 webhook 响应器）。本文档介绍模板；另一种形态请参阅 [Automation-First Apps](/docs/pure-agent-apps)。
 
-大多数入门模板都会为您提供一个空白的脚手架和一个很长的 TODO 列表。代理本机翻转了这一点。每个示例应用都是**完整的 SaaS 级产品** - 在第一天就已经可以运行，已经可以发货，并且完全由您来定制、品牌化和部署。将它们视为可克隆的 SaaS，而不是入门工具包：您正在分叉成品，而不是盯着样板文件。
+模板就是一个完整的 SaaS 产品：UI、数据库、身份验证和代理都已经构建好并连接完毕。选择一个模板，为其打造品牌，然后将其部署为您自己的产品，而不必从空白脚手架开始。这种模式称为可克隆的 SaaS（Cloneable SaaS）：您从一个成品开始，而不是从脚手架开始。
 
 ## 示例应用 {#catalog}
 
-每一个都是您今天可以使用的真实应用程序，以及您自己版本的启动板。
+每个应用都是一个完整的产品，您今天就可以运行它，并将其定制成您自己的版本。
 
 | 应用                                      | 它是什么                                                                                            |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -29,9 +29,9 @@ description: "从一个可用的 SaaS 产品开始，将它变成您的产品 - 
 | [**Plan**](/docs/template-plan)           | 带有图表、线框图和注释的视觉计划和公关概述。                                                        |
 | [**Dispatch**](/docs/template-dispatch)   | 工作区控制平面：共享秘密、可重用集成、Slack/Telegram、计划作业。                                    |
 
-不需要域应用？当您想要一个用户可以立即交谈，并可继续扩展 actions、原生结果和页面的基本应用时，请使用 [Chat](/docs/template-chat)。只有在暂时不需要浏览器 UI 的自动化工作流中，才使用 [Automation-First Apps](/docs/pure-agent-apps)。
+如果这些都不符合您的领域，请从 [Chat](/docs/template-chat) 开始，并使用 actions、原生结果和页面对其进行扩展。如果您的工作流不需要浏览器 UI，请使用 [Automation-First Apps](/docs/pure-agent-apps)。
 
-查看 [Apps](/apps) 下的完整目录，或直接跳到其中一个 - 例如，如果您想要一款工作区风格的应用，[Dispatch](/docs/template-dispatch) 是一个很好的起点。
+每个应用都有自己的文档，涵盖其架构、actions 和自定义方式。在 [agent-native.com/apps](/apps) 浏览实时托管版本，或者从 [Dispatch](/docs/template-dispatch) 开始体验工作区风格的应用。
 
 ## 社区模板 {#community-templates}
 
@@ -132,20 +132,20 @@ demo 负责。
 
 ## 开箱即用的东西 {#what-you-get}
 
-每个示例应用都附带通常需要数月才能构建的部件：
+每个示例应用都包含：
 
-- **工作代理** — 已经连接到应用程序，已经能够在您的数据上获取 actions，已经能够了解您正在查看的内容。请参阅 [Messaging the agent](/docs/messaging) 了解其工作原理。
-- **Auth** — 登录、会话、组织、多租户隔离。已经完成了。
-- **数据库** — 每个示例应用都有其架构、查询和迁移准备就绪。带上您自己的 SQL 数据库（Postgres、SQLite、Turso、D1）——框架会进行调整。
-- **实时 UI** — 屏幕与代理的操作保持同步。在聊天中点击“草稿电子邮件”，草稿立即出现在您的收件箱中。
-- **部署就绪** — 推送到 Netlify、Vercel、Cloudflare、AWS 或运行 Node.js 的任何其他地方。没有供应商锁定。
-- **品牌挂钩** - 名称、颜色、徽标、文案都很容易更改。
+- **工作代理** — 已连接到应用程序，能够对您的数据执行 actions，并了解您正在查看的内容。请参阅 [Messaging the agent](/docs/messaging)。
+- **Auth** — 登录、会话、组织和多租户隔离。
+- **数据库** — 架构、查询和迁移，随时可用。带上您自己的 SQL 数据库（Postgres、SQLite、Turso、D1），框架会自动适配。
+- **实时 UI** — 屏幕与代理保持同步。例如，在聊天中起草一封邮件，收件箱会立即更新。
+- **部署就绪** — 可部署到 Netlify、Vercel、Cloudflare、AWS 或任何支持运行 Node 的主机。
+- **品牌挂钩** — 更改名称、颜色、徽标和文案。
 
-这不是理论上的主张。该框架的作者在 Mail 应用上运行他的实际收件箱，在 Calendar 应用上运行他的实际日历，在 Analytics 应用上运行他的实际分析。这些都是日常使用的应用。
+该框架的维护者在 Mail、Calendar 和 Analytics 应用上运行他的邮件、日历和分析。
 
 ## 你做什么 {#what-you-do}
 
-从“我想要自己的 SaaS”到“我拥有自己的 SaaS”的路径很短：
+四个步骤即可让您从模板走向已部署的应用：
 
 <Diagram id="doc-block-ah38lu" title={"从一个可运行的 app 开始"} summary={"选择一个成品，对其进行品牌化，用简单的英语对其进行改进，然后将其发送到您自己的域。"}>
 
@@ -195,21 +195,21 @@ demo 负责。
 
 </Diagram>
 
-1. **选择一个示例应用。**使用 CLI 选择器，或浏览文档并选择一个开始。
+1. **选择一个应用。** 使用 CLI 选择器，或浏览文档。
 2. **打造品牌。**更改名称、颜色、徽标和文案。大多数示例应用都将其公开在单个配置文件中。
 3. **自定义它。** 在自己的仓库和开发工作流中更改源代码。如果代理 frame 被有意授予工作区和写入工具，它可以提供帮助；否则嵌入式代理通过 actions、数据和已配置的集成来操作应用。
-4. **发货。**运行部署命令。您现在在自己的域中拥有自己的生产 SaaS。
+4. **发货。** 运行部署命令。您现在在自己的域中拥有一个生产应用。
 
-步骤 2-4 通常需要几天而不是几个月。第 3 步是开放式的，因为应用归您所有并可持续演进；嵌入式代理仍可操作已部署的产品，并在明确启用代码访问时协助更改源代码。
+步骤 2-4 通常只需要几天。第 3 步没有固定的终点 — 应用归您所有，可持续演进；嵌入式代理仍可操作已部署的产品，并在明确启用代码访问时协助更改源代码。
 
 ## 为什么这是实用的 {#why}
 
-传统的代码库分叉模型会大规模崩溃：每个用户维护自己的收件箱听起来像是一场维护噩梦。两个框架决策使其发挥作用：
+每个用户使用独立代码库的模式无法扩展 — 为每个用户维护一份应用分叉会变得无法管理。两个框架决策避免了这一点：
 
 1. **应用保持框架契约。** 源代码拥有领域行为，而 Core 会随着应用演进保持 actions、SQL、状态和同步的一致性。
 2. **每用户自定义，无需每用户代码。** Skills、内存、指令、连接的 MCP 服务器和子代理都位于 SQL 中。每个用户都有自己的定制层；共享代码库同时托管所有这些内容。
 
-结果：Claude - 每个用户的代码级灵活性，以及正常的 SaaS 部署经济性。
+结果：无需每用户部署即可实现每用户定制。
 
 <Diagram id="doc-block-1v5me0v" title={"为什么每用户定制可以扩展"} summary={"有两个想法使从可运行 app 开始的模型保持实用：应用保持框架契约，每个用户的定制位于 SQL 中，而不是每个用户的代码中。"}>
 
@@ -254,11 +254,11 @@ demo 负责。
 
 ## 不想定制？ {#hosted}
 
-你不必这样做。每个示例应用还可以作为 `agent-native.com` 上的托管应用程序使用 - `mail.agent-native.com`、`calendar.agent-native.com` 等。免费或付费使用托管版本；仅当您想要更改托管版本未公开的内容时才进行分叉。
+每个示例应用还可以作为 `agent-native.com` 上的托管产品使用 — `mail.agent-native.com`、`calendar.agent-native.com` 等。免费或付费使用托管版本；当您想要更改托管版本未公开的内容时，可从模板创建您自己的应用。
 
 ## 尝试一下技巧 {#try-with-a-skill}
 
-还没有准备好搭建脚手架吗？您可以使用单个命令将代理本机超级功能添加到已使用的编码代理中 - 无需应用程序。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills)。
+您可以将 Agent Native 的能力添加到已经在使用的编码代理中，而无需搭建应用脚手架。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills)。
 
 ## 在此基础上构建
 
@@ -270,15 +270,15 @@ demo 负责。
 
 ### 对于开发者 {#dev-details}
 
-如果您现在正在搭建脚手架，则 CLI 命令为：
+要搭建一个新应用：
 
 ```bash
 npx @agent-native/core@latest create my-platform
 ```
 
-您将获得一个多选选择器。选择一个应用程序（独立）或多个应用程序（工作区 - 应用程序共享身份验证、品牌、代理配置和数据库）。每个挑选的应用都与您需要的每个文件一起构建到 `apps/<name>/` 中。对于没有浏览器 UI 的自动化应用，而不是应用 UI，请使用 `npx @agent-native/core@latest create my-agent --headless`。
+CLI 会先询问 **如何开始？**。选择 **Chat** 可创建包含 Chat 和 Dispatch 的最小工作区，选择 **First-party template(s)** 可打开多选选择器。Community 和 Headless 是独立应用的入口。工作区应用共享身份验证、品牌、代理配置和数据库；每个应用都会连同所需的全部文件构建到 `apps/<name>/` 中。对于没有浏览器 UI 的自动化应用，而不是应用 UI，请使用 `npx @agent-native/core@latest create my-agent --headless`。
 
-填写`.env`（主要是`ANTHROPIC_API_KEY`和`DATABASE_URL`）、`pnpm install`、`pnpm dev`，就可以了。没有“TODO：实现登录”，没有占位符路由。
+填写 `.env`（`ANTHROPIC_API_KEY` 和 `DATABASE_URL`），然后运行 `pnpm install` 和 `pnpm dev`。没有需要实现的登录功能，也没有占位符路由。
 
 部署目标：任何 Nitro 兼容主机（Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun）和任何 Drizzle 兼容 SQL 数据库（SQLite、Postgres、Turso、D1、Supabase、Neon）。对于工作区，`npx @agent-native/core@latest deploy` 一次构建每个应用程序并将它们发送到单个源。参见[Deployment](/docs/deployment)。
 

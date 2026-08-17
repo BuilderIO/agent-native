@@ -148,11 +148,14 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
   resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
+  SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS,
+  SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_POLL_MS,
   SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
   SQL_SUBSCRIPTION_RETRY_BASE_MS,
@@ -290,6 +293,72 @@ describe("run manager soft timeout", () => {
     );
     expect(resolveSqlSubscriptionPollMs(1_000, 999)).toBe(
       SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+  });
+
+  it("holds the idle cadence until the decay threshold, then backs off to the cap", () => {
+    // Below the threshold nothing changes — a run that goes quiet for a beat
+    // between tokens must not be penalized.
+    for (let n = 0; n <= SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS; n += 1) {
+      expect(resolveSqlSubscriptionPollMs(1_000, 999, n)).toBe(
+        SQL_SUBSCRIPTION_IDLE_POLL_MS,
+      );
+    }
+
+    expect(
+      resolveSqlSubscriptionPollMs(
+        1_000,
+        999,
+        SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS + 1,
+      ),
+    ).toBe(SQL_SUBSCRIPTION_IDLE_POLL_MS * 2);
+
+    // Capped, and stays capped for an absurd count rather than overflowing to
+    // Infinity through `2 ** steps`.
+    expect(resolveSqlSubscriptionPollMs(1_000, 999, 500)).toBe(
+      SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
+    );
+    expect(
+      resolveSqlSubscriptionPollMs(1_000, 999, Number.MAX_SAFE_INTEGER),
+    ).toBe(SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS);
+  });
+
+  it("counts only idle polls toward the decay ladder", () => {
+    // Events always reset.
+    expect(nextSqlSubscriptionEmptyPolls(9, true, 1_000, 0)).toBe(0);
+    expect(nextSqlSubscriptionEmptyPolls(9, true, 1_000, 5_000)).toBe(0);
+
+    // Empty poll INSIDE the active grace window: held, not incremented. Without
+    // this the ~16 fast polls in a 2s grace window would land the ladder at its
+    // cap the moment the grace expired.
+    expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 5_000)).toBe(3);
+    expect(nextSqlSubscriptionEmptyPolls(0, false, 1_000, 1_001)).toBe(0);
+
+    // Empty poll at or past the grace boundary: counts.
+    expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 1_000)).toBe(4);
+    expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 0)).toBe(4);
+  });
+
+  it("resumes at the idle cadence, not the cap, after a brief mid-stream pause", () => {
+    // Regression guard for the stutter: a run streams, pauses ~2.5s, resumes.
+    // The polls during the grace window must not have advanced the ladder.
+    let empties = 0;
+    const activeUntil = 2_000; // grace set at t=0 by a non-empty read
+    for (const now of [125, 250, 375, 500, 1_000, 1_500, 1_999]) {
+      empties = nextSqlSubscriptionEmptyPolls(empties, false, now, activeUntil);
+    }
+    expect(empties).toBe(0);
+    expect(resolveSqlSubscriptionPollMs(2_000, activeUntil, empties)).toBe(
+      SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+  });
+
+  it("never decays while the active polling window is open", () => {
+    // A streaming producer must keep the 125ms cadence no matter what the empty
+    // counter says — the counter is reset on every non-empty read, but a stale
+    // value must not leak into the active branch.
+    expect(resolveSqlSubscriptionPollMs(1_000, 1_001, 999)).toBe(
+      SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
     );
   });
 
@@ -1032,9 +1101,21 @@ describe("run manager soft timeout", () => {
     await Promise.resolve();
 
     expect(run.status).toBe("aborted");
-    expect(run.events).toHaveLength(0);
+    expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
     expect(run.subscribers.size).toBe(0);
     expect(terminalEvents).toContainEqual({ type: "done" });
+
+    const replay = subscribeToRun("run-explicit-abort", 0);
+    const reader = replay!.getReader();
+    const chunks: string[] = [];
+    const decoder = new TextDecoder();
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) break;
+      chunks.push(decoder.decode(result.value));
+    }
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
   });
@@ -1356,7 +1437,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
     expect(bumpRunProgress).toHaveBeenNthCalledWith(
       1,
       "run-clear-not-progress",
@@ -1407,7 +1488,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
     expect(bumpRunProgress).toHaveBeenNthCalledWith(
       1,
       "run-clear-no-id-progress",
@@ -1466,7 +1547,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
     expect(bumpRunProgress).toHaveBeenNthCalledWith(
       1,
       "run-streaming-prep-progress",
@@ -1510,7 +1591,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
     expect(bumpRunProgress).toHaveBeenNthCalledWith(
       1,
       "run-parallel-prep-progress",
@@ -1552,7 +1633,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
     expect(bumpRunProgress).toHaveBeenNthCalledWith(
       1,
       "run-no-id-prep-progress",
@@ -1564,6 +1645,148 @@ describe("run manager soft timeout", () => {
 
     expect(abortRun("run-no-id-prep-progress")).toBe(true);
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("retries a progress write that races the initial run-row insert", async () => {
+    let resolveInsert!: () => void;
+    const insertPromise = new Promise<void>((resolve) => {
+      resolveInsert = resolve;
+    });
+    vi.mocked(insertRun).mockReturnValueOnce(insertPromise);
+    vi.mocked(bumpRunProgress)
+      .mockImplementationOnce(async () => false)
+      .mockImplementationOnce(async () => true);
+
+    const run = startRun(
+      "run-progress-insert-race",
+      "thread-progress-insert-race",
+      async (send, signal) => {
+        send({ type: "tool_input_delta", text: "{" });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(1));
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-progress-insert-race",
+    );
+
+    resolveInsert();
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-progress-insert-race",
+    );
+
+    expect(abortRun("run-progress-insert-race")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("surfaces and retries a failed durable progress write", async () => {
+    const provider = vi.fn(() => "evt_run_progress");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-progress-persistence-test",
+      provider,
+    );
+    const error = new Error("progress write failed");
+    vi.mocked(bumpRunProgress)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(true);
+
+    try {
+      const run = startRun(
+        "run-progress-write-failure",
+        "thread-progress-write-failure",
+        async (send, signal) => {
+          send({ type: "tool_input_delta", text: "{" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          error,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "progress",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-progress-write-failure",
+              threadId: "thread-progress-write-failure",
+            }),
+          }),
+        ),
+      );
+      expect(bumpRunProgress).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
+
+      expect(abortRun("run-progress-write-failure")).toBe(true);
+      await vi.waitFor(() => expect(run.status).toBe("aborted"));
+    } finally {
+      unregister();
+    }
+  });
+
+  it("re-arms progress coalescing after intermittent write failures on long streams", async () => {
+    vi.setSystemTime(10_000);
+    let attempts = 0;
+    const successfulWrites: number[] = [];
+    vi.mocked(bumpRunProgress).mockImplementation(async () => {
+      attempts += 1;
+      if (attempts % 3 !== 0) {
+        throw new Error(`intermittent progress failure ${attempts}`);
+      }
+      successfulWrites.push(Date.now());
+      return true;
+    });
+
+    let emitProgress: ((event: AgentChatEvent) => void) | undefined;
+    const run = startRun(
+      "run-progress-rearms-after-failure",
+      "thread-progress-rearms-after-failure",
+      async (send, signal) => {
+        emitProgress = send;
+        for (let index = 0; index < 2_000; index += 1) {
+          send({ type: "tool_input_delta", text: "x" });
+        }
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emitProgress).toBeTypeOf("function");
+
+    // The first two writes reject; the third succeeds. A latched in-flight
+    // flag would leave this at one attempted write forever.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(attempts).toBe(3);
+    expect(successfulWrites).toEqual([12_000]);
+
+    emitProgress!({ type: "tool_input_delta", text: "after-recovery" });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(attempts).toBe(6);
+    expect(successfulWrites).toEqual([12_000, 15_000]);
+
+    expect(abortRun("run-progress-rearms-after-failure")).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("aborted");
   });
 
   it("waits for the SQL run row insert before writing terminal status", async () => {
@@ -2098,6 +2321,80 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("auto-continues a foreground run that ends after completed tool work", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-tool-only",
+      "thread-foreground-tool-only",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: '{"ok":true}',
+          completedSideEffect: false,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: "tool_done" }),
+      { type: "auto_continue", reason: "stream_ended" },
+    ]);
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(run.status).toBe("completed");
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-tool-only",
+      "stream_ended",
+    );
+  });
+
+  it("keeps a completed custom UI tool result terminal", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-custom-ui",
+      "thread-foreground-custom-ui",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "render-inline-extension",
+          id: "call-ui",
+          input: {},
+          result: '{"rendered":true}',
+          chatUI: { renderer: "core.inline-extension" },
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: "tool_done" }),
+      { type: "done" },
+    ]);
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-custom-ui",
+      "done",
+    );
+  });
+
   it("marks runs errored when completion persistence fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -2129,6 +2426,42 @@ describe("run manager soft timeout", () => {
         type: "error",
         error: "Agent response could not be saved.",
       }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("does not advertise a continuation when completion persistence fails before handoff", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-completion-boundary-failed",
+      "thread-completion-boundary-failed",
+      async (send) => {
+        send({ type: "text", text: "partial response" });
+        send({ type: "auto_continue", reason: "stream_ended" });
+      },
+      async () => {
+        throw new Error("thread_data write failed");
+      },
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toContainEqual({
+      type: "error",
+      error: "Agent response could not be saved.",
+    });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-completion-boundary-failed",
+      "completion_error",
     );
     consoleError.mockRestore();
   });
@@ -2543,6 +2876,20 @@ describe("run manager soft timeout", () => {
     const result = await getActiveRunForThreadAsync("thread-old");
 
     expect(result).toBeNull();
+  });
+
+  it("keeps terminal replay available beyond the durable client watchdog", async () => {
+    const {
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+      SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
+    } = await import("../client/sse-event-processor.js");
+
+    expect(TERMINAL_RUN_RECONNECT_WINDOW_MS).toBeGreaterThan(
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+    );
+    expect(TERMINAL_RUN_RECONNECT_WINDOW_MS).toBeGreaterThan(
+      SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
+    );
   });
 
   it("uses completed_at (not started_at) for the reconnect window so long-running tasks are still reachable", async () => {
@@ -3184,38 +3531,39 @@ describe("run manager soft timeout", () => {
     );
   });
 
-  // checkSqlAbort must fail closed: a rejected getRunAbortState read used to
-  // be swallowed as "not aborted", so a real cross-isolate Stop could go
-  // unseen for the rest of the run. Sustained read failures must self-abort
-  // instead of retrying silently forever.
-  it("fails closed and self-aborts after sustained getRunAbortState read failures", async () => {
+  // checkSqlAbort is a cross-isolate backstop, so an unreadable abort state
+  // must fail OPEN: the outage hides a Stop from every other reader too, and
+  // killing the run only guarantees destroyed work in the common case where
+  // nobody pressed Stop. Sustained read failures used to self-abort with
+  // `abort_check_unavailable` after ~9s.
+  it("keeps running to completion when every abort-state read fails", async () => {
     vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+    vi.mocked(getRunStatus).mockRejectedValue(new Error("read timeout"));
 
     let abortFired = false;
     const run = startRun(
       "run-abort-check-unreadable",
       "thread-abort-check-unreadable",
-      async (_send, signal) => {
-        await new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => {
-            abortFired = true;
-            resolve();
-          });
+      async (send, signal) => {
+        signal.addEventListener("abort", () => {
+          abortFired = true;
         });
+        // Far longer than the old 3-failure (~9s) kill threshold.
+        await new Promise<void>((resolve) => setTimeout(resolve, 120_000));
+        send({ type: "done" });
       },
       undefined,
       { softTimeoutMs: 0 },
     );
 
-    // First two failed checks (at the 3s poll interval) stay below the
-    // heartbeat handler's own escalation threshold — no self-abort yet.
-    await vi.advanceTimersByTimeAsync(4500);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(abortFired).toBe(false);
+    expect(run.status).toBe("running");
 
-    // Third consecutive failure crosses the threshold: fail closed.
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(abortFired).toBe(true);
-    expect(run.abortReason).toBe("abort_check_unavailable");
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(abortFired).toBe(false);
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
   });
 
   // Fix 3: ordered event persistence

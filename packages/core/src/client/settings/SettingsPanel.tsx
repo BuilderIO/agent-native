@@ -1,6 +1,7 @@
 import {
   Checkbox,
   Picker,
+  Skeleton,
   TextField,
 } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
@@ -53,8 +54,18 @@ import React, {
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
-import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
+import { docsUrl } from "../../shared/docs-url.js";
+import {
+  saveAgentEngineProviderSettings,
+  setAgentEngineProvider,
+} from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
+import {
+  AGENT_PROVIDER_CATALOG,
+  getAgentProviderOption,
+  providerIdForEngine,
+  type AgentProviderId,
+} from "../agent-provider-catalog.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
@@ -68,6 +79,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
@@ -85,6 +97,8 @@ import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
+import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
+import { AgentProviderPicker } from "./ProviderSetupForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -93,6 +107,7 @@ import {
   useSettingsSurface,
   type SettingsSurface,
 } from "./SettingsSection.js";
+import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
@@ -126,19 +141,20 @@ const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
 >(({ children = "Manage", className, ...props }, ref) => (
-  <Button
+  <ToolkitButton
     ref={ref}
     type="button"
+    variant="ghost"
     intent="neutral"
     emphasis="outline"
     className={cn(
-      "inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent/40",
+      "inline-flex h-9 min-h-9 items-center justify-center gap-1 rounded-md border border-border px-3 text-sm font-medium leading-none text-foreground hover:bg-accent/40 active:scale-100 [&_svg]:!size-4",
       className,
     )}
     {...props}
   >
     {children}
-  </Button>
+  </ToolkitButton>
 ));
 ManageButton.displayName = "SettingsManageButton";
 
@@ -147,60 +163,6 @@ const IntegrationsPanel = lazy(() =>
     default: m.IntegrationsPanel,
   })),
 );
-
-// ─── Shared helpers ─────────────────────────────────────────────────────────
-
-function SettingsSkeleton({ lines = 3 }: { lines?: number }) {
-  return (
-    <div className="space-y-3 animate-pulse">
-      {Array.from({ length: lines }, (_, i) => (
-        <div key={i} className="space-y-1.5">
-          <div
-            className="h-3 rounded bg-muted-foreground/10"
-            style={{ width: i === 0 ? "30%" : i === 1 ? "100%" : "60%" }}
-          />
-          {i < 2 && (
-            <div className="h-9 rounded-md border border-border bg-muted-foreground/5" />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SettingsLoadingRow({
-  label,
-  description,
-  controlCount = 1,
-}: {
-  label: string;
-  description?: string;
-  controlCount?: number;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
-      <div className="min-w-0 space-y-2">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-        {description ? (
-          <p className="text-sm leading-5 text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-2" aria-hidden="true">
-        {Array.from({ length: controlCount }, (_, index) => (
-          <div
-            key={index}
-            className={cn(
-              "h-9 animate-pulse rounded-md border border-border bg-muted-foreground/10",
-              index === 0 ? "w-28" : "w-20",
-            )}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 interface SettingsSelectOption {
   value: string;
@@ -575,8 +537,6 @@ function UseBuilderCard({
     );
   }
 
-  if (!connectUrl) return null;
-
   if (compact) {
     return (
       <Button
@@ -678,6 +638,7 @@ function ManualSetupCard({
   bare = false,
   popover = false,
   popoverLabel = "Manage",
+  summaryContent,
 }: {
   id?: string;
   title?: string;
@@ -694,6 +655,8 @@ function ManualSetupCard({
   popover?: boolean;
   /** Label for the trigger when the form is shown in a popover. */
   popoverLabel?: string;
+  /** Optional connection summary shown above the setup content. */
+  summaryContent?: React.ReactNode;
 }) {
   const isPage = useSettingsSurface() === "page";
   const titleCls = isPage ? "text-sm" : "text-[11px]";
@@ -757,7 +720,10 @@ function ManualSetupCard({
         sideOffset={6}
         className="max-h-[min(640px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
       >
-        {content}
+        <div className="space-y-3">
+          {summaryContent}
+          {content}
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -812,7 +778,7 @@ function friendlyModelName(model: string): string {
 
 type SettingsStatus = {
   engine: string;
-  source: "env" | "settings";
+  source: "env" | "settings" | "app_secrets";
   envVar: string | null;
 } | null;
 
@@ -828,6 +794,9 @@ function computeSourceBadge(args: {
   if (settingsConfigured) {
     if (settingsStatus?.source === "env") {
       return `Connected via ${settingsStatus.envVar ?? args.envVar ?? "env"}`;
+    }
+    if (settingsStatus?.source === "app_secrets") {
+      return "Connected via saved key";
     }
     return "Connected via template (server-side)";
   }
@@ -992,8 +961,8 @@ function LLMSectionInner({
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
     | { ok: true; latencyMs: number; model: string }
@@ -1029,7 +998,9 @@ function LLMSectionInner({
         if (
           data?.configured &&
           typeof data.engine === "string" &&
-          (data.source === "env" || data.source === "settings")
+          (data.source === "env" ||
+            data.source === "settings" ||
+            data.source === "app_secrets")
         ) {
           setSettingsStatus({
             engine: data.engine,
@@ -1068,18 +1039,45 @@ function LLMSectionInner({
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
-  const envVar = selectedEngineInfo?.requiredEnvVars?.[0];
+  const selectedProvider = providerIdForEngine(selectedEngine) ?? "anthropic";
+  const selectedProviderOption = getAgentProviderOption(selectedProvider);
+  const envVar = selectedProviderOption.key;
   const selectedEnginePackageInstalled =
     selectedEngineInfo?.packageInstalled !== false;
   const envConfigured = envVar
     ? (envKeys.find((k) => k.key === envVar)?.configured ?? false)
     : false;
   const settingsConfigured =
-    settingsStatus != null && settingsStatus.engine === currentEngine;
+    settingsStatus != null &&
+    (settingsStatus.engine === selectedEngine ||
+      (!!envVar && settingsStatus.envVar === envVar));
+  const configuredProviderIds = useMemo(() => {
+    const configured = new Set<AgentProviderId>();
+    for (const option of AGENT_PROVIDER_CATALOG) {
+      if (
+        option.key &&
+        envKeys.some((entry) => entry.key === option.key && entry.configured)
+      ) {
+        configured.add(option.id);
+      }
+    }
+    if (settingsStatus) {
+      const statusProvider = providerIdForEngine(settingsStatus.engine);
+      if (statusProvider) configured.add(statusProvider);
+      if (settingsStatus.envVar) {
+        const statusOption = AGENT_PROVIDER_CATALOG.find(
+          (option) => option.key === settingsStatus.envVar,
+        );
+        if (statusOption) configured.add(statusOption.id);
+      }
+    }
+    return configured;
+  }, [envKeys, settingsStatus]);
   const builderConnected = connected || builderFlow.configured;
   const anyKeyConfigured =
     builderConnected ||
-    (selectedEnginePackageInstalled && (envConfigured || settingsConfigured));
+    (selectedEnginePackageInstalled &&
+      (envConfigured || settingsConfigured || configuredProviderIds.size > 0));
   const sourceBadge = computeSourceBadge({
     settingsConfigured,
     settingsStatus,
@@ -1087,42 +1085,30 @@ function LLMSectionInner({
     envVar,
     builderConnected,
   });
-  const manualSetupHint =
-    selectedEngine === "ai-sdk:openrouter"
-      ? "Provide an OpenRouter key to use OpenRouter models like GLM 5.2."
-      : "Choose your AI provider and model.";
+  const manualSetupHint = "Select a provider.";
 
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
-  const isOpenAiEngine = selectedEngine === "ai-sdk:openai";
-  const endpointChanged = isOpenAiEngine && (!!baseUrl.trim() || clearBaseUrl);
+  const isEndpointProvider = selectedProviderOption.supportsEndpoint === true;
+  const endpointChanged =
+    isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
-
-  // Hide the Anthropic-via-AI-SDK alias (redundant with the native entry)
-  // and Ollama (no API key to set here). The currently-selected engine is
-  // always kept so a stale setting doesn't vanish from the picker.
-  const providerOptions: SettingsSelectOption[] = engines
-    .filter(
-      (e) =>
-        e.name === selectedEngine ||
-        (e.name !== "ai-sdk:anthropic" && e.name !== "ai-sdk:ollama"),
-    )
-    .map((e) => ({ value: e.name, label: e.label }));
 
   const modelOptions: SettingsSelectOption[] = latestModelsOnly(
     selectedEngineInfo?.supportedModels ?? [],
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
-    if (!providerSettingsChanged || !envVar) return;
+    if (!providerSettingsChanged || (!envVar && !isEndpointProvider)) return;
     setSaving(true);
     try {
-      const nextBaseUrl = isOpenAiEngine ? baseUrl.trim() : "";
+      const nextBaseUrl = isEndpointProvider ? baseUrl.trim() : "";
       await saveAgentEngineProviderSettings({
-        key: envVar,
+        provider: selectedProvider,
+        ...(envVar ? { key: envVar } : {}),
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
-        ...(isOpenAiEngine && clearBaseUrl ? { clearBaseUrl: true } : {}),
+        ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
       });
       setSaved(true);
       setApiKey("");
@@ -1211,28 +1197,21 @@ function LLMSectionInner({
   };
 
   const handleApply = async () => {
+    setApplyError(null);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/manage-agent-engine"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "set",
-            engine: selectedEngine,
-            model: selectedModel,
-          }),
-        },
-      );
-      if (res.ok) {
-        setCurrentEngine(selectedEngine);
-        setCurrentModel(selectedModel);
-        setApplyNote(true);
-        refreshSettingsStatus();
-        notifyConfigChanged();
-        setTimeout(() => setApplyNote(false), 4000);
-      }
-    } catch {}
+      await setAgentEngineProvider({
+        provider: selectedProvider,
+        model: selectedModel,
+      });
+      setCurrentEngine(selectedEngine);
+      setCurrentModel(selectedModel);
+      setApplyNote(true);
+      refreshSettingsStatus();
+      notifyConfigChanged();
+      setTimeout(() => setApplyNote(false), 4000);
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -1240,387 +1219,391 @@ function LLMSectionInner({
       id={settingsSectionDomId("llm")}
       icon={<IconBrain size={14} />}
       title="LLM"
-      subtitle="Use Builder.io free credits or your own LLM provider."
       required
       connected={initialLoading ? undefined : anyKeyConfigured}
+      subtitle={
+        isPage
+          ? undefined
+          : t("agentPanel.builderOrOwnKeys", {
+              defaultValue: "Choose Builder.io or custom keys.",
+            })
+      }
       grouped={isPage && grouped}
       open={open}
       onToggle={onToggle}
     >
       {initialLoading ? (
-        <SettingsLoadingRow
-          label="Connect an LLM"
-          description="Use Builder.io free credits or your own provider."
-          controlCount={2}
-        />
+        <SettingsLoadingRow controlCount={2} />
       ) : (
         <div
           className={cn(
             isPage
               ? "flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
-              : "space-y-2",
+              : "flex items-center justify-between gap-2",
           )}
         >
           {isPage && (
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">
-                Connect an LLM
-              </p>
+              <p className="text-sm font-medium text-foreground">AI provider</p>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Use Builder.io free credits or your own provider.
+                {t("agentPanel.builderOrOwnKeys", {
+                  defaultValue: "Choose Builder.io or custom keys.",
+                })}
               </p>
             </div>
           )}
-          <div
-            className={cn(
-              isPage && "flex flex-wrap items-center justify-end gap-2",
+          <div className={cn("flex flex-wrap items-center justify-end gap-2")}>
+            {!anyKeyConfigured && (
+              <UseBuilderCard
+                builderFlow={builderFlow}
+                connectUrl={connectUrl}
+                connected={connected}
+                orgName={orgName}
+                envManaged={envManaged}
+                credentialSource={credentialSource}
+                trackingSource="llm_settings"
+                trackingFlow="connect_llm"
+                label="Connect Builder.io"
+                compact
+              />
             )}
-          >
-            <UseBuilderCard
-              builderFlow={builderFlow}
-              connectUrl={connectUrl}
-              connected={connected}
-              orgName={orgName}
-              envManaged={envManaged}
-              credentialSource={credentialSource}
-              trackingSource="llm_settings"
-              trackingFlow="connect_llm"
-              label="Connect Builder.io"
-              compact={isPage}
-            />
-            {builderConnected && !isPage && (
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="ghost"
-                aria-expanded={manualSetupOpen}
-                aria-controls="llm-manual-setup"
-                onClick={() => setManualSetupOpen((open) => !open)}
-                className={cn(
-                  "inline-flex items-center gap-1 px-0.5 text-muted-foreground hover:text-foreground",
-                  isPage ? "text-xs" : "text-[10px]",
-                )}
-              >
-                {t("agentPanel.addOwnKeys", {
-                  defaultValue: "Add your own keys",
-                })}
-                <IconChevronDown
-                  size={isPage ? 14 : 11}
-                  className={cn(
-                    "transition-transform",
-                    manualSetupOpen && "rotate-180",
-                  )}
-                />
-              </Button>
-            )}
-            {(!builderConnected || manualSetupOpen || isPage) && (
-              <ManualSetupCard
-                id="llm-manual-setup"
-                title="Custom keys"
-                hint={manualSetupHint}
-                sourceBadge={builderConnected ? undefined : sourceBadge}
-                bare={isPage}
-                popover={isPage}
-                popoverLabel="Custom keys"
-              >
-                <div className="space-y-2 mb-1">
-                  <SettingsSelect
-                    label="Provider"
-                    value={selectedEngine}
-                    options={providerOptions}
-                    onValueChange={(val) => {
-                      setSelectedEngine(val);
-                      const info = engines.find((e) => e.name === val);
-                      setSelectedModel(info?.defaultModel ?? "");
-                      setApiKey("");
-                      setBaseUrl("");
-                      setClearBaseUrl(false);
-                      setAdvancedOpen(false);
-                    }}
+            <ManualSetupCard
+              id="llm-manual-setup"
+              title="Custom keys"
+              hint={manualSetupHint}
+              sourceBadge={builderConnected ? undefined : sourceBadge}
+              bare={isPage}
+              popover
+              popoverLabel={
+                settingsConfigured
+                  ? "Manage"
+                  : t("agentPanel.addOwnKeys", {
+                      defaultValue: "Custom keys",
+                    })
+              }
+              summaryContent={
+                anyKeyConfigured ? (
+                  <UseBuilderCard
+                    builderFlow={builderFlow}
+                    connectUrl={connectUrl}
+                    connected={connected}
+                    orgName={orgName}
+                    envManaged={envManaged}
+                    credentialSource={credentialSource}
+                    trackingSource="llm_settings"
+                    trackingFlow="connect_llm"
+                    label="Connect Builder.io"
                   />
+                ) : undefined
+              }
+            >
+              <div className="space-y-2 mb-1">
+                <AgentProviderPicker
+                  value={selectedProvider}
+                  configuredProviders={configuredProviderIds}
+                  layout={isPage ? "page" : "compact"}
+                  onChange={(provider) => {
+                    const option = getAgentProviderOption(provider);
+                    setSelectedEngine(option.engine);
+                    setSelectedModel(option.defaultModel);
+                    setApiKey("");
+                    setBaseUrl("");
+                    setClearBaseUrl(false);
+                    setAdvancedOpen(false);
+                  }}
+                />
 
-                  {/* Free-form input so OpenRouter/Ollama custom model IDs can
+                {/* Free-form input so OpenRouter/Ollama custom model IDs can
                 be typed — the registry's supportedModels is only suggestions. */}
-                  <div className="space-y-1.5">
-                    <p className={fieldLabelClass(isPage)}>Model</p>
-                    <input
-                      type="text"
-                      list={`model-suggestions-${selectedEngine}`}
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
-                      placeholder={
-                        selectedEngineInfo?.defaultModel ?? "e.g. model-id"
-                      }
-                      spellCheck={false}
-                      autoComplete="off"
-                      className={textInputClass(isPage)}
-                      style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
-                    />
-                    {modelOptions.length > 0 && (
-                      <datalist id={`model-suggestions-${selectedEngine}`}>
-                        {modelOptions.map((opt) => (
-                          <option
-                            key={opt.value}
-                            value={opt.value}
-                            label={opt.label}
-                          />
-                        ))}
-                      </datalist>
-                    )}
-                  </div>
-
-                  {isOpenAiEngine && (
-                    <div className="border-t border-border/70 pt-2">
-                      <Button
-                        type="button"
-                        onClick={() => setAdvancedOpen((v) => !v)}
-                        className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
-                      >
-                        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
-                          {advancedOpen ? (
-                            <IconChevronDown size={12} />
-                          ) : (
-                            <IconChevronRight
-                              size={12}
-                              className="rtl:-scale-x-100"
-                            />
-                          )}
-                          Advanced
-                        </span>
-                        <span className="truncate text-[10px] text-muted-foreground">
-                          OpenAI-compatible endpoint
-                        </span>
-                      </Button>
-
-                      {advancedOpen && (
-                        <div className="mt-1.5 space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[12px] font-medium text-foreground">
-                              Endpoint URL
-                            </p>
-                            <span className="text-[10px] text-muted-foreground">
-                              {baseUrlConfigured ? "Configured" : "Optional"}
-                            </span>
-                          </div>
-                          <input
-                            type="url"
-                            value={baseUrl}
-                            onChange={(e) => {
-                              setBaseUrl(e.target.value);
-                              if (e.target.value.trim()) setClearBaseUrl(false);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSave();
-                            }}
-                            placeholder={
-                              baseUrlConfigured
-                                ? "Leave blank to keep current endpoint"
-                                : "https://gateway.example/v1"
-                            }
-                            disabled={clearBaseUrl}
-                            spellCheck={false}
-                            autoComplete="off"
-                            className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
-                            style={CONTROL_STYLE}
-                          />
-                          <p className="text-[10px] leading-relaxed text-muted-foreground">
-                            Use for LiteLLM or another OpenAI-compatible chat
-                            gateway. Leave blank for OpenAI.
-                          </p>
-                          {baseUrlConfigured && (
-                            <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                              <Checkbox
-                                checked={clearBaseUrl}
-                                onChange={(checked) => {
-                                  setClearBaseUrl(checked);
-                                  if (checked) setBaseUrl("");
-                                }}
-                                aria-label="Clear saved endpoint override"
-                                className="shrink-0"
-                              />
-                              Clear saved endpoint override
-                            </label>
-                          )}
-                          {envVar && envConfigured && endpointChanged && (
-                            <Button
-                              type="button"
-                              intent="neutral"
-                              emphasis="solid"
-                              onClick={handleSave}
-                              disabled={saving}
-                              className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-                            >
-                              {saving ? (
-                                <IconLoader2
-                                  size={10}
-                                  className="animate-spin"
-                                />
-                              ) : saved ? (
-                                <IconCheck size={10} />
-                              ) : (
-                                "Save endpoint"
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {envVar && envConfigured ? (
-                    <div
-                      className={cn(
-                        "flex items-center gap-1.5 text-primary",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconCheck size={isPage ? 14 : 10} />
-                      {envVar} configured
-                    </div>
-                  ) : envVar ? (
-                    <div className="flex gap-1.5">
-                      <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSave();
-                        }}
-                        placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
-                        className={cn(textInputClass(isPage), "flex-1")}
-                        style={isPage ? CONTROL_STYLE_PAGE : undefined}
-                      />
-                      <Button
-                        intent="primary"
-                        emphasis="solid"
-                        onClick={handleSave}
-                        disabled={!providerSettingsChanged || saving}
-                        className={pillButtonClass(isPage, "solid")}
-                      >
-                        {saving ? (
-                          <IconLoader2
-                            size={isPage ? 14 : 10}
-                            className="animate-spin"
-                          />
-                        ) : saved ? (
-                          <IconCheck size={isPage ? 14 : 10} />
-                        ) : (
-                          "Save"
-                        )}
-                      </Button>
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      intent="neutral"
-                      emphasis="outline"
-                      onClick={handleTest}
-                      disabled={testing}
-                      className={pillButtonClass(isPage, "outline")}
-                    >
-                      {testing ? (
-                        <span className="flex items-center gap-1">
-                          <IconLoader2
-                            size={isPage ? 14 : 10}
-                            className="animate-spin"
-                          />
-                          Testing…
-                        </span>
-                      ) : (
-                        "Test"
-                      )}
-                    </Button>
-                    {PROVIDER_DOCS[selectedEngine] ? (
-                      <a
-                        href={PROVIDER_DOCS[selectedEngine]}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={cn(
-                          pillButtonClass(isPage, "outline"),
-                          "no-underline",
-                        )}
-                      >
-                        Get an API key
-                        <IconExternalLink size={isPage ? 14 : 10} />
-                      </a>
-                    ) : null}
-                    {engineChanged && (
-                      <Button
-                        intent="primary"
-                        emphasis="solid"
-                        onClick={handleApply}
-                        className={pillButtonClass(isPage, "solid")}
-                      >
-                        Apply
-                      </Button>
-                    )}
-                    {settingsStatus != null && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            intent="danger"
-                            emphasis="outline"
-                            onClick={handleDisconnect}
-                            className={cn(
-                              pillButtonClass(isPage, "outline"),
-                              "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
-                            )}
-                          >
-                            Disconnect
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Clear the saved engine — the app will fall back to the
-                          default until you re-apply.
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                  {testResult && testResult.ok && (
-                    <p
-                      className={cn(
-                        "flex items-center gap-1 text-primary",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconCheck size={isPage ? 14 : 10} />
-                      Test passed — {testResult.latencyMs}ms
-                    </p>
-                  )}
-                  {testResult && testResult.ok === false && (
-                    <p
-                      className={cn(
-                        "text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      Test failed: {testResult.error}
-                    </p>
-                  )}
-                  {disconnectError && (
-                    <p
-                      className={cn(
-                        "text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      Disconnect failed: {disconnectError}
-                    </p>
-                  )}
-                  {applyNote && (
-                    <p
-                      className={cn(
-                        "text-muted-foreground",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      Changes take effect on next conversation
-                    </p>
+                <div className="space-y-1.5">
+                  <p className={fieldLabelClass(isPage)}>Model</p>
+                  <input
+                    type="text"
+                    list={`model-suggestions-${selectedEngine}`}
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    placeholder={
+                      selectedEngineInfo?.defaultModel ?? "e.g. model-id"
+                    }
+                    spellCheck={false}
+                    autoComplete="off"
+                    className={textInputClass(isPage)}
+                    style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
+                  />
+                  {modelOptions.length > 0 && (
+                    <datalist id={`model-suggestions-${selectedEngine}`}>
+                      {modelOptions.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          label={opt.label}
+                        />
+                      ))}
+                    </datalist>
                   )}
                 </div>
-              </ManualSetupCard>
-            )}
+
+                {isEndpointProvider && (
+                  <div className="border-t border-border/70 pt-2">
+                    <Button
+                      type="button"
+                      onClick={() => setAdvancedOpen((v) => !v)}
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
+                        {advancedOpen ? (
+                          <IconChevronDown size={12} />
+                        ) : (
+                          <IconChevronRight
+                            size={12}
+                            className="rtl:-scale-x-100"
+                          />
+                        )}
+                        Advanced
+                      </span>
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        {selectedProvider === "ollama"
+                          ? "Local Ollama endpoint"
+                          : "OpenAI-compatible endpoint"}
+                      </span>
+                    </Button>
+
+                    {advancedOpen && (
+                      <div className="mt-1.5 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[12px] font-medium text-foreground">
+                            Endpoint URL
+                          </p>
+                          <span className="text-[10px] text-muted-foreground">
+                            {baseUrlConfigured ? "Configured" : "Optional"}
+                          </span>
+                        </div>
+                        <input
+                          type="url"
+                          value={baseUrl}
+                          onChange={(e) => {
+                            setBaseUrl(e.target.value);
+                            if (e.target.value.trim()) setClearBaseUrl(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSave();
+                          }}
+                          placeholder={
+                            baseUrlConfigured
+                              ? "Leave blank to keep current endpoint"
+                              : selectedProvider === "ollama"
+                                ? "http://localhost:11434"
+                                : "https://gateway.example/v1"
+                          }
+                          disabled={clearBaseUrl}
+                          spellCheck={false}
+                          autoComplete="off"
+                          className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
+                          style={CONTROL_STYLE}
+                        />
+                        {baseUrlConfigured && (
+                          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <Checkbox
+                              checked={clearBaseUrl}
+                              onChange={(checked) => {
+                                setClearBaseUrl(checked);
+                                if (checked) setBaseUrl("");
+                              }}
+                              aria-label="Clear saved endpoint override"
+                              className="shrink-0"
+                            />
+                            Clear saved endpoint override
+                          </label>
+                        )}
+                        {endpointChanged && (
+                          <Button
+                            type="button"
+                            intent="neutral"
+                            emphasis="solid"
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                          >
+                            {saving ? (
+                              <IconLoader2 size={10} className="animate-spin" />
+                            ) : saved ? (
+                              <IconCheck size={10} />
+                            ) : (
+                              "Save endpoint"
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {envVar && (envConfigured || settingsConfigured) ? (
+                  <div
+                    className={cn(
+                      "flex items-center gap-1.5 text-primary",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconCheck size={isPage ? 14 : 10} />
+                    {settingsStatus?.source === "app_secrets" &&
+                    settingsConfigured
+                      ? "Saved key configured"
+                      : `${envVar} configured`}
+                  </div>
+                ) : envVar ? (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSave();
+                      }}
+                      placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
+                      className={cn(textInputClass(isPage), "flex-1")}
+                      style={isPage ? CONTROL_STYLE_PAGE : undefined}
+                    />
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={handleSave}
+                      disabled={!providerSettingsChanged || saving}
+                      className={pillButtonClass(isPage, "solid")}
+                    >
+                      {saving ? (
+                        <IconLoader2
+                          size={isPage ? 14 : 10}
+                          className="animate-spin"
+                        />
+                      ) : saved ? (
+                        <IconCheck size={isPage ? 14 : 10} />
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    intent="neutral"
+                    emphasis="outline"
+                    onClick={handleTest}
+                    disabled={testing}
+                    className={pillButtonClass(isPage, "outline")}
+                  >
+                    {testing ? (
+                      <span className="flex items-center gap-1">
+                        <IconLoader2
+                          size={isPage ? 14 : 10}
+                          className="animate-spin"
+                        />
+                        Testing…
+                      </span>
+                    ) : (
+                      "Test"
+                    )}
+                  </Button>
+                  {PROVIDER_DOCS[selectedEngine] ? (
+                    <a
+                      href={PROVIDER_DOCS[selectedEngine]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        pillButtonClass(isPage, "outline"),
+                        "no-underline",
+                      )}
+                    >
+                      Get an API key
+                      <IconExternalLink size={isPage ? 14 : 10} />
+                    </a>
+                  ) : null}
+                  {engineChanged && (
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={handleApply}
+                      className={pillButtonClass(isPage, "solid")}
+                    >
+                      Apply
+                    </Button>
+                  )}
+                  {settingsStatus != null && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          intent="danger"
+                          emphasis="outline"
+                          onClick={handleDisconnect}
+                          className={cn(
+                            pillButtonClass(isPage, "outline"),
+                            "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
+                          )}
+                        >
+                          Disconnect
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Clear the saved engine — the app will fall back to the
+                        default until you re-apply.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                {testResult && testResult.ok && (
+                  <p
+                    className={cn(
+                      "flex items-center gap-1 text-primary",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconCheck size={isPage ? 14 : 10} />
+                    Test passed — {testResult.latencyMs}ms
+                  </p>
+                )}
+                {testResult && testResult.ok === false && (
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Test failed: {testResult.error}
+                  </p>
+                )}
+                {disconnectError && (
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Disconnect failed: {disconnectError}
+                  </p>
+                )}
+                {applyError && (
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Apply failed: {applyError}
+                  </p>
+                )}
+                {applyNote && (
+                  <p
+                    className={cn(
+                      "text-muted-foreground",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Changes take effect on next conversation
+                  </p>
+                )}
+              </div>
+            </ManualSetupCard>
           </div>
         </div>
       )}
@@ -1668,8 +1651,7 @@ function AppDefaultModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const visibleEngines = engines.filter(
-    (engine) =>
-      engine.name !== "ai-sdk:anthropic" && engine.name !== "ai-sdk:ollama",
+    (engine) => engine.name !== "ai-sdk:anthropic",
   );
   const selectedModel = value.includes("::")
     ? value.slice(value.indexOf("::") + 2)
@@ -1852,13 +1834,14 @@ function AppModelDefaultsSectionInner({
 
   useEffect(() => load(), [load]);
 
+  if (!loading && !settings) return null;
+
   const selectedEngineInfo =
     settings?.engines.find((engine) => engine.name === selectedEngine) ?? null;
   const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])
     .filter(
       (engine) =>
-        engine.name === selectedEngine ||
-        (engine.name !== "ai-sdk:anthropic" && engine.name !== "ai-sdk:ollama"),
+        engine.name === selectedEngine || engine.name !== "ai-sdk:anthropic",
     )
     .map((engine) => ({
       value: engine.name,
@@ -1973,10 +1956,7 @@ function AppModelDefaultsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsLoadingRow
-          label="Default model"
-          description="Choose the model used by this app by default."
-        />
+        <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2168,11 +2148,7 @@ function AppModelDefaultsSectionInner({
             </div>
           </div>
         )
-      ) : (
-        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
-          App model defaults are unavailable.
-        </p>
-      )}
+      ) : null}
     </SettingsSection>
   );
 }
@@ -2538,6 +2514,8 @@ function AgentLimitsSectionInner({
       window.removeEventListener("agent-loop-settings:changed", handler);
   }, []);
 
+  if (!loading && !settings) return null;
+
   const numericValue = Number(value);
   const hasPendingChange =
     !!settings &&
@@ -2627,10 +2605,7 @@ function AgentLimitsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsLoadingRow
-          label="Max iterations"
-          description="Set how long a response can work before pausing."
-        />
+        <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2836,11 +2811,7 @@ function AgentLimitsSectionInner({
             </div>
           </div>
         )
-      ) : (
-        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
-          Agent limit settings are unavailable.
-        </p>
-      )}
+      ) : null}
     </SettingsSection>
   );
 }
@@ -2864,7 +2835,25 @@ export interface AgentSettingsTabsOptions {
   extensionTools?: boolean;
   /** Optional page-level settings to show in the Agent section. */
   agentAdditionalContent?: React.ReactNode;
+  /** Optional app-owned tabs that share the Agent settings scope. */
+  agentAdditionalTabFactories?: AgentSettingsTabFactory[];
+  /** App identity used to scope the shared Usage tab. */
+  usageAppId?: string | null;
+  /** Optional progressive-disclosure link to the app's full metrics view. */
+  usageViewAllHref?: string;
+  /** Optional app-owned replacement for the shared Organization tab. */
+  organizationContent?: React.ReactNode;
 }
+
+export interface AgentSettingsTabFactoryContext {
+  scope: "user";
+  canManageOrg?: boolean;
+  scopeControl: React.ReactNode;
+}
+
+export type AgentSettingsTabFactory = (
+  context: AgentSettingsTabFactoryContext,
+) => SettingsTabItem;
 
 export function areExtensionSettingsEnabled(
   options: AgentSettingsTabsOptions = {},
@@ -2933,7 +2922,7 @@ function CapabilityStatusStrip({
           active={builderConnected}
           value={
             builderLoading ? (
-              "Checking..."
+              <Skeleton className="h-3 w-16" />
             ) : builderConnected ? (
               "Connected"
             ) : (
@@ -3175,25 +3164,44 @@ function SettingsPanelContent({
                 description="Deploy the app to the cloud."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="hosting_settings"
-                      trackingFlow="hosting"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="hosting_settings"
+                        trackingFlow="hosting"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                      docsUrl={docsUrl("deployment", {
+                        campaign: "onboarding",
+                        content: "deployment_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="hosting_settings"
+                            trackingFlow="hosting"
+                          />
+                        ) : undefined
+                      }
                     />
                   </div>
                 }
@@ -3206,25 +3214,44 @@ function SettingsPanelContent({
                 description="Connect persistent app storage."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="database_settings"
-                      trackingFlow="database"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="database_settings"
+                        trackingFlow="database"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Set DATABASE_URL in your .env to connect a supported database."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                      docsUrl={docsUrl("database", {
+                        campaign: "onboarding",
+                        content: "database_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="database_settings"
+                            trackingFlow="database"
+                          />
+                        ) : undefined
+                      }
                     />
                   </div>
                 }
@@ -3237,26 +3264,47 @@ function SettingsPanelContent({
                 description="Store avatars and chat attachments."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="file_upload_settings"
-                      trackingFlow="file_upload"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="file_upload_settings"
+                        trackingFlow="file_upload"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
-                      hint="Configure your own file or object storage provider."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                      hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
+                      docsUrl={docsUrl("file-uploads", {
+                        campaign: "onboarding",
+                        content: "file_upload_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
                       popoverLabel="Manage"
-                    />
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="file_upload_settings"
+                            trackingFlow="file_upload"
+                          />
+                        ) : undefined
+                      }
+                    >
+                      <FileStorageSettingsForm />
+                    </ManualSetupCard>
                   </div>
                 }
               />
@@ -3268,25 +3316,44 @@ function SettingsPanelContent({
                 description="Set up sign-in and access control."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="auth_settings"
-                      trackingFlow="auth"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="auth_settings"
+                        trackingFlow="auth"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Configure Better Auth and optional Google or GitHub providers."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                      docsUrl={docsUrl("authentication", {
+                        campaign: "onboarding",
+                        content: "authentication_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="auth_settings"
+                            trackingFlow="auth"
+                          />
+                        ) : undefined
+                      }
                     />
                   </div>
                 }
@@ -3407,7 +3474,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                docsUrl={docsUrl("deployment", {
+                  campaign: "onboarding",
+                  content: "deployment_settings",
+                })}
                 dim={connected}
               />
             </div>
@@ -3439,7 +3509,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
-                docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                docsUrl={docsUrl("database", {
+                  campaign: "onboarding",
+                  content: "database_settings",
+                })}
                 dim={connected}
               />
             </div>
@@ -3470,10 +3543,15 @@ function SettingsPanelContent({
                 trackingFlow="file_upload"
               />
               <ManualSetupCard
-                hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
-                docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
+                docsUrl={docsUrl("file-uploads", {
+                  campaign: "onboarding",
+                  content: "file_upload_settings",
+                })}
                 dim={connected}
-              />
+              >
+                <FileStorageSettingsForm />
+              </ManualSetupCard>
             </div>
           </SettingsSection>
         )}
@@ -3503,7 +3581,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
-                docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                docsUrl={docsUrl("authentication", {
+                  campaign: "onboarding",
+                  content: "authentication_settings",
+                })}
                 dim={connected}
               />
             </div>
@@ -3641,7 +3722,7 @@ export function ConnectionsSettingsContent({
         {...settingsPanelProps}
         surface="page"
         sections={INTEGRATION_SETTINGS_SECTIONS.filter(
-          (section) => section !== "integrations",
+          (section) => section !== "integrations" && section !== "usage",
         )}
         showCapabilityStrip={false}
         className="w-full"
@@ -3688,8 +3769,15 @@ export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const { data: org } = useOrg();
+  const canManageOrg =
+    !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
   const agentAdditionalContent = options.agentAdditionalContent;
+  const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
+  const usageAppId = options.usageAppId ?? null;
+  const usageViewAllHref = options.usageViewAllHref;
+  const organizationContent = options.organizationContent;
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3700,11 +3788,22 @@ export function useAgentSettingsTabs(
     }),
     [canToggle, isDevMode, setDevMode],
   );
+  const additionalTabs = useMemo(
+    () =>
+      agentAdditionalTabFactories.map((factory) =>
+        factory({
+          scope: "user",
+          canManageOrg,
+          scopeControl: null,
+        }),
+      ),
+    [agentAdditionalTabFactories, canManageOrg],
+  );
 
   return useMemo<SettingsTabItem[]>(() => {
     const searchTabs = getAgentSettingsSearchTabs();
     const searchTab = (
-      id: "agent" | "integrations" | "organization" | "workspace",
+      id: "agent" | "integrations" | "usage" | "organization" | "workspace",
     ) => {
       const tab = searchTabs.find((candidate) => candidate.id === id);
       if (!tab) throw new Error(`Missing agent workspace tab: ${id}`);
@@ -3712,6 +3811,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const usage = searchTab("usage");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
     const overviewSearchEntries = (agent.searchEntries ?? []).filter(
@@ -3790,12 +3890,22 @@ export function useAgentSettingsTabs(
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
+        ...usage,
+        icon: IconCoin,
+        group: "integrations",
+        content: (
+          <div className="w-full">
+            <UsageSection appId={usageAppId} viewAllHref={usageViewAllHref} />
+          </div>
+        ),
+      },
+      {
         ...organization,
         icon: IconUsersGroup,
         group: "workspace",
         content: (
           <div className="w-full">
-            <TeamPage showTitle={false} />
+            {organizationContent ?? <TeamPage showTitle={false} />}
           </div>
         ),
       },
@@ -3899,6 +4009,15 @@ export function useAgentSettingsTabs(
         ],
         content: <AgentWorkspaceContent activeTab="agents" overview={null} />,
       },
+      ...additionalTabs,
     ];
-  }, [agentAdditionalContent, baseProps, extensionToolsEnabled]);
+  }, [
+    agentAdditionalContent,
+    additionalTabs,
+    baseProps,
+    extensionToolsEnabled,
+    organizationContent,
+    usageAppId,
+    usageViewAllHref,
+  ]);
 }

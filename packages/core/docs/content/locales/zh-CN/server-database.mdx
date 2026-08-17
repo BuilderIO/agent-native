@@ -5,7 +5,7 @@ description: "为你的代理本机应用连接一个便携式 SQL 数据库：s
 
 # 数据库
 
-每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。无论哪一方修改了数据，另一方都会通过轮询层看到变化。
+每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。实时同步使用 SSE，并以轮询作为后备，因此无需手动刷新，变化就会显示在另一端。
 
 <Diagram id="doc-block-9mtx2f" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 SQL 表，彼此之间没有各自独立的后端。">
 
@@ -108,7 +108,7 @@ _计划中（尚未提供）：_ 连接到 Builder.io 后，你的应用将能�
 
 - `server/db/schema.ts`：表定义
 - `server/db/index.ts`：类型化的数据库客户端单例
-- `server/plugins/db.ts`：在启动时运行的迁移
+- `server/plugins/db.ts`：本地启动时运行的应用自有迁移
 
 ### 1. 定义你的 schema {#schema}
 
@@ -204,7 +204,9 @@ export const getDb = createGetDb(schema);
 
 ### 3. 编写迁移 {#migrations}
 
-Schema 的变更通过 `server/plugins/db.ts` 中的 Nitro 插件在启动时应用。使用 `@agent-native/core/db` 中的 `runMigrations`：
+在本地开发中，可以通过 `server/plugins/db.ts` 中的 Nitro 插件应用 Schema
+变更。在生产或 serverless 部署中，请在发布或部署步骤运行迁移，不要在第一
+次请求时运行。使用 `@agent-native/core/db` 中的 `runMigrations`：
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -238,7 +240,13 @@ Schema 的变更通过 `server/plugins/db.ts` 中的 Nitro 插件在启动时应
   ]}
 />
 
-`runMigrations` 会按顺序执行每一条记录一次，然后记录下已应用的版本，以便后续重启时跳过。每条记录都是幂等的，这个插件在每次启动时调用都是安全的。
+`runMigrations` 会按顺序执行每一条待处理记录一次，将其记录为已应用，之后
+的执行会跳过它。请为新记录提供稳定的 `name`；命名迁移会独立于版本号进行
+跟踪。
+
+<Callout tone="warning">
+  Chat 模板提供 `pnpm migrate:production`，用于在发布步骤中运行迁移。
+</Callout>
 
 <Callout tone="risk">
   切勿针对生产数据库运行 `drizzle-kit push`。模板 schema 只定义了应用特有的表；
@@ -413,6 +421,6 @@ const { rows } = await getDbExec().execute({
 - [**安全性 — 数据范围限定**](/docs/security#data-scoping)：`owner_email` 和访问助手如何限定读写范围
 - [**共享**](/docs/sharing#building)：`ownableColumns()` 以及共享资源的可见性模型
 - [**插件**](/docs/server-plugins)：迁移运行所在的启动插件生命周期
-- [**Actions**](/docs/actions)：Actions 调用 `getDb()` 读写数据的表面
+- [**Actions**](/docs/actions-overview)：Actions 调用 `getDb()` 读写数据的表面
 - [**部署**](/docs/deployment#persistent-database)：为每个部署目标连接持久化数据库
 - [**实时同步**](/docs/key-concepts#polling-sync)：`useDbSync()` 及完整的客户端同步模型

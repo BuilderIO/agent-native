@@ -28,6 +28,49 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
 };
+const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
+  '"@tiptap/core"': '"3.28.0"',
+  '"@tiptap/extension-blockquote"': '"3.28.0"',
+  '"@tiptap/extension-bold"': '"3.28.0"',
+  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
+  '"@tiptap/extension-bullet-list"': '"3.28.0"',
+  '"@tiptap/extension-code"': '"3.28.0"',
+  '"@tiptap/extension-code-block"': '"3.28.0"',
+  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
+  '"@tiptap/extension-collaboration"': '"3.28.0"',
+  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
+  '"@tiptap/extension-color"': '"3.28.0"',
+  '"@tiptap/extension-document"': '"3.28.0"',
+  '"@tiptap/extension-dropcursor"': '"3.28.0"',
+  '"@tiptap/extension-floating-menu"': '"3.28.0"',
+  '"@tiptap/extension-gapcursor"': '"3.28.0"',
+  '"@tiptap/extension-hard-break"': '"3.28.0"',
+  '"@tiptap/extension-heading"': '"3.28.0"',
+  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
+  '"@tiptap/extension-image"': '"3.28.0"',
+  '"@tiptap/extension-italic"': '"3.28.0"',
+  '"@tiptap/extension-link"': '"3.28.0"',
+  '"@tiptap/extension-list"': '"3.28.0"',
+  '"@tiptap/extension-list-item"': '"3.28.0"',
+  '"@tiptap/extension-list-keymap"': '"3.28.0"',
+  '"@tiptap/extension-ordered-list"': '"3.28.0"',
+  '"@tiptap/extension-paragraph"': '"3.28.0"',
+  '"@tiptap/extension-placeholder"': '"3.28.0"',
+  '"@tiptap/extension-strike"': '"3.28.0"',
+  '"@tiptap/extension-table"': '"3.28.0"',
+  '"@tiptap/extension-table-cell"': '"3.28.0"',
+  '"@tiptap/extension-table-header"': '"3.28.0"',
+  '"@tiptap/extension-table-row"': '"3.28.0"',
+  '"@tiptap/extension-task-item"': '"3.28.0"',
+  '"@tiptap/extension-task-list"': '"3.28.0"',
+  '"@tiptap/extension-text"': '"3.28.0"',
+  '"@tiptap/extension-text-style"': '"3.28.0"',
+  '"@tiptap/extension-underline"': '"3.28.0"',
+  '"@tiptap/extensions"': '"3.28.0"',
+  '"@tiptap/pm"': '"3.28.0"',
+  '"@tiptap/react"': '"3.28.0"',
+  '"@tiptap/starter-kit"': '"3.28.0"',
+};
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -49,6 +92,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 /** VCS/editor files that don't count as "not empty" for an in-place scaffold. */
 const IN_PLACE_ALLOWLIST = new Set([
@@ -132,8 +176,9 @@ export interface CreateAppOptions {
 /**
  * Main entry for `agent-native create [name]`.
  *
- * Default behavior: scaffold a workspace at <name>/ with a multi-select
- * template picker. Use --standalone for the single-app standalone flow.
+ * Default behavior: ask for a starting shape, with Chat and first-party
+ * templates creating a workspace at <name>/. Use --standalone for the
+ * single-app standalone flow.
  *
  * If run *inside* an existing workspace, falls through to the add-app
  * flow that scaffolds one new app under apps/<name>/.
@@ -173,8 +218,8 @@ export async function createApp(
 
   // When exactly one template is specified explicitly, treat it as a
   // standalone scaffold (script-friendly, matches historic behavior).
-  // Use `--template a,b` or pass no --template to opt into the workspace
-  // flow with the multi-select picker.
+  // Use `--template a,b` to opt into the workspace flow with the multi-select
+  // picker. Bare `create` asks for the starting shape first.
   const parsed = parseTemplateList(opts?.template);
   // Headless can't live in a workspace, so reject it when more than one
   // template is requested or when workspace semantics are forced.
@@ -198,9 +243,8 @@ export async function createApp(
   // No template specified: ask what shape to start from before diving into
   // "which templates?". The on-ramp choice implies the project structure, so
   // we don't ask a separate "workspace or standalone?" question — Chat and
-  // Headless scaffold a single standalone app (the lightest starts; headless
-  // cannot live in a workspace), while Template continues into the workspace
-  // multi-select.
+  // Template creates a workspace, while Community and Headless scaffold a
+  // single standalone app.
   if (parsed.length === 0) {
     // The deprecated `create-workspace` alias forces workspace semantics, so
     // it must skip the start-shape prompt and scaffold a workspace directly.
@@ -209,8 +253,19 @@ export async function createApp(
       return;
     }
     const shape = await promptStartShape(clack);
-    if (shape === "headless" || shape === "chat") {
+    if (shape === "headless") {
       await createStandaloneApp(name, { ...opts, template: shape }, clack);
+      return;
+    }
+    if (shape === "chat") {
+      // Chat is the default workspace on-ramp. Keep the minimal chat app in
+      // the same workspace shape as every other first-party app so the next
+      // documented step, `add-app`, works immediately.
+      await createWorkspaceInteractive(
+        name,
+        { ...opts, template: shape },
+        clack,
+      );
       return;
     }
     if (shape === "community") {
@@ -232,12 +287,11 @@ export async function createApp(
  * choice made here implies the project structure, so we deliberately avoid a
  * separate "workspace or standalone?" question:
  *   - "template" → full app(s) in a workspace (the multi-select picker)
+ *   - "chat"     → a minimal Chat app in a workspace with Dispatch
  *   - "community" → a single standalone app from a public GitHub repository
- *   - "chat"     → a single standalone chat UI app
  *   - "headless" → a single standalone action-first app with no UI shell
- * Chat and headless are standalone on purpose: a monorepo is unnecessary
- * ceremony for the lightest on-ramps, and headless cannot be a workspace
- * member. Either can grow into a workspace later via `add-app`.
+ * Headless cannot be a workspace member. Use `--standalone --template chat`
+ * when a standalone Chat app is the intended shape.
  */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
@@ -258,7 +312,7 @@ function startShapePromptOptions() {
       {
         value: "chat",
         label: "Chat",
-        hint: "A single app with a minimal chat UI and the browser shell wired up",
+        hint: "A minimal chat app in a workspace with the browser shell wired up",
       },
       {
         value: "template",
@@ -652,7 +706,7 @@ async function scaffoldWorkspaceRoot(
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
-    if (!existing.includes("catalog:")) {
+    if (!/^catalog:\s*$/m.test(existing)) {
       const catalogYaml = Object.entries(catalog)
         .map(([k, v]) => `  "${k}": "${v}"`)
         .join("\n");
@@ -1872,23 +1926,9 @@ function postProcessStandalone(
           }
         }
       }
-      // Ensure pnpm.onlyBuiltDependencies is set so native packages
-      // (better-sqlite3, esbuild, node-pty) compile their postinstall scripts
-      // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
-
-      const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
-      if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
-        pkg.pnpm = {};
-      }
-      const existing = Array.isArray(pkg.pnpm.onlyBuiltDependencies)
-        ? pkg.pnpm.onlyBuiltDependencies
-        : [];
-      pkg.pnpm.onlyBuiltDependencies = Array.from(
-        new Set([...existing, ...requiredBuilt]),
-      );
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -1907,6 +1947,7 @@ function postProcessStandalone(
         "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
+        "tesseract.js": "true",
       },
     };
     if (templateName !== "headless") {
@@ -1914,6 +1955,12 @@ function postProcessStandalone(
         '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
         '"@assistant-ui/tap"': '"^0.5.14"',
         nf3: '"0.3.17"',
+      };
+    }
+    if (templateName && getTemplate(templateName)) {
+      sections.overrides = {
+        ...sections.overrides,
+        ...TIPTAP_WORKSPACE_OVERRIDES,
       };
     }
     const localToolkit = localToolkitOverride();
@@ -2183,6 +2230,8 @@ export {
   normalizeCommunityWorkspaceAppDependencies as _normalizeCommunityWorkspaceAppDependencies,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
+  extractTarball as _extractTarball,
+  materializeArchiveSymlinks as _materializeArchiveSymlinks,
   downloadGitHubSubdir as _downloadGitHubSubdir,
   findLocalTemplate as _findLocalTemplate,
   templateSourceName as _templateSourceName,
@@ -2221,14 +2270,17 @@ function tarExtractArgs(
   options: {
     skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
+    additionalExcludes?: string[];
   } = {},
 ): string[] {
-  const excludes = options.skipAgentSymlinks
-    ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES.flatMap((pattern) => [
-        "--exclude",
-        pattern,
-      ])
-    : [];
+  const excludePatterns = [
+    ...(options.skipAgentSymlinks ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES : []),
+    ...(options.additionalExcludes ?? []),
+  ];
+  const excludes = [...new Set(excludePatterns)].flatMap((pattern) => [
+    "--exclude",
+    pattern,
+  ]);
   const safeOwnership = options.untrustedCommunityArchive
     ? ["--no-same-owner", "--no-same-permissions"]
     : [];
@@ -2241,6 +2293,111 @@ function tarExtractArgs(
     "-C",
     destDir,
   ];
+}
+
+interface ArchiveSymlink {
+  archivePath: string;
+  target: string;
+}
+
+function archiveSymlinksForExtraction(tarPath: string): ArchiveSymlink[] {
+  const listing = execFileSync("tar", ["tvzf", tarPath], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: TAR_LISTING_MAX_BUFFER,
+  });
+
+  return listing.split(/\r?\n/).flatMap((line) => {
+    if (!line.startsWith("l")) return [];
+    const match = line.match(/\s(\S+)\s+->\s+(\S+)\s*$/);
+    return match ? [{ archivePath: match[1]!, target: match[2]! }] : [];
+  });
+}
+
+function archivePathAfterStrip(archivePath: string): string {
+  const parts = archivePath.split("/");
+  return parts.length > 1 ? parts.slice(1).join("/") : archivePath;
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  );
+}
+
+function materializeArchiveSymlinks(
+  destDir: string,
+  symlinks: ArchiveSymlink[],
+): void {
+  const links = new Map(
+    symlinks.map((link) => [archivePathAfterStrip(link.archivePath), link]),
+  );
+  const active = new Set<string>();
+
+  const materialize = (relativeLinkPath: string): void => {
+    const link = links.get(relativeLinkPath);
+    if (!link) return;
+    if (active.has(relativeLinkPath)) {
+      throw new Error(
+        `Cannot materialize cyclic archive symlink "${relativeLinkPath}".`,
+      );
+    }
+
+    const linkPath = path.resolve(destDir, relativeLinkPath);
+    if (!isPathWithin(path.resolve(destDir), linkPath)) {
+      throw new Error(
+        `Cannot materialize archive symlink outside the extraction directory: "${relativeLinkPath}".`,
+      );
+    }
+    if (fs.existsSync(linkPath)) return;
+
+    const resolvedTarget = path.resolve(path.dirname(linkPath), link.target);
+    if (!isPathWithin(path.resolve(destDir), resolvedTarget)) {
+      throw new Error(
+        `Archive symlink "${relativeLinkPath}" points outside the extraction directory.`,
+      );
+    }
+
+    active.add(relativeLinkPath);
+    try {
+      const targetRelativePath = path.relative(
+        path.resolve(destDir),
+        resolvedTarget,
+      );
+      if (links.has(targetRelativePath) && !fs.existsSync(resolvedTarget)) {
+        materialize(targetRelativePath);
+      }
+      if (!fs.existsSync(resolvedTarget)) {
+        throw new Error(
+          `Archive symlink "${relativeLinkPath}" points to a missing target.`,
+        );
+      }
+
+      fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+      const targetStat = fs.statSync(resolvedTarget);
+      if (targetStat.isDirectory()) {
+        copyDir(resolvedTarget, linkPath, undefined, {
+          materializeSymlinks: true,
+        });
+      } else {
+        fs.copyFileSync(resolvedTarget, linkPath);
+      }
+    } finally {
+      active.delete(relativeLinkPath);
+    }
+  };
+
+  // Resolve deeper links first so links such as `.claude/skills` see the
+  // regularized skill directories they point at.
+  for (const relativeLinkPath of [...links.keys()].sort(
+    (a, b) => b.length - a.length,
+  )) {
+    materialize(relativeLinkPath);
+  }
 }
 
 function execFileBuffer(
@@ -2264,6 +2421,33 @@ function execFileBuffer(
       },
     );
   });
+}
+
+function extractTarball(
+  tarPath: string,
+  destDir: string,
+  options: {
+    skipAgentSymlinks?: boolean;
+    untrustedCommunityArchive?: boolean;
+  } = {},
+): void {
+  const symlinks =
+    options.skipAgentSymlinks || options.untrustedCommunityArchive
+      ? archiveSymlinksForExtraction(tarPath)
+      : [];
+  execFileSync(
+    "tar",
+    tarExtractArgs(tarPath, destDir, {
+      ...options,
+      additionalExcludes: symlinks.map((link) => link.archivePath),
+    }),
+    {
+      stdio: "pipe",
+    },
+  );
+  if (symlinks.length > 0) {
+    materializeArchiveSymlinks(destDir, symlinks);
+  }
 }
 
 async function downloadAndExtract(
@@ -2299,9 +2483,7 @@ async function downloadAndExtract(
     if (options.untrustedCommunityArchive) {
       validateCommunityArchive(tarPath);
     }
-    execFileSync("tar", tarExtractArgs(tarPath, destDir, options), {
-      stdio: "pipe",
-    });
+    extractTarball(tarPath, destDir, options);
   } finally {
     fs.unlinkSync(tarPath);
   }
@@ -2311,6 +2493,7 @@ function validateCommunityArchive(tarPath: string): void {
   const listing = execFileSync("tar", ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: TAR_LISTING_MAX_BUFFER,
   });
   assertSafeCommunityArchiveListing(listing);
 }
@@ -3444,7 +3627,13 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
+    // Tolerate escaped quotes inside the command. Every template's build
+    // command now contains `\"` (the release-migration step's CONTEXT test),
+    // and a naive [^"]* stops at the first one — which silently dropped the
+    // NETLIFY_DATABASE_URL_UNPOOLED override for the four templates that use it.
+    const originalCommand = content.match(
+      /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
+    )?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -3456,7 +3645,22 @@ function rewriteNetlifyToml(
     const buildDatabasePrefix = usesUnpooledDatabase
       ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
-    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
+    const releaseDatabasePrefix = usesUnpooledDatabase
+      ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
+      : "";
+    // Migrate at RELEASE, never on the request path. On serverless "migrate on
+    // first use" means migrate on every cold start; a production incident
+    // traced a multi-hour outage to schema introspection running concurrently
+    // on requests. Generated for every app so a fresh `create` + Netlify
+    // connect just works, with no flag to remember.
+    const releaseMigrations =
+      ' && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then ' +
+      releaseDatabasePrefix +
+      (mode === "workspace"
+        ? `pnpm --filter ${appName} migrate:production`
+        : "pnpm migrate:production") +
+      "; fi";
+    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}${releaseMigrations}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"
@@ -3710,7 +3914,7 @@ function copyDir(
   src: string,
   dest: string,
   root?: string,
-  opts?: { skipExisting?: boolean },
+  opts?: { skipExisting?: boolean; materializeSymlinks?: boolean },
 ): void {
   const resolvedRoot = root ?? path.resolve(src);
   const skipExisting = opts?.skipExisting ?? false;
@@ -3728,7 +3932,10 @@ function copyDir(
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
       const resolvedTarget = path.resolve(path.dirname(srcPath), target);
-      if (resolvedTarget.startsWith(resolvedRoot)) {
+      if (
+        !opts?.materializeSymlinks &&
+        isPathWithin(resolvedRoot, resolvedTarget)
+      ) {
         fs.symlinkSync(target, destPath);
       } else {
         try {

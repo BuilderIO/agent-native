@@ -12,9 +12,11 @@ import {
   isCustomMcpIntegrationEnabled,
   isMcpIntegrationCatalogAvailable,
   isMcpConnectionFailureText,
+  isMcpConnectionSuggestionText,
   mcpIntegrationAuthLabel,
   mergeDefaultMcpIntegrations,
   resolveMcpIntegrationScope,
+  shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
 } from "./mcp-integration-catalog.js";
 
@@ -31,6 +33,35 @@ describe("MCP integration catalog", () => {
     expect(context7?.authMode).toBe("none");
     expect(semgrep?.url).toBe("https://mcp.semgrep.ai/mcp");
     expect(semgrep?.authMode).toBe("none");
+  });
+
+  it("opts only verified shared-capable integrations into organization scope", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const exa = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "exa",
+    )!;
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+
+    expect(context7.supportsOrganizationScope).toBe(true);
+    expect(exa.supportsOrganizationScope).toBe(true);
+    expect(gong.supportsOrganizationScope).toBe(true);
+    expect(hubspot.supportsOrganizationScope).not.toBe(true);
+    expect(
+      shouldOfferMcpIntegrationOrganizationScope(context7, true, true),
+    ).toBe(true);
+    expect(
+      shouldOfferMcpIntegrationOrganizationScope(context7, true, false),
+    ).toBe(false);
+    expect(
+      shouldOfferMcpIntegrationOrganizationScope(hubspot, true, true),
+    ).toBe(false);
   });
 
   it("replaces one remote MCP preset without dropping the rest", () => {
@@ -143,15 +174,16 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(27);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(36);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(27);
+    ).toBe(36);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
-        /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
+        /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon)(?:;base64,|,)/,
       );
+      expect(integration.logoUrl).not.toContain("%3Ctext");
       expect(["verified", "preflight-only", "restricted"]).toContain(
         integration.verification,
       );
@@ -160,6 +192,14 @@ describe("MCP integration catalog", () => {
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
     ).toMatchObject({
       availability: "provider-setup",
+      verification: "restricted",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "hubspot"),
+    ).toMatchObject({
+      authMode: "oauth",
+      availability: "provider-setup",
+      managedOAuth: true,
       verification: "restricted",
     });
     expect(
@@ -206,6 +246,33 @@ describe("MCP integration catalog", () => {
       docsUrl: "https://developer.fullstory.com/mcp/introduction/",
       setupNoteKey: "mcpIntegrations.catalog.fullstory.setupNote",
     });
+  });
+
+  it("includes first-party remote MCPs represented in the organization vault", () => {
+    const expected = [
+      ["amplitude", "https://mcp.amplitude.com/mcp", "ready"],
+      ["apollo", "https://mcp.apollo.io/mcp", "ready"],
+      ["common-room", "https://mcp.commonroom.io/mcp", "ready"],
+      ["exa", "https://mcp.exa.ai/mcp", "ready"],
+      ["gong", "https://mcp.gong.io/mcp", "provider-setup"],
+      ["grafana", "https://mcp.grafana.com/mcp", "beta"],
+      [
+        "google-workspace",
+        "https://workspacemcp.googleapis.com/mcp/v1",
+        "beta",
+      ],
+      ["pylon", "https://mcp.usepylon.com/", "provider-setup"],
+      ["builder-cms", "https://mcp.builder.io/mcp/publish", "ready"],
+    ] as const;
+
+    for (const [id, url, availability] of expected) {
+      expect(
+        DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === id),
+      ).toMatchObject({
+        url,
+        availability,
+      });
+    }
   });
 
   it("matches MCP tool names to their preset for brand icons", () => {
@@ -261,7 +328,7 @@ describe("MCP integration catalog", () => {
     expect(findMcpIntegrationForText("Pull my meeting recordings")).toBeNull();
     expect(
       findMcpIntegrationForText("Find call transcripts from Gong"),
-    ).toBeNull();
+    ).toMatchObject({ id: "gong" });
     expect(
       findMcpIntegrationForText(
         "Make the action items and decisions larger on this slide",
@@ -277,15 +344,52 @@ describe("MCP integration catalog", () => {
       true,
     );
     expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
+    expect(
+      findMcpIntegrationForText(
+        "Add a text box and connect it to the shape below",
+      ),
+    ).toBeNull();
+    expect(
+      findMcpIntegrationForText("Let's create a bounding box for this design"),
+    ).toBeNull();
+    expect(
+      findMcpIntegrationForText("Connect Box.com to import my files")?.id,
+    ).toBe("box");
+    expect(
+      findMcpIntegrationForText("Connect my Box folders to this workspace")?.id,
+    ).toBe("box");
+    expect(
+      findMcpIntegrationForText("Connect a Box file to this workspace")?.id,
+    ).toBe("box");
+  });
+
+  it("recognizes agent-authored setup requests without matching positive status text", () => {
+    expect(isMcpConnectionSuggestionText("Please connect HubSpot")).toBe(true);
+    expect(
+      isMcpConnectionSuggestionText(
+        "I need you to authorize HubSpot before I can pull the deals.",
+      ),
+    ).toBe(true);
+    expect(isMcpConnectionSuggestionText("Can you connect HubSpot?")).toBe(
+      true,
+    );
+    expect(isMcpConnectionSuggestionText("HubSpot access is required")).toBe(
+      true,
+    );
+    expect(isMcpConnectionSuggestionText("HubSpot requires access")).toBe(true);
+    expect(
+      isMcpConnectionSuggestionText("I don't have access to HubSpot yet."),
+    ).toBe(true);
+    expect(isMcpConnectionSuggestionText("HubSpot is connected")).toBe(false);
   });
 
   it("matches exact display brands and branded aliases only", () => {
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      const term = integration.promptAliases?.[0] ?? integration.name;
       expect(
-        findMcpIntegrationForText(
-          `Connect ${integration.name} to this workspace`,
-          [integration],
-        )?.id,
+        findMcpIntegrationForText(`Connect ${term} to this workspace`, [
+          integration,
+        ])?.id,
       ).toBe(integration.id);
     }
 
@@ -344,6 +448,7 @@ describe("MCP integration catalog", () => {
     expect(resolveMcpIntegrationScope("org", false, true)).toBe("user");
     expect(resolveMcpIntegrationScope("org", true, false)).toBe("user");
     expect(resolveMcpIntegrationScope("org", true, true)).toBe("org");
+    expect(resolveMcpIntegrationScope("org", true, true, false)).toBe("user");
     expect(resolveMcpIntegrationScope("user", true, true)).toBe("user");
   });
 

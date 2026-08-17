@@ -43,7 +43,7 @@ import {
   updateAutomation,
 } from "./service.js";
 
-const actor = { userEmail: "Alice@Example.com", orgId: "org-1" };
+const actor = { userEmail: "Alice@Example.com", orgId: "org-1", appId: "mail" };
 const orgOwner = "__organization__:org-1";
 
 function resource(content: string, owner = orgOwner) {
@@ -73,6 +73,7 @@ event: mail.received
 mode: agentic
 createdBy: alice@example.com
 orgId: "org-1"
+appId: mail
 runAs: creator
 model: "claude-sonnet"
 mcpTools: ["mcp__mail__read"]
@@ -117,6 +118,28 @@ describe("automation domain service", () => {
     );
   });
 
+  it("defaults a new scheduled automation to an hourly cadence", async () => {
+    resourceGetByPathMock
+      .mockResolvedValueOnce(null)
+      .mockImplementation(async (owner: string) =>
+        resource(resourcePutMock.mock.calls.at(-1)?.[2] as string, owner),
+      );
+
+    const definition = await defineAutomation(actor, {
+      name: "hourly-check",
+      scope: "organization",
+      triggerType: "schedule",
+      body: "Check for changed work.",
+    });
+
+    expect(definition.meta.schedule).toBe("0 * * * *");
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      orgOwner,
+      "jobs/hourly-check.md",
+      expect.stringContaining('schedule: "0 * * * *"'),
+    );
+  });
+
   it("creates an organization event automation owned by the org but run as its creator", async () => {
     resourceGetByPathMock
       .mockResolvedValueOnce(null)
@@ -139,13 +162,14 @@ describe("automation domain service", () => {
       orgOwner,
       "jobs/notify.md",
       expect.stringMatching(
-        /createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
+        /appId: "mail"[\s\S]*createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
       ),
     );
     expect(definition.meta).toMatchObject({
       triggerType: "event",
       createdBy: "alice@example.com",
       orgId: "org-1",
+      appId: "mail",
       runAs: "creator",
       model: "claude-sonnet",
       mcpTools: ["mcp__mail__read"],
@@ -183,14 +207,14 @@ describe("automation domain service", () => {
 
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     const adminItems = await listAutomationDefinitions(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(adminItems[0]?.canUpdate).toBe(true);
 
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     const memberItems = await listAutomationDefinitions(
-      { userEmail: "member@example.com", orgId: "org-1" },
+      { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(memberItems[0]?.canUpdate).toBe(false);
@@ -201,7 +225,7 @@ describe("automation domain service", () => {
     resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       {
         name: "notify",
         scope: "organization",
@@ -225,7 +249,7 @@ describe("automation domain service", () => {
     );
 
     await deleteAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
       "notify",
     );
@@ -238,7 +262,7 @@ describe("automation domain service", () => {
 
     await expect(
       updateAutomation(
-        { userEmail: "member@example.com", orgId: "org-1" },
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
         {
           name: "notify",
           scope: "organization",

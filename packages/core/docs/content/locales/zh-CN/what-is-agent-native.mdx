@@ -18,7 +18,7 @@ Agent-native 是一种构建软件的方式，其中 AI 智能体与围绕它构
 - **或者直接提问。** 在智能体中输入"回复 Sara 的邮件说我三点前到"。它打开正确的线程、起草回复，并展示给你审批——就像你手动操作一样。
 - **看到它看到的内容。** 打开一封邮件，智能体知道是哪一封。选择一个图表，智能体知道是哪个图表。高亮一段文字并按 Cmd+I，智能体只对该段落执行操作。
 - **观看它工作。** 当智能体执行操作时——打开视图、编辑草稿、运行报告——UI 实时更新。你可以随时停止它、重定向它，或用鼠标接管。
-- **像对待团队成员一样引导它。** 给出反馈、排队另一个任务、编辑它的指令、审计它昨天做了什么。它会记住，并在你的工作流程中不断改进。
+- **像对待团队成员一样引导它。** 给出反馈、排队另一个任务、编辑它的指令，并审计它昨天做了什么。
 
 这就是 agent-native 所设计的体验。现在来看看为什么大多数产品做不到这一点。
 
@@ -313,7 +313,7 @@ Agent-native 不仅仅是为开发者准备的。嵌入式智能体为整个团�
 Agent-native 应用遵循从可运行应用开始的模型。你从一个**模板**开始——日历、内容、幻灯片、分析、邮件、视频片段、设计、表单、调度——然后把它变成你的。每一个都是完整的、可运行的 SaaS 产品，而不是空白脚手架：
 
 1. 在 [agent-native.com/templates](/templates) 上选择一个模板
-2. 立即作为托管应用使用（例如 mail.agent-native.com）
+2. 许多官方模板都提供了托管应用（例如 mail.agent-native.com）
 3. 当你想要自定义时，从模板创建你自己的应用——"连接我们的 Stripe 账户"、"添加一个队列图表"
 4. 在你自己的仓库和开发工作流中自定义源代码
 5. 将你的应用部署到你自己的域名——或留在 agent-native.com 上
@@ -374,7 +374,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 <AgentSidebar />;
 ```
 
-一个操作，多种界面：智能体将其作为工具调用，UI 将其作为类型安全的 mutation 调用，[原生聊天](/docs/native-chat-ui)可以渲染明确的 widget 结果，外部智能体通过 [A2A](/docs/a2a-protocol) 访问它，MCP 宿主通过应用的 [MCP 服务器](/docs/mcp-protocol)调用它，框架可选地处理 MCP Apps UI 资源和标准远程 MCP OAuth。参见 [Actions](/docs/actions) 了解完整参考。
+一个操作，多种界面：智能体将其作为工具调用，UI 将其作为类型安全的 mutation 调用，[原生聊天](/docs/native-chat-ui)可以渲染明确的 widget 结果，外部智能体通过 [A2A](/docs/a2a-protocol) 访问它，MCP 宿主通过应用的 [MCP 服务器](/docs/mcp-protocol)调用它，框架可选地处理 MCP Apps UI 资源和标准远程 MCP OAuth。参见 [Actions](/docs/actions-overview) 了解完整参考。
 
 ## 接下来是什么 {#whats-next}
 

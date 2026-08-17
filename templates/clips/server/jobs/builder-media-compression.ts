@@ -13,6 +13,7 @@ import { runBuilderMediaCompressionSweepOnce } from "../lib/builder-media-compre
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 let skippingLogged = false;
+let running = false;
 
 export { runBuilderMediaCompressionSweepOnce };
 
@@ -31,9 +32,15 @@ export default function registerBuilderMediaCompressionJob(): void {
   }
 
   setInterval(() => {
-    runBuilderMediaCompressionSweepOnce().catch((err) =>
-      console.error("[builder-media-compression] interval failed:", err),
-    );
+    if (running) return;
+    running = true;
+    runBuilderMediaCompressionSweepOnce()
+      .catch((err) =>
+        console.error("[builder-media-compression] interval failed:", err),
+      )
+      .finally(() => {
+        running = false;
+      });
   }, SWEEP_INTERVAL_MS);
   console.log(
     `[builder-media-compression] Recurring compression sweep every ${SWEEP_INTERVAL_MS / 1000}s.`,

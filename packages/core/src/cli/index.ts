@@ -13,6 +13,13 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import {
+  assertNativeDependencies,
+  assertNodeRuntimeMarker,
+  ensureNativeDependencies,
+  writeNodeRuntimeMarker,
+} from "./native-dependencies.js";
+import { cliSpawnOptions } from "./process.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
@@ -447,13 +454,13 @@ function extractNodeInspectFlag(args: string[]): {
 function run(
   cmd: string,
   cmdArgs: string[],
-  opts?: { stdio?: "inherit" | "pipe"; env?: NodeJS.ProcessEnv },
+  opts?: {
+    stdio?: "inherit" | "pipe";
+    env?: NodeJS.ProcessEnv;
+    shell?: boolean;
+  },
 ) {
-  const child = spawn(cmd, cmdArgs, {
-    stdio: opts?.stdio ?? "inherit",
-    shell: process.platform === "win32",
-    env: opts?.env ?? process.env,
-  });
+  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
   child.on("exit", (code) => process.exit(code ?? 0));
   // Forward signals to child so Cmd+C doesn't leave zombie processes holding ports
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
@@ -613,6 +620,12 @@ if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
+    try {
+      ensureNativeDependencies({ repair: true, label: "dev" });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
     if (isWorkspaceRoot()) {
       import("./workspace-dev.js")
         .then((m) => m.runWorkspaceDev({ args }))
@@ -652,7 +665,10 @@ switch (command) {
       NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
-    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], { env });
+    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], {
+      env,
+      shell: false,
+    });
     break;
   }
 
@@ -676,6 +692,8 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
+      ensureNativeDependencies({ repair: true, label: "build" });
+
       // Doctor pre-step: scans app source for the security-critical guard
       // invariants (see `agent-native doctor --help`). Findings fail by
       // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
@@ -736,6 +754,15 @@ switch (command) {
         }
       }
 
+      const serverDirectory = path.resolve(".output/server");
+      if (fs.existsSync(serverDirectory)) {
+        assertNativeDependencies({
+          fromDirectory: serverDirectory,
+          label: "build output",
+        });
+        writeNodeRuntimeMarker(serverDirectory);
+      }
+
       console.log("\nBuild complete.");
     })().catch((err) => {
       // runBuildStep handles its own failures and exits, so reaching here
@@ -761,7 +788,18 @@ switch (command) {
       );
       process.exit(1);
     }
-    run("node", [serverEntry, ...args]);
+    const serverDirectory = path.dirname(serverEntry);
+    try {
+      assertNodeRuntimeMarker(serverDirectory);
+      assertNativeDependencies({
+        fromDirectory: serverDirectory,
+        label: "start output",
+      });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+    run(process.execPath, [serverEntry, ...args]);
     break;
   }
 
@@ -994,6 +1032,18 @@ switch (command) {
     // Package or install an agent-native app as a skill-backed MCP/app bundle.
     import("./app-skill.js")
       .then((m) => m.runAppSkill(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "plugin": {
+    // Import a standard Agent Plugin's Skills and remote MCP entries into the
+    // current Agent-Native workspace.
+    import("./agent-plugin.js")
+      .then((m) => m.runAgentPlugin(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1260,6 +1310,8 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
+  agent-native plugin import <path> [--into <workspace>] [--yes] [--force]
+                                Import standard Agent Plugin Skills and remote MCP servers.
   agent-native skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.

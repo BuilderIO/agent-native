@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconPalette,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
@@ -37,8 +36,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
-import type { RecentReference } from "@/lib/recent-references";
+import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { cn } from "@/lib/utils";
+
+import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
@@ -48,6 +49,17 @@ export interface NewDeckReferenceSelection {
     value: string;
   } | null;
 }
+
+export type NewDeckReferenceSource = NonNullable<
+  NewDeckReferenceSelection["referenceSource"]
+>;
+
+export interface ImportedReference {
+  id: string;
+  title: string;
+  source: "pptx" | "pdf" | "google-slides";
+}
+
 interface DesignSystemOption {
   id: string;
   title: string;
@@ -60,10 +72,12 @@ interface NewDeckReferenceStepProps {
   decks: Deck[];
   defaultDesignSystemId: string | null;
   defaultReferenceDeckId: string | null;
-  recentReferences: RecentReference[];
-  onSelect: (selection: NewDeckReferenceSelection) => void;
-  onImport: (files: File[]) => Promise<void>;
-  onSkip: () => void;
+  onSelect: (selection: NewDeckReferenceSelection) => void | Promise<void>;
+  onImport: (files: File[]) => Promise<ImportedReference | null>;
+  onImportSource: (
+    source: NewDeckReferenceSource,
+  ) => Promise<ImportedReference | null>;
+  onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
   importing?: boolean;
   title: string;
@@ -72,9 +86,6 @@ interface NewDeckReferenceStepProps {
   chooseDeckLabel: string;
   importingLabel: string;
   skipLabel: string;
-  defaultSuffix: string;
-  starredLabel: string;
-  otherDecksLabel: string;
   searchDecksLabel: string;
   promptSummary?: string;
 }
@@ -85,9 +96,9 @@ export function NewDeckReferenceStep({
   decks,
   defaultDesignSystemId,
   defaultReferenceDeckId,
-  recentReferences,
   onSelect,
   onImport,
+  onImportSource,
   onSkip,
   onOpenChange,
   importing = false,
@@ -97,9 +108,6 @@ export function NewDeckReferenceStep({
   chooseDeckLabel,
   importingLabel,
   skipLabel,
-  defaultSuffix,
-  starredLabel,
-  otherDecksLabel,
   searchDecksLabel,
   promptSummary,
 }: NewDeckReferenceStepProps) {
@@ -110,40 +118,14 @@ export function NewDeckReferenceStep({
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
+  const [importedReference, setImportedReference] =
+    useState<ImportedReference | null>(null);
   const [selectedSource, setSelectedSource] =
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
 
-  const designSystemById = new Map(
-    designSystems.map((designSystem) => [designSystem.id, designSystem]),
-  );
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
-  const recentOptions = recentReferences
-    .map((reference) => {
-      const item =
-        reference.kind === "design-system"
-          ? designSystemById.get(reference.id)
-          : deckById.get(reference.id);
-      return item ? { reference, item } : null;
-    })
-    .filter(
-      (
-        value,
-      ): value is {
-        reference: RecentReference;
-        item: DesignSystemOption | Deck;
-      } => value !== null,
-    );
-  const visibleRecentOptions = recentOptions.filter(({ reference }) =>
-    reference.kind === "design-system"
-      ? reference.id !== selectedDesignSystemId
-      : reference.id !== selectedReferenceDeckId,
-  );
-  const starredDecks = decks.filter((deck) => deck.starred);
-  const otherDecks = decks.filter((deck) => !deck.starred);
-  const selectedDesignSystem = selectedDesignSystemId
-    ? designSystemById.get(selectedDesignSystemId)
-    : undefined;
+  const sortedDecks = sortDecksByRecency(decks);
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
@@ -152,6 +134,7 @@ export function NewDeckReferenceStep({
     if (!open) return;
     setSelectedDesignSystemId(defaultDesignSystemId);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
   }, [open, defaultDesignSystemId, defaultReferenceDeckId]);
@@ -160,45 +143,73 @@ export function NewDeckReferenceStep({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    await onImport(files);
+    const imported = await onImport(files);
+    if (imported) applyImportedReference(imported);
   };
 
-  const handleContinue = () => {
+  const applyImportedReference = (imported: ImportedReference) => {
+    setSelectedDesignSystemId(null);
+    setSelectedReferenceDeckId(imported.id);
+    setSelectedSource(null);
+    setImportedReference(imported);
+  };
+
+  const handleContinue = async () => {
+    const trimmedSource =
+      selectedSource && selectedSource.value.trim()
+        ? { ...selectedSource, value: selectedSource.value.trim() }
+        : null;
+
+    if (trimmedSource?.kind === "google-docs") {
+      const imported = await onImportSource(trimmedSource);
+      if (imported) applyImportedReference(imported);
+      return;
+    }
+
     onSelect({
       designSystemId: selectedDesignSystemId,
       referenceDeckId: selectedReferenceDeckId,
-      referenceSource:
-        selectedSource && selectedSource.value.trim()
-          ? { ...selectedSource, value: selectedSource.value.trim() }
-          : null,
+      referenceSource: trimmedSource,
     });
   };
 
   const chooseSource = (
     kind: NonNullable<NewDeckReferenceSelection["referenceSource"]>["kind"],
   ) => {
+    const isAlreadySelected =
+      selectedSource?.kind === kind ||
+      (kind === "google-docs" && importedReference?.source === "google-slides");
+    if (isAlreadySelected) {
+      setSelectedSource(null);
+      if (importedReference) {
+        // The import also set the reference deck. Leaving that id behind would
+        // submit a deck the UI no longer shows as selected.
+        setSelectedReferenceDeckId((current) =>
+          current === importedReference.id ? null : current,
+        );
+        setImportedReference(null);
+      }
+      return;
+    }
     setSelectedSource({ kind, value: "" });
     if (kind === "website" || kind === "figma") {
       setSelectedDesignSystemId(null);
     } else {
       setSelectedReferenceDeckId(null);
+      setImportedReference(null);
     }
   };
   const selectedSourceLabel =
     selectedSource?.kind === "google-docs"
-      ? "Google Docs"
+      ? t("home.googleSlidesReferenceTitle")
       : selectedSource?.kind === "website"
         ? "Website"
         : "Figma";
-  const selectedSourceIcon =
-    selectedSource?.kind === "google-docs" ? (
-      <IconBrandGoogle className="size-4" />
-    ) : selectedSource?.kind === "website" ? (
-      <IconWorld className="size-4" />
-    ) : (
-      <IconBrandFigma className="size-4" />
-    );
-
+  const selectedReferenceDeckTitle =
+    selectedReferenceDeck?.title ??
+    (selectedReferenceDeckId === importedReference?.id
+      ? importedReference.title
+      : undefined);
   return open ? (
     <div
       className="fixed inset-0 z-[200] flex min-h-screen flex-col bg-background text-foreground"
@@ -228,29 +239,6 @@ export function NewDeckReferenceStep({
             </p>
           )}
 
-          {(selectedDesignSystem || selectedSource) && (
-            <div className="mt-8 space-y-2">
-              {selectedDesignSystem && (
-                <ReferenceRow
-                  icon={<IconPalette className="size-4" />}
-                  label={selectedDesignSystem.title}
-                  meta={`${designSystemLabel}${defaultDesignSystemId === selectedDesignSystem.id ? defaultSuffix : ""}`}
-                  selected
-                  onClick={() => setSelectedDesignSystemId(null)}
-                />
-              )}
-              {selectedSource && (
-                <ReferenceRow
-                  icon={selectedSourceIcon}
-                  label={selectedSourceLabel}
-                  meta={selectedSource.value || "Add a link below"}
-                  selected
-                  onClick={() => setSelectedSource(null)}
-                />
-              )}
-            </div>
-          )}
-
           <div className="mt-10 space-y-6">
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-3">
@@ -269,9 +257,9 @@ export function NewDeckReferenceStep({
                 )}
               </div>
               <Select
-                value={selectedDesignSystemId ?? undefined}
+                value={selectedDesignSystemId ?? "none"}
                 onValueChange={(value) => {
-                  setSelectedDesignSystemId(value);
+                  setSelectedDesignSystemId(value === "none" ? null : value);
                   setSelectedSource(null);
                 }}
               >
@@ -282,6 +270,7 @@ export function NewDeckReferenceStep({
                   <SelectValue placeholder={designSystemLabel} />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">{t("home.none")}</SelectItem>
                   {designSystems.map((designSystem) => (
                     <SelectItem key={designSystem.id} value={designSystem.id}>
                       {designSystem.title}
@@ -309,7 +298,7 @@ export function NewDeckReferenceStep({
                     className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="truncate">
-                      {selectedReferenceDeck?.title ?? chooseDeckLabel}
+                      {selectedReferenceDeckTitle ?? chooseDeckLabel}
                     </span>
                     <IconChevronDown className="size-4 shrink-0 opacity-50" />
                   </button>
@@ -328,98 +317,54 @@ export function NewDeckReferenceStep({
                     <CommandInput placeholder={searchDecksLabel} />
                     <CommandList className="max-h-72">
                       <CommandEmpty>{t("home.noMatchingDecks")}</CommandEmpty>
-                      {starredDecks.length > 0 && (
-                        <CommandGroup heading={starredLabel}>
-                          {starredDecks.map((deck) => (
-                            <CommandItem
-                              key={deck.id}
-                              value={`${deck.title} ${deck.id}`}
-                              onSelect={() => {
-                                setSelectedReferenceDeckId(deck.id);
-                                setSelectedSource(null);
-                                setReferenceDeckSearchOpen(false);
-                              }}
-                            >
-                              <IconCheck
-                                className={cn(
-                                  "me-2 size-4",
-                                  selectedReferenceDeckId === deck.id
-                                    ? "opacity-100"
-                                    : "opacity-0",
-                                )}
-                              />
-                              <span className="truncate">{deck.title}</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )}
-                      {otherDecks.length > 0 && (
-                        <CommandGroup heading={otherDecksLabel}>
-                          {otherDecks.map((deck) => (
-                            <CommandItem
-                              key={deck.id}
-                              value={`${deck.title} ${deck.id}`}
-                              onSelect={() => {
-                                setSelectedReferenceDeckId(deck.id);
-                                setSelectedSource(null);
-                                setReferenceDeckSearchOpen(false);
-                              }}
-                            >
-                              <IconCheck
-                                className={cn(
-                                  "me-2 size-4",
-                                  selectedReferenceDeckId === deck.id
-                                    ? "opacity-100"
-                                    : "opacity-0",
-                                )}
-                              />
-                              <span className="truncate">{deck.title}</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      )}
+                      <CommandGroup>
+                        <CommandItem
+                          value={`none ${t("home.none")}`}
+                          onSelect={() => {
+                            setSelectedReferenceDeckId(null);
+                            setImportedReference(null);
+                            setSelectedSource(null);
+                            setReferenceDeckSearchOpen(false);
+                          }}
+                        >
+                          <IconCheck
+                            className={cn(
+                              "me-2 size-4",
+                              selectedReferenceDeckId === null
+                                ? "opacity-100"
+                                : "opacity-0",
+                            )}
+                          />
+                          <span className="truncate">{t("home.none")}</span>
+                        </CommandItem>
+                        {sortedDecks.map((deck) => (
+                          <CommandItem
+                            key={deck.id}
+                            value={`${deck.title} ${deck.id}`}
+                            onSelect={() => {
+                              setSelectedReferenceDeckId(deck.id);
+                              setImportedReference(null);
+                              setSelectedSource(null);
+                              setReferenceDeckSearchOpen(false);
+                            }}
+                          >
+                            <IconCheck
+                              className={cn(
+                                "me-2 size-4",
+                                selectedReferenceDeckId === deck.id
+                                  ? "opacity-100"
+                                  : "opacity-0",
+                              )}
+                            />
+                            <span className="truncate">{deck.title}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
                     </CommandList>
                   </Command>
                 </PopoverContent>
               </Popover>
             </div>
-
-            {visibleRecentOptions.length > 0 && (
-              <div className="border-t border-border pt-5">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Recent
-                </span>
-                <div className="mt-2 space-y-2">
-                  {visibleRecentOptions.map(({ reference, item }) => (
-                    <ReferenceRow
-                      key={`${reference.kind}:${reference.id}`}
-                      compact
-                      icon={
-                        reference.kind === "design-system" ? (
-                          <IconPalette className="size-4" />
-                        ) : (
-                          <IconPresentation className="size-4" />
-                        )
-                      }
-                      label={item.title}
-                      meta={
-                        reference.kind === "design-system"
-                          ? designSystemLabel
-                          : referenceDeckLabel
-                      }
-                      onClick={() => {
-                        if (reference.kind === "design-system") {
-                          setSelectedDesignSystemId(reference.id);
-                        } else {
-                          setSelectedReferenceDeckId(reference.id);
-                        }
-                        setSelectedSource(null);
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="border-t border-border pt-5">
               <span className="text-xs font-medium text-muted-foreground">
@@ -430,6 +375,8 @@ export function NewDeckReferenceStep({
                   accept=".pptx"
                   icon={<IconPresentation className="size-4" />}
                   label="PPT"
+                  imported={importedReference?.source === "pptx"}
+                  importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}
                   onChange={handleImport}
@@ -438,6 +385,8 @@ export function NewDeckReferenceStep({
                   accept=".pdf"
                   icon={<IconFileTypePdf className="size-4" />}
                   label="PDF"
+                  imported={importedReference?.source === "pdf"}
+                  importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}
                   onChange={handleImport}
@@ -446,25 +395,34 @@ export function NewDeckReferenceStep({
                   accept=".docx"
                   icon={<IconFileText className="size-4" />}
                   label="DOCX"
+                  imported={false}
+                  importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}
                   onChange={handleImport}
                 />
                 <ImportOption
                   icon={<IconBrandGoogle className="size-4" />}
-                  label="GDocs"
-                  selected={selectedSource?.kind === "google-docs"}
+                  label={t("home.googleSlidesImportLabel")}
+                  confirmed={importedReference?.source === "google-slides"}
+                  confirmedLabel={t("home.imported")}
+                  selected={
+                    selectedSource?.kind === "google-docs" ||
+                    importedReference?.source === "google-slides"
+                  }
                   onClick={() => chooseSource("google-docs")}
                 />
                 <ImportOption
                   icon={<IconWorld className="size-4" />}
                   label="Website"
+                  confirmedLabel={t("home.imported")}
                   selected={selectedSource?.kind === "website"}
                   onClick={() => chooseSource("website")}
                 />
                 <ImportOption
                   icon={<IconBrandFigma className="size-4" />}
                   label="Figma"
+                  confirmedLabel={t("home.imported")}
                   selected={selectedSource?.kind === "figma"}
                   onClick={() => chooseSource("figma")}
                 />
@@ -484,23 +442,59 @@ export function NewDeckReferenceStep({
                   }
                 />
               )}
+              {selectedSource?.kind === "google-docs" && (
+                <div className="mt-3">
+                  <GoogleDriveConnectionCta />
+                </div>
+              )}
+              {importedReference && (
+                <div
+                  className="mt-3 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <IconCheck className="size-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">
+                      {t("home.referenceImportSuccess")}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {t("home.referenceImportSelected", {
+                        title: importedReference.title,
+                      })}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </main>
 
       <footer className="flex shrink-0 items-center justify-between border-t border-border px-5 py-4 sm:px-8">
-        <Button type="button" variant="ghost" onClick={onSkip}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onSkip}
+          disabled={importing}
+        >
           {skipLabel}
         </Button>
         <Button
           type="button"
-          onClick={handleContinue}
+          onClick={() => void handleContinue()}
+          aria-busy={importing}
           disabled={
             importing || Boolean(selectedSource && !selectedSource.value.trim())
           }
         >
-          Continue
+          {importing
+            ? importingLabel
+            : importedReference
+              ? t("home.continueToGenerate")
+              : t("home.continue")}
           <IconCheck className="ms-1.5 size-4" />
         </Button>
       </footer>
@@ -512,6 +506,8 @@ function FileImportOption({
   accept,
   icon,
   label,
+  imported = false,
+  importedLabel,
   importing,
   importingLabel,
   onChange,
@@ -519,6 +515,8 @@ function FileImportOption({
   accept: string;
   icon: ReactNode;
   label: string;
+  imported?: boolean;
+  importedLabel: string;
   importing: boolean;
   importingLabel: string;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -529,8 +527,9 @@ function FileImportOption({
         "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
         importing && "pointer-events-none opacity-60",
       )}
+      aria-label={imported ? `${label} - ${importedLabel}` : label}
     >
-      {icon}
+      {imported ? <IconCheck className="size-4 text-primary" /> : icon}
       <span>{importing ? importingLabel : label}</span>
       <input
         type="file"
@@ -547,11 +546,15 @@ function FileImportOption({
 function ImportOption({
   icon,
   label,
+  confirmed = false,
+  confirmedLabel,
   selected = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  confirmed?: boolean;
+  confirmedLabel?: string;
   selected?: boolean;
   onClick: () => void;
 }) {
@@ -565,58 +568,13 @@ function ImportOption({
           ? "border-primary/50 bg-primary/5 text-primary"
           : "border-border hover:bg-accent",
       )}
+      aria-label={
+        confirmed && confirmedLabel ? `${label} - ${confirmedLabel}` : label
+      }
       aria-pressed={selected}
     >
-      {icon}
+      {confirmed ? <IconCheck className="size-4 text-primary" /> : icon}
       <span>{label}</span>
-    </button>
-  );
-}
-
-function ReferenceRow({
-  icon,
-  label,
-  meta,
-  selected = false,
-  compact = false,
-  onClick,
-}: {
-  icon: ReactNode;
-  label: string;
-  meta: string;
-  selected?: boolean;
-  compact?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex w-full min-w-0 items-center gap-3 rounded-lg border px-4 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        compact ? "py-2.5" : "py-3.5",
-        selected
-          ? "border-primary/50 bg-primary/5"
-          : "border-border bg-card/40 hover:border-foreground/30 hover:bg-accent/40",
-      )}
-    >
-      <span
-        className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-md",
-          selected
-            ? "bg-primary/10 text-primary"
-            : "bg-accent text-muted-foreground",
-        )}
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{label}</span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {meta}
-        </span>
-      </span>
-      {selected && <IconCheck className="size-4 shrink-0 text-primary" />}
     </button>
   );
 }

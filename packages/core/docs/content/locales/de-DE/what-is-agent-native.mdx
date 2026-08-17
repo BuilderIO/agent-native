@@ -18,7 +18,7 @@ Stell dir einen Hintergrundarbeiter, einen Posteingang, einen Kalender, einen Fo
 - **Oder einfach fragen.** Tippe „Antworte auf die E-Mail von Sara, dass ich um 15 Uhr da bin" in den Agent. Er öffnet den richtigen Thread, erstellt den Entwurf und zeigt ihn dir zur Freigabe – genau so, als hättest du es selbst gemacht.
 - **Sehen, was er sieht.** Öffne eine E-Mail, und der Agent weiß, welche. Wähle ein Diagramm aus, und der Agent weiß, welches. Markiere einen Absatz und drücke Cmd+I, und der Agent agiert genau auf diesen Absatz.
 - **Ihm bei der Arbeit zusehen.** Während der Agent Dinge tut – Ansichten öffnet, Entwürfe bearbeitet, Berichte ausführt – aktualisiert sich die UI in Echtzeit. Du kannst ihn jederzeit stoppen, umlenken oder mit der Maus übernehmen.
-- **Ihn wie einen Teamkollegen steuern.** Gib Feedback, stelle eine weitere Aufgabe in die Warteschlange, bearbeite seine Anweisungen, prüfe, was er gestern getan hat. Er merkt sich Dinge und wird mit der Zeit besser bei deinen Workflows.
+- **Ihn wie einen Teamkollegen steuern.** Gib Feedback, stelle eine weitere Aufgabe in die Warteschlange, bearbeite seine Anweisungen und prüfe, was er gestern getan hat.
 
 Das ist die Erfahrung, für die agent-native konzipiert wurde. Jetzt erkläre ich, warum die meisten Produkte dieses Ziel verfehlen.
 
@@ -335,7 +335,7 @@ Die Vision: weniger Übergaben, eine Person erledigt die Arbeit eines kleinen Te
 Agent-native Apps folgen einem Modell des Startens von einer funktionierenden App. Du startest von einer **Vorlage** – Kalender, Inhalte, Folien, Analytics, E-Mail, Clips, Design, Formulare, Dispatch – und machst sie zu deiner eigenen. Jede ist ein vollständiges, funktionierendes SaaS-Produkt, kein leeres Gerüst:
 
 1. Wähle eine Vorlage auf [agent-native.com/templates](/templates)
-2. Nutze sie sofort als gehostete App (z. B. mail.agent-native.com)
+2. Viele First-Party-Templates sind als gehostete Apps verfügbar (z. B. mail.agent-native.com)
 3. Erstelle deine eigene App aus der Vorlage, wenn du anpassen möchtest – „unser Stripe-Konto verbinden", „ein Kohorten-Diagramm hinzufügen"
 4. Passe den Quellcode in deinem eigenen Repository und Entwicklungs-Workflow an
 5. Deploye deine App auf deine eigene Domain – oder bleib auf agent-native.com
@@ -396,7 +396,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 <AgentSidebar />;
 ```
 
-Eine Aktion, viele Oberflächen: Der Agent ruft sie als Werkzeug auf, die UI ruft sie als typsichere Mutation auf, [nativer Chat](/docs/native-chat-ui) kann explizite Widget-Ergebnisse rendern, externe Agents erreichen sie über [A2A](/docs/a2a-protocol), und MCP-Hosts rufen sie über den [MCP-Server](/docs/mcp-protocol) der App auf, optional mit MCP Apps UI-Ressourcen und standardmäßig vom Framework verwaltetem Remote-MCP-OAuth. Unter [Aktionen](/docs/actions) findest du die vollständige Referenz.
+Eine Aktion, viele Oberflächen: Der Agent ruft sie als Werkzeug auf, die UI ruft sie als typsichere Mutation auf, [nativer Chat](/docs/native-chat-ui) kann explizite Widget-Ergebnisse rendern, externe Agents erreichen sie über [A2A](/docs/a2a-protocol), und MCP-Hosts rufen sie über den [MCP-Server](/docs/mcp-protocol) der App auf, optional mit MCP Apps UI-Ressourcen und standardmäßig vom Framework verwaltetem Remote-MCP-OAuth. Unter [Aktionen](/docs/actions-overview) findest du die vollständige Referenz.
 
 ## Was kommt als Nächstes {#whats-next}
 

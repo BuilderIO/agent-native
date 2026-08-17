@@ -60,6 +60,17 @@ export interface ToggleSidebarMessage {
   data?: { open?: boolean };
 }
 
+/** The host chat rail asks the embedded app to compact its own navigation. */
+export interface PerAppChatSidebarStateMessage {
+  type: "agentNative.perAppChatState";
+  data: { open: boolean; hosted: boolean };
+}
+
+/** The embedded app asks a host for the current per-app chat state on mount. */
+export interface PerAppChatSidebarStateRequestMessage {
+  type: "agentNative.perAppChatStateRequest";
+}
+
 export interface EnterStyleEditingMessage {
   type: "agentNative.enterStyleEditing";
   data: { selector: string };
@@ -90,6 +101,7 @@ export interface DesignCloseMessage {
 
 export type AppToFrameMessage =
   | AppReadyMessage
+  | AuthStateMessage
   | SubmitChatMessage
   | SetChatContextMessage
   | RemoveChatContextMessage
@@ -98,6 +110,7 @@ export type AppToFrameMessage =
   | SetEnvVarsMessage
   | DevModeChangeMessage
   | ToggleSidebarMessage
+  | PerAppChatSidebarStateRequestMessage
   | EnterStyleEditingMessage
   | EnterTextEditingMessage
   | ExitSelectionModeMessage
@@ -127,6 +140,12 @@ export interface UserInfoMessage {
   data: { name?: string; email?: string };
 }
 
+/** The embedded app's own session state, surfaced to a trusted host frame. */
+export interface AuthStateMessage {
+  type: "agentNative.authState";
+  data: { status: "authenticated" | "unauthenticated" };
+}
+
 export interface CodeCompleteMessage {
   type: "agentNative.codeComplete";
   tabId: string;
@@ -144,6 +163,10 @@ export interface SidebarModeMessage {
     width?: number;
     /** Whether the app's sidebar should be open. */
     open?: boolean;
+    /** Whether the sidebar is using the wide fixed drawer presentation. */
+    wide?: boolean;
+    /** Width reserved in the app layout while the wide drawer overlays it. */
+    placeholderWidth?: number;
   };
 }
 
@@ -160,6 +183,7 @@ export type FrameToAppMessage =
   | FrameOriginMessage
   | ChatRunningMessage
   | UserInfoMessage
+  | PerAppChatSidebarStateMessage
   | CodeCompleteMessage
   | SidebarModeMessage
   | PresentationModeMessage

@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ env var를 설정하면 공급자가 서버 시작 시 자동 등록됩니다. �
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 분석 이벤트를 실행합니다. 등록된 모든 제공업체에 팬 아웃됩니다.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source`에는 액션의 `ctx`를 그대로 전달하거나, `ctx`가 없는 호출자를 위해 `{ userId, anonymousId, sessionId }` 메타 객체를 전달합니다.
+
+브라우저 세션은 호출자가 직접 넘길 필요가 없습니다. 앰비언트 요청 컨텍스트(`RequestContext.browserSessionId`로, 액션 클라이언트·챗·브라우저 `track()`이 모두 보내는 `X-Agent-Native-Session-Id` 헤더에서 설정됩니다)에서 가져오므로, UI가 이벤트를 일으켰든 에이전트가 일으켰든 같은 방문으로 상관됩니다. 각 제공자는 이를 자체 세션 필드에 매핑합니다. PostHog는 `$session_id`로 매핑해 이벤트를 세션 리플레이와 연결하고, Mixpanel과 Amplitude는 `session_id` 속성으로, 웹훅과 Agent Native Analytics는 최상위 `sessionId`로 받습니다. 브라우저가 없는 호출자(cron, CLI, MCP, A2A)에서는 값이 없으며, 메타 객체의 `sessionId`가 이를 덮어씁니다.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 사용자 정의 백엔드, 공급자 레지스트리 API 또는 일괄 처리/싱글톤 내부가 필요합니까? 마지막에 있는 [Advanced: custom providers & internals](#advanced)를 참조하세요.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx를 그대로 전달합니다: 이벤트는 ctx.userEmail에 귀속되고 호출이 발생한
+    // 브라우저 세션에 연결됩니다.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -351,6 +357,6 @@ interface TrackingEvent {
 
 ## 다음 단계
 
-- [**Actions**](/docs/actions) — 대부분의 추적 통화가 발생하는 곳
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
+- [**Actions**](/docs/actions-overview) — 대부분의 추적 통화가 발생하는 곳
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
 - [**보안 — 비밀 관리**](/docs/security#secrets) — 추적 제공자를 위한 API 키 관리

@@ -51,7 +51,7 @@ As actions cobrem a grande maioria das operações do aplicativo. Recorra a uma 
 
 - Operações que a UI e o agente precisam de ambos
 - Leitura ou gravação de dados do aplicativo
-- Endpoints em forma de HTTP (use a opção `http` em [Actions](/docs/actions))
+- Endpoints em forma de HTTP (use a opção `http` em [Actions](/docs/actions-overview))
 - Qualquer coisa que deva ser uma ferramenta do agente, ferramenta MCP ou comando CLI
 - APIs padrão de requisição/resposta em JSON
 
@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -188,7 +193,7 @@ Toda resposta de SSR é um shell público e impessoal, em cache no CDN. Nunca le
 
 ## O que vem a seguir {#whats-next}
 
-- [**Actions**](/docs/actions): a superfície preferida para operações do aplicativo; recorra a uma rota apenas quando ela não se encaixar
-- [**Plugins**](/docs/server-plugins): plugins de inicialização que rodam antes de as rotas serem servidas
+- [**Actions**](/docs/actions-overview): a superfície preferida para operações do aplicativo; recorra a uma rota apenas quando ela não se encaixar
+- [**Plugins**](/docs/server-plugins): plugins de inicialização e seu comportamento de inicialização
 - [**Middleware**](/docs/server-middleware): guardas de autenticação que protegem todas as rotas, incluindo `/api/*`
 - [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` e o modelo completo de escopo de dados

@@ -20,16 +20,28 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import {
+  dispatchRemoteAutomation,
+  finishRemoteAutomationHistory,
+  getRemoteAutomationStatus,
+} from "./remote-execution.js";
 import {
   claimAutomationRun,
   finishAutomationRun,
   getAutomationRun,
   listAutomationRuns,
 } from "./run-history.js";
-import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
+import {
+  acquireAutomationSchedulerLease,
+  recordAutomationSchedulerHealth,
+  releaseAutomationSchedulerLease,
+  renewAutomationSchedulerLease,
+  AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
+} from "./scheduler-health.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -74,7 +86,10 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
+const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
+const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
+const _preflightingScheduledJobs = new Set<string>();
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -143,10 +158,60 @@ function subscribeToJobsResourceEvents(): void {
  * one job cannot run twice while leaving other due jobs waiting behind it.
  */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
+  const leaseOwner = await acquireAutomationSchedulerLease({
+    appId: deps.appId,
+  });
+  if (!leaseOwner) return;
+
+  const leaseRenewal = setInterval(() => {
+    void renewAutomationSchedulerLease({
+      appId: deps.appId,
+      owner: leaseOwner,
+    }).catch((error) => {
+      console.warn(
+        "[recurring-jobs] Scheduler lease renewal failed:",
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
+
+  let primaryFailed = false;
+  try {
+    await processRecurringJobsWithLease(deps);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    clearInterval(leaseRenewal);
+    try {
+      await releaseAutomationSchedulerLease({
+        appId: deps.appId,
+        owner: leaseOwner,
+      });
+    } catch (releaseError) {
+      console.warn(
+        "[recurring-jobs] Scheduler lease release failed:",
+        releaseError instanceof Error ? releaseError.message : releaseError,
+      );
+      if (!primaryFailed) throw releaseError;
+    }
+  }
+}
+
+async function processRecurringJobsWithLease(
+  deps: SchedulerDeps,
+): Promise<void> {
   subscribeToJobsResourceEvents();
 
   // Skip if we recently confirmed there are no job resources to run.
   const nowMs = Date.now();
+  // Write a global heartbeat before the resource scan. A slow or failed scan
+  // must not make a healthy worker look idle until the finally block runs.
+  await recordSchedulerHealthForScopes({
+    appId: deps.appId,
+    orgIds: [],
+    checkedAt: nowMs,
+  });
   if (
     _hasJobsCache === false &&
     nowMs - _lastJobsCheck < JOBS_CHECK_INTERVAL_MS
@@ -174,7 +239,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     if (!_hasJobsCache) return;
     const now = new Date();
 
-    const dueJobs: Array<{
+    const dueJobCandidates: Array<{
       key: string;
       resource: Resource;
       meta: JobFrontmatter;
@@ -187,7 +252,19 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       if (resource.path.endsWith(".keep")) continue;
 
       const { meta, body } = parseJobFrontmatter(resource.content);
+      // Jobs written before app ownership was persisted remain compatible with
+      // the shared scheduler. Once a job declares an owner, only that app may
+      // evaluate or execute it. Without this boundary every app's scheduled
+      // worker can claim the same organization resource.
+      if (!jobBelongsToApp(meta, deps.appId)) continue;
       healthOrgIds.add(meta.orgId ?? null);
+
+      // A host-targeted run is reconciled from the durable relay command. It
+      // must never fall back to this scheduler after the laptop disconnects.
+      if (meta.lastStatus === "running" && meta.executionHostId) {
+        await reconcileRemoteJob(resource, meta, now);
+        continue;
+      }
 
       // Skip disabled or missing schedule
       if (!meta.enabled || !meta.schedule) continue;
@@ -226,13 +303,69 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       // Skip if body is empty
       if (!body.trim()) continue;
 
-      const key = `${resource.owner}:${resource.path}`;
-      if (_activeScheduledJobs.has(key)) continue;
-      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) continue;
+      if (hasRecentIdentityFailure(meta, now)) continue;
 
-      _activeScheduledJobs.add(key);
-      reservedJobKeys.add(key);
-      dueJobs.push({ key, resource, meta, body });
+      const key = `${resource.owner}:${resource.path}`;
+      if (
+        _activeScheduledJobs.has(key) ||
+        _preflightingScheduledJobs.has(key)
+      ) {
+        continue;
+      }
+      dueJobCandidates.push({ key, resource, meta, body });
+    }
+
+    const preflightCandidates: typeof dueJobCandidates = [];
+    for (const candidate of dueJobCandidates) {
+      if (
+        _activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS ||
+        preflightCandidates.length >= MAX_IDENTITY_PREFLIGHTS_PER_TICK
+      ) {
+        break;
+      }
+      if (
+        _activeScheduledJobs.has(candidate.key) ||
+        _preflightingScheduledJobs.has(candidate.key)
+      ) {
+        continue;
+      }
+      preflightCandidates.push(candidate);
+    }
+
+    // Identity checks can reject stale jobs that remain due for admin review.
+    // Bound the checks so a large blocked backlog cannot consume the whole
+    // invocation or make valid jobs wait behind an unbounded stale queue.
+    const dueJobs: typeof dueJobCandidates = [];
+    for (const candidate of preflightCandidates) {
+      _preflightingScheduledJobs.add(candidate.key);
+      try {
+        const identity = await resolveBackgroundAutomationIdentity({
+          name: candidate.resource.path
+            .replace(/^jobs\//, "")
+            .replace(/\.md$/, ""),
+          meta: candidate.meta,
+          body: candidate.body,
+          resource: candidate.resource,
+        });
+        if (!identity.ok) {
+          await recordIdentityFailure(
+            candidate.resource,
+            candidate.meta,
+            candidate.body,
+            now,
+            identity.reason,
+          );
+          continue;
+        }
+        if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) {
+          break;
+        }
+        _activeScheduledJobs.add(candidate.key);
+        reservedJobKeys.add(candidate.key);
+        dueJobs.push(candidate);
+      } finally {
+        _preflightingScheduledJobs.delete(candidate.key);
+      }
     }
 
     if (dueJobs.length > 0) dispatchedAt = Date.now();
@@ -334,6 +467,120 @@ interface ExecuteJobOptions {
   manual?: boolean;
 }
 
+async function recordIdentityFailure(
+  resource: Resource,
+  meta: JobFrontmatter,
+  body: string,
+  now: Date,
+  reason: string,
+  historyId?: string,
+): Promise<JobExecutionResult> {
+  const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+  console.warn(
+    `[recurring-jobs] Skipping job "${jobName}": ${reason}. ` +
+      `User/membership no longer valid — leaving cron entry for admin review.`,
+  );
+  // Keep blocked jobs due so an admin can find them, but do not let their
+  // persistent failure consume an execution slot on every scheduler sweep.
+  const alreadyRecorded =
+    meta.lastStatus === "skipped" && meta.lastError === reason;
+  meta.lastCheck = now.toISOString();
+  meta.lastStatus = "skipped";
+  meta.lastError = reason;
+  if (!alreadyRecorded) await updateResource(resource, meta, body);
+  if (historyId) {
+    await finishAutomationRun(
+      historyId,
+      "error",
+      `Automation did not run: ${reason}. No delivery was confirmed.`,
+    );
+  }
+  return { status: "skipped", error: reason };
+}
+
+function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
+  if (meta.lastStatus !== "skipped" || !meta.lastCheck || !meta.lastError) {
+    return false;
+  }
+  const lastCheckMs = Date.parse(meta.lastCheck);
+  const elapsedMs = now.getTime() - lastCheckMs;
+  return (
+    Number.isFinite(lastCheckMs) &&
+    elapsedMs >= 0 &&
+    elapsedMs < IDENTITY_FAILURE_RETRY_MS
+  );
+}
+
+async function reconcileRemoteJob(
+  resource: Resource,
+  meta: JobFrontmatter,
+  now: Date,
+): Promise<void> {
+  const ownerEmail = meta.createdBy?.trim() || resource.owner;
+  try {
+    const remote = await getRemoteAutomationStatus({
+      meta,
+      ownerEmail,
+      orgId: meta.orgId,
+      now,
+    });
+    if (remote.state === "active") return;
+
+    const error =
+      remote.error ??
+      (remote.state === "failed"
+        ? "The remote execution host did not complete this automation."
+        : undefined);
+    await finishRemoteAutomationHistory(
+      meta,
+      remote.state === "completed" ? "completed" : "failed",
+      error,
+    ).catch((historyError) => {
+      console.warn(
+        `[recurring-jobs] Could not finish remote history for "${resource.path}":`,
+        historyError,
+      );
+    });
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: remote.state === "completed" ? "success" : "error",
+      lastError: error,
+      remoteRequestId: undefined,
+      remoteCommandId: undefined,
+      remoteRunId: undefined,
+      remoteAutomationRunId: undefined,
+      remoteAdvanceSchedule: undefined,
+      advanceSchedule: meta.remoteAdvanceSchedule !== false,
+    });
+    console.log(
+      `[recurring-jobs] Remote job "${resource.path}" reached ${remote.state}.`,
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, 200)
+        : "Remote execution host could not be reached.";
+    await finishRemoteAutomationHistory(meta, "failed", message).catch(
+      () => undefined,
+    );
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: "error",
+      lastError: message,
+      remoteRequestId: undefined,
+      remoteCommandId: undefined,
+      remoteRunId: undefined,
+      remoteAutomationRunId: undefined,
+      remoteAdvanceSchedule: undefined,
+      advanceSchedule: meta.remoteAdvanceSchedule !== false,
+    });
+    console.error(
+      `[recurring-jobs] Remote job "${resource.path}" failed:`,
+      message,
+    );
+  }
+}
+
 async function executeJob(
   resource: Resource,
   meta: JobFrontmatter,
@@ -358,29 +605,14 @@ async function executeJob(
   // failure; leave the cron entry alone so an admin can purge after
   // investigation.
   if (!identity.ok) {
-    console.warn(
-      `[recurring-jobs] Skipping job "${jobName}": ${identity.reason}. ` +
-        `User/membership no longer valid — leaving cron entry for admin review.`,
+    return recordIdentityFailure(
+      resource,
+      meta,
+      body,
+      now,
+      identity.reason,
+      options.historyId,
     );
-    // Mark as skipped without resetting nextRun so an admin can find it.
-    // `lastRun` is deliberately untouched: the job did not run, and stamping
-    // it here made a permanently blocked job look like it ran every minute.
-    // Re-writing an unchanged resource on every tick also churns the poll
-    // stream, so only persist when the failure state actually changed.
-    const alreadyRecorded =
-      meta.lastStatus === "skipped" && meta.lastError === identity.reason;
-    meta.lastCheck = now.toISOString();
-    meta.lastStatus = "skipped";
-    meta.lastError = identity.reason;
-    if (!alreadyRecorded) await updateResource(resource, meta, body);
-    if (options.historyId) {
-      await finishAutomationRun(
-        options.historyId,
-        "error",
-        `Automation did not run: ${identity.reason}. No delivery was confirmed.`,
-      );
-    }
-    return { status: "skipped", error: identity.reason };
   }
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
@@ -421,6 +653,57 @@ async function executeJob(
     };
   }
 
+  const prompt = options.manual
+    ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+    : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
+
+  if (meta.executionHostId) {
+    try {
+      const dispatch = await dispatchRemoteAutomation({
+        resource,
+        meta,
+        body,
+        ownerEmail: jobUserEmail,
+        orgId: jobOrgId,
+        appId: deps.appId,
+        prompt,
+        title: `${options.manual ? "Automation" : "Job"}: ${jobName}`,
+        historyId: options.historyId,
+        advanceSchedule: options.advanceSchedule,
+        now,
+      });
+      console.log(
+        `[recurring-jobs] Job "${jobName}" queued on remote host as ${dispatch.command.id}.`,
+      );
+      return { status: "success", runId: dispatch.command.id };
+    } catch (err) {
+      const lastError =
+        err instanceof Error
+          ? err.message.slice(0, 200)
+          : "Remote dispatch failed";
+      const reportedError = `${lastError}. No delivery was confirmed.`;
+      await recordExecutionOutcome(resource, {
+        lastRun: meta.lastRun,
+        lastStatus: "error",
+        lastError: reportedError,
+        remoteRequestId: undefined,
+        remoteCommandId: undefined,
+        remoteRunId: undefined,
+        remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
+        advanceSchedule: options.advanceSchedule,
+      });
+      if (options.historyId) {
+        await finishAutomationRun(options.historyId, "error", reportedError);
+      }
+      console.error(
+        `[recurring-jobs] Job "${jobName}" remote dispatch failed:`,
+        reportedError,
+      );
+      return { status: "error", error: reportedError };
+    }
+  }
+
   const requestContext =
     meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
       ? {
@@ -453,15 +736,20 @@ async function executeJob(
         automation: jobContext,
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
-        prompt: options.manual
-          ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
-          : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
+        prompt,
         threadTitle: `${options.manual ? "Automation" : "Job"}: ${jobName} — ${now.toLocaleDateString()}`,
         runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
         actionCaller: "automation" as const,
+        actionAutomation: {
+          triggerId: resource.id,
+          triggerName: jobName,
+          ...(meta.delegatedPolicyId
+            ? { policyId: meta.delegatedPolicyId }
+            : {}),
+        },
       },
       deps,
     );
@@ -516,6 +804,11 @@ export async function runQueuedAutomation(
 ): Promise<{ skipped: boolean; runId?: string; error?: string }> {
   const queued = await getAutomationRun(historyId);
   if (!queued) throw new Error(`Automation run "${historyId}" not found.`);
+  const queuedAppId = queued.appId?.trim() || null;
+  const workerAppId = deps.appId?.trim() || null;
+  if (queuedAppId && queuedAppId !== workerAppId) {
+    return { skipped: true };
+  }
   if (!(await claimAutomationRun(historyId))) {
     return { skipped: true };
   }
@@ -549,7 +842,15 @@ async function updateResource(
 /** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
 type ExecutionOutcome = Pick<
   JobFrontmatter,
-  "lastRun" | "lastCheck" | "lastStatus" | "lastError"
+  | "lastRun"
+  | "lastCheck"
+  | "lastStatus"
+  | "lastError"
+  | "remoteRequestId"
+  | "remoteCommandId"
+  | "remoteRunId"
+  | "remoteAutomationRunId"
+  | "remoteAdvanceSchedule"
 > & { advanceSchedule?: boolean };
 
 /**

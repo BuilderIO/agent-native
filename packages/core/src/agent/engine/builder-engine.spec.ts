@@ -173,6 +173,40 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("uses credentials captured during engine construction instead of ambient lookup", async () => {
+    const { resolveBuilderCredentials } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderCredentials).mockClear();
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonlResponse([
+        { type: "text-delta", text: "Hi!" },
+        { type: "stop", reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine({
+      credentials: {
+        privateKey: "bpk-captured",
+        publicKey: "space-captured",
+        userId: "captured-user",
+        orgName: "Captured Space",
+      },
+    });
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.some((event) => event.type === "text-delta")).toBe(true);
+    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-captured",
+    );
+    expect(init.headers.Authorization).toBe("Bearer bpk-captured");
+    expect(init.headers["x-builder-user-id"]).toBe("captured-user");
+  });
+
   it("short-circuits with missing-credentials when BUILDER_PUBLIC_KEY is unset", async () => {
     credentialState.builderPublicKey = null;
 
@@ -400,7 +434,7 @@ describe("createBuilderEngine", () => {
             type: "tool-call-delta",
             id: "toolu_01",
             name: "x",
-            argsTextDelta: "}",
+            argsTextDelta: '"id":"ext"}',
           },
           { type: "tool-call", id: "toolu_01", name: "x", input: {} },
           { type: "stop", reason: "tool_use", requestId: "req_1" },
@@ -422,10 +456,15 @@ describe("createBuilderEngine", () => {
         type: "tool-input-delta",
         id: "toolu_01",
         name: "x",
-        text: "}",
+        text: '"id":"ext"}',
       },
     ]);
-    expect(events.find((e) => e.type === "tool-call")).toBeDefined();
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "x",
+      input: { id: "ext" },
+    });
   });
 
   it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {
@@ -1484,7 +1523,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("xhigh");
   });
 
-  it("sends reasoning_effort medium by default for a reasoning-capable Claude model", async () => {
+  it("sends reasoning_effort high by default for an effort-capable Claude model", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1500,10 +1539,10 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
-  it("sends reasoning_effort medium by default for Luna", async () => {
+  it("sends reasoning_effort high by default for Luna", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1517,7 +1556,7 @@ describe("createBuilderEngine", () => {
     await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
   // OpenAI rejects reasoning_effort + function tools on Chat Completions,
@@ -1608,7 +1647,7 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
   it("omits reasoning_effort by default for a non-reasoning model", async () => {

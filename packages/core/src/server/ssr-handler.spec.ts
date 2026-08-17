@@ -87,6 +87,9 @@ describe("createH3SSRHandler", () => {
     delete process.env.SENTRY_DSN;
     delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.AGENT_NATIVE_SSR_CACHE;
+    delete process.env.NETLIFY;
+    delete process.env.NETLIFY_LOCAL;
+    delete process.env.SITE_ID;
     mocks.requestHandler.mockClear();
     mocks.getSession.mockClear();
     mocks.getOrgContext.mockClear();
@@ -263,6 +266,20 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("speculation-rules")).toBe(
       DEFAULT_SPECULATION_RULES_HEADER,
     );
+  });
+
+  it("narrows Netlify query variation on public SSR HTML", async () => {
+    process.env.SITE_ID = "site-test";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/"));
+
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("prefixes the default Speculation-Rules header under APP_BASE_PATH", async () => {
@@ -863,10 +880,16 @@ describe("createH3SSRHandler", () => {
       );
     }
 
-    function expectCacheHeaders(response: Response, expected: string) {
-      for (const name of Object.keys(DEFAULT_SSR_CACHE_HEADERS)) {
-        expect(response.headers.get(name)).toBe(expected);
-      }
+    function expectCacheHeaders(
+      response: Response,
+      expected: string,
+      netlifyExpected = expected,
+    ) {
+      expect(response.headers.get("cache-control")).toBe(expected);
+      expect(response.headers.get("cdn-cache-control")).toBe(expected);
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        netlifyExpected,
+      );
     }
 
     it("disables SSR caching on HTML when set to off", async () => {
@@ -938,6 +961,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -951,6 +975,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -965,6 +990,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+        DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
       );
     });
 

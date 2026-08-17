@@ -188,7 +188,7 @@ function googleThinkingBudget(effort: string) {
 }
 
 /**
- * Map a reasoning effort level to Gemini 3.x thinkingLevel string.
+ * Map an effort level to Gemini 3.x thinkingLevel string.
  * Gemini 3 models (gemini-3.*) reject thinkingBudget and require thinkingLevel
  * with values 'low' | 'medium' | 'high'. Gemini 3.0 only supports 'low'/'high';
  * Gemini 3.1+ adds 'medium'. We always emit 'medium' for medium effort since it
@@ -244,7 +244,8 @@ class AISDKEngine implements AgentEngine {
     this.defaultModel = config.model ?? PROVIDER_DEFAULT_MODELS[provider];
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.preserveCustomModels =
-      provider === "openai" && Boolean(config.baseUrl);
+      provider === "ollama" ||
+      (provider === "openai" && Boolean(config.baseUrl));
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??
@@ -527,6 +528,11 @@ class AISDKEngine implements AgentEngine {
       // A step can finish having announced a tool call it never delivered.
       // Assemble it from its deltas, or report it in-band, rather than ending
       // the turn as if the model never asked for it.
+      for (const part of assistantContent) {
+        if (part.type === "tool-call") {
+          observeStreamedToolInput(toolInputs, part);
+        }
+      }
       for (const recovered of finalizeStreamedToolInputs(
         toolInputs,
         assistantContent.flatMap((part) =>

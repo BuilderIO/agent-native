@@ -73,4 +73,61 @@ describe("filterOtherApps", () => {
       },
     ]);
   });
+
+  it("hides the unsupported CRM and Research entries", () => {
+    expect(
+      filterOtherApps(
+        [
+          {
+            id: "crm",
+            name: "CRM",
+            url: "https://crm.example.com",
+          },
+          {
+            id: "research",
+            name: "Research",
+            url: "https://research.example.com",
+          },
+          {
+            id: "mail",
+            name: "Mail",
+            url: "https://mail.agent-native.com",
+          },
+        ],
+        [],
+      ),
+    ).toEqual([
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://mail.agent-native.com",
+      },
+    ]);
+  });
+
+  it("hides the generic chat starter from connected app launchers", () => {
+    expect(
+      filterOtherApps(
+        [
+          {
+            id: "chat",
+            name: "Chat",
+            url: "https://chat.agent-native.com",
+          },
+          {
+            id: "mail",
+            name: "Mail",
+            url: "https://mail.agent-native.com",
+          },
+        ],
+        [],
+      ),
+    ).toEqual([
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://mail.agent-native.com",
+      },
+    ]);
+  });
 });

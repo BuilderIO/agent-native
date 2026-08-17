@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -8,6 +8,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   triageItemStatusSchema,
   triageSourceSchema,
@@ -15,26 +16,32 @@ import {
 
 export default defineAction({
   description:
-    "List the Factory observation queue. Results are scoped to the active workspace and include the latest shadow decision summary.",
+    "List the Factory observation queue. Results are scoped to the active workspace and include the latest shadow decision summary. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed.",
   schema: z.object({
     status: triageItemStatusSchema.optional(),
     source: triageSourceSchema.optional(),
+    needsReview: z.boolean().default(false),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ status, source, limit }, context) => {
-    const { orgId } = await requireWorkspaceMember(
+  run: async ({ status, source, needsReview, limit }, context) => {
+    const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
+    const reviewStatuses = source === "github" ? ["pr_observed"] : ["received"];
     const items = await db
       .select()
       .from(triageItems)
       .where(
         and(
           eq(triageItems.orgId, orgId),
-          status ? eq(triageItems.status, status) : undefined,
+          needsReview
+            ? inArray(triageItems.status, reviewStatuses)
+            : status
+              ? eq(triageItems.status, status)
+              : undefined,
           source ? eq(triageItems.source, source) : undefined,
         ),
       )
@@ -54,7 +61,7 @@ export default defineAction({
       }
     }
 
-    return items.map((item) => {
+    const listedItems = items.map((item) => {
       const latestDecision = latestByItem.get(item.id);
       return {
         id: item.id,
@@ -86,5 +93,26 @@ export default defineAction({
           : null,
       };
     });
+
+    for (const item of listedItems) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "list-triage-items",
+          kind: "read",
+          itemId: item.itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: item.title,
+          details: {
+            status: item.status,
+            coverage: item.coverage,
+            decision: item.latestDecision?.outcome ?? null,
+          },
+        },
+      );
+    }
+    return listedItems;
   },
 });

@@ -10,7 +10,7 @@ A **surface** is the way users (or other systems) interact with your app: a chat
 
 ## How surfaces relate to each other
 
-The four main product shapes sit on a spectrum from most interactive to fully headless. What makes them composable is that the foundation stays the same throughout: the same actions, the same SQL database, and the same agent loop power every shape. Adding a new surface doesn't mean rewriting what's underneath — you're just adding a new way to reach the same operations.
+The four main product shapes sit on a spectrum from most interactive to fully headless. What makes them composable is that they share the same actions and SQL-backed app state. Use the framework agent loop when a surface needs an agent. Adding a new surface doesn't mean rewriting what's underneath — you're adding a new way to reach the same operations.
 
 <Diagram id="doc-block-hvdxgh" title="The surface spectrum" summary={"One action surface, four product shapes, each adding UI without changing the operation underneath."}>
 
@@ -37,7 +37,9 @@ The four main product shapes sit on a spectrum from most interactive to fully he
   </div>
 </div>
 <div class="diagram-base" data-rough>
-  <span class="diagram-muted">same actions · same SQL · same agent loop</span>
+  <span class="diagram-muted"
+    >same actions · SQL-backed state · agent loop where used</span
+  >
 </div>
 ```
 
@@ -165,6 +167,36 @@ React widget, use [Generative UI](/docs/generative-ui): it renders sandboxed
 Alpine/Tailwind UI inline, can read app state and slot context, and can send
 selected values back to chat.
 
+### Request-scoped action surfaces
+
+Use `resolveActionSurface` when the selected agent or thread must expose only a
+server-authorized subset of native actions. The callback runs for every
+interactive chat request after `prepareRequest`. Returned names form a hard
+allowlist for that request: omitted actions are absent from provider schemas,
+the execution registry, plan-mode preloading, and `tool-search` discovery.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+An empty list exposes no native actions. Unknown names fail the request instead
+of widening access. Every allowed action is loaded directly on the first model
+request; include `tool-search` explicitly only when discovery inside the
+already-authorized catalog is wanted. The callback scopes interactive agent
+chat only—it does not change HTTP, MCP, A2A, job, or trigger exposure. Default
+framework guidance and spawned sub-agents inherit the same surface. Trusted
+shell tools are automatically reduced to the request-filtered sandbox because
+an unrestricted shell cannot enforce a hard action boundary.
+
 ## Native inline UI {#native-inline-ui}
 
 Use this when your actions return structured data — a list of records, a chart dataset, a status summary — that should render as a real UI component inside the chat thread rather than a plain text description. You define a `chatUI` renderer on the action, and Agent-Native renders it as a first-party React component: no iframes, no separate rendering path.
@@ -192,7 +224,7 @@ Full apps add product UI around the same action and agent contract:
 
 ### SQL state
 
-App data, navigation, settings, and chat history are all durable. The agent reads and writes the same rows the UI does.
+App data, navigation, settings, and chat history are durable in SQL. The agent reads and writes the same rows the UI does.
 
 ### Context awareness
 
@@ -200,7 +232,7 @@ The agent knows the current route, selection, and focused object, so "edit this"
 
 ### Live sync
 
-Agent changes update the UI in real time, and UI changes update the agent's context. No polling, no refresh.
+Agent changes update the UI through live sync, and UI changes update the agent's context. The framework uses SSE with polling fallback, so users do not need to refresh manually.
 
 ### Deep links
 
@@ -224,9 +256,9 @@ want a complete product shape.
 
 Every Agent-Native app eventually needs a place where users can configure their agent: set standing instructions, review what it's done, connect MCP servers, manage automations, and control access. Building that UI from scratch is a lot of work. Agent-Native ships a pre-built full-page component, `AgentTabsPage`, that covers all of it across twelve tabs.
 
-Mount it at `/agent` in your app. Current templates pair that route with an app-navigation entry and pass `agentPageHref="/agent"` to `AgentSidebar`, so the sidebar's Resources and Settings modes can link to the full page without duplicating those flows.
+Mount it at `/settings/agent` in your app. Current templates use this as the canonical route and pass `agentPageHref="/settings/agent"` to `AgentSidebar`. `/agent` is kept as a legacy redirect.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -559,7 +591,7 @@ tool-result metadata. Start there when wiring an external agent into the chat.
 
 <Cards>
 
-### [Actions](/docs/actions)
+### [Actions](/docs/actions-overview)
 
 Define the operation once. Every surface above calls the same one.
 

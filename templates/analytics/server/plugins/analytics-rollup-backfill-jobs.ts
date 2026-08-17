@@ -13,6 +13,7 @@ function platformSchedulerOwnsBackfill(): boolean {
   return (
     process.env.NETLIFY === "true" ||
     Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    process.env.NITRO_PRESET === "netlify" ||
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ ===
       true
   );
@@ -28,20 +29,17 @@ function intervalMs(): number {
 }
 
 export default function registerAnalyticsRollupBackfillJobs(): void {
-  const isProd = process.env.NODE_ENV === "production";
   const flag =
     process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS ??
     process.env.RUN_BACKGROUND_JOBS;
-  const enabled =
-    !platformSchedulerOwnsBackfill() &&
-    (flag === "1" || (isProd && flag !== "0"));
+  const enabled = !platformSchedulerOwnsBackfill() && flag === "1";
 
   if (!enabled) {
     if (!skippingLogged) {
       console.log(
         platformSchedulerOwnsBackfill()
           ? "[analytics-rollups] Skipping in-process cron because the platform scheduler owns historical rollup backfills."
-          : "[analytics-rollups] Skipping historical rollup backfill (set ANALYTICS_ROLLUP_BACKFILL_JOBS=1 or RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
+          : "[analytics-rollups] Skipping historical rollup backfill (set ANALYTICS_ROLLUP_BACKFILL_JOBS=1 or RUN_BACKGROUND_JOBS=1 to enable explicitly)",
       );
       skippingLogged = true;
     }

@@ -9,12 +9,15 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../../lib/docs-source";
+import { hasDocBlockSyntax } from "./doc-block-detection";
+import { preloadDocBlocksContent } from "./doc-block-renderer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
   isDocsLocale,
   type DocsLocale,
 } from "./docs-locale";
+import { slugifyHeading } from "./heading-slug";
 
 // Keep default docs route-lazy. Eagerly importing and parsing the whole corpus
 // makes every SSR cold start pay for documents unrelated to the requested page.
@@ -125,12 +128,7 @@ function extractHeadings(
     if (!match) continue;
     const level = match[1].length; // 2, 3, or 4
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
-    const id =
-      match[3] ||
-      label
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+    const id = match[3] || slugifyHeading(label);
     headings.push({ id, label, level });
   }
   return headings;
@@ -274,7 +272,17 @@ export async function loadDocRespectingDraftVisibility(
   // Normalize `draft` to the resolved status so callers that render a draft
   // banner off this flag stay correct for translations whose frontmatter
   // omits `draft: true` even though the canonical page is a draft.
-  return isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+  const visibleDoc =
+    isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+
+  // Route loaders run before both SSR and client-side navigations render. Keep
+  // the optional block module out of ordinary docs requests, but resolve it
+  // before a block page can paint the Markdown fallback and then reflow.
+  if (hasDocBlockSyntax(visibleDoc.body)) {
+    await preloadDocBlocksContent();
+  }
+
+  return visibleDoc;
 }
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
@@ -345,12 +353,7 @@ async function buildSearchIndexFromDocs(
       const m = line.text.match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
       if (m) {
         const label = m[2].replace(/`([^`]+)`/g, "$1").trim();
-        const id =
-          m[3] ||
-          label
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "");
+        const id = m[3] || slugifyHeading(label);
         sections.push({ id, label, startLine: line.lineNumber });
       }
     }

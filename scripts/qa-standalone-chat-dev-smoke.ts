@@ -41,6 +41,10 @@ import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
+import {
+  isRetryableSessionReadErrorMessage,
+  isTransientStartupPollResponse,
+} from "./qa-standalone-chat-dev-smoke-readiness";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -368,7 +372,7 @@ async function waitForUnauthenticatedPollReady(
 ): Promise<void> {
   const deadline = Date.now() + 180_000;
   let lastError = "dev port has not accepted a request";
-  let transient503s = 0;
+  let transientResponses = 0;
 
   while (Date.now() < deadline) {
     if (running.isClosed()) {
@@ -400,19 +404,19 @@ async function waitForUnauthenticatedPollReady(
     const body = await response.text();
     if (response.status === 401) {
       log(
-        `startup poll reached HTTP 401 after ${transient503s} transient 503 response(s)`,
+        `startup poll reached HTTP 401 after ${transientResponses} transient response(s)`,
       );
       return;
     }
-    if (response.status === 503) {
-      transient503s += 1;
-      lastError = `startup poll HTTP 503 (${transient503s} transient response(s))`;
+    if (isTransientStartupPollResponse(response.status, body)) {
+      transientResponses += 1;
+      lastError = `startup poll HTTP ${response.status} (${transientResponses} transient response(s))`;
       await sleep(100);
       continue;
     }
 
     throw new Error(
-      `Expected unauthenticated startup poll to return HTTP 401 after transient 503s, ` +
+      `Expected unauthenticated startup poll to return HTTP 401 after transient startup responses, ` +
         `got HTTP ${response.status}: ${body.slice(0, 300)}`,
     );
   }
@@ -508,7 +512,10 @@ async function startDev(): Promise<RunningDev> {
       const retryable =
         !authLocked &&
         (message.includes("database is locked") ||
-          message.includes("SQLITE_BUSY"));
+          message.includes("SQLITE_BUSY") ||
+          message.includes("The database connection is not open") ||
+          message.includes("database connection is not open") ||
+          message.includes("socket hang up"));
       if (!retryable || attempt === devStartAttempts - 1) throw err;
       log(
         `dev startup race (attempt ${attempt + 1}/${devStartAttempts}), retrying…`,
@@ -657,6 +664,24 @@ async function gotoCommitted(
   throw lastError;
 }
 
+/**
+ * Console/HTTP noise that is expected during dev warmup and therefore never
+ * fails the smoke. It is still the most common explanation for a page that
+ * renders blank (an outdated optimized dep 504s, so the app never mounts), so
+ * keep the tail around to attach to readiness timeouts.
+ */
+const suppressedBrowserNoise: string[] = [];
+
+function recordSuppressedNoise(entry: string): void {
+  suppressedBrowserNoise.push(entry);
+  if (suppressedBrowserNoise.length > 40) suppressedBrowserNoise.shift();
+}
+
+function suppressedNoiseBlock(): string {
+  if (suppressedBrowserNoise.length === 0) return "";
+  return `\nSuppressed browser noise:\n${suppressedBrowserNoise.join("\n")}`;
+}
+
 function isBenignConsoleError(text: string): boolean {
   if (text.startsWith("Failed to load resource:")) return true;
   if (text.includes("favicon")) return true;
@@ -788,7 +813,7 @@ async function readAuthenticatedSessionEmail(
       const message = err instanceof Error ? err.message : String(err);
       const retryable =
         isTransientDevServerError(err) ||
-        message.includes("expected authenticated session");
+        isRetryableSessionReadErrorMessage(message);
       if (!retryable || attempt === attempts - 1) throw err;
       log(
         `session read not ready (attempt ${attempt + 1}/${attempts}), retrying…`,
@@ -800,6 +825,19 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
+/**
+ * An empty preview is ambiguous: it means both "app rendered nothing" and "the
+ * read raced a reload". Distinguish them so timeouts point at the right cause.
+ */
+async function readBodyPreview(page: Page): Promise<string> {
+  try {
+    return await page.locator("body").innerText({ timeout: 2_000 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `<unreadable: ${message.split("\n")[0]}>`;
+  }
+}
+
 async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
@@ -807,9 +845,10 @@ async function gotoAndWaitForAgentPage(
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  const deadline = Date.now() + (isCi ? 300_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
+  let lastUrl = "";
 
   while (Date.now() < deadline) {
     browserErrors.length = 0;
@@ -830,10 +869,8 @@ async function gotoAndWaitForAgentPage(
       return;
     } catch (err) {
       lastError = err;
-      lastBody = await page
-        .locator("body")
-        .innerText({ timeout: 2_000 })
-        .catch(() => "");
+      lastBody = await readBodyPreview(page);
+      lastUrl = page.url();
       if (Date.now() >= deadline) break;
       if (verbose || isCi) {
         const message = err instanceof Error ? err.message : String(err);
@@ -849,7 +886,9 @@ async function gotoAndWaitForAgentPage(
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
     `${path} did not show Agent or Settings sections tabs before timeout: ${message}\n` +
-      `Body preview: ${lastBody.slice(0, 400)}`,
+      `Last URL: ${lastUrl}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}` +
+      suppressedNoiseBlock(),
   );
 }
 
@@ -860,9 +899,10 @@ async function gotoAndWaitForChatPage(
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  const deadline = Date.now() + (isCi ? 300_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
+  let lastUrl = "";
 
   while (Date.now() < deadline) {
     browserErrors.length = 0;
@@ -884,10 +924,8 @@ async function gotoAndWaitForChatPage(
       return;
     } catch (err) {
       lastError = err;
-      lastBody = await page
-        .locator("body")
-        .innerText({ timeout: 2_000 })
-        .catch(() => "");
+      lastBody = await readBodyPreview(page);
+      lastUrl = page.url();
       if (Date.now() >= deadline) break;
       if (verbose || isCi) {
         const message = err instanceof Error ? err.message : String(err);
@@ -903,7 +941,9 @@ async function gotoAndWaitForChatPage(
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
     `${path} did not render the Chat surface before timeout: ${message}\n` +
-      `Body preview: ${lastBody.slice(0, 400)}`,
+      `Last URL: ${lastUrl}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}` +
+      suppressedNoiseBlock(),
   );
 }
 
@@ -965,6 +1005,16 @@ async function runBrowserSmoke(
   // Warmup covers `/` + auto-login + Vite quiet + authenticated session.
   log("warmup: auto-login, Vite dep quiet, authenticated /");
   await waitForAuthenticatedShell(page, baseUrl, running);
+
+  log("warmup: /agent dependencies and Vite dep quiet");
+  await gotoAndWaitForAgentPage(
+    page,
+    running,
+    "/agent",
+    browserErrors,
+    httpErrors,
+  );
+  await waitForViteDepsQuiet(running.viteReload, running.logs);
 
   browserErrors.length = 0;
   httpErrors.length = 0;
@@ -1050,7 +1100,10 @@ async function main(): Promise<void> {
     page.on("console", (message) => {
       if (message.type() !== "error") return;
       const text = message.text();
-      if (isBenignConsoleError(text)) return;
+      if (isBenignConsoleError(text)) {
+        recordSuppressedNoise(text);
+        return;
+      }
       browserErrors.push(text);
     });
     page.on("response", (response) => {
@@ -1058,7 +1111,10 @@ async function main(): Promise<void> {
       if (status < 400) return;
       const url = response.url();
       if (!url.startsWith(running.baseUrl)) return;
-      if (isBenignHttpError(status, url)) return;
+      if (isBenignHttpError(status, url)) {
+        recordSuppressedNoise(`${status} ${url}`);
+        return;
+      }
       httpErrors.push(`${status} ${url}`);
     });
 

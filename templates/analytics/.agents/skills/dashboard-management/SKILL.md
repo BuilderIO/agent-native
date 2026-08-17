@@ -2,7 +2,8 @@
 name: dashboard-management
 description: >-
   How analytics dashboards are stored, created, and modified. Covers SQL dashboard tables,
-  legacy settings migration, valid panel sources, layout shape, and safe update patterns.
+  legacy settings migration, folders, valid panel sources, layout shape, and safe update
+  patterns. Use when creating, organizing, sharing, or modifying Analytics dashboards.
 ---
 
 # Dashboard Management
@@ -16,14 +17,29 @@ Current storage:
 | Table              | Purpose                                      |
 | ------------------ | -------------------------------------------- |
 | `dashboards`       | Explorer and SQL dashboard records           |
+| `dashboard_folders` | Personal and shared SQL dashboard folders  |
 | `dashboard_views`  | Saved filter presets per dashboard           |
 | `dashboard_shares` | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants          |
 | `dashboard_revisions` | Bounded dashboard history snapshots       |
 | `analyses`         | Saved ad-hoc analysis records                |
 | `analysis_revisions` | Bounded analysis history snapshots        |
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
+
+## Dashboard folders
+
+Dashboard folders are SQL-backed, access-scoped containers for organizing SQL
+dashboards from `/dashboards`:
+
+- `personal` folders are private to their owner.
+- `shared` folders are organization-visible and require an active organization.
+- Use `list-dashboard-folders`, `create-dashboard-folder`, and
+  `set-dashboard-folder` for folder reads and membership changes.
+- A folder never expands dashboard access. A personal folder can contain only
+  an owned private dashboard; a shared folder can contain only an org-visible
+  dashboard. Use the normal dashboard sharing actions separately.
 
 For organization-wide consolidation, use `migrate-analytics-artifacts` first
 with `dryRun: true`. The write requires an organization owner/admin and the
@@ -448,9 +464,10 @@ Filters auto-apply on change — there is no Apply button. Each filter change wr
 ## Modifying A Dashboard
 
 For existing dashboard edits, default to `mutate-dashboard`. It gives the
-agent a small typed script API without exposing arbitrary JavaScript execution.
-The main action payload is a string, so it avoids native-array serialization
-traps in tool calls while still giving the agent a code-like editing surface.
+agent a typed mutation API without exposing arbitrary JavaScript execution.
+Pass structured `operations` for normal agent calls; keep the legacy `code`
+form for short layout/config edits only. Large SQL payloads belong in the
+server-side first-party metric catalog, not in a prompt argument.
 The server parses only documented `dashboard.*` method calls, applies the
 resulting operations in memory, validates the final dashboard config, writes
 SQL once, syncs collab, and returns compact proof.
@@ -497,6 +514,8 @@ type PanelConfig = Record<string, unknown> & {
   // Series to plot against a second, right-hand y-axis. See "Dual-Axis Charts".
   rightYKeys?: string[];
   rightYFormatter?: "number" | "currency" | "percent";
+  // Exact series-key to display-label aliases for legends and tooltips.
+  seriesLabels?: Record<string, string>;
 };
 
 type PanelPatch = {
@@ -654,8 +673,9 @@ After a mutation, navigate to the dashboard if the user is elsewhere. The app sy
 
 ### Reordering Panels
 
-For simple "move this chart/section" requests, prefer `mutate-dashboard` with a
-string script:
+For simple "move this chart/section" requests, prefer `mutate-dashboard` with
+structured operations. The short script form is also supported for one compact
+move:
 
 ```json
 {
@@ -678,9 +698,9 @@ When the user asks to change existing panels:
 
 1. Read the current dashboard with `get-sql-dashboard` compact mode unless full
    SQL/config is required.
-2. Call `mutate-dashboard` once with every change in one script. Use
-   `panel(...)`, `panels([...])`, or `panelsMatching({...})` selectors by id or
-   metadata; do not compute shifted array indexes.
+2. Call `mutate-dashboard` once with every change in `operations`. Use panel
+   ids, not shifted array indexes. The short `code` form is only for compact
+   layout/config edits; do not stream a large multi-panel SQL script.
 3. Verify the returned `panelCount`, `appliedOps`, `firstPanelIds`, and
    `summary`. If possible, read the affected panels back and confirm the exact
    fields changed.
@@ -726,8 +746,9 @@ For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-
 - **Never hand-author large first-party configs panel-by-panel.** Call `compose-dashboard` with the metric keys instead.
 - Unknown metric keys are skipped and reported in `unknownMetrics` (not fatal). Each panel's SQL is validated independently — valid panels save, invalid ones are reported in `invalidMetrics`.
 - By default (no `overwrite`), composing into an existing dashboard APPENDS the new panels and skips ids already present. `overwrite: true` replaces the whole config.
+- Set `refreshExisting: true` when refreshing a catalog-backed dashboard. Matching metric panels are replaced in place, unrelated panels and layout order are preserved, and the server returns `refreshedExistingIds`.
 - Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides. Request `'all'` only when the user asks for all-time coverage, and describe it as full available history.
-- Returns `{ dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `panelCount` as proof-of-done.
+- Returns `{ saved, dashboardId, panelCount, createdMetrics, refreshedExistingIds, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `saved: true`, `panelCount`, and any invalid/unknown metrics as proof-of-done.
 
 Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `replay-sessions`, `replay-chunks-over-time`, `recent-replay-sessions`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.
 
@@ -744,7 +765,7 @@ This is the dashboard-specific application of the framework-wide `reliable-mutat
 Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` calls (one per panel, plus schema-discovery calls) will blow that budget and leave the dashboard in a partial state — earlier inserts looked like they succeeded (✓), but nothing actually persisted. Avoid this:
 
 - **For a large first-party dashboard, use `compose-dashboard`** (see the section above): name the metrics, the server generates the panels in one call. Do not hand-author the big config.
-- **Batch ALL edits into ONE `mutate-dashboard` call.** One script can move,
+- **Batch ALL edits into ONE `mutate-dashboard` call.** Structured operations can move,
   insert, remove, duplicate, and update many panels. Never loop dashboard edit
   actions panel-by-panel.
   - To bulk edit existing panels, use selectors:

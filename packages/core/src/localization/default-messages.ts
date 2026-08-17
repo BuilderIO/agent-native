@@ -3,6 +3,8 @@
 // can load it during SSR. Do not import core runtime code from src/templates:
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
+import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+
 const messages = {
   workspaceFile: {
     download: "Download",
@@ -53,6 +55,7 @@ const messages = {
     profileUploading: "Uploading...",
     profileChangePhoto: "Change photo",
     profileNameLabel: "Name",
+    profileNameEdit: "Edit name",
     profileNamePlaceholder: "Your name",
     profileNameDescription:
       "This name is used when referring to you across Agent-Native apps.",
@@ -70,7 +73,7 @@ const messages = {
     passwordNewLabel: "New password",
     passwordConfirmLabel: "Confirm new password",
     passwordPlaceholder: "Enter password",
-    passwordMinLength: "Password must be at least 8 characters",
+    passwordMinLength: PASSWORD_MIN_LENGTH_MESSAGE,
     passwordMismatch: "Passwords do not match",
     passwordSave: "Save password",
     passwordSaving: "Saving...",
@@ -350,7 +353,7 @@ const messages = {
       appBuildingSuffix:
         "after its branch is merged and the workspace deploy finishes.",
       branch: "Branch: {{branch}}",
-      openBuilderBranch: "Open Builder branch",
+      openBuilderBranch: "Open in Builder",
       openingApp: "Opening {{name}}",
       redirectingTo: "Redirecting to",
       openApp: "Open app",
@@ -358,6 +361,8 @@ const messages = {
         " a Dispatch tab or a workspace app in this workspace.",
       agentsDescription:
         "Dispatch can delegate to the built-in app suite over A2A by default. Add extra agents here only if you want to route work to apps outside that built-in set.",
+      simpleAgentsDescription:
+        "Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool.",
       mcpAccessUpdated: "Agent integration access updated",
       selectAppForMcp: "Select at least one app, or expose all apps.",
       mcpUrlCopied: "Agent integration URL copied",
@@ -431,7 +436,7 @@ const messages = {
       threadDebugRefreshFailures: "Refresh failed runs",
       threadDebugNoFailures: "No failed runs found.",
       threadDebugCurrentDatabase: "Current Dispatch DB",
-      threadDebugSearchPlaceholder: "Search title, preview, messages, tools",
+      threadDebugSearchPlaceholder: "Search threads or email",
       threadDebugSearch: "Search",
       threadDebugLookupPlaceholder: "Paste thread or request/run ID",
       threadDebugInspect: "Inspect",
@@ -480,8 +485,11 @@ const messages = {
     workspace: "Resources",
     newChat: "New chat",
     newTerminal: "New terminal",
+    loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
     collapseSidebar: "Collapse sidebar",
+    widenChat: "Widen chat",
+    returnChatToLayout: "Return chat to layout",
     expandSidebar: "Expand sidebar",
     hideChats: "Hide chats",
     allChats: "All chats",
@@ -502,13 +510,33 @@ const messages = {
     askAgentTitle: "Ask the agent",
     askAgentPlaceholder: "Tell the agent what you want to do…",
     connectAi: "Connect AI",
-    builderOrOwnKeys:
-      "Use Builder.io free credits, or add your own provider keys.",
+    builderOrOwnKeys: "Choose Builder.io or custom keys.",
     connectBuilderIo: "Connect Builder.io",
     connectingBuilder: "Connecting Builder.io…",
     builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
-    addOwnKeys: "Add your own keys",
-    configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
+    addOwnKeys: "Custom keys",
+    configureProviderKeys: "Choose a provider.",
+    chooseProvider: "Choose a provider",
+    searchProviders: "Search providers...",
+    noProvidersFound: "No providers found.",
+    availableProviders: "Available providers",
+    configured: "Configured",
+    apiKey: "API key",
+    localRuntime: "Local",
+    enterApiKey: "Enter your {{provider}} API key.",
+    providerSetupFailed: "Could not configure this provider.",
+    noApiKeyNeeded: "No API key required.",
+    modelId: "Model ID",
+    endpointUrl: "Endpoint URL",
+    optional: "Optional",
+    ollamaEndpointHint: "Defaults to Ollama at http://localhost:11434.",
+    compatibleEndpointHint:
+      "Use this for LiteLLM or another OpenAI-compatible gateway.",
+    savingProvider: "Saving...",
+    providerSaved: "Connected",
+    useProvider: "Use {{provider}}",
+    saveAndUseProvider: "Save and use {{provider}}",
+    getApiKey: "Get an API key",
     checkingAiConnection: "Checking AI connection...",
     delegatedAgent: {
       asking: "Asking {{name}}...",
@@ -525,7 +553,7 @@ const messages = {
       setupDescription:
         "Connect Builder.io to use managed voice with free credits, or add your own keys.",
       connectBuilder: "Connect Builder.io",
-      useOpenAiKey: "Add your own keys",
+      useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
       start: "Real-time voice",
       keepDictating: "Dictate",
@@ -687,6 +715,7 @@ const messages = {
     cronFieldCount: "A cron expression needs exactly 5 fields.",
     saveSchedule: "Save schedule",
     details: "Details",
+    viewDetails: "View details",
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
@@ -732,6 +761,10 @@ const messages = {
     shareLink: "Share link",
     addPeopleByEmail: "Add people by email",
     notifyPeople: "Notify people",
+    message: "Message",
+    addMessage: "Add a message",
+    hideMessage: "Hide message",
+    messagePlaceholder: "Add a short note (optional)",
     peopleWithAccess: "People with access",
     ownerRole: "Owner",
     remove: "Remove",
@@ -739,6 +772,7 @@ const messages = {
     embedUrl: "Embed URL",
     embedCode: "Embed code",
     copy: "Copy",
+    copied: "Copied",
     role: "Role",
     private: "Private",
     privateDescription: "Only people with access can view",
@@ -748,6 +782,8 @@ const messages = {
     publicDescription: "Anyone signed in with the link can view",
     viewer: "Viewer",
     viewerDescription: "Can view",
+    commenter: "Commenter",
+    commenterDescription: "Can view and add comments",
     editor: "Editor",
     editorDescription: "Can edit",
     admin: "Admin",
@@ -777,6 +813,9 @@ const messages = {
     statusDone: "Done",
     statusFailed: "Failed",
     statusStopped: "Stopped",
+    statusNeedsApproval: "Needs approval",
+    statusNeedsInput: "Needs input",
+    statusPaused: "Paused",
     updatedJustNow: "Updated just now",
     finishedJustNow: "Finished just now",
     updatedMinutes: "Updated {{count}}m ago",
@@ -787,8 +826,8 @@ const messages = {
     finishedDate: "Finished {{date}}",
   },
   agentTask: {
-    backgroundTask: "Background task",
-    stop: "Stop background task",
+    spawnedAgent: "Spawned agent",
+    stop: "Stop spawned agent",
     openThread: "Open task thread",
   },
   codeRequired: {
@@ -953,7 +992,36 @@ const messages = {
     noMembers: "No members yet.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "Member list pagination",
+    previousMemberPage: "Go to previous member page",
+    nextMemberPage: "Go to next member page",
+    memberPageStatus: "Page {{page}} of {{totalPages}}",
     youAreRole: "You are {{role}}",
+    editGroup: "Edit group",
+    createGroup: "Create group",
+    groupName: "Group name",
+    groupMembers: "People",
+    searchPeople: "Search people",
+    loadingPeople: "Loading people…",
+    noPeopleFound: "No people found",
+    loadMorePeople: "Load more",
+    saveGroup: "Save group",
+    groups: "Groups",
+    newGroup: "New group",
+    editGroupAria: "Edit group {{name}}",
+    deleteGroupAria: "Delete group {{name}}",
+    deleteGroup: "Delete group?",
+    deleteGroupConfirm: "Type {{name}} to confirm.",
+    deleting: "Deleting…",
+    delete: "Delete",
+    noGroups: "No groups yet",
+    selectPage: "Select page",
+    selectedMembers: "Selected members ({{count}})",
+    selectMembers: "Select members",
+    addToGroup: "Add to group",
+    removeFromGroup: "Remove from group",
+    clearSelection: "Clear",
+    createGroupForBulk: "Create group",
     changeRole: "Change role",
     removeMember: "Remove member",
     cancel: "Cancel",
@@ -1036,8 +1104,20 @@ const messages = {
       "Paste a Streamable HTTP or SSE endpoint and optional headers.",
     oauthNotice:
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
+    providerSetupRequired: "Provider setup required",
+    providerSetupDescription:
+      "Complete the required setup in {{name}} first. Then return here to authorize your account.",
+    providerSetupFormDescription:
+      "Review the provider requirements and open the official setup guide before connecting your account.",
+    continueToConnect: "I've completed setup",
+    setupTitle: "Set up {{name}}",
     personal: "Personal",
     organization: "Organization",
+    scopeQuestion: "Who should be able to use this connection?",
+    personalDescription: "Only you can use this connection.",
+    sharedWithWorkspace: "Shared with workspace",
+    organizationDescription:
+      "Permitted workspace members can use this connection. Provider permissions still apply.",
     serverNameRequired:
       "Enter an integration name before connecting with OAuth.",
     serverName: "Integration name",
@@ -1072,6 +1152,12 @@ const messages = {
         setupNote:
           "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
       },
+      amplitude: {
+        description: "Read and work with Amplitude product analytics.",
+        useCase: "Product analytics, charts, dashboards, cohorts, experiments",
+        setupNote:
+          "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
+      },
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",
@@ -1085,6 +1171,13 @@ const messages = {
         setupNote:
           "The Granola integration uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
       },
+      gong: {
+        description:
+          "Search Gong calls and generate account and deal insights.",
+        useCase: "Sales calls, transcripts, deal insights, account summaries",
+        setupNote:
+          "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+      },
       semgrep: {
         description: "Scan code for security findings.",
         useCase: "Security scanning, vulnerability detection, code analysis",
@@ -1092,6 +1185,26 @@ const messages = {
       linear: {
         description: "Read and write Linear issues.",
         useCase: "Project management, issue tracking, planning, bug reports",
+      },
+      apollo: {
+        description: "Search, enrich, and manage Apollo GTM data.",
+        useCase:
+          "Prospecting, enrichment, contacts, sequences, account research",
+        setupNote:
+          "Apollo MCP uses user OAuth and does not require an Apollo API key. Apollo plan permissions, credits, and the provider's model-training restrictions still apply.",
+      },
+      commonRoom: {
+        description: "Research buyer signals, contacts, and organizations.",
+        useCase:
+          "Buyer intelligence, product signals, intent, contact enrichment",
+        setupNote:
+          "Common Room MCP uses per-user OAuth and respects the authorized user's workspace role. An administrator may need to enable the MCP connection for the instance.",
+      },
+      exa: {
+        description: "Search the web and fetch pages with Exa.",
+        useCase: "Web search, research, code search, page fetching",
+        setupNote:
+          "Exa's remote MCP endpoint supports basic free usage without a key. Add an Exa API key through the provider's header configuration when higher limits or additional tools are needed.",
       },
       supabase: {
         description: "Manage data, auth, and backend services.",
@@ -1119,6 +1232,21 @@ const messages = {
           "DNS, Workers, domains, security, observability, platform APIs",
         setupNote:
           "Cloudflare's managed integration directory contains product-specific integrations as well as the broad API integration. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+      },
+      grafana: {
+        description:
+          "Query Grafana Cloud metrics, logs, and observability data.",
+        useCase: "Observability, metrics, logs, traces, dashboards",
+        setupNote:
+          "Grafana Cloud MCP is in public preview and requires Grafana Cloud Assistant MCP access. It is hosted Grafana Cloud only; self-hosted Grafana needs the local MCP server.",
+      },
+      googleWorkspace: {
+        description:
+          "Search Google Workspace data through its remote MCP server.",
+        useCase:
+          "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
+        setupNote:
+          "Google Workspace MCP is in Developer Preview. Enable the relevant Google Workspace and MCP APIs, configure an OAuth consent screen and client, then authorize the products you want to use.",
       },
       gitlab: {
         description:
@@ -1175,7 +1303,13 @@ const messages = {
           "Search and update HubSpot CRM records through its integration.",
         useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
         setupNote:
-          "The HubSpot integration requires a HubSpot Auth App and PKCE. Create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+          "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+      },
+      pylon: {
+        description: "Search and update Pylon support data.",
+        useCase: "Customer support, issues, accounts, contacts, conversations",
+        setupNote:
+          "Enable Pylon MCP access for the relevant users and turn on the MCP server in Pylon before connecting. Pylon requires a Member or Admin seat and uses user OAuth only.",
       },
       intercom: {
         description: "Search conversations and customer support knowledge.",
@@ -1207,6 +1341,12 @@ const messages = {
         useCase: "Files, folders, enterprise content, search, collaboration",
         setupNote:
           "The Box integration is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
+      },
+      builder: {
+        description: "Search Builder Publish and Hybrid Space content.",
+        useCase: "Content models, pages, entries, Publish and Hybrid Spaces",
+        setupNote:
+          "Builder CMS MCP uses OAuth with dynamic client registration. It only connects to Publish or Hybrid Spaces, and the authorization flow asks you to select the Space.",
       },
       netlify: {
         description: "Inspect and operate Netlify sites and deployments.",
@@ -1290,6 +1430,17 @@ const messages = {
       "This page doesn't exist. It may have been moved or deleted.",
     statusTitle: "{{status}} Error",
     goHome: "Go home",
+  },
+  runtimeConfig: {
+    issue_one: "{{count}} issue",
+    issue_other: "{{count}} issues",
+    errorTitle: "Configuration error",
+    warningTitle: "Configuration warning",
+    showDetails: "Show details",
+    hideDetails: "Hide details",
+    copyPrompt: "Copy prompt",
+    copied: "Copied",
+    copyFailed: "Copy failed",
   },
 };
 

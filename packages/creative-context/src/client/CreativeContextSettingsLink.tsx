@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight, IconBooks } from "@tabler/icons-react";
 
 export function CreativeContextSettingsLink({
-  href = "/agent#library",
+  href = "/settings/library",
 }: {
   href?: string;
 }) {

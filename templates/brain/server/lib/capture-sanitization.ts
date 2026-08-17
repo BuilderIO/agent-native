@@ -442,9 +442,13 @@ async function classifyWithApprovedModel(
   if (!model || !engineName) return null;
 
   const core = await import("@agent-native/core/server");
-  const userApiKey = await core.getOwnerActiveApiKey(input.source.ownerEmail);
+  const userApiKey = await core.resolveOwnerEngineApiKey({
+    engineOption: engineName,
+    ownerEmail: input.source.ownerEmail,
+  });
   const engine = await core.resolveEngine({
-    apiKey: userApiKey ?? undefined,
+    apiKey: userApiKey.apiKey,
+    apiKeyEnvVar: userApiKey.apiKeyEnvVar,
     appId: "brain",
     engineOption: engineName,
   });

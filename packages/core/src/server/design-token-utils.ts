@@ -52,6 +52,24 @@ export const CODE_MAX_FILES = 20;
 /** Maximum total bytes accepted in import-code. */
 export const CODE_MAX_TOTAL_BYTES = 500 * 1024;
 
+export interface CodeAnalysisFile {
+  filename: string;
+  content: string;
+}
+
+export interface CodeAnalysisResult {
+  source: "code";
+  fileCount: number;
+  filesAnalyzed: string[];
+  colors: Record<string, string>;
+  cssCustomProperties: Record<string, string>;
+  fonts: CodeAnalysisState["fonts"];
+  spacing: CodeAnalysisState["spacing"];
+  borderRadius: CodeAnalysisState["borderRadius"];
+  stylingFramework: CodeAnalysisState["stylingFramework"];
+  rawExtracts: CodeAnalysisState["rawExtracts"];
+}
+
 /** Regex for hex colors (3-8 digit, including alpha). */
 export const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{3,4}){1,2}\b/g;
 
@@ -137,6 +155,15 @@ export interface UrlExtractionResult {
 
 export interface GitHubFetchOptions {
   token?: string | null;
+  /** Branch, tag, or commit to read from. */
+  ref?: string;
+}
+
+export interface GitHubRepoReference {
+  owner: string;
+  repo: string;
+  ref?: string;
+  subpath?: string;
 }
 
 export interface GitHubJsonResult<T = unknown> {
@@ -191,37 +218,93 @@ export function validateUrl(url: string): void {
 // GitHub helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a GitHub URL or "org/repo" shorthand into owner + repo. */
-export function parseOwnerRepo(raw: string): {
-  owner: string;
-  repo: string;
-} {
+/** Parse a GitHub URL or "org/repo" shorthand, retaining an optional ref/path. */
+export function parseGitHubRepoReference(raw: string): GitHubRepoReference {
   const cleaned = raw
     .trim()
     .replace(/[?#].*$/, "")
     .replace(/\/+$/, "");
+  if (!cleaned) throw new Error("GitHub repository reference cannot be empty.");
 
   const sshMatch = cleaned.match(
     /^(?:ssh:\/\/)?git@github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/,
   );
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
+  if (sshMatch) return { owner: sshMatch[1], repo: sshMatch[2] };
 
   const shorthand = cleaned.match(/^([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
-  if (shorthand) {
-    return { owner: shorthand[1], repo: shorthand[2] };
+  if (shorthand) return { owner: shorthand[1], repo: shorthand[2] };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(cleaned);
+  } catch {
+    throw new Error(
+      "Could not parse GitHub owner/repo from URL. " +
+        'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
+    );
   }
-  const urlMatch = cleaned.match(
-    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
-  );
-  if (urlMatch) {
-    return { owner: urlMatch[1], repo: urlMatch[2] };
+  if (parsed.hostname.toLowerCase() !== "github.com") {
+    throw new Error("GitHub repository URL must use github.com.");
   }
-  throw new Error(
-    "Could not parse GitHub owner/repo from URL. " +
-      'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
+
+  const parts = parsed.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    });
+  const owner = parts[0];
+  const repo = parts[1]?.replace(/\.git$/, "");
+  if (!owner || !repo) {
+    throw new Error(
+      "Could not parse GitHub owner/repo from URL. " +
+        'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
+    );
+  }
+
+  const kind = parts[2];
+  if ((kind === "tree" || kind === "blob") && parts[3]) {
+    return {
+      owner,
+      repo,
+      ref: parts[3],
+      ...(parts.length > 4 ? { subpath: parts.slice(4).join("/") } : {}),
+    };
+  }
+  return { owner, repo };
+}
+
+/** Parse a GitHub URL or "org/repo" shorthand into owner + repo. */
+export function parseOwnerRepo(raw: string): { owner: string; repo: string } {
+  const { owner, repo } = parseGitHubRepoReference(raw);
+  return { owner, repo };
+}
+
+export function canonicalGitHubRepoUrl(raw: string): string {
+  const { owner, repo } = parseGitHubRepoReference(raw);
+  return `https://github.com/${owner}/${repo}`;
+}
+
+function githubContentsUrl(
+  owner: string,
+  repo: string,
+  path: string,
+  ref?: string,
+): URL {
+  const encodedPath = path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const url = new URL(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`,
   );
+  if (ref?.trim()) url.searchParams.set("ref", ref.trim());
+  return url;
 }
 
 /** Fetch a path from the GitHub Contents API as JSON. Returns null on error. */
@@ -243,9 +326,9 @@ export async function fetchGitHubJsonResult<T = unknown>(
   path: string,
   options: GitHubFetchOptions = {},
 ): Promise<GitHubJsonResult<T>> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  validateUrl(url);
-  const res = await ssrfSafeFetch(url, {
+  const url = githubContentsUrl(owner, repo, path, options.ref);
+  validateUrl(url.toString());
+  const res = await ssrfSafeFetch(url.toString(), {
     headers: githubHeaders("application/vnd.github.v3+json", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
@@ -285,9 +368,9 @@ export async function fetchGitHubRaw(
   path: string,
   options: GitHubFetchOptions = {},
 ): Promise<string | null> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  validateUrl(url);
-  const res = await ssrfSafeFetch(url, {
+  const url = githubContentsUrl(owner, repo, path, options.ref);
+  validateUrl(url.toString());
+  const res = await ssrfSafeFetch(url.toString(), {
     headers: githubHeaders("application/vnd.github.v3.raw", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
@@ -804,6 +887,43 @@ export function analyzeCodeFile(
       state.stylingFramework = name.endsWith(".less") ? "less" : "sass";
     }
   }
+}
+
+/** Analyze the bounded code-file payload accepted by the import-code actions. */
+export function analyzeCodeFiles(
+  files: CodeAnalysisFile[],
+): CodeAnalysisResult {
+  const truncated = files.slice(0, CODE_MAX_FILES);
+  let totalBytes = 0;
+  const accepted: CodeAnalysisFile[] = [];
+  for (const file of truncated) {
+    const size = new TextEncoder().encode(file.content).byteLength;
+    if (totalBytes + size > CODE_MAX_TOTAL_BYTES) break;
+    totalBytes += size;
+    accepted.push(file);
+  }
+
+  const state = createCodeAnalysisState();
+  const filesAnalyzed: string[] = [];
+  for (const file of accepted) {
+    filesAnalyzed.push(file.filename);
+    analyzeCodeFile(state, file.filename, file.content);
+  }
+
+  return {
+    source: "code",
+    fileCount: accepted.length,
+    filesAnalyzed,
+    colors: Object.fromEntries(Object.entries(state.colors).slice(0, 60)),
+    cssCustomProperties: Object.fromEntries(
+      Object.entries(state.cssCustomProperties).slice(0, 80),
+    ),
+    fonts: state.fonts.slice(0, 20),
+    spacing: state.spacing,
+    borderRadius: state.borderRadius,
+    stylingFramework: state.stylingFramework,
+    rawExtracts: state.rawExtracts,
+  };
 }
 
 // ---------------------------------------------------------------------------

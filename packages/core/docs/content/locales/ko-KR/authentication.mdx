@@ -102,6 +102,14 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 
 </Callout>
 
+## 로컬 개발 로그인 {#local-development-sign-in}
+
+루프백 개발 서버에서는 공유 로그인 페이지에 **Continue as local dev**가 먼저 표시됩니다. 실제 Better Auth 개발자 계정과 세션을 생성하거나 재사용하므로 앱의 다른 곳과 동일한 인증 흐름을 사용합니다.
+
+**Show full sign in options**를 선택하면 일반 가입, 비밀번호, magic link, 소셜 공급자 옵션이 표시됩니다. 로컬 세션을 만들 수 없으면 페이지가 이 옵션을 자동으로 표시하므로 표준 인증을 계속할 수 있습니다.
+
+이 기능은 개발 또는 테스트 환경에서 브라우저가 `localhost`, `127.0.0.0/8` 또는 `::1`을 통해 연결할 때만 사용할 수 있습니다. 배포 미리보기와 호스팅된 프로덕션에서는 비활성화됩니다. 인증 우회가 아닙니다. `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`을 설정하면 이 기능을 선택 해제하고 로컬 개발에서 일반 로그인 페이지를 표시합니다.
+
 ## 더 나은 인증(기본값) {#better-auth}
 
 기본적으로 Better Auth는 인증을 강화합니다. 다음을 제공합니다:
@@ -446,3 +454,8 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/connect 클라이언트에 대한 정적 베어러 폴백; 브라우저 인증 아님                                                                                                               |
 | `ACCESS_TOKENS`                         | MCP/connect 클라이언트에 대한 쉼표로 구분된 정적 전달자 대체. 브라우저 인증 아님                                                                                                 |
 | `A2A_SECRET`                            | JWT 서명된 A2A 교차 앱 신원 확인 및 존재하는 경우 MCP OAuth 액세스 토큰 서명을 위한 공유 비밀                                                                                    |
+
+기본적으로 꺼진 Dispatch의 `desktop.workspace-sso` 플래그는 사용 가능 여부만 제어하며 인증, 서명, nonce, origin, callback, 세션, 해지 검사는 항상 적용됩니다. 플래그가 꺼져 있거나 읽을 수 없으면 Desktop은 앱별 로그인, 로그아웃 또는 설정을 변경하지 않습니다.
+User-Agent의 Canary 표시는 가용성 힌트일 뿐 원격 증명이 아니며, 인증과 권한 부여는 이를 신뢰하지 않습니다.
+정식 호스팅 앱은 앱별 identity hub 환경 설정 없이 패키지된 Desktop SSO Canary 요청을 인식합니다. 일반 브라우저와 자체 호스팅 앱에는 계속 `AGENT_NATIVE_IDENTITY_HUB_URL`이 필요합니다. 안정적인 Desktop 빌드는 이후 릴리스가 별도로 승인될 때까지 브로커를 초기화하지 않습니다.
+Canary는 익명 앱 로그인 탐색을 가로채지 않습니다. 사용자는 활성 등록 앱에 대해 Desktop 설정에서 워크스페이스 로그인을 명시적으로 선택해야 하며, 일반 앱 로그인은 기본 경로로 유지됩니다.

@@ -3,17 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { signA2AToken } from "@agent-native/core/a2a";
 import { getDbExec } from "@agent-native/core/db";
+import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
-  deleteAppSecret,
-  writeAppSecret,
-  type SecretScope,
-} from "@agent-native/core/secrets";
-import {
+  ensureBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
-  resolveBuilderBranchProjectId,
   resolveBuilderCredentialsDetailed,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -27,7 +24,8 @@ import {
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
-import { createRequest, listSecrets } from "./vault-store.js";
+import { createRequest, listSecretOptions } from "./vault-store.js";
+import { WORKSPACE_APPS_ACTION_PATH } from "./workspace-app-action-auth.js";
 import {
   grantWorkspaceResourcesToApp,
   listWorkspaceResourceOptions,
@@ -35,19 +33,49 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
-const BUILDER_BRANCH_PROJECT_SECRET_KEY = "BUILDER_BRANCH_PROJECT_ID";
-const BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION =
-  "Builder project for cloud code-change branches (set in Dispatch)";
+const BUILDER_WORKSPACE_REPO_URL_ENV = "AGENT_NATIVE_WORKSPACE_REPO_URL";
+const DEFAULT_BUILDER_WORKSPACE_REPO_URL =
+  "https://github.com/BuilderIO/builder-agent-native-workspace";
+const DEFAULT_BUILDER_WORKSPACE_PROJECT_NAME = "Agent-Native Workspace";
+const APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE =
+  "Only organization owners and admins can update app creation settings.";
+const APP_CREATION_SETTINGS_REQUIRED_MESSAGE =
+  "An organization owner or admin must configure the Builder workspace project before members can create apps.";
 const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
-const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 1_000;
+const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
 const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
+const AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT = [
+  "Autonomous Builder handoff contract:",
+  "- This is a background implementation run launched by the turn-into-app workflow. Treat the source brief and latest user request as authorization to build the app now; do not return a proposal or wait for another turn.",
+  "- Do not ask the user questions during the initial build and do not invoke a clarification, guided-question, or choice flow for a non-blocking decision.",
+  "- If the confirmed source brief describes a spreadsheet source-review or input/output confirmation surface, implement that review UI as part of the first-run app experience and seed it with the bounded candidates and mapping; keep the background build autonomous and do not send a question back from the Builder run.",
+  "- When the source or a tool presents a recommended option, choose it and continue. When no recommendation is present, choose the most direct, conservative default supported by the source and normal Agent-Native conventions.",
+  "- Resolve product, visual, copy, layout, route, data-model, dependency, and integration choices yourself. If an input is missing, use an empty state or clearly labeled representative sample so the workflow is demonstrable; never invent private facts or credentials.",
+  "- Treat the source brief's unknowns and follow-up items as assumptions to record in the app README or a visible Assumptions / Review section, not as questions to send back to the user.",
+  "- If a nonessential integration or provider is unavailable, build the supported boundary and leave a precise setup note; do not stop to ask which equivalent to use.",
+  "- Pause only for a true hard blocker: missing authorization required to create or access the branch, a destructive or irreversible external action, an ambiguous target workspace/project, or the absence of any identifiable repeatable workflow. Otherwise make the best grounded choice and proceed.",
+  "- Complete the UI, actions, instructions, application state, representative happy path, and verification in this run. Do not stop after planning, scaffolding, or a question.",
+].join("\n");
+const pendingBuilderProjectProvisioning = new Map<
+  string,
+  Promise<{ projectId: string }>
+>();
+
+class AppCreationSettingsAuthorizationError extends Error {
+  statusCode = 403;
+
+  constructor() {
+    super(APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE);
+    this.name = "AppCreationSettingsAuthorizationError";
+  }
+}
 
 type WorkspaceAppAudience = "internal" | "public";
 
@@ -223,16 +251,6 @@ function scopedSettingsKey(): string {
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
 }
 
-function builderProjectSecretTarget(): {
-  scope: Extract<SecretScope, "org" | "workspace">;
-  scopeId: string;
-} | null {
-  const orgId = currentOrgId();
-  if (orgId) return { scope: "org", scopeId: orgId };
-  const email = currentOwnerEmail();
-  return email ? { scope: "workspace", scopeId: `solo:${email}` } : null;
-}
-
 function workspaceAppMetadataSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
@@ -402,6 +420,11 @@ function applyWorkspaceAppMetadataOverride(
   };
 }
 
+// Workspace apps are mounted beneath the Dispatch gateway origin. That makes
+// them same-origin with Dispatch, so a mounted pane runs with the signed-in
+// user's session cookie (`path: "/"`). Only trusted, workspace-owner-authored
+// code belongs here; changes to authorship, content trust, or sharing require
+// an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
   const base =
     process.env.WORKSPACE_GATEWAY_URL ||
@@ -1060,22 +1083,108 @@ async function readWorkspaceAppsFromGateway(): Promise<
   const base = process.env.WORKSPACE_GATEWAY_URL;
   if (!base) return null;
 
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(base);
+  } catch {
+    // coercion-ok: malformed gateway configuration is an unavailable registry
+    // and falls back to local sources.
+    return null;
+  }
+  if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+    return null;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
     WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
   );
 
+  const requestContext = getRequestContext();
+  const authHeaders: Record<string, string> = {};
+  if (requestContext?.userEmail) {
+    const [orgDomain, orgSecret] = requestContext.orgId
+      ? await Promise.all([
+          // coercion-ok: an unavailable org row falls back to the deployment secret.
+          getOrgDomain(requestContext.orgId).catch(() => null),
+          // coercion-ok: an unavailable org row falls back to the deployment secret.
+          getOrgA2ASecret(requestContext.orgId).catch(() => null),
+        ])
+      : [null, null];
+    const usableOrgSecret =
+      typeof orgSecret === "string" && orgSecret.trim().length > 0;
+    const usableOrgDomain =
+      typeof orgDomain === "string" && orgDomain.trim().length > 0;
+    try {
+      const token = await signA2AToken(
+        requestContext.userEmail,
+        usableOrgDomain ? orgDomain.trim() : undefined,
+        usableOrgSecret ? orgSecret.trim() : undefined,
+        {
+          expiresIn: "1m",
+          // The workspace registry is an authenticated read. Prefer the
+          // shared deployment secret so a registry read does not depend on
+          // every app having the same org row.
+          preferGlobalSecret: true,
+          // Keep the exact request scope even when the org-domain lookup is
+          // unavailable. The receiver must never infer a different org from
+          // the caller's email in that case.
+          ...(requestContext.orgId
+            ? { extraClaims: { org_id: requestContext.orgId } }
+            : {}),
+        },
+      );
+      authHeaders.Authorization = `Bearer ${token}`;
+    } catch {
+      // coercion-ok: absent signing credentials keep local unauthenticated
+      // gateway discovery available and make hosted discovery fail closed.
+      // Keep the unauthenticated local-dev gateway path available. A hosted
+      // gateway will fail closed below when its action route needs identity.
+    }
+  }
+
+  const gatewayUrl = (pathname: string): URL => {
+    const url = new URL(baseUrl.toString());
+    const basePath = url.pathname.replace(/\/+$/, "");
+    url.pathname = `${basePath}${pathname}` || "/";
+    url.search = "";
+    url.hash = "";
+    return url;
+  };
+
+  const headers = {
+    accept: "application/json",
+    ...authHeaders,
+  };
+
   try {
-    const response = await fetch(
-      new URL(WORKSPACE_APPS_GATEWAY_PATH, `${base.replace(/\/$/, "")}/`),
-      {
-        headers: { accept: "application/json" },
-        signal: controller.signal,
-      },
+    const localResponse = await fetch(gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH), {
+      headers,
+      signal: controller.signal,
+    });
+    if (localResponse.ok) {
+      return parseWorkspaceAppsManifest(
+        // coercion-ok: malformed gateway JSON is an unavailable registry and
+        // must fall through to the local manifest sources.
+        await localResponse.json().catch(() => null),
+      );
+    }
+
+    if (!authHeaders.Authorization) return null;
+    const actionUrl = gatewayUrl(WORKSPACE_APPS_ACTION_PATH);
+    actionUrl.searchParams.set("includeAgentCards", "false");
+    actionUrl.searchParams.set("audience", "all");
+    const actionResponse = await fetch(actionUrl, {
+      headers,
+      signal: controller.signal,
+    });
+    if (!actionResponse.ok) return null;
+    return parseWorkspaceAppsManifest(
+      // coercion-ok: malformed gateway JSON is an unavailable registry and
+      // must fall through to the local manifest sources.
+      await actionResponse.json().catch(() => null),
     );
-    if (!response.ok) return null;
-    return parseWorkspaceAppsManifest(await response.json().catch(() => null));
   } catch {
     return null;
   } finally {
@@ -1576,26 +1685,28 @@ function runScaffoldCli(input: {
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const envBuilderProjectId = getEnvBuilderProjectId();
-  const resolvedBuilderProjectId = await resolveBuilderBranchProjectId();
   const raw = await readSettingsRecord();
+  const hasSavedBuilderProjectId = Object.prototype.hasOwnProperty.call(
+    raw,
+    "builderProjectId",
+  );
   const savedBuilderProjectId =
     typeof raw?.builderProjectId === "string" && raw.builderProjectId.trim()
       ? raw.builderProjectId.trim()
       : null;
-  const builderProjectId = envBuilderProjectId || savedBuilderProjectId;
   const enableBuilder =
     process.env.ENABLE_BUILDER === "true" || process.env.ENABLE_BUILDER === "1";
-  const effectiveBuilderProjectId =
-    builderProjectId ||
-    resolvedBuilderProjectId ||
-    (enableBuilder ? getBuilderBranchProjectId() : null);
+  const effectiveBuilderProjectId = hasSavedBuilderProjectId
+    ? savedBuilderProjectId
+    : envBuilderProjectId ||
+      (enableBuilder ? getBuilderBranchProjectId() : null);
 
   return {
     builderProjectId: effectiveBuilderProjectId,
-    builderProjectIdSource: envBuilderProjectId
-      ? "env"
-      : savedBuilderProjectId
-        ? "dispatch"
+    builderProjectIdSource: hasSavedBuilderProjectId
+      ? "dispatch"
+      : envBuilderProjectId
+        ? "env"
         : effectiveBuilderProjectId
           ? "default"
           : "unset",
@@ -1605,34 +1716,71 @@ export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   };
 }
 
+function builderWorkspaceRepoUrl(): string {
+  return (
+    process.env[BUILDER_WORKSPACE_REPO_URL_ENV]?.trim() ||
+    DEFAULT_BUILDER_WORKSPACE_REPO_URL
+  );
+}
+
+async function persistProvisionedBuilderProjectId(
+  builderProjectId: string,
+): Promise<void> {
+  const raw = await readSettingsRecord();
+
+  // This is an internal consequence of an authorized app-creation request,
+  // not a user-controlled settings update. Persist the project before the
+  // branch run so later members reuse the same Builder project.
+  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await recordAudit({
+    action: "settings.updated",
+    targetType: "dispatch-app-creation-settings",
+    targetId: SETTINGS_KEY,
+    summary: "Provisioned the Builder project for workspace app creation",
+    metadata: {
+      builderProjectIdConfigured: true,
+      source: "builder-project-create-api",
+    },
+  });
+}
+
+async function ensureBuilderProjectForWorkspace(): Promise<{
+  projectId: string;
+}> {
+  const key = scopedSettingsKey();
+  const existing = pendingBuilderProjectProvisioning.get(key);
+  if (existing) return existing;
+
+  const pending = (async () => {
+    const current = await getAppCreationSettings();
+    if (current.builderProjectId) {
+      return { projectId: current.builderProjectId };
+    }
+
+    await assertCanManageAppCreationSettings();
+    const project = await ensureBuilderProject({
+      name: DEFAULT_BUILDER_WORKSPACE_PROJECT_NAME,
+      repoUrl: builderWorkspaceRepoUrl(),
+    });
+    await persistProvisionedBuilderProjectId(project.projectId);
+    return { projectId: project.projectId };
+  })();
+  pendingBuilderProjectProvisioning.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (pendingBuilderProjectProvisioning.get(key) === pending) {
+      pendingBuilderProjectProvisioning.delete(key);
+    }
+  }
+}
+
 export async function setAppCreationSettings(input: {
   builderProjectId?: string | null;
 }): Promise<AppCreationSettings> {
   await assertCanManageAppCreationSettings();
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
-
-  // The credential store, not this settings row, is what
-  // `resolveBuilderBranchProjectId()` reads. Write it first: a saved setting
-  // whose secret never landed reports the project as configured while cloud
-  // code changes stay silently disabled.
-  const secretTarget = builderProjectSecretTarget();
-  if (secretTarget) {
-    const ref = {
-      key: BUILDER_BRANCH_PROJECT_SECRET_KEY,
-      scope: secretTarget.scope,
-      scopeId: secretTarget.scopeId,
-    };
-    if (builderProjectId) {
-      await writeAppSecret({
-        ...ref,
-        value: builderProjectId,
-        description: BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION,
-      });
-    } else {
-      await deleteAppSecret(ref);
-    }
-  }
 
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({
@@ -1700,9 +1848,7 @@ async function assertCanManageAppCreationSettings(): Promise<void> {
   if (!orgId) return;
   const role = await requestOwnerRole();
   if (role !== "owner" && role !== "admin") {
-    throw new Error(
-      "Only organization owners and admins can update app creation settings.",
-    );
+    throw new AppCreationSettingsAuthorizationError();
   }
 }
 
@@ -1844,6 +1990,8 @@ function buildWorkspaceAppPrompt(input: {
     prompt: [
       "Create a new agent-native app in this workspace.",
       "",
+      AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT,
+      "",
       `App name: ${appId}`,
       `App description: ${appDescription}`,
       `Template to start from: ${input.template || "starter"}`,
@@ -1930,6 +2078,7 @@ async function grantSelectedWorkspaceResources(input: {
  */
 export type AppCreationUnavailableReason =
   | "identity-not-linked"
+  | "settings-management-required"
   | "builder-not-connected"
   | "credential-store-unavailable"
   | "builder-error";
@@ -2013,7 +2162,7 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const selectedKeys = input.secretIds?.length
-    ? (await listSecrets())
+    ? (await listSecretOptions())
         .filter((secret) => input.secretIds?.includes(secret.id))
         .map((secret) => secret.credentialKey)
     : [];
@@ -2052,15 +2201,7 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const settings = await getAppCreationSettings();
-
-  if (!settings.builderProjectId) {
-    return {
-      mode: "coming-soon",
-      appId: built.appId,
-      message:
-        "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
-    };
-  }
+  let builderProjectId = settings.builderProjectId;
 
   let builderCreds: Awaited<
     ReturnType<typeof resolveBuilderCredentialsDetailed>
@@ -2072,7 +2213,7 @@ export async function startWorkspaceAppCreation(input: {
       mode: "builder-unavailable",
       appId: built.appId,
       reason: "credential-store-unavailable",
-      projectId: settings.builderProjectId,
+      projectId: builderProjectId ?? "",
       message:
         "Could not read your Builder connection just now. Try creating the app again in a moment.",
     };
@@ -2083,7 +2224,7 @@ export async function startWorkspaceAppCreation(input: {
       mode: "builder-unavailable",
       appId: built.appId,
       reason: "credential-store-unavailable",
-      projectId: settings.builderProjectId,
+      projectId: builderProjectId ?? "",
       message:
         "Could not read your Builder connection just now. Try creating the app again in a moment.",
     };
@@ -2094,10 +2235,39 @@ export async function startWorkspaceAppCreation(input: {
       mode: "builder-unavailable",
       appId: built.appId,
       reason: "builder-not-connected",
-      projectId: settings.builderProjectId,
+      projectId: builderProjectId ?? "",
       message:
         "Connect your Builder account (free tier available) to create apps from Dispatch.",
     };
+  }
+
+  if (!builderProjectId) {
+    try {
+      builderProjectId = (await ensureBuilderProjectForWorkspace()).projectId;
+    } catch (err) {
+      if (err instanceof AppCreationSettingsAuthorizationError) {
+        return {
+          mode: "builder-unavailable",
+          appId: built.appId,
+          reason: "settings-management-required",
+          projectId: "",
+          message: APP_CREATION_SETTINGS_REQUIRED_MESSAGE,
+        };
+      }
+      const detail =
+        err instanceof Error && err.message
+          ? err.message
+          : "Builder could not provision the workspace project";
+      return {
+        mode: "builder-unavailable",
+        appId: built.appId,
+        reason: "builder-error",
+        projectId: "",
+        detail,
+        message:
+          "Builder could not prepare the connected Agent-Native workspace. Try again in a moment.",
+      };
+    }
   }
 
   const builderUserId = builderCreds.userId || undefined;
@@ -2111,7 +2281,7 @@ export async function startWorkspaceAppCreation(input: {
     result = normalizeBuilderRunResult(
       await runBuilderAgent({
         prompt,
-        projectId: settings.builderProjectId,
+        projectId: builderProjectId,
         ...(builderUserId
           ? { userId: builderUserId }
           : { userEmail: currentOwnerEmail() }),
@@ -2126,7 +2296,7 @@ export async function startWorkspaceAppCreation(input: {
       mode: "builder-unavailable",
       appId: built.appId,
       reason: "builder-error",
-      projectId: settings.builderProjectId,
+      projectId: builderProjectId,
       detail,
       message:
         "Builder could not start the app branch. This is usually temporary — try again.",
@@ -2135,7 +2305,7 @@ export async function startWorkspaceAppCreation(input: {
 
   await recordPendingWorkspaceApp({
     appId: built.appId,
-    projectId: settings.builderProjectId,
+    projectId: builderProjectId,
     description: appDescription,
     sourcePrompt: input.prompt,
     branchName: result.branchName,
@@ -2155,7 +2325,7 @@ export async function startWorkspaceAppCreation(input: {
     mode: "builder",
     appId: built.appId,
     path: `/${built.appId}`,
-    projectId: settings.builderProjectId,
+    projectId: builderProjectId,
     branchName: result.branchName,
     url: result.url,
     workspaceUrl: workspaceAppUrl(`/${built.appId}`),

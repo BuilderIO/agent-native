@@ -18,11 +18,31 @@ export default defineAction({
     enabled: z.boolean().optional(),
     schedule: z.string().min(1).optional(),
     timezone: z.string().min(1).optional(),
+    executionHostId: z.string().min(1).nullable().optional(),
+    executionEngine: z.string().min(1).nullable().optional(),
+    executionCwd: z.string().min(1).nullable().optional(),
   }),
-  run: async ({ operation, name, scope, enabled, schedule, timezone }, ctx) => {
+  run: async (
+    {
+      operation,
+      name,
+      scope,
+      enabled,
+      schedule,
+      timezone,
+      executionHostId,
+      executionEngine,
+      executionCwd,
+    },
+    ctx,
+  ) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
-    const actor = { userEmail, orgId: ctx?.orgId };
+    const actor = {
+      userEmail,
+      orgId: ctx?.orgId,
+      appId: ctx?.appId,
+    };
 
     if (operation === "delete") {
       await deleteAutomation(actor, scope, name);
@@ -32,7 +52,10 @@ export default defineAction({
     if (
       enabled === undefined &&
       schedule === undefined &&
-      timezone === undefined
+      timezone === undefined &&
+      executionHostId === undefined &&
+      executionEngine === undefined &&
+      executionCwd === undefined
     ) {
       throw Object.assign(
         new Error("enabled, schedule, or timezone is required for update."),
@@ -45,6 +68,9 @@ export default defineAction({
       ...(enabled === undefined ? {} : { enabled }),
       ...(schedule === undefined ? {} : { schedule }),
       ...(timezone === undefined ? {} : { timezone }),
+      ...(executionHostId === undefined ? {} : { executionHostId }),
+      ...(executionEngine === undefined ? {} : { executionEngine }),
+      ...(executionCwd === undefined ? {} : { executionCwd }),
     });
     await refreshEventSubscriptions();
     return {
@@ -52,6 +78,9 @@ export default defineAction({
       enabled: definition.meta.enabled,
       schedule: definition.meta.schedule || null,
       timezone: definition.meta.timezone ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
       nextRun: definition.meta.nextRun ?? null,
     };
   },

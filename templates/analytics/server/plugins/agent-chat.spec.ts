@@ -1,5 +1,16 @@
+import { readFileSync } from "node:fs";
+
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
+
+const adhocAnalysisSkill = readFileSync(
+  new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
+  "utf8",
+);
+const accountHealthSkill = readFileSync(
+  new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -7,6 +18,7 @@ const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
     representativeAnalyticsActions: {
       "query-agent-native-analytics": {
         readOnly: true,
+        grounding: true,
         tool: {
           description: "Query first-party analytics",
           parameters: { type: "object", properties: {} },
@@ -15,6 +27,7 @@ const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
       },
       bigquery: {
         readOnly: true,
+        grounding: true,
         tool: {
           description: "Query BigQuery",
           parameters: { type: "object", properties: {} },
@@ -23,8 +36,27 @@ const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
       },
       "hubspot-records": {
         readOnly: true,
+        grounding: true,
         tool: {
           description: "Read HubSpot records",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      // A shipped source action the guard's retired name list never named.
+      prometheus: {
+        readOnly: true,
+        grounding: true,
+        tool: {
+          description: "Query Prometheus",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      "list-data-dictionary": {
+        readOnly: true,
+        tool: {
+          description: "Browse metric definitions",
           parameters: { type: "object", properties: {} },
         },
         run: async () => "ok",
@@ -58,9 +90,12 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
+  ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
+  DASHBOARD_REFERENCE_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
@@ -69,6 +104,17 @@ import {
 } from "./agent-chat";
 
 describe("Analytics agent Plan mode policy", () => {
+  it("routes one-off stacked charts through the live embed path", () => {
+    expect(adhocAnalysisSkill).toMatch(/use the live\s+`\/chart` embed/);
+    expect(adhocAnalysisSkill).toMatch(
+      /Do not call\s+`generate-chart` for a one-off chat result/,
+    );
+    expect(adhocAnalysisSkill).toContain("config.stacked: true");
+    expect(adhocAnalysisSkill).not.toContain(
+      "call `generate-chart` before formatting the report",
+    );
+  });
+
   it("recovers a silent background dashboard run before the long chunk timeout", () => {
     expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
   });
@@ -78,7 +124,9 @@ describe("Analytics agent Plan mode policy", () => {
 
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
     expect(guidance).toContain("run one bounded query");
@@ -109,6 +157,26 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
+  it("guards named account health against scope and metric-definition drift", () => {
+    for (const phrase of [
+      "org ID as a lookup key",
+      "different customer, mixed IDs",
+      "deprecated or retired",
+      "current partial-period snapshot",
+      "total distinct contracted users",
+      "utilization at or above 100%",
+      "each requested product or feature dimension separately",
+    ]) {
+      expect(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE).toContain(phrase);
+    }
+  });
+
+  it("keeps account-health guidance organization- and provider-neutral", () => {
+    expect(accountHealthSkill).not.toMatch(
+      /Builder|Fusion|enterprise_pageview_utilization|monthly_pageviews_and_bandwidth_by_org/i,
+    );
+  });
+
   it("routes built-in product metrics to the first-party query action", () => {
     expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
       "query-agent-native-analytics",
@@ -117,6 +185,16 @@ describe("Analytics agent Plan mode policy", () => {
       "Do not report the first-party source as disconnected",
     );
     expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
+  });
+
+  it("advertises Analytics as the owner for curated first-party product metrics", () => {
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
+      "agent-native signups",
+    );
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
+      "built-in first-party source and query catalog",
+    );
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain("call-agent");
   });
 
   it("discovers incident sessions without requiring a JavaScript error count", () => {
@@ -163,22 +241,22 @@ describe("Analytics agent Plan mode policy", () => {
       expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
     }
   });
-  it("keeps corpus tools discoverable without loading them initially", () => {
+  it("keeps bulk corpus tools on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
         "search-analytics-query-catalog",
         "search-bigquery-schema",
         "list-data-dictionary",
+        "provider-api-request",
+        "provider-corpus-job",
+        "query-staged-dataset",
       ]),
     );
     expect(INITIAL_TOOL_NAMES).not.toEqual(
       expect.arrayContaining([
         "provider-api-catalog",
         "provider-api-docs",
-        "provider-api-request",
-        "provider-corpus-job",
-        "query-staged-dataset",
         "run-code",
         "get-code-execution",
         "account-deep-dive",
@@ -213,9 +291,39 @@ describe("Analytics agent Plan mode policy", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
   });
 
+  it("keeps dashboard replication discovery bounded and reference-only", async () => {
+    expect(INITIAL_TOOL_NAMES).toContain("search-dashboard-references");
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
+      "search-dashboard-references",
+    );
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
+      "not as proof that its source is authoritative",
+    );
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain("get-explorer-dashboard");
+    const context = await (
+      agentChatPluginOptions[0]?.extraContext as () => Promise<string>
+    )?.();
+    expect(context).toContain("DASHBOARD REFERENCE DISCOVERY");
+  });
+
+  it("keeps Brain handoff tools on the initial tool surface", async () => {
+    expect(INITIAL_TOOL_NAMES).toEqual(
+      expect.arrayContaining(["describe-workspace-apps", "call-agent"]),
+    );
+
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string>)
+      | undefined;
+    const context = await extraContext?.();
+    expect(context).toContain("Brain is the sibling app");
+    expect(context).toContain("Do not use `list-extensions` to find Brain");
+    expect(context).toContain("use `call-agent` with agent `brain`");
+  });
+
   it("keeps the complete dashboard build path on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
+        "get-explorer-dashboard",
         "update-dashboard",
         "mutate-dashboard",
         "compose-dashboard",
@@ -233,11 +341,23 @@ describe("Analytics agent Plan mode policy", () => {
     const context = await extraContext?.();
     expect(context).toContain("EXECUTION CONTINUITY");
     expect(context).toContain("Do not ask 'want me to proceed?'");
+    expect(context).toContain("APPROVED MUTATION CONTINUITY");
+    expect(context).toContain("saved: true");
+    expect(context).toContain("changed: true");
   });
 
   it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
     expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
       "native dashboard panels and Data Programs first",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "only actions that are HTTP-mounted",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "never call `query-agent-native-analytics`",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "canonical `bigquery` action",
     );
     expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
       "only when the user explicitly asks",
@@ -299,6 +419,44 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard", () => {
+  it("accepts a grounded answer from a source action no name list ever enumerated", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record in the last 24 hours?",
+        draftText:
+          "We recorded 41,208 sessions in the last 24 hours, from Prometheus (24h range, 1m step).",
+        toolResults: [
+          {
+            name: "prometheus",
+            isError: false,
+            content:
+              '{"resultType":"matrix","data":{"result":[{"values":[]}]}}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still rejects a metric answer whose only tool call was a metadata read", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record in the last 24 hours?",
+        draftText: "We recorded 41,208 sessions in the last 24 hours.",
+        toolResults: [
+          {
+            name: "list-data-dictionary",
+            isError: false,
+            content: '{"entries":[{"name":"p95_latency"}]}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("retries a dashboard build that pauses after creating an extension shell", () => {
     const result = realDataFinalGuard(
       guardContext({

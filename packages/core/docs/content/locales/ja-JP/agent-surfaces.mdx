@@ -10,7 +10,7 @@ search: "エージェントアプリ リッチチャット ネイティブチャ
 
 ## サーフェスの相互関係
 
-4つの主要なプロダクト形態は、最もインタラクティブなものから完全なヘッドレスまでのスペクトラム上に位置します。それらが組み合わせ可能なのは、基盤が常に同じであるためです。同じアクション、同じSQLデータベース、同じエージェントループがすべての形態を支えています。新しいサーフェスを追加しても、その下にあるものを書き直す必要はありません。同じ操作に到達する新しい方法を追加するだけです。
+4つの主要なプロダクト形態は、最もインタラクティブなものから完全なヘッドレスまでのスペクトラム上に位置します。それらが組み合わせ可能なのは、同じアクションとSQLで管理されるアプリ状態を共有しているためです。エージェントが必要なサーフェスでは、フレームワークのエージェントループを使用します。新しいサーフェスを追加しても、その下にあるものを書き直す必要はありません。同じ操作に到達する新しい方法を追加するだけです。
 
 <Diagram id="doc-block-hvdxgh" title="サーフェスのスペクトラム" summary={"1つのアクションサーフェス、4つのプロダクト形態。各形態は、下層の操作を変えることなくUIを追加します。"}>
 
@@ -40,7 +40,7 @@ search: "エージェントアプリ リッチチャット ネイティブチャ
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >同じアクション · 同じSQL · 同じエージェントループ</span
+    >同じアクション · SQLで管理される状態 · 必要な場合のエージェントループ</span
   >
 </div>
 ```
@@ -158,6 +158,38 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 アクションは明示的なネイティブウィジェット結果を返せるため、チャットの出力はテキストだけではありません。テーブル、チャート、型付きプロダクトカードは、iframeなしでチャット内のファーストパーティReactコンポーネントとしてレンダリングされます。[Native Chat UI](/docs/native-chat-ui) を参照してください。エージェントが事前定義されたReactウィジェットの代わりに任意の生成コントロールを必要とする場合は、[Generative UI](/docs/generative-ui) を使用してください。これはサンドボックス化されたAlpine/Tailwind UIをインラインでレンダリングし、アプリの状態とスロットコンテキストを読み取り、選択した値をチャットに送り返すことができます。
 
+### リクエスト単位のアクションサーフェス
+
+選択されたエージェントまたはスレッドに、サーバーで承認された
+ネイティブアクションだけを公開する場合は `resolveActionSurface` を
+使用します。コールバックは各インタラクティブチャットリクエストで
+`prepareRequest` の後に実行されます。返された名前が厳格な許可リストに
+なり、省略されたアクションはプロバイダースキーマ、実行レジストリ、
+Plan モードのプリロード、`tool-search` の検索結果に含まれません。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+空のリストではネイティブアクションは公開されません。不明な名前は
+アクセスを広げず、リクエストを失敗させます。許可されたアクションは
+最初のモデルリクエストですべて直接読み込まれます。承認済みカタログ内で
+検索したい場合だけ `tool-search` を明示的に追加してください。この
+コールバックが制限するのはインタラクティブチャットだけで、HTTP、MCP、
+A2A、ジョブ、トリガーには影響しません。既定のフレームワークガイダンスと
+起動したサブエージェントも同じサーフェスを継承します。無制限の shell では
+厳格なアクション境界を強制できないため、trusted shell ツールはリクエストで
+フィルタされた sandbox に自動的に制限されます。
+
 ## ネイティブインラインUI {#native-inline-ui}
 
 アクションが構造化データ（レコードのリスト、チャートデータセット、ステータスサマリーなど）を返し、プレーンテキストの説明ではなく、チャットスレッド内の実際のUIコンポーネントとしてレンダリングする必要がある場合に使用してください。アクションに `chatUI` レンダラーを定義すると、Agent-Native はそれをファーストパーティのReactコンポーネントとしてレンダリングします。iframeも別のレンダリングパスも不要です。
@@ -184,7 +216,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 ### SQLステート
 
-アプリデータ、ナビゲーション、設定、チャット履歴はすべて永続化されます。エージェントはUIと同じ行を読み書きします。
+アプリデータ、ナビゲーション、設定、チャット履歴はSQLに永続化されます。エージェントはUIと同じ行を読み書きします。
 
 ### コンテキスト認識
 
@@ -192,7 +224,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 ### ライブ同期
 
-エージェントの変更はリアルタイムでUIを更新し、UIの変更はエージェントのコンテキストを更新します。ポーリングも更新も不要です。
+エージェントの変更はライブ同期によってUIを更新し、UIの変更はエージェントのコンテキストを更新します。フレームワークはSSEとポーリングのフォールバックを使用するため、ユーザーが手動で更新する必要はありません。
 
 ### ディープリンク
 
@@ -214,9 +246,9 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 すべてのAgent-Nativeアプリは最終的に、ユーザーがエージェントを設定できる場所が必要になります。常時指示の設定、実行内容の確認、MCPサーバーの接続、自動化の管理、アクセスの制御などです。そのUIをゼロから構築するのは大変な作業です。Agent-Nativeには、12タブにわたってすべてをカバーする事前構築済みのフルページコンポーネント `AgentTabsPage` が搭載されています。
 
-アプリの `/agent` にマウントしてください。現在のテンプレートはそのルートをアプリナビゲーションエントリーと組み合わせ、`AgentSidebar` に `agentPageHref="/agent"` を渡すため、サイドバーのリソースと設定モードはそれらのフローを複製することなくフルページにリンクできます。
+アプリの `/settings/agent` にマウントしてください。現在のテンプレートはこれを正規ルートとして使用し、`AgentSidebar` に `agentPageHref="/settings/agent"` を渡します。`/agent` は従来のリダイレクトとして残されています。
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -452,7 +484,7 @@ await runAgentLoop({
 });
 ```
 
-ほとんどのアプリでは、スケジュールされたプロンプトとインテグレーションウェブフックが既にこのループを呼び出しています。カスタムのブラウザなしホスト、評価ランナー、またはサーバーサイドのオーケストレーションサーフェスを構築する場合にのみ直接使用してください。完全なシグネチャについては、[Server: Production agent handler](/docs/server#agent-handler) を参照してください。
+ほとんどのアプリでは、スケジュールされたプロンプトとインテグレーションウェブフックが既にこのループを呼び出しています。カスタムのブラウザなしホスト、評価ランナー、またはサーバーサイドのオーケストレーションサーフェスを構築する場合にのみ直接使用してください。完全なシグネチャについては、[Server: Production agent handler](/docs/server-plugins#agent-chat-plugin) を参照してください。
 
 ### フォルダに対して実行する {#folder-loop}
 
@@ -501,7 +533,7 @@ OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI向�
 
 <Cards>
 
-### [アクション](/docs/actions)
+### [アクション](/docs/actions-overview)
 
 操作を一度定義する。上記のすべてのサーフェスが同じものを呼び出す。
 

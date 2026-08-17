@@ -258,6 +258,42 @@ const messages = {
     passwordProtected: "이 클립은 비밀번호로 보호되어 있습니다",
     linkExpired: "링크가 만료되었습니다",
     linkExpiredMessage: "작성자는 이 공유 링크에 만료를 설정했습니다.",
+    privateClip: "비공개 클립",
+    privateClipMessage:
+      "이 클립은 비공개입니다. 액세스를 요청하면 소유자에게 알림이 전송됩니다.",
+    privateClipSignedOutMessage:
+      "이 클립은 비공개입니다. 로그인하거나 이메일을 입력해 액세스를 요청하세요.",
+    requestAccess: "액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "이 클립을 공유할 때 소유자가 나를 확인할 방법을 선택하세요.",
+    requestAccessSignIn: "로그인 또는 가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인해 클립을 볼 수 있습니다.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
+    requestingAccess: "액세스 요청 중...",
+    accessRequested: "액세스 요청됨",
+    accessRequestSent: "클립 소유자에게 알림을 보냈습니다.",
+    accessRequestSentWithEmail:
+      "소유자에게 이 클립을 {{email}} 님과 공유해 달라고 요청했습니다.",
+    accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 클립을 볼 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 클립에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 클립 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenClip: "클립 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
     clipUnavailable: "클립을 사용할 수 없음",
     clipUnavailableMessage:
       "이 녹음 파일은 공개되지 않았거나 링크가 유효하지 않습니다. 귀하의 클립인 경우 로그인하여 액세스 권한을 확인하세요.",
@@ -508,8 +544,13 @@ const messages = {
     },
     roles: {
       viewer: "뷰어",
+      commenter: "댓글 작성자",
       editor: "편집자",
       admin: "관리자",
+    },
+    recordingCommenter: {
+      label: "댓글 작성자",
+      description: "보고 댓글을 달고 반응할 수 있습니다",
     },
   },
   quickAsk: {
@@ -679,11 +720,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
     checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
-    connectBuilder: "Builder.io 사용 (무료)",
+    connectBuilder: "Builder.io 사용",
     builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
     builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
-      "새 클립을 위한 객체 저장소, 업로드, 관리형 전사를 포함합니다.",
+      "Builder.io 무료 요금제에는 새 클립을 위한 객체 저장소, 업로드, 관리형 전사가 포함됩니다.",
     s3Title: "S3 호환 저장소",
     secondary: "보조",
     active: "활성",
@@ -709,8 +750,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
     s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
     apiSetup: "AI 설정",
-    apiSetupDescription:
-      "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
+    apiSetupDescription: "Clips의 AI 연결 방식을 선택하세요.",
     builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
       "포함된 AI 크레딧과 관리형 전사를 Clips에서 사용할 수 있습니다.",
@@ -718,8 +758,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "포함된 AI 크레딧, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
     providerKeyTitle: "자체 제공자 키 사용",
     providerKeyDescription:
-      "제공자 과금 사용을 위해 Anthropic, OpenAI, Gemini, Groq 또는 OpenRouter 키를 추가하세요.",
+      "제공자 과금 사용을 위해 Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere 또는 Ollama를 선택하세요.",
     providerKeysSet: "{{count}}개 설정됨",
+    providerActionTitle: "AI 제공업체",
+    providerActionDescription:
+      "Builder.io에는 무료 요금제가 있으며, 사용자 지정 키도 사용할 수 있습니다.",
+    providerManage: "관리",
+    providerCustomKeys: "사용자 지정 키",
     checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
     keyCleared: "스토리지 자격 증명이 삭제되었습니다",
@@ -962,6 +1007,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     includeTranscriptDescription:
       "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
     transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    agentLinkDescription:
+      "이 임시 링크를 사용하면 회의 메모를 공개하지 않고 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
     transcript: "스크립트",
     copyTranscript: "스크립트 복사",
     transcriptCopied: "스크립트가 복사되었습니다",
@@ -987,8 +1034,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pauseShortcut: "일시정지 (⌥⇧P)",
     stop: "녹화 중지",
     elapsed: "경과 시간",
-    cancel: "녹화 취소",
-    cancelShortcut: "취소 (⌥⇧C)",
+    cancel: "녹화 삭제",
+    cancelShortcut: "삭제 (⌥⇧C)",
+    discardConfirmTitle: "이 녹화를 삭제할까요?",
+    discardConfirmDescription:
+      "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
+    resume: "재개",
+    discardRecording: "녹화 삭제",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",
@@ -1078,6 +1130,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     searchNextMatch: "다음 일치 항목",
     searchClose: "검색 닫기",
   },
+  bulletLink: {
+    jumpToTranscript: "기록에서 {{time}}(으)로 이동",
+    noMatchingMoment: "일치하는 순간을 찾을 수 없음",
+  },
   editorLayout: {
     trimmed: "잘라냈습니다",
     trimFailed: "자르기 실패",
@@ -1146,7 +1202,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 사용 (무료)",
+    connectBuilder: "Builder.io 사용",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",
@@ -1537,10 +1593,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
-    googleMayShowWarning: "Google 액세스 검토",
-    googleNotVerifiedTitle: "연결하기 전에 앱을 확인하세요",
-    googleWarningBeforeAdvanced:
-      "앱 이름과 요청된 Calendar 액세스가 신뢰하는 Clips 배포와 일치하는지 확인하세요. Google에서 확인되지 않은 앱 경고를 표시하거나 신원이 낯설게 보이면 중단하고 워크스페이스 관리자에게 문의하세요.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",
@@ -1549,13 +1601,30 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarConnected: "Calendar connected (현지화됨)",
     calendarDisconnected: "Calendar disconnected (현지화됨)",
     calendarSettings: "Calendar settings (현지화됨)",
+    calendarAccountsButton: "캘린더",
+    connectedAccounts: "연결된 계정",
+    calendarConnectedLabel: "연결됨",
+    calendarNeedsReconnectLabel: "다시 연결 필요",
+    calendarDisconnectedLabel: "연결 해제됨",
+    calendarStatusUnavailable: "상태를 확인할 수 없음",
+    reconnectCalendar: "캘린더 다시 연결",
+    addAnotherCalendarAccount: "계정 추가",
+    connectCalendar: "캘린더 연결",
+    disconnectCalendarAccount: "계정 연결 해제",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (현지화됨)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",
     title: "Meetings (현지화됨)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
-    searchPlaceholder: "Search meetings... (현지화됨)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (현지화됨)",
+    agendaTab: "Agenda (현지화됨)",
+    pastTab: "Past (현지화됨)",
+    now: "Now (현지화됨)",
+    noPastMeetings: "No past meetings yet (현지화됨)",
+    loadOlder: "Load older (현지화됨)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
     noMeetingsYet: "No meetings yet (현지화됨)",
     noMeetingsDescription:

@@ -9,9 +9,14 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
+import {
+  hasTriageSourceChanged,
+  statusAfterTriageSourceUpdate,
+} from "../server/triage/review-state.js";
 
 function parseRepository(value: string): { owner: string; repo: string } {
   const match = /^([^/\s]+)\/([^/\s]+)$/.exec(value.trim());
@@ -93,6 +98,22 @@ export default defineAction({
             .join("\n\n"),
           updatedAt: issue.updatedAt,
         });
+        const summary = issue.body?.slice(0, 4_000) ?? null;
+        const sourceChanged = hasTriageSourceChanged(existing, {
+          sourceUrl: issue.htmlUrl,
+          title: issue.title,
+          summary,
+          lastSeenAt: issue.updatedAt,
+        });
+        const status = statusAfterTriageSourceUpdate(
+          existing?.status,
+          sourceChanged,
+          "received",
+        );
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
+        const lastSeenAt = sourceChanged
+          ? issue.updatedAt
+          : (existing?.lastSeenAt ?? issue.updatedAt);
         await tx
           .insert(triageItems)
           .values({
@@ -101,15 +122,15 @@ export default defineAction({
             externalId: `${repositoryName}#${issue.number}`,
             sourceUrl: issue.htmlUrl,
             title: issue.title,
-            summary: issue.body?.slice(0, 4_000) ?? null,
-            status: existing?.status ?? "received",
+            summary,
+            status,
             risk: existing?.risk ?? "unknown",
             coverage: existing?.coverage ?? "complete",
             dedupeKey: id,
             metadataJson: metadata,
-            lastSeenAt: issue.updatedAt,
+            lastSeenAt,
             createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
+            updatedAt,
             ownerEmail: existing?.ownerEmail ?? userEmail,
             orgId,
           })
@@ -118,10 +139,11 @@ export default defineAction({
             set: {
               sourceUrl: issue.htmlUrl,
               title: issue.title,
-              summary: issue.body?.slice(0, 4_000) ?? null,
+              summary,
+              status,
               metadataJson: metadata,
-              lastSeenAt: issue.updatedAt,
-              updatedAt: now,
+              lastSeenAt,
+              updatedAt,
             },
           });
         issueCount += 1;
@@ -152,6 +174,23 @@ export default defineAction({
           draft: pullRequest.draft,
           updatedAt: pullRequest.updatedAt,
         });
+        const summary = pullRequest.body?.slice(0, 4_000) ?? null;
+        const sourceChanged = hasTriageSourceChanged(existing, {
+          sourceUrl: pullRequest.htmlUrl,
+          title: pullRequest.title,
+          summary,
+          lastSeenAt: pullRequest.updatedAt,
+          headSha: pullRequest.headSha,
+        });
+        const status = statusAfterTriageSourceUpdate(
+          existing?.status,
+          sourceChanged,
+          "pr_observed",
+        );
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
+        const lastSeenAt = sourceChanged
+          ? pullRequest.updatedAt
+          : (existing?.lastSeenAt ?? pullRequest.updatedAt);
         await tx
           .insert(triageItems)
           .values({
@@ -160,8 +199,8 @@ export default defineAction({
             externalId: `${repositoryName}#${pullRequest.number}`,
             sourceUrl: pullRequest.htmlUrl,
             title: pullRequest.title,
-            summary: pullRequest.body?.slice(0, 4_000) ?? null,
-            status: existing?.status ?? "pr_observed",
+            summary,
+            status,
             risk: existing?.risk ?? "unknown",
             repository: repositoryName,
             pullRequestNumber: pullRequest.number,
@@ -169,9 +208,9 @@ export default defineAction({
             coverage: existing?.coverage ?? "partial",
             dedupeKey: id,
             metadataJson: metadata,
-            lastSeenAt: pullRequest.updatedAt,
+            lastSeenAt,
             createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
+            updatedAt,
             ownerEmail: existing?.ownerEmail ?? userEmail,
             orgId,
           })
@@ -180,18 +219,78 @@ export default defineAction({
             set: {
               sourceUrl: pullRequest.htmlUrl,
               title: pullRequest.title,
-              summary: pullRequest.body?.slice(0, 4_000) ?? null,
+              summary,
+              status,
               repository: repositoryName,
               pullRequestNumber: pullRequest.number,
               headSha: pullRequest.headSha,
               metadataJson: metadata,
-              lastSeenAt: pullRequest.updatedAt,
-              updatedAt: now,
+              lastSeenAt,
+              updatedAt,
             },
           });
         pullRequestCount += 1;
       }
     });
+
+    if (issues.length === 0 && pullRequests.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-github-sources",
+          kind: "observed",
+          source: "github",
+          summary: "No open GitHub issues or pull requests were observed.",
+          details: { repository: repositoryName },
+        },
+      );
+    } else {
+      for (const issue of issues) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-github-sources",
+            kind: "observed",
+            itemId: itemDedupeKey(
+              {
+                source: "github_issue",
+                externalId: `${repositoryName}#${issue.number}`,
+              },
+              orgId,
+            ),
+            source: "github_issue",
+            sourceUrl: issue.htmlUrl,
+            summary: issue.title,
+            details: { repository: repositoryName, number: issue.number },
+          },
+        );
+      }
+      for (const pullRequest of pullRequests) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-github-sources",
+            kind: "observed",
+            itemId: itemDedupeKey(
+              {
+                source: "github",
+                externalId: `${repositoryName}#${pullRequest.number}`,
+                repository: repositoryName,
+                pullRequestNumber: pullRequest.number,
+              },
+              orgId,
+            ),
+            source: "github",
+            sourceUrl: pullRequest.htmlUrl,
+            summary: pullRequest.title,
+            details: { repository: repositoryName, number: pullRequest.number },
+          },
+        );
+      }
+    }
 
     return {
       ok: true,

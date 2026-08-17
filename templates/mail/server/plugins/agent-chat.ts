@@ -40,7 +40,7 @@ export default createAgentChatPlugin({
   // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  connectorCatalog: [...MAIL_CONNECTOR_CATALOG],
+  mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG] },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
@@ -150,6 +150,8 @@ Be concise and helpful. When summarizing emails, include sender, subject, and a 
 
 You can create and manage email automation rules that process new inbox emails automatically using AI.
 Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
+
+Sending email from an automation is opt-in. Mail keeps "Allow automations to send emails automatically" off by default. When it is off, an automation may draft or queue an email, but a real send remains approval-gated. Turning it on lets event-triggered automations send without asking for approval each time; it does not remove approval from normal interactive sends.
 
 Examples:
 - User says "auto-label newsletters" \u2192 create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"

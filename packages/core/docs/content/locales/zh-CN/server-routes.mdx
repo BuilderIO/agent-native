@@ -51,7 +51,7 @@ Actions 覆盖了绝大多数应用操作。只有当你需要 Action 无法表�
 
 - UI 和代理都需要的操作
 - 读取或写入应用数据
-- HTTP 形态的端点（使用 [Actions](/docs/actions) 中的 `http` 选项）
+- HTTP 形态的端点（使用 [Actions](/docs/actions-overview) 中的 `http` 选项）
 - 任何应该成为代理工具、MCP 工具或 CLI 命令的能力
 - 标准的 JSON 请求/响应 API
 
@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -187,7 +192,7 @@ export default createH3SSRHandler(
 
 ## 下一步 {#whats-next}
 
-- [**Actions**](/docs/actions)：应用操作的首选表面；只有在不适用时才考虑路由
-- [**插件**](/docs/server-plugins)：在路由被处理之前运行的启动插件
+- [**Actions**](/docs/actions-overview)：应用操作的首选表面；只有在不适用时才考虑路由
+- [**插件**](/docs/server-plugins)：启动插件及其初始化行为
 - [**中间件**](/docs/server-middleware)：保护包括 `/api/*` 在内的所有路由的身份验证守卫
 - [**安全性**](/docs/security#access-guards)：`accessFilter`/`assertAccess` 与完整的数据范围限定模型

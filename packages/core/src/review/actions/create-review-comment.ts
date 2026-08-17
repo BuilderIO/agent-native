@@ -45,7 +45,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Create an inline comment, annotation, or review thread for a resource.",
+    "Create an inline comment, annotation, or review thread for a resource. Body text supports inline Markdown without headings.",
   schema,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
@@ -53,7 +53,7 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "viewer",
+      "commenter",
     );
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),

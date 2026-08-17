@@ -100,8 +100,6 @@ description: "एक एजेंट-संचालित ईमेल क्�
 
 लाइव डेमो: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Google एक चेतावनी दिखा सकता है:** होस्ट किया गया डेमो Gmail एक्सेस के लिए Agent-Native के साझा Google ऐप का उपयोग करता है, इसलिए Google आपको जारी रखने से पहले पुष्टि करने के लिए कह सकता है। अपने स्वयं के Google OAuth क्लाइंट का उपयोग करने के लिए स्थानीय रूप से चलाएं।
-
 जब आप पहली बार ऐप खोलते हैं:
 
 1. साइडबार में **सेटिंग्स** पर क्लिक करें।
@@ -353,7 +351,7 @@ UI में रूट:
 
 मेल बदलना आपका है। हर महत्वपूर्ण चीज़ कुछ स्थानों पर रहती है - वहीं से शुरू करें।
 
-**एक एजेंट क्षमता जोड़ना।** `defineAction` का उपयोग करके `templates/mail/actions/` के अंतर्गत एक नई फ़ाइल जोड़ें। आपकी कार्रवाई एक एजेंट टूल, एक CLI कमांड (`pnpm action <name>`), और `useActionQuery` / `useActionMutation` के माध्यम से एक टाइप की गई फ्रंटएंड हुक सतह बन जाती है। एक संक्षिप्त उदाहरण के लिए `templates/mail/actions/star-email.ts` या एकाधिक उप-actions वाले एक के लिए `templates/mail/actions/manage-automations.ts` देखें। पूर्ण पैटर्न के लिए [actions](/docs/actions) दस्तावेज़ देखें।
+**एक एजेंट क्षमता जोड़ना।** `defineAction` का उपयोग करके `templates/mail/actions/` के अंतर्गत एक नई फ़ाइल जोड़ें। आपकी कार्रवाई एक एजेंट टूल, एक CLI कमांड (`pnpm action <name>`), और `useActionQuery` / `useActionMutation` के माध्यम से एक टाइप की गई फ्रंटएंड हुक सतह बन जाती है। एक संक्षिप्त उदाहरण के लिए `templates/mail/actions/star-email.ts` या एकाधिक उप-actions वाले एक के लिए `templates/mail/actions/manage-automations.ts` देखें। पूर्ण पैटर्न के लिए [actions](/docs/actions-overview) दस्तावेज़ देखें।
 
 **UI को बदलना।** रूट `templates/mail/app/routes/` में हैं और घटक `templates/mail/app/components/email/` और `templates/mail/app/components/layout/` में हैं। ऐप `app/components/ui/` और टेबलर आइकॉन से shadcn/ui प्रिमिटिव का उपयोग करता है - उन्हीं पर कायम रहें।
 
@@ -373,4 +371,4 @@ UI में रूट:
 - [**शुरू करना**](/docs/getting-started) — फ़्रेमवर्क की बुनियादी बातें: actions, application state और live sync
 - [**कैलेंडर**](/docs/template-calendar) — शेड्यूलिंग और बुकिंग के लिए संबंधित डोमेन टेम्पलेट
 - [**ऑटोमेशन**](/docs/automations) — इवेंट-ट्रिगर इंजन जिस पर Mail के ऑटो-ट्रायेज नियम बने हैं
-- [**Actions**](/docs/actions) — वह action सिस्टम जिसे चैट, शॉर्टकट और ऑटोमेशन कॉल करते हैं
+- [**Actions**](/docs/actions-overview) — वह action सिस्टम जिसे चैट, शॉर्टकट और ऑटोमेशन कॉल करते हैं

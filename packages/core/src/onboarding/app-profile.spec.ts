@@ -35,19 +35,58 @@ describe("onboarding app profiles", () => {
     expect(
       profile.capabilities.some((capability) => capability.builderIncluded),
     ).toBe(true);
+    expect(profile.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "file-storage",
+          builderIncluded: true,
+          suggested: true,
+        }),
+      ]),
+    );
   });
 
   it("tailors Clips requirements without sharing mutable profile state", () => {
     const clips = getOnboardingAppProfile("clips");
     const ids = clips.capabilities.map((capability) => capability.id);
 
-    expect(ids).toEqual(["llm", "video-storage", "transcription"]);
-    expect(clips.capabilities[1]?.keySummary).toContain("S3");
-    expect(clips.capabilities[2]?.required).toBe(false);
+    expect(ids).toEqual([
+      "llm",
+      "file-storage",
+      "video-storage",
+      "transcription",
+    ]);
+    expect(clips.capabilities[2]?.keySummary).toContain("S3");
+    expect(clips.capabilities[3]?.required).toBe(false);
 
     clips.capabilities[0]!.label = "Changed locally";
     expect(getOnboardingAppProfile("clips").capabilities[0]?.label).toBe(
       "AI model",
     );
+  });
+
+  it.each(["assets", "design", "slides"] as const)(
+    "includes design system intelligence for %s",
+    (appId) => {
+      const capability = getOnboardingAppProfile(appId).capabilities.find(
+        (item) => item.id === "design-system-intelligence",
+      );
+
+      expect(capability).toMatchObject({
+        label: "Design system intelligence",
+        required: false,
+        builderIncluded: true,
+      });
+      expect(capability?.why).toContain("brand");
+      expect(capability?.why).toContain("design-system");
+    },
+  );
+
+  it("does not add design system intelligence to unrelated app profiles", () => {
+    expect(
+      getOnboardingAppProfile("analytics").capabilities.map(
+        (capability) => capability.id,
+      ),
+    ).not.toContain("design-system-intelligence");
   });
 });

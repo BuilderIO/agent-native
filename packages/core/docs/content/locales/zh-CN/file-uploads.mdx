@@ -1,6 +1,6 @@
 ---
 title: "文件上传"
-description: "配置文件上传存储 - 用于开发的 SQL 后备、Builder.io 或用于生产的自定义提供程序。"
+description: "为文件上传配置持久对象存储 - Builder.io 或自定义 S3 兼容提供程序。"
 ---
 
 # 文件上传
@@ -15,9 +15,9 @@ description: "配置文件上传存储 - 用于开发的 SQL 后备、Builder.io
 
 1. **用户注册的提供程序** — 通过 `registerFileUploadProvider()` 注册的自定义提供程序
 2. **Builder.io 提供程序**（提供免费套餐）— 内置，连接 Builder.io 时自动激活
-3. **SQL 后备** - 将文件作为 base64 存储在数据库中（适合开发，不适用于生产）
+3. **需要存储** - 未配置提供程序时，上传会安全失败并显示设置卡片；二进制数据不会存入 SQL
 
-<Diagram id="doc-block-4gomr8" title={"提供商决议顺序"} summary={"uploadFile() 按顺序选择第一个配置的提供程序。 SQL 后备始终存在，因此上传可以零设置进行。"}>
+<Diagram id="doc-block-4gomr8" title={"提供商决议顺序"} summary={"uploadFile() 按顺序选择第一个配置的提供程序。未配置提供程序时，上传会安全失败并显示设置卡片。"}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ description: "配置文件上传存储 - 用于开发的 SQL 后备、Builder.io
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        SQL 兜底<br /><small class="diagram-muted"
-          >数据库中的 base64——仅开发使用</small
+        需要存储<br /><small class="diagram-muted"
+          >配置 Builder.io 或 S3 兼容存储</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## 默认：SQL 后备 {#sql-fallback}
+## 持久上传需要存储 {#storage-required}
 
-当没有配置提供者时，文件通过资源系统以base64数据存储在SQL数据库中。这对于本地开发来说是开箱即用的，但不建议用于生产——大文件会使数据库膨胀，而且没有 CDN。
+当没有配置提供程序时，上传会安全失败，并显示用于配置 Builder.io 或 S3 兼容提供程序的设置卡片。二进制数据不会以 base64 形式存储在 SQL 中。
 
-使用后备时会记录一次性警告。
+字节只能用于当前请求，不会保存到聊天记录中。配置存储后，上传会返回稳定的公共 URL，可在后续轮次中重复使用。
 
 ## Builder.io 托管 {#builder-hosting}
 
@@ -142,7 +142,8 @@ export default defineNitroPlugin(() => {
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -174,6 +175,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL 兜底 yourself, or skip
+  // 配置存储，或跳过上传
 }
 ```

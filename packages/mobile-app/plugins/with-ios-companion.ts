@@ -18,6 +18,8 @@ const SOURCE_FILENAMES = [
   "AgentNativeIOSCompanionBridge.m",
 ] as const;
 
+const DEV_CAPTURE_SOURCE_FILENAME = "AgentNativeCaptureShared.swift";
+
 const withIosCompanion: ConfigPlugin = (config) =>
   withXcodeProject(config, async (xcodeConfig) => {
     const projectRoot = xcodeConfig.modRequest.projectRoot;
@@ -27,13 +29,24 @@ const withIosCompanion: ConfigPlugin = (config) =>
       project: xcodeConfig.modResults,
       projectName,
     });
+    const sourceFiles = [
+      ...SOURCE_FILENAMES.map((filename) => ({
+        filename,
+        sourcePath: `${projectRoot}/native/ios/${filename}`,
+      })),
+      ...(process.env.AGENT_NATIVE_MOBILE_DISABLE_APP_EXTENSIONS === "1"
+        ? [
+            {
+              filename: DEV_CAPTURE_SOURCE_FILENAME,
+              sourcePath: `${projectRoot}/targets/AgentNativeWidgets/_shared/${DEV_CAPTURE_SOURCE_FILENAME}`,
+            },
+          ]
+        : []),
+    ];
 
     await fileSystem.mkdir(sourceDirectory, { recursive: true });
-    for (const filename of SOURCE_FILENAMES) {
-      const source = await fileSystem.readFile(
-        `${projectRoot}/native/ios/${filename}`,
-        "utf8",
-      );
+    for (const { filename, sourcePath } of sourceFiles) {
+      const source = await fileSystem.readFile(sourcePath, "utf8");
       await fileSystem.writeFile(`${sourceDirectory}/${filename}`, source);
       xcodeConfig.modResults = IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
         filepath: `${projectName}/${filename}`,

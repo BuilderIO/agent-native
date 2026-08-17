@@ -43,9 +43,9 @@ A template `AGENTS.md` is injected into the runtime agent's system prompt and
 hard-sliced at `COMPACT_PROMPT_RESOURCE_MAX_CHARS` (6,000). Past that, the agent
 sees a truncation marker instead of your text, so the tail stops being
 always-on guidance and becomes something it has to go fetch. `pnpm
-the repository's `guard:agent-chat-context` check fails the build when a first-party
-file overflows; generated apps do not ship that repository-only guard. Keep files
-under ~5,500 so ordinary edits don't tip them over.
+guard:agent-chat-context` — the repository's own check — fails the build when a
+first-party file overflows; generated apps do not ship that repository-only
+guard. Keep files under ~5,500 so ordinary edits don't tip them over.
 
 Two consequences worth designing around:
 
@@ -116,6 +116,14 @@ contract:
   assets.
 - Do not create pass-through routes whose main job is to call, repackage, or
   re-export an action.
+
+Generated guidance must also distinguish deterministic tools from AI-shaped
+workflows. Provider reads, validation, deterministic transforms, CRUD, and
+persistence belong in focused actions. Research, analysis, generation,
+recommendation, synthesis, and other user-steerable multi-step work should
+start in the AgentSidebar and let the agent orchestrate those actions. State
+that `sendToAgentChat({ openSidebar: true })` is the default handoff and that
+follow-ups stay in the same thread; do not add a second freeform prompt box.
 
 ## Budget the first model request
 

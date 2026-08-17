@@ -94,6 +94,7 @@ export interface RunClaudeCodeParticipantOptions {
   prompt: string;
   cwd: string;
   model?: string;
+  effort?: string;
   session?: ClaudeCodeParticipantSession;
   /** Either the fixed CLI name or an absolute executable path for packaged apps. */
   command?: string;
@@ -184,7 +185,10 @@ export async function runClaudeCodeParticipant(
 }
 
 export function buildClaudeCodeParticipantArgs(
-  options: Pick<RunClaudeCodeParticipantOptions, "role" | "model" | "session">,
+  options: Pick<
+    RunClaudeCodeParticipantOptions,
+    "role" | "model" | "effort" | "session"
+  >,
 ): string[] {
   const args = [
     "--print",
@@ -215,12 +219,31 @@ export function buildClaudeCodeParticipantArgs(
 
   const model = readString(options.model);
   if (model) args.push("--model", model);
+  const effort = normalizeClaudeEffort(options.effort);
+  if (effort) args.push("--effort", effort);
   const sessionId = readString(options.session?.sessionId);
   const resumeSessionId = readString(options.session?.resumeSessionId);
   if (sessionId) args.push("--session-id", sessionId);
   if (resumeSessionId) args.push("--resume", resumeSessionId);
   if (options.session?.persist !== true) args.push("--no-session-persistence");
   return args;
+}
+
+function normalizeClaudeEffort(effort: string | undefined): string | undefined {
+  switch (effort) {
+    case "low":
+    case "medium":
+    case "high":
+    case "max":
+      return effort;
+    case "minimal":
+    case "none":
+      return "low";
+    case "xhigh":
+      return "high";
+    default:
+      return undefined;
+  }
 }
 
 function collectClaudeCodeParticipantResult(

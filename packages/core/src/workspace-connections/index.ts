@@ -1,4 +1,26 @@
 export {
+  credentialKeyAliases,
+  credentialKeyMatches,
+  lookupKeysForRef,
+} from "./credential-key-aliases.js";
+
+export {
+  assertWorkspaceUserGroupIds,
+  assertWorkspaceUserGroupManager,
+  deleteWorkspaceUserGroup,
+  ensureWorkspaceUserGroupsTable,
+  listWorkspaceUserGroups,
+  listWorkspaceUserGroupsForOrg,
+  normalizeWorkspaceUserGroupIds,
+  updateWorkspaceUserGroupMembers,
+  upsertWorkspaceUserGroup,
+  workspaceUserGroupsIncludeUser,
+  type UpsertWorkspaceUserGroupInput,
+  type UpdateWorkspaceUserGroupMembersInput,
+  type WorkspaceUserGroup,
+} from "./groups.js";
+
+export {
   deleteWorkspaceConnection,
   ensureWorkspaceConnectionsTable,
   getWorkspaceConnectionAppAccess,
@@ -11,6 +33,7 @@ export {
   markWorkspaceConnectionUsed,
   resolveWorkspaceConnectionForApp,
   revokeWorkspaceConnectionGrant,
+  normalizeWorkspaceConnectionAllowedUsers,
   serializeWorkspaceConnectionGrant,
   serializeWorkspaceConnection,
   summarizeWorkspaceConnectionProviderForApp,

@@ -10,6 +10,20 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("keeps the active simple agent on the chat navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/chat/thread-1",
+        "?agent=agents/research-partner.md",
+      ),
+    ).toEqual({
+      view: "chat",
+      path: "/chat/thread-1",
+      threadId: "thread-1",
+      agentPath: "agents/research-partner.md",
+    });
+  });
+
   it("recognizes the embedded browser chat route", () => {
     expect(buildDispatchNavigationState("/browser-chat")).toEqual({
       view: "browser-chat",
@@ -47,6 +61,28 @@ describe("buildDispatchNavigationState", () => {
     expect(buildDispatchNavigationState("/automations")).toEqual({
       view: "automations",
       path: "/automations",
+    });
+  });
+
+  it("recognizes Admin routes without losing the underlying view", () => {
+    expect(buildDispatchNavigationState("/admin/metrics")).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+    });
+    expect(buildDispatchNavigationState("/admin")).toEqual({
+      view: "admin",
+      path: "/admin",
+    });
+  });
+
+  it("keeps simple agents and connected-agent admin routes distinct", () => {
+    expect(buildDispatchNavigationState("/agents")).toEqual({
+      view: "agents",
+      path: "/agents",
+    });
+    expect(buildDispatchNavigationState("/admin/agents")).toEqual({
+      view: "connected-agents",
+      path: "/admin/agents",
     });
   });
 

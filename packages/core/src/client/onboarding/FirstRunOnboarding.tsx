@@ -7,7 +7,6 @@ import {
   IconInfoCircle,
   IconKey,
   IconLoader2,
-  IconPlugConnected,
   IconSearch,
 } from "@tabler/icons-react";
 import React, { useMemo, useState } from "react";
@@ -16,20 +15,24 @@ import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import {
   buildMcpOAuthStartUrl,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
+  shouldOfferMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
   formatMcpServerError,
   useCreateMcpServer,
@@ -65,14 +68,17 @@ const BUILDER_MORE_SERVICES = [
 export interface FirstRunOnboardingProps {
   /** Test hook; generated apps use the public Vite flag instead. */
   skipIntegrations?: boolean;
+  /** The shared startup gate has already resolved this account as eligible. */
+  initialFirstRun?: boolean;
 }
 
 export function FirstRunOnboarding({
   skipIntegrations = shouldSkipFirstRunIntegrations(),
+  initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const previewMode = useOnboardingPreviewMode();
   const { firstRun, loading, error, profile, completeFirstRun } = useOnboarding(
-    { preview: previewMode },
+    { preview: previewMode, initialFirstRun },
   );
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -207,6 +213,17 @@ export function FirstRunOnboarding({
     }
 
     if (
+      shouldOfferMcpIntegrationOrganizationScope(
+        integration,
+        hasOrg,
+        canCreateOrgMcp,
+      )
+    ) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
+    if (
       integration.authMode === "none" &&
       integration.connectionMode === "direct"
     ) {
@@ -284,19 +301,19 @@ export function FirstRunOnboarding({
             <span className="text-primary">Open source for life.</span>
           </h1>
           <div className="mt-7 grid w-full gap-2 text-left sm:grid-cols-3">
-            <div className="rounded-lg border border-border bg-card px-3 py-3">
+            <div className="rounded-lg bg-muted/35 px-3 py-3">
               <p className="text-xs font-medium">Fully customizable</p>
               <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 Change the UI, code, and behavior.
               </p>
             </div>
-            <div className="rounded-lg border border-border bg-card px-3 py-3">
+            <div className="rounded-lg bg-muted/35 px-3 py-3">
               <p className="text-xs font-medium">Bring your own keys</p>
               <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 Use your own providers and accounts.
               </p>
             </div>
-            <div className="rounded-lg border border-border bg-card px-3 py-3">
+            <div className="rounded-lg bg-muted/35 px-3 py-3">
               <p className="text-xs font-medium">Build your own</p>
               <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 Mix and match toolkit pieces in your own apps.
@@ -334,7 +351,7 @@ export function FirstRunOnboarding({
             Choose your setup.
           </h1>
           <div className="grid gap-3 sm:grid-cols-2">
-            <section className="rounded-xl border border-primary/50 bg-primary/[0.06] p-4 shadow-sm">
+            <section className="rounded-xl bg-primary/[0.06] p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">
@@ -355,7 +372,7 @@ export function FirstRunOnboarding({
                 </div>
                 <IconArrowRight className="mt-0.5 text-primary" size={17} />
               </div>
-              <div className="mt-5 border-t border-primary/15 pt-3">
+              <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
                   Included with Builder.io free credits
                 </p>
@@ -370,7 +387,15 @@ export function FirstRunOnboarding({
                           ·
                         </span>
                       )}
-                      <span>{capability.label}</span>
+                      <span className="inline-flex items-center gap-0.5">
+                        <span>{capability.label}</span>
+                        {capability.id === "design-system-intelligence" && (
+                          <CapabilityInfoButton
+                            capability={capability}
+                            ariaLabel={`About ${capability.label}`}
+                          />
+                        )}
+                      </span>
                     </React.Fragment>
                   ))}
                   <span aria-hidden="true" className="text-muted-foreground">
@@ -413,7 +438,7 @@ export function FirstRunOnboarding({
               tabIndex={0}
               aria-label="Use my own keys"
               data-testid="first-run-use-own-keys"
-              className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-xl bg-muted/35 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => setScreen("manual")}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
@@ -433,7 +458,7 @@ export function FirstRunOnboarding({
               <CapabilityList
                 capabilities={profile.capabilities}
                 compact
-                className="mt-5 border-t border-border pt-3"
+                className="mt-5 pt-3"
               />
             </div>
           </div>
@@ -448,7 +473,7 @@ export function FirstRunOnboarding({
               in <code className="rounded bg-muted px-1">.env</code> to make
               that provider available to everyone using this app.{" "}
               <a
-                href="https://agent-native.com/docs/environment-variables"
+                href={docsUrl("environment-variables")}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -479,9 +504,9 @@ export function FirstRunOnboarding({
               Your keys
             </h1>
           </div>
-          <div className="rounded-xl border border-border bg-card p-4">
+          <div className="rounded-xl bg-muted/35 p-4">
             <CapabilityList capabilities={profile.capabilities} />
-            <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-between">
+            <div className="mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -540,39 +565,37 @@ export function FirstRunOnboarding({
         }
       >
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-          <div className="text-center">
-            <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <IconPlugConnected size={22} />
-            </div>
-            <h1 className="mt-5 text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
               This app is an agent.
             </h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Search the catalog and connect what you need. The onboarding stays
-              open while you add integrations.
+            <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Connect the tools your agent can use to gather context and take
+              action. You can add more later in Settings.
             </p>
           </div>
 
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 border-b border-border pb-4">
+            <div className="flex flex-col gap-3 pb-4">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-foreground">
-                  Agent integrations
-                </p>
-                <span className="text-xs text-muted-foreground">
-                  {mcpIntegrations.length} of {mcpCatalog.length}
-                </span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Agent integrations
+                  </p>
+                </div>
+                <label className="relative w-full max-w-xs">
+                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={integrationQuery}
+                    onChange={(event) =>
+                      setIntegrationQuery(event.target.value)
+                    }
+                    className="h-9 w-full rounded-md border border-border bg-background pe-3 ps-8 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                    placeholder="Search integrations"
+                    aria-label="Search integrations"
+                  />
+                </label>
               </div>
-              <label className="relative">
-                <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={integrationQuery}
-                  onChange={(event) => setIntegrationQuery(event.target.value)}
-                  className="h-9 w-full rounded-md border border-border bg-background pe-3 ps-8 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                  placeholder="Search integrations"
-                  aria-label="Search integrations"
-                />
-              </label>
               {connectError && (
                 <p className="text-xs leading-5 text-destructive">
                   {connectError}
@@ -580,25 +603,34 @@ export function FirstRunOnboarding({
               )}
             </div>
 
-            <div>
-              {mcpIntegrations.length > 0 ? (
-                <div className="grid gap-x-8 sm:grid-cols-2">
-                  {mcpIntegrations.map((integration) => (
-                    <McpIntegrationCard
-                      key={integration.id}
-                      integration={integration}
-                      connected={connectedUrls.has(compareUrl(integration.url))}
-                      busy={connectingIntegrationId === integration.id}
-                      onConnect={connectIntegration}
+            <IntegrationGrid
+              items={mcpIntegrations.map((integration) => {
+                const connected = connectedUrls.has(
+                  compareUrl(integration.url),
+                );
+                return {
+                  id: integration.id,
+                  name: integration.name,
+                  description: integration.description,
+                  logo: (
+                    <McpIntegrationLogo
+                      name={integration.name}
+                      logoUrl={integration.logoUrl}
+                      integrationId={integration.id}
+                      className="size-7 rounded-md"
+                      imageClassName="size-full p-1"
                     />
-                  ))}
-                </div>
-              ) : (
-                <div className="border-y border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">
-                  No integrations match.
-                </div>
-              )}
-            </div>
+                  ),
+                  status: connected ? "Connected" : undefined,
+                  statusClassName: "text-emerald-600 dark:text-emerald-400",
+                  actionLabel: connected ? "Connected" : "Connect",
+                  disabled:
+                    connected || connectingIntegrationId === integration.id,
+                  onAction: () => void connectIntegration(integration),
+                };
+              })}
+              emptyLabel="No integrations match."
+            />
           </div>
         </div>
         {integrationDialogId && (
@@ -607,8 +639,8 @@ export function FirstRunOnboarding({
             onOpenChange={(open) => {
               if (!open) setIntegrationDialogId(null);
             }}
-            initialIntegrationId={integrationDialogId}
-            defaultScope={canCreateOrgMcp ? "org" : "user"}
+            connectIntegrationId={integrationDialogId}
+            defaultScope="user"
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrg}
             onCreateMcpServer={createMcpServer.mutateAsync}
@@ -631,7 +663,7 @@ export function FirstRunOnboarding({
           <p className="mt-2 text-sm text-muted-foreground">
             Finish the one-click connection in the new window.
           </p>
-          <div className="mt-7 w-full rounded-xl border border-border bg-card p-4 text-left">
+          <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
             <div className="flex items-center justify-between gap-3">
               <Skeleton className="h-3 w-28" />
               <Skeleton className="h-5 w-16 rounded-full" />
@@ -697,10 +729,7 @@ export function FirstRunOnboarding({
                 ],
               ]
           ).map(([title, description]) => (
-            <div
-              key={title}
-              className="rounded-xl bg-card px-4 py-4 ring-1 ring-border/70"
-            >
+            <div key={title} className="rounded-xl bg-muted/35 px-4 py-4">
               <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <IconCheck size={14} />
               </span>
@@ -804,10 +833,15 @@ function CapabilityList({
   compact?: boolean;
   className?: string;
 }) {
-  const visibleCapabilities = useMemo(
-    () => (compact ? capabilities.slice(0, 4) : capabilities),
-    [capabilities, compact],
-  );
+  const visibleCapabilities = useMemo(() => {
+    if (!compact) return capabilities;
+    const suggested = capabilities.filter((capability) => capability.suggested);
+    const leading = capabilities.filter((capability) => !capability.suggested);
+    return [
+      ...leading.slice(0, Math.max(0, 4 - suggested.length)),
+      ...suggested,
+    ].slice(0, 4);
+  }, [capabilities, compact]);
 
   return (
     <div className={cn("grid", className)}>
@@ -816,7 +850,7 @@ function CapabilityList({
           Keys and integrations
         </p>
       )}
-      <div className="divide-y divide-border">
+      <div className="grid gap-1">
         {visibleCapabilities.map((capability) => (
           <CapabilityRow
             key={capability.id}
@@ -826,63 +860,6 @@ function CapabilityList({
         ))}
       </div>
     </div>
-  );
-}
-
-function McpIntegrationCard({
-  integration,
-  connected,
-  busy,
-  onConnect,
-}: {
-  integration: DefaultMcpIntegration;
-  connected: boolean;
-  busy: boolean;
-  onConnect: (integration: DefaultMcpIntegration) => void;
-}) {
-  const actionLabel = "Connect";
-
-  return (
-    <article className="flex min-w-0 items-center gap-3 border-b border-border/70 py-3.5 sm:pe-4">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-card text-xs font-semibold text-muted-foreground">
-          {integration.name.slice(0, 1)}
-          <img
-            src={integration.logoUrl}
-            alt=""
-            className="absolute inset-0 size-full object-contain p-1"
-            onError={(event) => {
-              event.currentTarget.hidden = true;
-            }}
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-medium text-foreground">
-              {integration.name}
-            </h3>
-            {connected ? (
-              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Connected
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-            {integration.description}
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => onConnect(integration)}
-        disabled={connected || busy}
-        aria-label={`${actionLabel} ${integration.name}`}
-        className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {busy ? <IconLoader2 className="animate-spin" size={13} /> : null}
-        {connected ? "Connected" : actionLabel}
-      </button>
-    </article>
   );
 }
 
@@ -907,22 +884,10 @@ function CapabilityRow({
           >
             {capability.label}
           </span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={`Why ${capability.label} is needed`}
-                className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <IconInfoCircle size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs text-xs">
-              {capability.why}
-            </TooltipContent>
-          </Tooltip>
+          <CapabilityInfoButton
+            capability={capability}
+            ariaLabel={`Why ${capability.label} is needed`}
+          />
         </div>
         <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
           {capability.keySummary}
@@ -931,12 +896,45 @@ function CapabilityRow({
       <span
         className={cn(
           "shrink-0 text-[10px] uppercase tracking-[0.08em]",
-          capability.required ? "text-primary" : "text-muted-foreground",
+          capability.required || capability.suggested
+            ? "text-primary"
+            : "text-muted-foreground",
         )}
       >
-        {capability.required ? "Required" : "Optional"}
+        {capability.required
+          ? "Required"
+          : capability.suggested
+            ? "Suggested"
+            : "Optional"}
       </span>
     </div>
+  );
+}
+
+function CapabilityInfoButton({
+  capability,
+  ariaLabel,
+}: {
+  capability: OnboardingCapability;
+  ariaLabel: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <IconInfoCircle size={13} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs">
+        {capability.why}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

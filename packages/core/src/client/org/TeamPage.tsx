@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/design-system";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,6 +11,15 @@ import {
   AlertDialogTrigger,
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@agent-native/toolkit/ui/pagination";
 import {
   Select,
   SelectContent,
@@ -40,9 +50,11 @@ import {
   IconUsersGroup,
   IconHelpCircle,
   IconExternalLink,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -54,6 +66,20 @@ import {
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
+import { docsUrl } from "../../shared/docs-url.js";
+import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
@@ -62,6 +88,9 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
+import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
+import { useShareOrgMemberSearch } from "../sharing/share-controller-helpers.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
   useOrg,
@@ -84,6 +113,7 @@ import {
   useJoinByDomain,
   useAppRoles,
   useSetAppMemberRole,
+  ORG_MEMBER_PAGE_SIZE,
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
@@ -448,18 +478,371 @@ interface PendingInviteListItem {
   role: string;
 }
 
+function WorkspaceGroupEditor({
+  open,
+  group,
+  onClose,
+}: {
+  open: boolean;
+  group: WorkspaceUserGroup | null;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const [members, setMembers] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const memberSearch = useShareOrgMemberSearch(search, open, { limit: 100 });
+  const saveGroup = useActionMutation("upsert-workspace-user-group");
+  const selected = useMemo(
+    () => new Set(members.map((email) => email.toLowerCase())),
+    [members],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setName(group?.name ?? "");
+    setMembers(group?.memberEmails ?? []);
+    setSearch("");
+  }, [group, open]);
+
+  const searchMembers = memberSearch.members.map((member) => ({
+    email: member.email.toLowerCase(),
+    name: member.name,
+  }));
+  const selectedMembersNotInSearch = members
+    .map((email) => email.toLowerCase())
+    .filter((email) => !searchMembers.some((member) => member.email === email))
+    .map((email) => ({ email, name: undefined }));
+  const visibleMembers = [...selectedMembersNotInSearch, ...searchMembers];
+
+  function toggleMember(email: string, checked: boolean) {
+    const normalized = email.trim().toLowerCase();
+    setMembers((current) =>
+      checked
+        ? Array.from(new Set([...current, normalized]))
+        : current.filter((value) => value !== normalized),
+    );
+  }
+
+  function save() {
+    const trimmedName = name.trim();
+    if (!trimmedName || saveGroup.isPending) return;
+    saveGroup.mutate(
+      {
+        ...(group?.id ? { id: group.id } : {}),
+        name: trimmedName,
+        memberEmails: members,
+      },
+      { onSuccess: onClose },
+    );
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !saveGroup.isPending) onClose();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {group
+              ? t("org.editGroup", { defaultValue: "Edit group" })
+              : t("org.createGroup", { defaultValue: "Create group" })}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <label
+              htmlFor="workspace-group-name"
+              className="text-xs font-medium"
+            >
+              {t("org.groupName", { defaultValue: "Group name" })}
+            </label>
+            <Input
+              id="workspace-group-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Rev Ops"
+              autoFocus
+            />
+          </div>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium">
+                {t("org.groupMembers", { defaultValue: "People" })}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {members.length}
+              </span>
+            </div>
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("org.searchPeople", {
+                  defaultValue: "Search people",
+                })}
+                aria-label={t("org.searchPeople", {
+                  defaultValue: "Search people",
+                })}
+                className="ps-9"
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded-md bg-muted/30 p-1">
+              {memberSearch.isLoading ? (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t("org.loadingPeople", { defaultValue: "Loading people…" })}
+                </div>
+              ) : visibleMembers.length > 0 ? (
+                visibleMembers.map((member) => (
+                  <label
+                    key={member.email}
+                    htmlFor={`workspace-group-member-${member.email}`}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded px-3 py-2 hover:bg-background"
+                  >
+                    <span className="min-w-0 truncate text-sm">
+                      {member.name || member.email}
+                    </span>
+                    <Checkbox
+                      id={`workspace-group-member-${member.email}`}
+                      checked={selected.has(member.email)}
+                      onCheckedChange={(value) =>
+                        toggleMember(member.email, value === true)
+                      }
+                      aria-label={member.email}
+                    />
+                  </label>
+                ))
+              ) : (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t("org.noPeopleFound", { defaultValue: "No people found" })}
+                </div>
+              )}
+            </div>
+            {memberSearch.hasMore ? (
+              <Button
+                type="button"
+                onClick={memberSearch.loadMore}
+                disabled={memberSearch.isLoadingMore}
+                className="w-fit text-xs text-muted-foreground"
+              >
+                {t("org.loadMorePeople", { defaultValue: "Load more" })}
+              </Button>
+            ) : null}
+          </div>
+          <ErrorText
+            error={
+              memberSearch.error ? new Error("Could not load people.") : null
+            }
+          />
+          <ErrorText error={saveGroup.error} />
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground"
+          >
+            {t("org.cancel")}
+          </Button>
+          <Button
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            disabled={!name.trim() || saveGroup.isPending}
+            onClick={save}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saveGroup.isPending ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : (
+              t("org.saveGroup", { defaultValue: "Save group" })
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
+  const t = useT();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<WorkspaceUserGroup | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const deleteGroup = useActionMutation("delete-workspace-user-group");
+
+  function openEditor(group: WorkspaceUserGroup | null) {
+    setEditingGroup(group);
+    setEditorOpen(true);
+  }
+
+  return (
+    <section className="overflow-hidden rounded-xl bg-card text-card-foreground">
+      <div className="flex items-center justify-between gap-3 px-5 py-4">
+        <h3 className="text-sm font-medium">
+          {t("org.groups", { defaultValue: "Groups" })}
+        </h3>
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          onClick={() => openEditor(null)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <IconPlus size={14} />
+          {t("org.newGroup", { defaultValue: "New group" })}
+        </Button>
+      </div>
+      <div className="grid gap-1 px-3 pb-3">
+        {groups.length > 0 ? (
+          groups.map((group) => (
+            <div
+              key={group.id}
+              className="flex items-center gap-3 rounded-lg bg-muted/35 px-3 py-2.5"
+            >
+              <IconUsersGroup className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                {group.name}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {group.memberEmails.length}
+              </span>
+              <Button
+                type="button"
+                onClick={() => openEditor(group)}
+                aria-label={t("org.editGroupAria", {
+                  defaultValue: "Edit group {{name}}",
+                  name: group.name,
+                })}
+                className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+              >
+                <IconPencil size={14} />
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    intent="danger"
+                    emphasis="ghost"
+                    aria-label={t("org.deleteGroupAria", {
+                      defaultValue: "Delete group {{name}}",
+                      name: group.name,
+                    })}
+                    className="rounded p-1 text-muted-foreground hover:bg-background hover:text-destructive"
+                  >
+                    <IconTrash size={14} />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {t("org.deleteGroup", { defaultValue: "Delete group?" })}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t("org.deleteGroupConfirm", {
+                        defaultValue:
+                          "People will keep their workspace access, but this group can no longer be used for connection access.",
+                      })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <ErrorText error={deleteError} />
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={deleteGroup.isPending}
+                      onClick={() => {
+                        setDeleteError(null);
+                        deleteGroup.mutate(
+                          { id: group.id },
+                          {
+                            onError: setDeleteError,
+                          },
+                        );
+                      }}
+                    >
+                      {deleteGroup.isPending
+                        ? t("org.deleting", { defaultValue: "Deleting…" })
+                        : t("org.delete", { defaultValue: "Delete" })}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          ))
+        ) : (
+          <p className="px-2 py-3 text-sm text-muted-foreground">
+            {t("org.noGroups", { defaultValue: "No groups yet" })}
+          </p>
+        )}
+        <ErrorText error={deleteError} />
+      </div>
+      <WorkspaceGroupEditor
+        open={editorOpen}
+        group={editingGroup}
+        onClose={() => {
+          setEditorOpen(false);
+          setEditingGroup(null);
+        }}
+      />
+    </section>
+  );
+}
+
 function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
-  const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
+  const [memberOffset, setMemberOffset] = useState(0);
+  const {
+    data: membersData,
+    isLoading: isLoadingMembers,
+    isFetching: isFetchingMembers,
+    isPlaceholderData: isPlaceholderMembers,
+  } = useOrgMembers(memberOffset);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
+  const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
+  const groupsQuery = useActionQuery<WorkspaceUserGroup[]>(
+    "list-workspace-user-groups",
+    {},
+    { enabled: isOwnerOrAdmin },
+  );
+
+  useEffect(() => {
+    setMemberOffset(0);
+  }, [org?.orgId]);
+
+  useEffect(() => {
+    if (
+      memberOffset > 0 &&
+      membersData &&
+      !isLoadingMembers &&
+      !isFetchingMembers &&
+      !isPlaceholderMembers &&
+      membersData.members.length === 0
+    ) {
+      setMemberOffset((currentOffset) =>
+        Math.max(0, currentOffset - ORG_MEMBER_PAGE_SIZE),
+      );
+    }
+  }, [
+    isFetchingMembers,
+    isLoadingMembers,
+    isPlaceholderMembers,
+    memberOffset,
+    membersData,
+  ]);
 
   if (!org?.orgId) return null;
 
   const isOwner = org.role === "owner";
-  const isOwnerOrAdmin = isOwner || org.role === "admin";
   const members = membersData?.members ?? [];
+  const totalMembers = membersData?.totalCount ?? 0;
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
@@ -477,7 +860,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               />
             </span>
           }
-          description={`${t("org.memberCount", { count: members.length })} · ${t("org.youAreRole", { role: org.role })}`}
+          description={`${t("org.memberCount", { count: totalMembers })} · ${t("org.youAreRole", { role: org.role })}`}
           control={
             hasMultipleOrgs ? (
               <Select
@@ -523,12 +906,24 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
       <MembersTableCard
         members={members}
+        totalMembers={totalMembers}
         pendingInvites={pendingInvites}
         isLoadingMembers={isLoadingMembers}
+        isFetchingMembers={isFetchingMembers}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
         appRoles={appRoles}
+        groups={groupsQuery.data ?? []}
+        canManageGroups={isOwnerOrAdmin}
+        memberOffset={memberOffset}
+        hasNextPage={membersData?.hasMore === true}
+        nextMemberOffset={membersData?.nextOffset ?? null}
+        onMemberPageChange={setMemberOffset}
       />
+
+      {isOwnerOrAdmin && (
+        <WorkspaceGroupsCard groups={groupsQuery.data ?? []} />
+      )}
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
@@ -537,22 +932,45 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
 function MembersTableCard({
   members,
+  totalMembers,
   pendingInvites,
   isLoadingMembers,
+  isFetchingMembers,
   currentUserEmail,
   currentUserRole,
   appRoles,
+  groups,
+  canManageGroups,
+  memberOffset,
+  hasNextPage,
+  nextMemberOffset,
+  onMemberPageChange,
 }: {
   members: MemberListItem[];
+  totalMembers: number;
   pendingInvites: PendingInviteListItem[];
   isLoadingMembers: boolean;
+  isFetchingMembers: boolean;
   currentUserEmail: string;
   currentUserRole: string | null;
   appRoles?: AppRolesDescriptor;
+  groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
+  memberOffset: number;
+  hasNextPage: boolean;
+  nextMemberOffset: number | null;
+  onMemberPageChange: (offset: number) => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [bulkActionKey, setBulkActionKey] = useState(0);
   const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const updateGroupMembers = useActionMutation(
+    "bulk-update-workspace-user-groups",
+  );
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
   const appRoleByEmail = new Map(
     (appRoleData?.assignments ?? []).map((a) => [
@@ -560,14 +978,58 @@ function MembersTableCard({
       a.role,
     ]),
   );
+  const selectedCount = selectedEmails.size;
+  const allMembersSelected =
+    members.length > 0 &&
+    members.every((member) => selectedEmails.has(member.email));
+
+  useEffect(() => {
+    setSelectedEmails(new Set());
+  }, [memberOffset, members]);
+
+  function toggleSelected(email: string, checked: boolean) {
+    setSelectedEmails((current) => {
+      const next = new Set(current);
+      if (checked) next.add(email);
+      else next.delete(email);
+      return next;
+    });
+  }
+
+  function applyBulkAction(value: string) {
+    const [operation, groupId] = value.split(":");
+    if (
+      (operation !== "add" && operation !== "remove") ||
+      !groupId ||
+      selectedEmails.size === 0
+    ) {
+      return;
+    }
+    updateGroupMembers.mutate(
+      {
+        groupId,
+        memberEmails: Array.from(selectedEmails),
+        operation,
+      },
+      {
+        onSuccess: () => {
+          setSelectedEmails(new Set());
+          setBulkActionKey((key) => key + 1);
+        },
+      },
+    );
+  }
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
-      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <section className="overflow-hidden rounded-xl bg-muted/20 p-1 text-card-foreground">
+      <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
           <p className="text-xs text-muted-foreground">
-            {t("org.memberCount", { count: members.length })}
+            {t("org.memberCount", { count: totalMembers })}
+            {appRoles
+              ? ` · ${appRoles.label ?? appRoles.appId} can be assigned here`
+              : ""}
           </p>
         </div>
         {canInvite && !showInviteForm && (
@@ -584,27 +1046,117 @@ function MembersTableCard({
         )}
       </div>
       {canInvite && showInviteForm && (
-        <div className="border-b border-border p-4">
+        <div className="rounded-lg bg-card p-4">
           <BulkInviteForm
             currentUserRole={currentUserRole}
             onClose={() => setShowInviteForm(false)}
           />
         </div>
       )}
-      <div className="divide-y divide-border/60 border-t border-border/60">
-        {isLoadingMembers && members.length === 0 ? (
-          [0, 1, 2].map((i) => (
-            <div key={i} className="flex items-center gap-3 px-5 py-4">
-              <div className="size-8 animate-pulse rounded-full bg-muted" />
-              <div className="space-y-2">
-                <div
-                  className="h-3.5 animate-pulse rounded bg-muted"
-                  style={{ width: `${180 + i * 48}px` }}
-                />
-                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
-              </div>
+      {canManageGroups && members.length > 0 ? (
+        <div className="flex flex-col gap-3 rounded-lg bg-muted/40 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={allMembersSelected}
+              onCheckedChange={(value) => {
+                if (value === true) {
+                  setSelectedEmails(
+                    new Set(members.map((member) => member.email)),
+                  );
+                } else {
+                  setSelectedEmails(new Set());
+                }
+              }}
+              aria-label={t("org.selectPage", { defaultValue: "Select page" })}
+            />
+            <span className="text-xs text-muted-foreground">
+              {selectedCount > 0
+                ? t("org.selectedMembers", {
+                    defaultValue: "{{count}} selected",
+                    count: selectedCount,
+                  })
+                : t("org.selectMembers", {
+                    defaultValue: "Select people to edit groups",
+                  })}
+            </span>
+          </div>
+          {selectedCount > 0 && groups.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                key={`add-${bulkActionKey}`}
+                onValueChange={applyBulkAction}
+                disabled={updateGroupMembers.isPending}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-36 border-0 bg-background text-xs">
+                  <SelectValue
+                    placeholder={t("org.addToGroup", {
+                      defaultValue: "Add to group",
+                    })}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={`add:${group.id}`}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                key={`remove-${bulkActionKey}`}
+                onValueChange={applyBulkAction}
+                disabled={updateGroupMembers.isPending}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-36 border-0 bg-background text-xs">
+                  <SelectValue
+                    placeholder={t("org.removeFromGroup", {
+                      defaultValue: "Remove from group",
+                    })}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={`remove:${group.id}`}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                onClick={() => setSelectedEmails(new Set())}
+                className="text-xs text-muted-foreground"
+              >
+                {t("org.clearSelection", { defaultValue: "Clear" })}
+              </Button>
             </div>
-          ))
+          ) : null}
+          {selectedCount > 0 && groups.length === 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {t("org.createGroupForBulk", {
+                defaultValue: "Create a group below first",
+              })}
+            </span>
+          ) : null}
+          <ErrorText error={updateGroupMembers.error} />
+        </div>
+      ) : null}
+      <div className="space-y-1 pt-1">
+        {isLoadingMembers && members.length === 0 ? (
+          <div role="status" aria-busy="true" aria-label="Loading members">
+            {["w-44", "w-56", "w-64"].map((nameWidth) => (
+              <div
+                key={nameWidth}
+                className="flex items-center gap-3 px-5 py-4"
+              >
+                <Skeleton className="size-8 rounded-full bg-muted" />
+                <div className="space-y-2">
+                  <Skeleton className={cn("h-3.5 bg-muted", nameWidth)} />
+                  <Skeleton className="h-3 w-20 bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : members.length === 0 && pendingInvites.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-muted-foreground">
             {t("org.noMembers")}
@@ -621,6 +1173,9 @@ function MembersTableCard({
                 appRoles={appRoles}
                 appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
                 canManageAppRoles={Boolean(appRoleData?.canManage)}
+                canSelect={canManageGroups}
+                selected={selectedEmails.has(m.email)}
+                onSelect={(checked) => toggleSelected(m.email, checked)}
               />
             ))}
             {pendingInvites.map((inv) => (
@@ -629,7 +1184,99 @@ function MembersTableCard({
           </>
         )}
       </div>
+      {(memberOffset > 0 || hasNextPage) && (
+        <MemberPagination
+          memberOffset={memberOffset}
+          totalMembers={totalMembers}
+          hasNextPage={hasNextPage}
+          nextMemberOffset={nextMemberOffset}
+          isFetchingMembers={isFetchingMembers}
+          onMemberPageChange={onMemberPageChange}
+        />
+      )}
     </section>
+  );
+}
+
+function MemberPagination({
+  memberOffset,
+  totalMembers,
+  hasNextPage,
+  nextMemberOffset,
+  isFetchingMembers,
+  onMemberPageChange,
+}: {
+  memberOffset: number;
+  totalMembers: number;
+  hasNextPage: boolean;
+  nextMemberOffset: number | null;
+  isFetchingMembers: boolean;
+  onMemberPageChange: (offset: number) => void;
+}) {
+  const t = useT();
+  const currentPage = Math.floor(memberOffset / ORG_MEMBER_PAGE_SIZE) + 1;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalMembers / ORG_MEMBER_PAGE_SIZE),
+  );
+  const canGoPrevious = memberOffset > 0 && !isFetchingMembers;
+  const canGoNext =
+    hasNextPage && nextMemberOffset !== null && !isFetchingMembers;
+
+  return (
+    <div className="mt-1 flex flex-col gap-3 rounded-lg bg-card px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {t("org.memberPageStatus", {
+          page: currentPage,
+          totalPages,
+        })}
+      </p>
+      <Pagination
+        aria-label={t("org.memberPagination")}
+        className="mx-0 w-auto justify-start sm:justify-end"
+      >
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              href="#"
+              aria-label={t("org.previousMemberPage")}
+              aria-disabled={!canGoPrevious}
+              tabIndex={canGoPrevious ? undefined : -1}
+              className={cn(
+                "text-xs",
+                !canGoPrevious && "pointer-events-none opacity-50",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                if (canGoPrevious) {
+                  onMemberPageChange(
+                    Math.max(0, memberOffset - ORG_MEMBER_PAGE_SIZE),
+                  );
+                }
+              }}
+            />
+          </PaginationItem>
+          <PaginationItem>
+            <PaginationNext
+              href="#"
+              aria-label={t("org.nextMemberPage")}
+              aria-disabled={!canGoNext}
+              tabIndex={canGoNext ? undefined : -1}
+              className={cn(
+                "text-xs",
+                !canGoNext && "pointer-events-none opacity-50",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                if (canGoNext && nextMemberOffset !== null) {
+                  onMemberPageChange(nextMemberOffset);
+                }
+              }}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    </div>
   );
 }
 
@@ -817,7 +1464,9 @@ function AppRoleControl({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={UNASSIGNED}>
-            {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+            {appRoles.defaultRole
+              ? labelFor(appRoles.defaultRole)
+              : "Not assigned"}
           </SelectItem>
           {appRoles.roles.map((r) => (
             <SelectItem key={r} value={r}>
@@ -837,7 +1486,7 @@ function AppRoleControl({
     </span>
   ) : (
     <span className="text-xs text-muted-foreground/70">
-      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "Not assigned"}
     </span>
   );
 
@@ -862,6 +1511,9 @@ function MemberRow({
   appRoles,
   appRole,
   canManageAppRoles,
+  canSelect = false,
+  selected = false,
+  onSelect,
 }: {
   email: string;
   role: string;
@@ -870,6 +1522,9 @@ function MemberRow({
   appRoles?: AppRolesDescriptor;
   appRole?: string | null;
   canManageAppRoles?: boolean;
+  canSelect?: boolean;
+  selected?: boolean;
+  onSelect?: (checked: boolean) => void;
 }) {
   const t = useT();
   const removeMember = useRemoveMember();
@@ -887,8 +1542,15 @@ function MemberRow({
       (currentUserRole === "admin" && role === "member"));
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-3">
+        {canSelect ? (
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(value) => onSelect?.(value === true)}
+            aria-label={`Select ${email}`}
+          />
+        ) : null}
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
           {memberInitials(email)}
         </div>
@@ -1400,7 +2062,10 @@ function DomainSettingsSection({
       description={
         <OrganizationDescription
           help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
-          docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=domain_auto_join"
+          docsUrl={docsUrl("organizations-teams-permissions", {
+            campaign: "organization_settings",
+            content: "domain_auto_join",
+          })}
         >
           Automatically add members with your work email.
         </OrganizationDescription>
@@ -1534,7 +2199,10 @@ function WorkspaceUrlSettingsSection({
       description={
         <OrganizationDescription
           help="Members who land on another deployment can be sent to this workspace URL instead of an empty app."
-          docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=workspace_url"
+          docsUrl={docsUrl("deployment", {
+            campaign: "organization_settings",
+            content: "workspace_url",
+          })}
         >
           Send members to this workspace from another deployment.
         </OrganizationDescription>
@@ -1664,7 +2332,11 @@ function AuthProviderSettingsSection({
         description={
           <OrganizationDescription
             help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
-            docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=organization_sign_in"
+            docsUrl={docsUrl("authentication", {
+              campaign: "organization_settings",
+              content: "organization_sign_in",
+              hash: "social-providers",
+            })}
           >
             Choose how members sign in.
           </OrganizationDescription>
@@ -1813,180 +2485,223 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
         </OrganizationDescription>
       }
       control={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
-            <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-            {secret ?? masked}
-          </span>
-          {isSet && (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={toggleReveal}
-                    disabled={revealA2ASecret.isPending}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {secret ? "Hide secret" : "Reveal secret"}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={copyToClipboard}
-                    disabled={revealA2ASecret.isPending}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {copied ? (
-                      <IconCheck size={14} className="text-primary" />
-                    ) : (
-                      <IconCopy size={14} />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Copy secret</TooltipContent>
-              </Tooltip>
-            </>
-          )}
-          <Button
-            type="button"
-            intent="danger"
-            emphasis="outline"
-            onClick={regenerate}
-            disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+        <Popover>
+          <PopoverTrigger asChild>
+            <ToolkitButton
+              type="button"
+              variant="ghost"
+              intent="neutral"
+              emphasis="outline"
+              className="inline-flex h-9 min-h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium leading-none text-foreground hover:bg-accent/40 active:scale-100"
+            >
+              Manage
+            </ToolkitButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={8}
+            className="w-[min(420px,calc(100vw-2rem))] space-y-4 p-4"
           >
-            {setA2ASecret.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              <IconRefresh size={14} />
-            )}
-            Regenerate
-          </Button>
-          {isSet && (
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => syncToApps()}
-              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-            >
-              {syncA2ASecret.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                <IconCloudUpload size={14} />
-              )}
-              Sync
-            </Button>
-          )}
-          {!pasteMode && (
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => setPasteMode(true)}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-            >
-              <IconKey size={14} />
-              Paste secret
-            </Button>
-          )}
-        </div>
-      }
-    >
-      {(pasteMode ||
-        syncA2ASecret.isPending ||
-        syncResult ||
-        revealA2ASecret.error ||
-        setA2ASecret.error ||
-        syncA2ASecret.error) && (
-        <div className="space-y-3">
-          {syncA2ASecret.isPending && (
-            <p className="text-xs text-muted-foreground">
-              Syncing to connected apps…
-            </p>
-          )}
-
-          {syncResult && !syncA2ASecret.isPending && (
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">
-                Synced to {syncResult.succeeded}/{syncResult.total} app
-                {syncResult.total === 1 ? "" : "s"}
-                {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
+              <h3 className="text-sm font-semibold text-foreground">
+                Cross-app authentication
+              </h3>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Use one shared secret across connected apps. Regenerating or
+                replacing it automatically syncs the new value to those apps.
               </p>
-              {syncResult.failed > 0 && (
-                <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
-                  {syncResult.results
-                    .filter((r) => !r.ok)
-                    .map((r) => (
-                      <li key={r.id}>
-                        {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
-                      </li>
-                    ))}
-                </ul>
-              )}
             </div>
-          )}
 
-          {pasteMode ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={pasteValue}
-                onChange={(e) => setPasteValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveSecret();
-                  if (e.key === "Escape") {
-                    setPasteMode(false);
-                    setPasteValue("");
-                  }
-                }}
-                placeholder="Paste A2A secret"
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
-                autoFocus
-              />
+            <div className="rounded-lg border border-border bg-background p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Shared secret
+                  </p>
+                  <p className="mt-1 truncate font-mono text-sm text-foreground">
+                    {secret ?? masked}
+                  </p>
+                </div>
+                {isSet && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          onClick={toggleReveal}
+                          disabled={revealA2ASecret.isPending}
+                          aria-label={secret ? "Hide secret" : "Reveal secret"}
+                          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          {secret ? (
+                            <IconEyeOff size={14} />
+                          ) : (
+                            <IconEye size={14} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {secret ? "Hide secret" : "Reveal secret"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          onClick={copyToClipboard}
+                          disabled={revealA2ASecret.isPending}
+                          aria-label="Copy secret"
+                          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          {copied ? (
+                            <IconCheck size={14} className="text-primary" />
+                          ) : (
+                            <IconCopy size={14} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy secret</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 type="button"
-                intent="primary"
-                emphasis="solid"
-                disabled={!pasteValue.trim() || setA2ASecret.isPending}
-                onClick={saveSecret}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                intent="danger"
+                emphasis="outline"
+                onClick={regenerate}
+                disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+                className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
               >
                 {setA2ASecret.isPending ? (
                   <IconLoader2 size={14} className="animate-spin" />
                 ) : (
-                  "Save"
+                  <IconRefresh size={14} />
                 )}
+                Regenerate
               </Button>
+              {isSet ? (
+                <Button
+                  type="button"
+                  intent="neutral"
+                  emphasis="outline"
+                  onClick={() => syncToApps()}
+                  disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+                  className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+                >
+                  {syncA2ASecret.isPending ? (
+                    <IconLoader2 size={14} className="animate-spin" />
+                  ) : (
+                    <IconCloudUpload size={14} />
+                  )}
+                  Sync to apps
+                </Button>
+              ) : null}
+            </div>
+
+            {!pasteMode ? (
               <Button
                 type="button"
                 intent="neutral"
                 emphasis="outline"
-                onClick={() => {
-                  setPasteMode(false);
-                  setPasteValue("");
-                }}
-                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setPasteMode(true)}
+                className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50"
               >
-                Cancel
+                <IconKey size={14} />
+                Paste secret
               </Button>
-            </div>
-          ) : null}
+            ) : (
+              <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+                <label
+                  htmlFor="cross-app-secret"
+                  className="text-xs font-medium text-foreground"
+                >
+                  Paste a shared secret
+                </label>
+                <input
+                  id="cross-app-secret"
+                  type="text"
+                  value={pasteValue}
+                  onChange={(e) => setPasteValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveSecret();
+                    if (e.key === "Escape") {
+                      setPasteMode(false);
+                      setPasteValue("");
+                    }
+                  }}
+                  placeholder="Paste A2A secret"
+                  className="min-w-0 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    intent="neutral"
+                    emphasis="outline"
+                    onClick={() => {
+                      setPasteMode(false);
+                      setPasteValue("");
+                    }}
+                    className="h-8 rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    intent="primary"
+                    emphasis="solid"
+                    disabled={!pasteValue.trim() || setA2ASecret.isPending}
+                    onClick={saveSecret}
+                    className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {setA2ASecret.isPending ? (
+                      <IconLoader2 size={14} className="animate-spin" />
+                    ) : null}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            )}
 
-          <ErrorText error={revealA2ASecret.error} />
-          <ErrorText error={setA2ASecret.error} />
-          <ErrorText error={syncA2ASecret.error} />
-        </div>
-      )}
-    </SettingsRow>
+            {syncA2ASecret.isPending && (
+              <p className="text-xs text-muted-foreground">
+                Syncing to connected apps…
+              </p>
+            )}
+            {syncResult && !syncA2ASecret.isPending && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  Synced to {syncResult.succeeded}/{syncResult.total} app
+                  {syncResult.total === 1 ? "" : "s"}
+                  {syncResult.failed > 0
+                    ? ` (${syncResult.failed} failed)`
+                    : ""}
+                  .
+                </p>
+                {syncResult.failed > 0 && (
+                  <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
+                    {syncResult.results
+                      .filter((r) => !r.ok)
+                      .map((r) => (
+                        <li key={r.id}>
+                          {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            <ErrorText error={revealA2ASecret.error} />
+            <ErrorText error={setA2ASecret.error} />
+            <ErrorText error={syncA2ASecret.error} />
+          </PopoverContent>
+        </Popover>
+      }
+    />
   );
 }
 
@@ -2015,9 +2730,7 @@ export function TeamPage({
 
       {isLoading && (
         <section className="rounded-lg border border-border bg-card p-6">
-          <div className="text-sm text-muted-foreground">
-            {t("org.loading")}
-          </div>
+          <SettingsSkeleton lines={3} />
         </section>
       )}
 

@@ -32,6 +32,9 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  agentPath?: string;
+  usageScope?: "me" | "workspace";
+  usageUserEmail?: string;
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -136,6 +139,11 @@ export function buildDispatchNavigationState(
   const threadId = threadIdFromPath(pathname);
   if (threadId) state.threadId = threadId;
 
+  if (state.view === "chat") {
+    const agentPath = new URLSearchParams(search).get("agent")?.trim();
+    if (agentPath) state.agentPath = agentPath;
+  }
+
   const extensionId = extensionIdFromPathname(pathname);
   if (extensionId) {
     state.view = "extensions";
@@ -175,6 +183,16 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+  }
+
+  if (state.view === "metrics") {
+    const params = new URLSearchParams(search);
+    const usageScope = params.get("scope");
+    const usageUserEmail = params.get("user");
+    if (usageScope === "me" || usageScope === "workspace") {
+      state.usageScope = usageScope;
+    }
+    if (usageUserEmail) state.usageUserEmail = usageUserEmail;
   }
 
   return state;
@@ -224,7 +242,8 @@ function resolveExtensionPath(
   extensions?: DispatchExtensionConfig,
 ): string | undefined {
   if (!view) return undefined;
-  return extensions?.navItems?.find((item) => item.id === view)?.to;
+  const item = extensions?.navItems?.find((candidate) => candidate.id === view);
+  return item?.adminTo ?? item?.to;
 }
 
 function resolveView(
@@ -236,9 +255,18 @@ function resolveView(
   if (pathname === "/extensions" || pathname.startsWith("/extensions/")) {
     return "extensions";
   }
+  if (pathname === "/admin") return "admin";
+  if (pathname === "/admin/agents" || pathname.startsWith("/admin/agents/")) {
+    return "connected-agents";
+  }
+  if (pathname.startsWith("/admin/")) {
+    const adminView = resolveView(pathname.slice("/admin".length), extensions);
+    return adminView === "overview" ? "admin" : adminView;
+  }
   if (pathname.startsWith("/browser-chat")) return "browser-chat";
   if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
+  if (pathname.startsWith("/operations")) return "operations";
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
@@ -250,6 +278,9 @@ function resolveView(
   if (pathname.startsWith("/identities")) return "identities";
   if (pathname.startsWith("/approvals")) return "approvals";
   if (pathname.startsWith("/automations")) return "automations";
+  if (pathname.startsWith("/transactional-email")) {
+    return "transactional-email";
+  }
   if (pathname.startsWith("/audit")) return "audit";
   if (pathname.startsWith("/dreams")) return "dreams";
   if (pathname.startsWith("/thread-debug")) return "thread-debug";
@@ -263,6 +294,8 @@ function resolvePath(
   command?: Pick<NavigationState, "extensionId" | "threadId">,
 ): string | undefined {
   switch (view) {
+    case "admin":
+      return "/admin";
     case "chat":
     case "ask":
       return command?.threadId && command.threadId.trim()
@@ -272,41 +305,52 @@ function resolvePath(
       return "/overview";
     case "apps":
       return "/apps";
+    case "operations":
+    case "monitoring":
+    case "observability":
+    case "database":
+      return view === "database"
+        ? "/admin/operations?view=database"
+        : "/admin/operations";
     case "metrics":
     case "usage":
-      return "/metrics";
+      return "/admin/metrics";
     case "new-app":
     case "create-app":
-      return "/new-app";
+      return "/admin/new-app";
     case "vault":
     case "secrets":
-      return "/vault";
+      return "/admin/vault";
     case "integrations":
-      return "/integrations";
+      return "/admin/integrations";
     case "workspace":
     case "resources":
-      return "/workspace";
+      return "/admin/workspace";
     case "agents":
       return "/agents";
+    case "connected-agents":
+      return "/admin/agents";
     case "messaging":
-      return "/messaging";
+      return "/admin/messaging";
     case "destinations":
     case "routes":
-      return "/destinations";
+      return "/admin/destinations";
     case "identities":
-      return "/identities";
+      return "/admin/identities";
     case "approvals":
-      return "/approvals";
+      return "/admin/approvals";
     case "automations":
     case "jobs":
-      return "/automations";
+      return "/admin/automations";
+    case "transactional-email":
+      return "/admin/transactional-email";
     case "audit":
-      return "/audit";
+      return "/admin/audit";
     case "dreams":
-      return "/dreams";
+      return "/admin/dreams";
     case "thread-debug":
     case "threads":
-      return "/thread-debug";
+      return "/admin/thread-debug";
     case "team":
       return "/settings/organization";
     case "extensions":

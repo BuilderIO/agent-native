@@ -18,11 +18,14 @@
  *   await syncWorkspacesToOrganizations();
  *   await backfillRecordingOrgId();
  *
- * Schema DDL at boot is the sanctioned migration path here and is NOT flagged —
- * it is bounded and usually a fast no-op once applied. What this guard flags is
- * UNBOUNDED DATA WORK: backfills, retypes, aggregations, recomputes, syncs and
- * sweeps, whose cost grows with the table and which have no reason to run
- * before the process can answer a request.
+ * Schema DDL used to be exempt here, on the reasoning that migrations are
+ * bounded and short-circuit cheaply. That was an assumption, and it was wrong:
+ * on the Analytics production database (180 tables, 1920 columns) the migration
+ * "fast path" measured 5.5s and the information_schema probe 8.3s. Health
+ * checks timed out at 25s and the app was effectively down. The exemption is
+ * how the pattern survived a cleanup meant to remove it — so there is no
+ * exemption any more. Anything awaited in a plugin body is flagged, schema
+ * setup included, and anything that truly must run first says so on the line.
  *
  * Where to put it instead — all three already exist in this repo:
  *   - a scheduled job / cron (see the `recurring-jobs` and `automations` skills),
@@ -39,15 +42,16 @@
  *   // guard:allow-boot-data-work — short reason
  *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
- * base cannot be resolved we say so loudly and exit 0, because a silent pass
- * here would look identical to a real clean run.
+ * base cannot be resolved the guard exits GUARD_EXIT_COULD_NOT_RUN, which
+ * run-guards.ts reports as SKIPPED, because a silent pass here would look
+ * identical to a real clean run.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedLines } from "./lib/changed-lines.mjs";
+import { requireAddedLines } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -62,14 +66,38 @@ const IN_SCOPE =
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 
 /**
- * Verbs for work whose cost grows with the data. Deliberately excludes the
- * bounded schema-DDL vocabulary (`ensureTable`, `ensureColumn`,
- * `ensureAdditiveColumns`, `migrations`) — running those at boot is how these
- * apps get their schema, and flagging them would make the guard noise.
+ * SCHEMA DDL IS NO LONGER EXEMPT. This guard originally waved through
+ * `migrations`, `ensureTable`, `ensureAdditiveColumns` and friends on the
+ * reasoning that they short-circuit cheaply once applied. Measured on the
+ * Analytics production database, which has 180 tables and 1920 columns:
+ *
+ *   SELECT 1                                  1.96s
+ *   SELECT MAX(version) FROM …_migrations      5.47s   <- the "fast path"
+ *   information_schema probe (ensureAdditive)  8.26s
+ *
+ * Every cold start paid that before it could serve, health checks timed out at
+ * 25s, and the app was effectively down. "Bounded and fast" was an assumption,
+ * not a measurement, and the exemption is exactly how the pattern survived a
+ * cleanup that was supposed to remove it.
+ *
+ * So: ANY awaited call in a server plugin body is flagged. Schema setup that
+ * genuinely must run before serving is still allowed — it just has to say so
+ * on the line, where a reviewer sees it, instead of inheriting a blanket
+ * exemption written by someone who never measured it.
  */
 const DATA_WORK = new RegExp(
-  String.raw`\bawait\s+(` +
+  String.raw`\bawait\s+(?:[$\w]+\.)*(` +
     [
+      // Schema/migration work. Bounded in principle, 5-8s in practice on a
+      // large database — and paid on every cold start, forever.
+      "\\w*[Mm]igrations?\\w*",
+      "ensureTable\\w*",
+      "ensureColumn\\w*",
+      "ensureAdditiveColumns",
+      "ensureSchema\\w*",
+      "ensure\\w*Index\\w*",
+      "widen\\w*",
+      "retypeBoolean\\w*",
       "backfill\\w*",
       "retype\\w*",
       "reconcile\\w*",
@@ -86,13 +114,8 @@ const DATA_WORK = new RegExp(
       "warmCache\\w*",
       "preload\\w*",
       "seed\\w*",
-      // Data seeding wearing an `ensure*` name. The bounded schema-DDL
-      // vocabulary (ensureTable/ensureColumn/ensureAdditiveColumns/
-      // ensureTableExists/ensureColumnExists/ensureSchema/ensureIndex) is
-      // deliberately NOT matched by these — they create structure, which is
-      // fine at boot. These shapes INSERT rows instead, per owner or per org,
-      // and that cost grows with the workspace: `ensureSchedulerJobs` alone
-      // does six sequential round trips on every cold start.
+      // Data seeding wearing an `ensure*` name: INSERTs per owner or per org,
+      // whose cost grows with the workspace.
       "ensureDefault\\w*",
       "ensure\\w*Configs?",
       "ensure\\w*Automations?",
@@ -118,16 +141,7 @@ function isStartupContext(line, file) {
   return indent === 0;
 }
 
-const added = addedLines(REPO_ROOT);
-if (added === null) {
-  console.error(
-    "guard-no-boot-data-work: cannot resolve a diff base (no origin/main or main).",
-  );
-  console.error(
-    "  This is NOT a clean result — nothing was checked. Fetch main and re-run.",
-  );
-  process.exit(0);
-}
+const added = requireAddedLines(REPO_ROOT, "guard-no-boot-data-work");
 
 const violations = [];
 for (const [absPath, lineNumbers] of added) {
@@ -177,8 +191,11 @@ console.error(
     "  - lazily behind the first caller that needs it, memoized\n",
 );
 console.error(
-  "Schema DDL at boot is fine and is not flagged — this is about unbounded data work.\n" +
-    "If it genuinely must run before serving and is bounded, say so on the line:\n" +
+  "Schema DDL is NOT exempt. On a 180-table database the migration fast path\n" +
+    "measured 5.5s and the information_schema probe 8.3s — paid on every cold\n" +
+    "start, which took an app down. Bounded is not the same as fast.\n\n" +
+    "If it genuinely must run before this app can serve a correct response, say\n" +
+    "so on the line so a reviewer sees the decision:\n" +
     "  // guard:allow-boot-data-work — short reason\n",
 );
 

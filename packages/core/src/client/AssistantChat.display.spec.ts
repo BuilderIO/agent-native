@@ -26,9 +26,11 @@ import {
   AssistantUiStaleIndexErrorBoundary,
   assistantMessageRunId,
   assistantChatAutoscrollStatusKey,
+  assistantUiMessageListStructureKey,
   assistantUiRecoverableRenderErrorKind,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
+  shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
@@ -39,6 +41,8 @@ import {
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
+  resolveAssistantChatComposerPlaceholder,
+  shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
@@ -47,6 +51,145 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("shouldShowAssistantChatModelSelector", () => {
+  it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
+    expect(shouldShowAssistantChatModelSelector(undefined)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(true)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(false)).toBe(false);
+
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("showModelSelector?: boolean");
+    expect(source).toMatch(
+      /shouldShowAssistantChatModelSelector\(\s+showModelSelector,/,
+    );
+  });
+});
+
+describe("AssistantChat thread restore and composer recovery", () => {
+  it("keeps failed thread restores visible and retryable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("knownAbsentThreadIds");
+    expect(source).toContain('setThreadRestoreError("unavailable")');
+    expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain("retryThreadRestore");
+    expect(source).toContain('t("agentChat.common.retry")');
+  });
+
+  it("replays embedded transcript restoration safely under StrictMode", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const restoreStart = source.indexOf(
+      "// Restore messages from server on mount",
+    );
+    const restoreEnd = source.indexOf(
+      "  useEffect(() => {\n    if (\n      !loadHistoryRepository",
+      restoreStart,
+    );
+    const restoreSource = source.slice(restoreStart, restoreEnd);
+
+    expect(restoreSource).toContain("React StrictMode replays effects");
+    expect(restoreSource).toContain("hasRestoredRef.current = false;");
+  });
+
+  it("persists composer text before the toolkit draft debounce can run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "writeAssistantChatComposerDraft(composerDraftScope, text)",
+    );
+    expect(source).toContain("initialTextKey={composerDraftScope}");
+    expect(source).toContain("draftScope={composerDraftScope}");
+  });
+
+  it("synchronizes app context before a scope-switch paint", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const contextSyncStart = source.indexOf(
+      "useBrowserLayoutEffect(() => {\n    if (!isActiveComposer) return;",
+    );
+    const contextSyncEnd = source.indexOf(
+      "  // Tracks the JSON of the last queue",
+      contextSyncStart,
+    );
+    const contextSync = source.slice(contextSyncStart, contextSyncEnd);
+
+    expect(contextSync).toContain(
+      "applyVisibleItems(getAgentChatContextState());",
+    );
+    expect(contextSync).toContain(
+      "refreshAgentChatContext().then(applyVisibleItems)",
+    );
+  });
+});
+
+describe("assistantUiMessageListStructureKey", () => {
+  it("ignores text changes within existing message resources", () => {
+    const before = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "before", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const after = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "after", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+
+    expect(after).toBe(before);
+  });
+
+  it("changes when indexed message resources grow or shrink", () => {
+    const onePart = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }],
+      },
+    ]);
+    const twoParts = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }, { toolCallId: "tool-1" }],
+      },
+    ]);
+    const noMessages = assistantUiMessageListStructureKey([]);
+
+    expect(twoParts).not.toBe(onePart);
+    expect(noMessages).not.toBe(twoParts);
+  });
+
+  it("tracks attachment resource ids", () => {
+    const firstAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const secondAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-2" }],
+      },
+    ]);
+
+    expect(secondAttachment).not.toBe(firstAttachment);
+  });
+});
 
 describe("queuedMessageImageSources", () => {
   it("renders images serialized into queued attachment content", () => {
@@ -274,6 +417,22 @@ describe("hoistQueuedMessageToFront", () => {
 });
 
 describe("createUserMessageRunConfig model snapshot", () => {
+  it("preserves approval grants on queued continuation messages", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["create-builder-branch:{}"],
+      "queued-approval",
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      approvedToolCalls: ["create-builder-branch:{}"],
+      agentNativeQueuedMessageId: "queued-approval",
+    });
+  });
+
   it("sends the model a queued message was composed with", () => {
     const options = createUserMessageRunConfig(
       undefined,
@@ -1265,7 +1424,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 });
 
 describe("missing agent engine setup", () => {
-  it("renders the sidebar setup card and keeps the page popover responsive", () => {
+  it("renders an attached setup card for page and sidebar composers", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -1276,43 +1435,46 @@ describe("missing agent engine setup", () => {
       "src/client/chat/message-components.tsx",
       { encoding: "utf8" },
     );
+    const messageScroller = readFileSync(
+      "src/client/components/ui/message-scroller.tsx",
+      { encoding: "utf8" },
+    );
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
-    expect(source).toContain("useNearBottomAutoscroll<HTMLDivElement>");
+    expect(source).toContain("<AssistantChatScrollerControls");
     expect(source).toContain(
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
-    expect(source).toContain('aria-label="Scroll to bottom"');
-    expect(source).toContain("autoScroll={false}");
+    expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
+    expect(source).toContain("<MessageScrollerButton />");
+    expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
+    expect(source).not.toContain("autoScroll={false}");
+    expect(source).not.toContain("useNearBottomAutoscroll<HTMLDivElement>");
     expect(source).not.toContain("scrollAnchor");
-    expect(source).toContain("composerContextItems.length > 0");
+    expect(source).toContain("visibleComposerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
-    expect(source).toContain("missingKeySetupOpen");
-    expect(source).toContain("requestMissingKeySetup");
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
-    expect(source).toContain("willQueue={engineSetupRequired || isRunning}");
+    expect(source).toMatch(
+      /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
+    );
     expect(source).toContain("<BuilderSetupCard");
-    expect(source).toContain("showInlineMissingKeySetup");
-    expect(source).toContain("Connect AI above to start chatting...");
-    expect(source).toContain('className="agent-composer-missing-key-trigger"');
-    expect(source).toContain('className="agent-composer-missing-key-cta"');
-    expect(source).toContain("<BuilderSetupContent");
+    expect(source).toContain('"agentChat.setup.connectPlaceholder"');
     expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
-    expect(source).toContain("collisionPadding={12}");
-    expect(source).not.toContain("missingKeyBouncePulse");
+    expect(source).toContain("missingKeyBouncePulse");
+    expect(source).toContain(
+      "attached\n                                bouncePulse={missingKeyBouncePulse}",
+    );
+    expect(source).toContain('"agent-composer-area--attached-above"');
+    expect(source).toContain("layout={missingApiKeySetupLayout}");
+    expect(source).toMatch(
+      /disabled=\{\s*isComposerDisabled \|\| showMissingKeySetup\s*\}/,
+    );
     expect(source).not.toContain("data-agent-composer-setup-position");
-    expect(css).toMatch(
-      /\.agent-composer-root--hero\s+\.agent-composer-missing-key-trigger\s*\{[^}]*min-height:\s*7\.5rem;[^}]*justify-content:\s*center;/s,
-    );
-    expect(css).toMatch(
-      /\.agent-composer-missing-key-trigger:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px hsl\(var\(--ring\)\);/s,
-    );
-    expect(css).toMatch(
-      /\.agent-composer-missing-key-cta\s*\{[^}]*background:\s*hsl\(var\(--foreground\)\);[^}]*color:\s*hsl\(var\(--background\)\);/s,
-    );
+    expect(css).toContain(".agent-builder-setup-card--attached");
+    expect(css).toContain(".agent-composer-area--attached-above");
   });
 
   it("keeps a no-provider prompt queued until setup is connected", () => {
@@ -1330,12 +1492,31 @@ describe("missing agent engine setup", () => {
     const submitSource = source.slice(submitStart, submitEnd);
 
     expect(dequeueSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain("requestMissingKeySetup();");
     expect(submitSource).toContain(
       'engineSetupRequired || (isRunning && intent === "queued")',
     );
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
+    );
+  });
+});
+
+describe("tool approval continuation", () => {
+  it("keeps the approval acknowledgement out of visible chat history", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("onApprove: (approvalKey: string) => {");
+    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const approvalSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(approvalSource).toContain(
+      '"Approved. Go ahead and run the requested action."',
+    );
+    expect(approvalSource).toContain(
+      "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
     );
   });
 });
@@ -1356,11 +1537,29 @@ describe("chat connection suggestion alignment", () => {
     expect(panelSource).toContain(
       ".agent-composer-area:not(.agent-composer-area--compact)",
     );
+    expect(panelSource).toContain("const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;");
     expect(panelSource).toContain("padding-left:0;padding-right:0;");
-    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),684px)]");
+    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
     expect(suggestionSource).toContain(
       "agent-mcp-connection-suggestion-error--composer",
     );
+  });
+
+  it("keeps response connection cards before collapsible assistant work", () => {
+    const messageSource = readFileSync(
+      "src/client/chat/message-components.tsx",
+      { encoding: "utf8" },
+    );
+    const cardIndex = messageSource.indexOf(
+      "<McpConnectionSuggestion\n            text={responseConnectionText}",
+    );
+    const workStackIndex = messageSource.indexOf(
+      "<ToolCallStackMotion>",
+      cardIndex,
+    );
+
+    expect(cardIndex).toBeGreaterThan(-1);
+    expect(workStackIndex).toBeGreaterThan(cardIndex);
   });
 });
 
@@ -1400,6 +1599,20 @@ describe("resolveAssistantChatRunningState", () => {
         hasActiveServerRun: true,
       }),
     ).toEqual({ isRunning: true, showRunningInUI: true });
+  });
+
+  it("hides the running presentation after a terminal run error", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: false,
+        hasActiveServerRun: true,
+        hasTerminalRunError: true,
+      }),
+    ).toEqual({ isRunning: true, showRunningInUI: false });
   });
 
   it("keeps auto-resume visible through the between-chunk idle gap", () => {
@@ -1618,6 +1831,28 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
+  it("localizes Core-owned activity labels while preserving the tool name", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Preparing generate-design...",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          working: "Arbeitet",
+          contactingModel: "Modell wird kontaktiert",
+          starting: (activity) => `${activity} wird gestartet...`,
+          preparing: (activity) => `${activity} wird vorbereitet...`,
+          writing: (activity) => `${activity} wird geschrieben...`,
+          stillGenerating: (activity) => `${activity} wird weiterhin generiert`,
+        },
+      }),
+    ).toBe("generate-design wird vorbereitet...");
+  });
+
   it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
@@ -1625,8 +1860,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: true,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Still working");
+    ).toBe("Arbeitet weiter");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {
@@ -1636,8 +1876,27 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Thinking");
+    ).toBe("Denkt nach");
+  });
+});
+
+describe("resolveAssistantChatComposerPlaceholder", () => {
+  it("provides a clear default for shared chat composers", () => {
+    expect(resolveAssistantChatComposerPlaceholder(undefined)).toBe(
+      "Write a message...",
+    );
+  });
+
+  it("preserves host-provided composer copy", () => {
+    expect(
+      resolveAssistantChatComposerPlaceholder("Ask about your data..."),
+    ).toBe("Ask about your data...");
   });
 });
 
@@ -1721,7 +1980,7 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
-  it("lets a resolved final tool carry the active state without duplicate Thinking", () => {
+  it("keeps active status visible after a completed tool call", () => {
     expect(
       shouldShowGlobalRunningStatus({
         showRunningInUI: true,
@@ -1737,6 +1996,28 @@ describe("shouldShowGlobalRunningStatus", () => {
               argsText: "{}",
               args: {},
               result: "done",
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("hides generic status while a pending tool card is visible", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "db-query",
+              argsText: "{}",
+              args: {},
             },
           ],
         },
@@ -1889,12 +2170,26 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("resetRunningActivity()");
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
+    expect(helperSource).toContain("markVisibleRunStopped()");
     expect(
       helperSource.indexOf("settleVisibleInterruptedTools()"),
     ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
+    expect(helperSource.indexOf("markVisibleRunStopped()")).toBeLessThan(
+      helperSource.indexOf("threadRuntime.cancelRun()"),
+    );
     expect(helperSource).toContain("getPendingTurn(threadId)");
     expect(helperSource).toContain("clearPendingTurnIfMatches(");
     expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
+  });
+
+  it("keeps queued follow-ups when the Stop response button is pressed", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /stopActiveRun\(\{\s*preserveQueuedMessages: true,\s*\}\)/,
+    );
   });
 
   it("wakes the dequeue loop after its startup guard expires", () => {
@@ -2162,8 +2457,12 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
-    expect(renderSource).toContain("adapterHandoffPending");
-    expect(renderSource).toContain("allowActivitySpinner={!reconnectFrozen}");
+    // The overlay is a second fold of the run; it may only render while no
+    // adapter runtime owns the turn. See the showReconnectOverlay tests below.
+    expect(renderSource).toContain("showReconnectOverlay");
+    expect(renderSource.replace(/\s+/g, "")).toContain(
+      "allowActivitySpinner={!reconnectFrozen}",
+    );
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
@@ -2352,18 +2651,61 @@ describe("server thread snapshot caching", () => {
   });
 });
 
-describe("adapter reconnect handoff", () => {
-  it("defers wiping reconnect content until the adapter message catches up", () => {
-    const source = readFileSync("src/client/AssistantChat.tsx", {
-      encoding: "utf8",
-    });
-    expect(source).toContain("adapterHandoffPending");
-    expect(source).toContain("setAdapterHandoffPending(true)");
-    expect(source).toContain("suppressToolRepeats: adapterHandoffPending");
-    expect(source).toContain("Do not memoize this on `messages` identity");
-    expect(source).toMatch(
-      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
-    );
+describe("shouldShowReconnectOverlay", () => {
+  // The reconnect overlay is a second, independent fold of the same run. Every
+  // duplicate-render report traces back to it being on screen at the same time
+  // as the adapter's own message. Ownership decides visibility here, so these
+  // assert behavior rather than grepping the render source.
+  it("hides the overlay whenever a runtime owns the turn", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+    // Both readers claiming the turn at once is the exact duplicate-render case.
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the overlay only when no runtime is streaming", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays hidden when there is nothing to reconnect", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -2449,6 +2791,16 @@ describe("assistantUiRecoverableRenderErrorKind", () => {
     ).toBe("assistant-ui-react-fiber-unmount");
   });
 
+  it("matches React maximum update depth crashes from assistant-ui streaming", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error(
+          "Minified React error #185; visit https://react.dev/errors/185",
+        ),
+      ),
+    ).toBe("assistant-ui-react-update-depth");
+  });
+
   it("matches duplicate resource-key crashes from assistant-ui composer state", () => {
     expect(
       assistantUiRecoverableRenderErrorKind(
@@ -2520,6 +2872,49 @@ describe("AssistantMessageListErrorBoundary", () => {
 
     expect(container.textContent).toContain("Recovered messages");
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
+  });
+
+  it("keeps the message list visibly updating during recovery", async () => {
+    let shouldFail = false;
+    function FlakyMessageList() {
+      if (shouldFail) {
+        throw new Error("tapClientLookup: Index 79 out of bounds (length: 78)");
+      }
+      return React.createElement("div", null, "Current messages");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
+      );
+    });
+
+    shouldFail = true;
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    shouldFail = false;
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Current messages");
   });
 
   it("preserves message disclosure state when the message reset key changes", () => {
@@ -2646,6 +3041,25 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
 
     expect(container.textContent).toContain("Recovered composer");
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a visible recovery state when no fallback is provided", () => {
+    function BrokenComposer() {
+      throw new Error("tapClientLookup: Index 4 out of bounds (length: 3)");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "AssistantChat" },
+          React.createElement(BrokenComposer),
+        ),
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.textContent).toContain("Updating chat...");
   });
 
   it("remounts any assistant-ui subtree after a React fiber unmount error", async () => {

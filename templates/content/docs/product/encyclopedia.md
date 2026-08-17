@@ -16,8 +16,8 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 | Verified         |     3 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    16 |
-| Approved Shape   |    91 |
+| In Progress      |    18 |
+| Approved Shape   |    89 |
 | Exploring        |     8 |
 | Deferred         |     0 |
 | Superseded       |     5 |
@@ -358,8 +358,8 @@ graph LR
 
 | Capability                                                                       | State          | User promise                                                                                                              |
 | -------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [Blocks](capabilities/content.object.block.md)                                   | Approved Shape | A Block is a stable addressable unit of rich content inside its owning field.                                             |
-| [Blocks fields](capabilities/content.object.blocks-field.md)                     | Approved Shape | Every editable rich-content body uses one Blocks-field grammar and keeps its own stable revision boundary.                |
+| [Blocks](capabilities/content.object.block.md)                                   | In Progress    | A Block is a stable addressable unit of rich content inside its owning field.                                             |
+| [Blocks fields](capabilities/content.object.blocks-field.md)                     | In Progress    | Every editable rich-content body uses one Blocks-field grammar and keeps its own stable revision boundary.                |
 | [Databases](capabilities/content.object.database.md)                             | Verified       | Database as a Page-backed typed collection                                                                                |
 | [Multiple Database memberships](capabilities/content.object.multi-membership.md) | In Progress    | One Page can belong to several Databases without copies or a hidden primary home.                                         |
 | [Pages](capabilities/content.object.page.md)                                     | Verified       | A durable Page keeps its identity, body, properties, access, discussion, and portable representation wherever it appears. |

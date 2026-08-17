@@ -40,6 +40,7 @@ const messages = {
     unpinChat: "チャットのピン留めを解除",
   },
   navigation: {
+    agents: "エージェント",
     chat: "チャット",
     collapseSidebar: "サイドバーを折りたたむ",
     database: "データベース",
@@ -51,7 +52,7 @@ const messages = {
     openNavigation: "ナビゲーションを開く",
     settings: "設定",
     team: "チーム",
-    triage: "Factory",
+    triage: "ファクトリー",
   },
   triage: {
     title: "Factory",
@@ -128,6 +129,11 @@ const messages = {
     newFactoryDescription:
       "このファクトリーが出荷可能な成果に変える作業を説明します。",
     selectFactory: "ファクトリーを選択",
+    backToFactories: "ファクトリー一覧に戻る",
+    workspaceIntegrations: "ワークスペース連携",
+    sourceRouting: "ソースルーティング",
+    sourceRoutingProviders: "Slack、GitHub、Sentry",
+    agentAccess: "エージェントアクセス",
     askAI: "ファクトリーAIに質問",
     factoryViews: "ファクトリーの表示",
     observeFirst: "まず観察 · シャドーモード",
@@ -136,6 +142,8 @@ const messages = {
     mapHint:
       "確認するにはステップまたはルートをクリックします。コメントするにはステップをダブルクリックします。",
     unsavedChanges: "未保存の表示変更",
+    factoryListDescription:
+      "ファクトリーの目的、フロー、自動化、最近のアクティビティを確認するファクトリーを選択します。新しいレビュー経路を定義する場合は、最小限の空白グラフから始めます。",
     inboxTitle: "観察インボックス",
     inboxDescription: "自律的な作業の前にファクトリーへ入る証拠。",
     selectObservation: "経路とフィードバックを確認する観察を選択します。",
@@ -143,6 +151,7 @@ const messages = {
     rulesDescription:
       "意図的に昇格されるまで、すべてのルールはシャドーモードです。",
     editRule: "トリアージルールを編集",
+    editFlow: "フローを編集",
     settingsDescription:
       "Slack、GitHub、Sentry を接続します。自動化は管理された作業を開始し、下にプロンプトと実行履歴を表示できます。",
     blueprintTitle: "ブループリントモード。",
@@ -153,6 +162,47 @@ const messages = {
     metricRuns: "実行",
     rulesTab: "ルール",
     automationsTab: "自動化",
+    agentsTab: "エージェント",
+    agenticAppsTitle: "エージェントアプリ",
+    agenticAppsEmpty:
+      "このワークスペースにはまだエージェントアプリがありません。",
+    createApp: "アプリを作成",
+    editAppDetails: "アプリの詳細を編集",
+    editAppDetailsDescription:
+      "このワークスペースアプリの共有表示名と説明を更新します。",
+    appName: "名前",
+    appDescription: "説明",
+    openApp: "アプリを開く",
+    saveChanges: "変更を保存",
+    appDetailsUpdated: "アプリの詳細を更新しました",
+    savingChanges: "保存中...",
+    agentsTitle: "エージェント",
+    auditTab: "監査",
+    auditTitle: "実行監査",
+    auditDescription:
+      "エージェントが確認した情報源、判断、実行したアクションを正確に確認できます。",
+    auditRefresh: "更新",
+    auditLoadError: "実行監査を読み込めませんでした。",
+    auditEmpty: "自動化の実行履歴はまだありません。",
+    auditRuns: "最近の実行",
+    auditEventsShort: "イベント",
+    auditActionsShort: "アクション",
+    auditRunDetail: "この実行で記録された証拠と判断。",
+    auditStarted: "開始",
+    auditFinished: "終了",
+    auditItems: "項目",
+    auditRunError: "実行エラー",
+    auditEvidence: "証拠と判断",
+    auditNoEvents:
+      "項目単位の監査イベントはありません。完全な記録はエージェントのスレッドを開いてください。",
+    auditOpenThread: "スレッドを開く",
+    auditOpenItem: "項目を開く",
+    auditOpenSource: "ソースを開く",
+    auditInternal: "Factory",
+    auditClearBug: "明確なバグ",
+    auditUxImpact: "UXへの影響",
+    auditOwnerArea: "担当領域",
+    auditGuardsLabel: "ガード",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",
@@ -207,6 +257,14 @@ const messages = {
       "Factory の診断を読み込めませんでした。アクセス権、デプロイ、データベース移行を確認して再試行してください。",
     automationEmailReadinessHint:
       "メールは組織の Dispatch 保管庫を使用します。準備ができていない場合は、そこでプロバイダーを設定してください。",
+    rulesTitle: "ルール",
+    shadowLabel: "シャドウ",
+    rulesGuidance:
+      "分類にはプロンプトを使い、安全性は構造化ガードで保ってください。",
+    ruleNameLabel: "名前",
+    defaultFactoryLabel: "既定の Factory",
+    savedFactoryLabel: "保存済みの Factory",
+    saveRule: "ルールを保存",
   },
   factoryCanvas: {
     dragHint: "ノードをドラッグしてファクトリーの形を整えます",
@@ -228,6 +286,16 @@ const messages = {
     stepName: "ステップ名",
     stepDescription: "ここで行われること",
     agentOwner: "エージェントまたは担当者",
+    noTarget: "リンクされた対象なし",
+    customTarget: "カスタム対象",
+    reusableAgents: "再利用可能なエージェント",
+    agenticApps: "エージェントアプリ",
+    agentTargetHint:
+      "この Factory ステップは選択した再利用可能なエージェントを使用します。",
+    appTargetHint:
+      "この Factory ステップは選択したエージェントアプリに委譲します。",
+    customTargetHint:
+      "ステップの準備ができたら共有エージェントまたはアプリをリンクします。",
     optional: "任意",
     connectStep: "このステップを接続",
     connectDescription:

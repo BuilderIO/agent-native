@@ -302,6 +302,38 @@ npx @agent-native/core@latest deploy --preset netlify
 
 工作区构建在 `dist/_workspace_static/` 下写入静态资产，并将每个应用程序路由到自己的 Netlify 函数，而无需强制资产重定向，因此像 `/mail/assets/...` 这样的文件会在服务器函数处理应用程序路由之前静态提供服务。
 
+### Keep-warm 与缩容到零的数据库 {#netlify-keep-warm}
+
+启用后，Netlify 构建会生成一个计划函数，**每分钟**请求一次 `/_agent-native/health`。这会让服务器函数及其数据库保持温热，使空闲一段时间后的下一位访问者不必承担冷启动（在 Neon 上为 1–5 秒）。
+
+Keep-warm **默认关闭**，因为每分钟唤醒会阻止按量计费、可缩容到零的数据库自动挂起。只有当下一位访问者的低延迟值得数据库持续运行时，才设置 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`。
+
+| 变量                                        | 效果                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 启用服务器和数据库的计划预热。默认未设置。                       |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 兼容性禁用开关；设置后优先于启用标志。                           |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 启用后覆盖节奏；默认值为 `* * * * *`，无法解析的值会使构建失败。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 启用 keep-warm 后仅取消后台函数预热，仍保持服务器温热。          |
+
+如果你使用免费或受配额限制的数据库套餐，请不要设置 `AGENT_NATIVE_ENABLE_KEEP_WARM`。如果启用它，请选择更慢的节奏或设置 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`。
+
+### 按需 schema DDL {#skip-ensure-tables}
+
+每个 store 在首次接触数据库时调用 `ensureTable()`，它会探测 `information_schema` / `pg_indexes`，并只对确实缺失的对象执行 `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX`。在长期运行的 Node 服务器上，这个开销每次启动只付一次，几乎不可见。在 serverless 上，「首次接触」发生在**每一次冷启动**，涉及约 57 个 store —— 因此一个冷请求可能在做任何实际工作之前先付出数百次串行往返。
+
+有两点可以减少它：
+
+- 这些探测由**每个数据库一次批量 introspection**（两条查询）来回答，而不是每张表、每个列、每个索引各一条查询。这是自动的，无需配置。
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` 会完全跳过探测与 DDL 流程，这是可获得的最大冷启动延迟收益。
+
+当你的数据库 schema 已经迁移完毕、并且不希望应用启动去创建或修改表时，设置 `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` —— 这是具备真实迁移步骤的生产部署的常规情况。
+
+<Callout tone="risk">
+
+**这个开关不会、也无法「失败即关闭」。** 如果 schema 确实缺失，第一条真实查询会大声失败，而不是被就地修复 —— 这正是目的，但也意味着迁移由你负责。不要在依赖应用启动来创建表的部署上设置它。
+
+</Callout>
+
 ## Cloudflare 页面 {#cloudflare-pages}
 
 ```ts
@@ -374,7 +406,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 - **关闭缓存并不会让 SSR 变得个性化。** Cookie 在渲染前仍会被剥离，SSR 加载器仍然只会看到匿名分支。用户专属数据依然必须在客户端解析。此变量只控制缓存*时长*。
 - **它是部署范围的设置，而非按路由，这是有意为之的设计。** 按路由或按请求的缓存覆盖，会导致一个访问者的负载最终出现在另一个访问者共享的 CDN 条目中，因此框架不提供这种选项——`guard:ssr-cache-shell` 会强制执行这一点。
-- **对于需要变更后立即新鲜的数据，优先使用 actions 而不是禁用缓存。** 应用数据属于 [actions](/docs/actions)，通过 `useActionQuery` / `useActionMutation` 从客户端读取，并通过 `useDbSync()` 轮询保持实时；这些都不会经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳，只有在您确实需要更新鲜的加载器数据时，才使用此变量。
+- **对于需要变更后立即新鲜的数据，优先使用 actions 而不是禁用缓存。** 应用数据属于 [actions](/docs/actions-overview)，通过 `useActionQuery` / `useActionMutation` 从客户端读取，并通过 `useDbSync()` 轮询保持实时；这些都不会经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳，只有在您确实需要更新鲜的加载器数据时，才使用此变量。
 
 ## 环境变量 {#environment-variables}
 
@@ -387,19 +419,25 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                                                                                                                                          |
 | `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                                                                                                                                        |
 | `AGENT_NATIVE_SSR_CACHE`                    | 部署范围的 SSR 外壳缓存策略：未设置/`on` 保持默认硬缓存，`off` 发送 `no-store`，或使用一个时长（例如 `30s` / `5m`）设置更短的新鲜度。参见 [SSR Caching](#ssr-caching)。                                                                                                               |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 启用 Netlify keep-warm 计划函数；默认未设置。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                   |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm 计划函数的兼容性禁用开关。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                    |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 启用后覆盖 keep-warm 节奏（默认 `* * * * *`）。无法解析的值会使构建失败。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                       |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 启用 keep-warm 后仅取消后台函数预热。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                           |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 关闭进程内的兜底清扫定时器（自动化重派发、agent-teams 对账、沙箱执行恢复）。在 serverless 上它们按每个温实例运行，因此查询速率随实例数增长。**仅**在已有持久调度器驱动同样的恢复时才设置，否则排队的工作不会被重试。                                                                  |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 完全跳过按需 schema DDL。移除每次冷启动在做任何工作前都要支付的 schema 探测往返。要求 schema 已经迁移完毕 —— 参见 [按需 schema DDL](#skip-ensure-tables)。                                                                                                                            |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用于预览安全的 Builder 授权中继的专用 32+ 字符共享 HMAC 密钥。只有当授权结果必须写入隔离的预览数据库时，才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                              |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表（例如 `https://0123456789abcdef01234567--content.netlify.app`）。仅在企业回调部署中设置。Netlify 来源必须使用包含 24 位十六进制 ID、不可变且特定于部署的永久链接；可变的 `deploy-preview-*` 别名、通配符和域名后缀均会被拒绝。 |
 
 数据库连接变量（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用程序 `<APP_NAME>_DATABASE_URL`）位于 [Database](/docs/database#production) 中。
 
-### 生产中需要 {#env-required-prod}
+### 生产敏感配置 {#env-required-prod}
 
-这些必须在将应用程序升级到真正的产品部署之前设置。缺失值要么失败关闭（框架拒绝启动/拒绝处理请求），要么回退到较弱的行为并发出响亮的警告。
+这些设置涵盖生产敏感行为。使用框架身份验证的独立应用需要稳定的 `BETTER_AUTH_SECRET` 和持久数据库；未设置公开 auth URL 时，框架会根据请求、模板或托管平台上下文推断。Workspace 和 A2A 设置取决于使用的功能。缺失值要么安全失败，要么在发出明确警告后回退到较弱行为。
 
 | 变量                                        | 描述                                                                                                                                                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                        | 32+ 字符的随机字符串。签署会话 cookie，并作为 `OAUTH_STATE_SECRET` 和应用本地加密值的后备。它也是读取现有共享保管库密文的旧版候选项。生产环境中必需。                                     |
-| `BETTER_AUTH_URL`                           | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
+| `BETTER_AUTH_URL`                           | 此应用程序公共来源的可选覆盖值（例如 `https://mail.example.com`）。未设置时，框架会根据请求、模板和托管平台上下文推断。                                                                   |
 | `ANTHROPIC_API_KEY`                         | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
 | `OAUTH_STATE_SECRET`                        | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
 | `A2A_SECRET`                                | 应用间 A2A JSON-RPC 的共享 HMAC。未设置专用工作区密钥时，共享保管库使用由此值按用途派生的密钥，因此轮换它也会轮换保管库密钥。                                                             |
@@ -442,9 +480,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,15 +494,36 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — 默认。仅注册 `db-schema` 和 `db-query`；
+- `database: "read"` — 默认。仅注册 `db-schema` 和 `db-query`；
   代理使用 SQL 检查数据，但必须使用类型化应用程序 actions 进行写入。
-- `databaseTools: "write"` 或 `true` — 还会注册 `db-exec` 和 `db-patch`
+- `database: "write"` 或 `true` — 还会注册 `db-exec` 和 `db-patch`
   用于有意的原始 SQL 维护。写入范围限定为当前用户/组织，并阻止架构更改。
-- `databaseTools: "off"` 或 `false` — 从
+- `database: "off"` 或 `false` — 从
   代理表面，因此应用程序的 actions 是唯一的数据访问路径。
-- `extensionTools: true` — 为应用启用框架扩展管理 actions 和提示指导
+- `extensions: true` — 为应用启用框架扩展管理 actions 和提示指导
   （`create-extension`、`update-extension` 等）。在两个 plugins 上都设置
   此选项，也可允许经过身份验证的 REST 创建。扩展默认关闭。
+
+其余分组都是布尔值，默认全部开启：`sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`。
+在语音优先或单一用途的应用中，可用 `frameworkTools: "minimal"` 一次关闭全部；
+若只想保留一个，可写成 `frameworkTools: { preset: "minimal", resources: true }`——
+显式的分组键始终优先于预设。
+
+关闭某个分组只会将它从**智能体**侧的表面移除：交互式聊天、MCP、A2A 和后台运行。
+对应的 HTTP action 路由仍然挂载，因为 UI 是通过客户端 hooks 调用它们的——关闭
+`sharing` 不应让仍显示在界面上的分享对话框返回 404。请先权衡这项对等性代价：
+框架的约定是 UI 能做的事智能体也能做，所以在分享按钮可见的情况下设置
+`sharing: false` 是一次有意的破坏，只有当应用根本没有该表面时才合理。
+
+与该选项无关，框架工具默认不再加载进第一次模型请求。它们仍留在可搜索的注册表中，
+通过 `tool-search` 加载；若应用在 `initialToolNames` 中指定，则会立即加载。
+
+<Callout tone="warning">
+  顶层的 `databaseTools` 与 `extensionTools` 选项已废弃，请改用
+  `frameworkTools.database` 和 `frameworkTools.extensions`。它们仍会被识别，但当
+  顶层标志与 `frameworkTools` 中的对应值冲突时，plugin
+  会在启动时抛出错误，而不是 以无人选择的工具表面启动。
+</Callout>
 
 ## 生产代码执行 {#production-code-execution}
 

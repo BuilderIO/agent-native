@@ -15,16 +15,10 @@ import {
   IconUpload,
   IconAlertTriangle,
   IconLogout,
-  IconInfoCircle,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -73,6 +67,11 @@ function getSetupSteps(t: CalendarT) {
   ];
 }
 
+const STATUS_POLL_INTERVAL_MS = 2000;
+// Bounds each status poll so a hung fetch can't leave the in-flight guard
+// permanently stuck and stall the interval forever.
+const STATUS_POLL_ABORT_MS = Math.max(10_000, STATUS_POLL_INTERVAL_MS * 4);
+
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
@@ -99,6 +98,8 @@ export function GoogleConnectBanner({
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const authPollInFlightRef = useRef(false);
+  const addAccountPollInFlightRef = useRef(false);
   const {
     isDesktopGoogleAuth,
     isGoogleDesktopAuthPending,
@@ -165,21 +166,38 @@ export function GoogleConnectBanner({
 
     if (authPollRef.current) clearInterval(authPollRef.current);
     authPollRef.current = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.connected) {
-          if (authPollRef.current) {
-            clearInterval(authPollRef.current);
-            authPollRef.current = null;
+      if (document.hidden || authPollInFlightRef.current) return;
+      authPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        STATUS_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        )
+          // coercion-ok: a failed probe and a not-yet-connected response both
+          // mean "stay on the connect banner"; this loop only ever acts on an
+          // observed success, and credential errors surface via authUrl.error.
+          .catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.connected) {
+            if (authPollRef.current) {
+              clearInterval(authPollRef.current);
+              authPollRef.current = null;
+            }
+            setDismissed(true);
+            window.location.reload();
           }
-          setDismissed(true);
-          window.location.reload();
         }
+      } finally {
+        clearTimeout(abortTimer);
+        authPollInFlightRef.current = false;
       }
-    }, 2000);
+    }, STATUS_POLL_INTERVAL_MS);
   }, [wantAuthUrl, authUrl.data, isBuilderFrame]);
 
   // When auth URL fails with missing credentials, show wizard
@@ -242,20 +260,37 @@ export function GoogleConnectBanner({
     const prevCount = accounts.length;
     if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     addAccountPollRef.current = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > prevCount) {
-          if (addAccountPollRef.current) {
-            clearInterval(addAccountPollRef.current);
-            addAccountPollRef.current = null;
+      if (document.hidden || addAccountPollInFlightRef.current) return;
+      addAccountPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        STATUS_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        )
+          // coercion-ok: a failed probe and a not-yet-connected response both
+          // mean "stay on the connect banner"; this loop only ever acts on an
+          // observed success, and credential errors surface via authUrl.error.
+          .catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > prevCount) {
+            if (addAccountPollRef.current) {
+              clearInterval(addAccountPollRef.current);
+              addAccountPollRef.current = null;
+            }
+            window.location.reload();
           }
-          window.location.reload();
         }
+      } finally {
+        clearTimeout(abortTimer);
+        addAccountPollInFlightRef.current = false;
       }
-    }, 2000);
+    }, STATUS_POLL_INTERVAL_MS);
     // accounts.length is captured into prevCount above; including it in deps
     // would tear down and recreate the interval whenever the count changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -368,8 +403,6 @@ export function GoogleConnectBanner({
                 ? t("googleConnect.connectGoogle")
                 : t("googleConnect.connectGoogle")}
         </Button>
-
-        <GoogleVerificationNotice className="mt-3" />
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -485,7 +518,6 @@ export function GoogleConnectBanner({
                 ? t("googleConnect.readyToConnect")
                 : t("googleConnect.connectToSync")}
             </p>
-            <GoogleVerificationNotice className="mt-0.5" />
           </div>
         </div>
 
@@ -572,50 +604,6 @@ export function GoogleConnectBanner({
         </div>
       )}
     </div>
-  );
-}
-
-// Heads-up popover: Google shows a "hasn't verified this app" warning during
-// the OAuth consent flow because the connection runs through the user's own
-// Google Cloud project (External + Testing), not a Google-reviewed public app.
-// This explains that the warning is expected and how to safely continue.
-function GoogleVerificationNotice({ className = "" }: { className?: string }) {
-  const t = useT();
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={`inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground ${className}`}
-        >
-          <IconInfoCircle className="h-3 w-3" />
-          {t("googleConnect.googleMayShowWarning")}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="center" className="w-72 text-start">
-        <div className="flex items-start gap-2.5">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
-            <IconAlertTriangle className="h-3.5 w-3.5" />
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-[13px] font-medium text-foreground">
-              {t("googleConnect.googleNotVerifiedTitle")}
-            </p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {t("googleConnect.googleWarningBeforeAdvanced")}{" "}
-              <span className="font-medium text-foreground">
-                {t("googleConnect.googleWarningAdvanced")}
-              </span>
-              {t("googleConnect.googleWarningBetweenActions")}{" "}
-              <span className="font-medium text-foreground">
-                {t("googleConnect.googleWarningUnsafe")}
-              </span>{" "}
-              {t("googleConnect.googleWarningAfterUnsafe")}
-            </p>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 

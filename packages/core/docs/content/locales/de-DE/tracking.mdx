@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ Mehrere Anbieter können gleichzeitig aktiv sein. Jede Veranstaltung geht an all
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 Lösen Sie ein Analyseereignis aus. Fans an alle registrierten Anbieter.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` ist entweder das `ctx` einer Action, direkt durchgereicht, oder ein Meta-Objekt `{ userId, anonymousId, sessionId }` für Aufrufer ohne `ctx`.
+
+Die Browser-Session muss der Aufrufer nicht selbst mitgeben: Sie stammt aus dem umgebenden Request-Kontext (`RequestContext.browserSessionId`, gesetzt aus dem Header `X-Agent-Native-Session-Id`, den Action-Client, Chat und das Browser-`track()` senden). Dieselbe Sitzung wird dadurch korreliert, egal ob die Oberfläche oder der Agent das Ereignis ausgelöst hat. Jeder Anbieter bildet sie auf sein eigenes Session-Feld ab: `$session_id` bei PostHog, wodurch das Ereignis mit dem Session Replay verknüpft wird; eine `session_id`-Eigenschaft bei Mixpanel und Amplitude; ein `sessionId` auf oberster Ebene bei Webhooks und Agent Native Analytics. Für Aufrufer ohne Browser (Cron, CLI, MCP, A2A) fehlt sie, und ein `sessionId` im Meta-Objekt überschreibt sie.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ Identifizieren Sie einen Benutzer anhand von Merkmalen. Weiterleitung an Anbiete
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Benötigen Sie ein benutzerdefiniertes Backend, die Anbieterregistrierung API oder die Batch-/Singleton-Interna? Siehe [Advanced: custom providers & internals](#advanced) am Ende.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx direkt durchreichen: Das Ereignis wird ctx.userEmail zugeordnet und
+    // der Browser-Session zugeordnet, aus der der Aufruf kam.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -351,6 +357,6 @@ Das Framework verfolgt auch `builder connect clicked` von Connect Builder-CTAs u
 
 ## Was kommt als nächstes?
 
-- [**Actions**](/docs/actions) – woher die meisten Tracking-Aufrufe kommen
-- [**Server Plugins**](/docs/server#server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
+- [**Actions**](/docs/actions-overview) – woher die meisten Tracking-Aufrufe kommen
+- [**Server Plugins**](/docs/server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
 - [**Sicherheit – Geheimnisverwaltung**](/docs/security#secrets) – API-Schlüssel für Tracking-Anbieter verwalten

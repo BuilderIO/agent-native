@@ -1,5 +1,162 @@
 # @agent-native/toolkit
 
+## 0.16.4
+
+### Patch Changes
+
+- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
+
+## 0.16.3
+
+### Patch Changes
+
+- 81fb79e: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.2
+
+### Patch Changes
+
+- 43fa797: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.1
+
+### Patch Changes
+
+- fb18771: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.0
+
+### Minor Changes
+
+- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
+
+### Patch Changes
+
+- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
+- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.1
+
+### Patch Changes
+
+- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
+- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.0
+
+### Minor Changes
+
+- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
+
+## 0.14.3
+
+### Patch Changes
+
+- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
+
+## 0.14.2
+
+### Patch Changes
+
+- 2db503b: Fix toolkit canvas interaction and collaboration UI behavior.
+
+## 0.14.1
+
+### Patch Changes
+
+- b3b4580: Render chat-history row action menus in a collision-aware portal so rail menus are not clipped by the scroll container.
+- b3b4580: Overlay chat row menus on timestamps and unread indicators without reserving a separate trailing column.
+
+## 0.14.0
+
+### Minor Changes
+
+- aa17e22: Support bounded XLS/XLSX workbook previews as source context for `/make-into-app` and allow Excel workbooks in the shared composer attachment flow.
+
+## 0.13.10
+
+### Patch Changes
+
+- 7c5888c: Make chat history rail overflow actions replace timestamps without layout shifts.
+
+## 0.13.9
+
+### Patch Changes
+
+- dab8787: Fix the chat sidebar repainting glitches that made app content flash, shift, and
+  render as flat empty rectangles while the agent was generating.
+
+  Three properties on the always-mounted sidebar promoted or re-promoted a
+  compositing layer on every app that renders `AgentSidebar`:
+  - `will-change: transform` sat permanently on the sidebar panel (desktop, mobile
+    and drawer variants). It wraps the whole chat transcript and is never
+    unmounted, so the hint was never retired. The 260ms transform transition is
+    promoted by the browser on its own for exactly as long as it runs.
+  - `view-transition-name` was stamped on the panel unconditionally, including in
+    apps that never start a chat view transition. A permanent name makes the panel
+    a stacking context and the containing block for every fixed and absolutely
+    positioned descendant, and enlists it as a captured group in unrelated route
+    view transitions. It is now applied only while the wide-drawer morph runs.
+  - The chat scroller's top-fade `mask-image` was added and removed with the
+    `hasContentAbove` class, which flips as replies stream into an auto-scrolled
+    transcript. The mask is now always declared and only its length changes.
+
+  The same two defects existed independently on the workspace shell sidebar in
+  `@agent-native/frame`, which hosts the agent panel, so the promotions nested.
+  Fixed there too.
+
+  Regression tests cover all three invariants, and a new repo-wide
+  `pnpm guard:persistent-compositing` fails on any new compositing promotion on a
+  long-lived surface. Genuinely transient elements (a popover that unmounts on
+  close, a drag preview) opt out with a `compositing-ok: <reason>` comment.
+
+- dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
+- dab8787: Allow Slides to use a cleaner AI editing badge without a redundant status dot.
+
+## 0.13.8
+
+### Patch Changes
+
+- c41fd16: Use theme tokens for collaboration edit highlight labels.
+
+## 0.13.7
+
+### Patch Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+## 0.13.6
+
+### Patch Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+## 0.13.5
+
+### Patch Changes
+
+- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
+
+## 0.13.4
+
+### Patch Changes
+
+- da40677: Fix realtime voice tool calls failing with "Invalid or expired realtime voice capability" on serverless deploys. The capability minted by `/_agent-native/realtime-voice/session` lived in a per-process `Map`, so under `NITRO_PRESET=netlify` a tool call that landed on a different instance than the SDP request was rejected — the agent would report that it could not read the current selection and ask the user to reopen the editor. The capability is now an HMAC-signed token carrying the caller's identity, browser tab, and allowed tool names, so any instance can verify it.
+
+  Two behavior changes follow from that. The grant no longer slides on use — it cannot be extended server-side — so its TTL is now an absolute 75 minutes, covering the provider's maximum session length. And when a `tool-search` widens the manifest, the tool response carries a re-issued capability that the client adopts; without it, calls to the newly discovered tools would 404.
+
+  Fix dictation stopping instantly with no error anywhere. `SpeechRecognition` always fires `end` after `error`, and `useVoiceDictation`'s `end` handler returned the composer to idle — erasing the message `onerror` had just set. Every speech failure was therefore invisible in both the UI and the console. `end` no longer overwrites a reported error.
+
+  Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
+
+  The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
+
+## 0.13.3
+
+### Patch Changes
+
+- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
+
 ## 0.13.2
 
 ### Patch Changes

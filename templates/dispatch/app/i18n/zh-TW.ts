@@ -1,3 +1,5 @@
+import { chatFirstPageTranslations } from "../chat-first-pages";
+
 const messages = {
   root: {
     commandActions: "操作",
@@ -29,6 +31,16 @@ const messages = {
     deliveryTitle: "投遞",
     deliveryDescription: "管理訊息目的地並查看出站投遞佇列。",
     openDelivery: "開啟投遞",
+    chatFirstTitle: "聊天優先工作區",
+    chatFirstDescription:
+      "讓聊天保持核心位置，並在旁邊的情境面板中開啟工作區應用程式。此偏好只會變更你在 Dispatch 的本機外觀。",
+    chatFirstAriaLabel: "使用聊天優先導覽",
+    chatFirstSessionWatchDescription:
+      "工作階段監看與後續訊息也能在此瀏覽器面板中運作。本機 CLI 訂閱偵測會保留在 Electron 應用程式；Dispatch 使用工作區／提供者憑證。",
+    chatFirstStorageUnavailable:
+      "此瀏覽器不允許本機偏好設定，因此無法儲存聊天優先模式。",
+    chatFirstStorageBlocked:
+      "此瀏覽器封鎖了本機偏好設定，因此未變更聊天優先模式。",
     agentTitle: "管理代理",
     agentDescription:
       "管理代理的模型、API 金鑰、語音和其他控制項。排程與事件觸發的工作請使用自動化頁面。",
@@ -102,6 +114,9 @@ const messages = {
     accountIdPlaceholder: "團隊或帳號 ID",
     scopesPlaceholder: "channels:history, search",
     accessMode: "存取模式",
+    dispatchOnlyAccess: "僅限 Dispatch",
+    dispatchOnlyAccessDescription:
+      "你可以管理 Dispatch 的連線。組織管理員可以與其他應用程式共用這些連線。",
     allAppsCanReuseConnection: "所有工作區應用都可以複用此連線",
     onlySelectedAppsCanReuseConnection: "只有選取的應用可以複用此連線",
     grantAllWorkspaceAppsAria: "將此連線授權給所有工作區應用",
@@ -181,6 +196,7 @@ const messages = {
     providersAvailable_one: "{{count}} 個提供者可用",
     providersAvailable_other: "{{count}} 個提供者可用",
     connectedAccounts: "已連線帳戶",
+    sharedConnectionsDescription: "你的應用程式可以使用的已儲存提供者連線。",
     noSharedConnectionsYet: "還沒有共用連線",
     savedConnectionCount_one: "{{count}} 個已儲存連線",
     savedConnectionCount_other: "{{count}} 個已儲存連線",
@@ -197,6 +213,36 @@ const messages = {
     onboardingTitle: "連線一次，授權給應用",
     onboardingDescription:
       "Dispatch 管理共用提供者帳戶。每個應用管理自己如何使用該帳戶。",
+    groups: "群組",
+    groupsDescription: "可一次更新的可重複使用標籤。",
+    newGroup: "新增群組",
+    createGroup: "建立群組",
+    createGroupCta: "建立群組",
+    editGroup: "編輯群組",
+    groupName: "群組名稱",
+    groupNamePlaceholder: "營收營運",
+    groupDescription: "與團隊分享連線時使用可重複使用的標籤。",
+    members: "成員",
+    groupMembersDescription: "之後可以新增或移除人員，而不會變更連線授權。",
+    selectedMembers: "已選取 {{count}} 人",
+    saveGroup: "儲存群組",
+    groupCreated: "已建立群組",
+    groupUpdated: "已更新群組",
+    groupSaveError: "無法儲存群組。",
+    searchPeoplePlaceholder: "搜尋人員",
+    searchPeopleLabel: "搜尋工作區成員",
+    loadingPeople: "正在載入人員...",
+    peopleLoadError: "無法載入工作區成員。",
+    loadMorePeople: "載入更多",
+    noPeopleFound: "找不到工作區成員。",
+    peopleWithAccess: "有權限的人員",
+    allWorkspaceMembers: "所有工作區成員",
+    allWorkspaceMembersDescription: "工作區中的任何人都可以使用此連線。",
+    allWorkspaceMembersAria: "允許所有工作區成員",
+    selectedPeople: "{{count}} 位人員",
+    choosePeopleOrGroups: "選取人員或群組",
+    people: "人員",
+    editGroupAria: "編輯 {{name}}",
   },
   messaging: {
     managed: {
@@ -248,6 +294,7 @@ const messages = {
   },
   dispatch: {
     nav: {
+      admin: "管理",
       automations: "自動化",
       approvals: "核准",
       delivery: "投遞",
@@ -258,6 +305,19 @@ const messages = {
       agent: "代理",
     },
     pages: {
+      adminDescription: "工作區控制與營運",
+      simpleAgentsDescription:
+        "幾分鐘內建立可重複使用的代理，或匯入你已在 Claude 或其他代理工具中建立的設定。",
+      adminNavigation: "管理導覽",
+      adminWelcome: "工作區控制中心",
+      adminChooseArea: "在同一處管理應用程式、連線、自動化和營運工具。",
+      adminChooseAreaHint: "從管理導覽中選擇區域。",
+      adminWorkspace: "工作區",
+      adminOperations: "營運",
+      adminAutomation: "自動化與投遞",
+      adminConnections: "連線",
+      adminAgentPlatform: "代理平台",
+      adminWorkspaceExtensions: "工作區擴充功能",
       dataLoadFailed: "無法載入資料",
       dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
       tryAgain: "再試一次",
@@ -344,6 +404,7 @@ const messages = {
       threadDebugRefreshThreads: "重新整理討論串",
       threadDebugNoThreads: "找不到討論串。",
       threadDebugSelectPrompt: "選取失敗執行或討論串以進行檢查。",
+      ...chatFirstPageTranslations["zh-TW"],
     },
   },
 };

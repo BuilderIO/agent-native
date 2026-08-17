@@ -14,7 +14,7 @@ import {
 } from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
 import { parseJobFrontmatter } from "../scheduler.js";
-import { authorizeJobMutation } from "../tools.js";
+import { authorizeJobMutation, jobBelongsToApp } from "../tools.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -59,6 +59,9 @@ export interface RecurringJobActionItem {
   lastError: string | null;
   nextRun: string | null;
   createdBy: string | null;
+  executionHostId: string | null;
+  executionEngine: string | null;
+  executionCwd: string | null;
   mcpTools: string[];
   canUpdate: boolean;
 }
@@ -96,8 +99,10 @@ export default defineAction({
       }
 
       const { meta, body } = parseJobFrontmatter(full.content);
+      if (!jobBelongsToApp(meta, ctx?.appId)) continue;
       const canUpdate =
-        scope === "personal" || !(await authorizeJobMutation(owner, meta));
+        scope === "personal" ||
+        (await authorizeJobMutation(owner, meta)) === null;
       jobs.push({
         id: full.id,
         name: jobName(full.path),
@@ -116,6 +121,9 @@ export default defineAction({
         lastError: meta.lastError ?? null,
         nextRun: nextRun(meta),
         createdBy: meta.createdBy ?? null,
+        executionHostId: meta.executionHostId ?? null,
+        executionEngine: meta.executionEngine ?? null,
+        executionCwd: meta.executionCwd ?? null,
         mcpTools: meta.mcpTools ?? [],
         canUpdate,
       });

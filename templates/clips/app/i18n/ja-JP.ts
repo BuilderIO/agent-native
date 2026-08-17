@@ -262,6 +262,44 @@ const messages = {
     passwordProtected: "このクリップはパスワードで保護されています",
     linkExpired: "リンクの有効期限が切れました",
     linkExpiredMessage: "作成者はこの共有リンクに有効期限を設定しました。",
+    privateClip: "非公開クリップ",
+    privateClipMessage:
+      "このクリップは非公開です。アクセスをリクエストすると、所有者に通知されます。",
+    privateClipSignedOutMessage:
+      "このクリップは非公開です。サインインするか、メールアドレスを入力してアクセスをリクエストしてください。",
+    requestAccess: "アクセスをリクエスト",
+    requestAccessDialogTitle: "アクセスをリクエスト",
+    requestAccessDialogDescription:
+      "このクリップを共有するときに、所有者があなたを確認する方法を選択してください。",
+    requestAccessSignIn: "サインインまたは登録",
+    requestAccessOr: "または",
+    requestAccessEmailLabel: "メールアドレス",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "アクセスが許可されたら、このメールアドレスでサインインしてクリップを表示します。",
+    requestAccessWithEmail: "メールでリクエスト",
+    requestAccessEmailRequired: "有効なメールアドレスを入力してください。",
+    requestingAccess: "アクセスをリクエスト中...",
+    accessRequested: "アクセスをリクエストしました",
+    accessRequestSent: "クリップの所有者に通知しました。",
+    accessRequestSentWithEmail:
+      "所有者に、このクリップを {{email}} と共有するよう依頼しました。",
+    accessRequestFailed:
+      "アクセスをリクエストできませんでした。もう一度お試しください。",
+    accessApprovalTitle: "アクセスを許可しました",
+    accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
+    accessApprovalMessage:
+      "{{email}} はこのクリップを閲覧できるようになりました。",
+    accessApprovalAlreadyMessage:
+      "{{email}} はすでにこのクリップにアクセスできます。",
+    accessApprovalErrorTitle: "アクセスを許可できませんでした",
+    accessApprovalInvalid: "このアクセスリクエストは無効か、期限切れです。",
+    accessApprovalSignInTitle: "アクセスを許可するにはサインインしてください",
+    accessApprovalSignInMessage:
+      "このリクエストを承認するには、クリップの所有者または管理者としてサインインしてください。",
+    accessApprovalOpenClip: "クリップを開く",
+    accessApprovalSignIn: "サインイン",
+    accessApprovalLoading: "アクセスを許可しています...",
     clipUnavailable: "クリップが使用できません",
     clipUnavailableMessage:
       "この録音は公開されていないか、リンクが無効です。自分のクリップの場合は、サインインしてアクセスを確認してください。",
@@ -515,8 +553,13 @@ const messages = {
     },
     roles: {
       viewer: "ビューア",
+      commenter: "コメント投稿者",
       editor: "エディタ",
       admin: "管理者",
+    },
+    recordingCommenter: {
+      label: "コメント投稿者",
+      description: "視聴、コメント、リアクションができます",
     },
   },
   quickAsk: {
@@ -687,12 +730,12 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "Builder.io は Clips アップロードの主要な保存先です。独自バケットが必要な場合は S3 も利用できます。",
     checkingBuilder: "Builder.io を確認中",
     builderConnected: "Builder.io 接続済み",
-    connectBuilder: "Builder.io を使用 (無料)",
+    connectBuilder: "Builder.io を使用",
     builderConnectedFor: "{{orgName}} で Builder.io を使用中です。",
     builderConnectedGeneric:
       "新しいクリップは接続済みの Builder.io プロバイダーを使用します。",
     builderIncludes:
-      "新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしを含みます。",
+      "Builder.io の無料プランには、新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしが含まれます。",
     s3Title: "S3 互換ストレージ",
     secondary: "セカンダリ",
     active: "有効",
@@ -719,8 +762,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     s3RegionInvalid:
       '有効なリージョン（例: us-east-1）または "auto" を入力してください',
     apiSetup: "AI 設定",
-    apiSetupDescription:
-      "Builder.io の無料クレジット、または自分の LLM キーで AI を接続します。",
+    apiSetupDescription: "Clips の AI 接続方法を選択します。",
     builderEasySetup: "Builder.io 無料クレジット",
     builderAiAvailable:
       "Clips では付属の AI クレジットとマネージド文字起こしを利用できます。",
@@ -728,8 +770,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "含まれる AI クレジット、オブジェクトストレージ、アップロード、管理された文字起こしには、まず Builder.io を使用します。",
     providerKeyTitle: "独自のプロバイダーキーを使用",
     providerKeyDescription:
-      "プロバイダー課金で使用する Anthropic、OpenAI、Gemini、Groq、OpenRouter のキーを追加します。",
+      "プロバイダー課金で使用する Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere、Ollama を選択します。",
     providerKeysSet: "{{count}} 件設定済み",
+    providerActionTitle: "AI プロバイダー",
+    providerActionDescription:
+      "Builder.io には無料プランがあります。カスタムキーも使用できます。",
+    providerManage: "管理",
+    providerCustomKeys: "カスタムキー",
     checkingProviderKeys: "プロバイダーキーを確認中…",
     keySet: "設定済み",
     keyCleared: "ストレージ認証情報をクリアしました",
@@ -973,6 +1020,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     includeTranscriptDescription:
       "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
     transcriptUnavailable: "文字起こしはまだ準備できていません。",
+    agentLinkDescription:
+      "この一時リンクを使うと、会議メモを公開せずにエージェントが読めます。2時間後に期限切れになります。",
     transcript: "文字起こし",
     copyTranscript: "文字起こしをコピー",
     transcriptCopied: "文字起こしをコピーしました",
@@ -998,8 +1047,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     pauseShortcut: "一時停止 (⌥⇧P)",
     stop: "録画を停止",
     elapsed: "経過時間",
-    cancel: "録画をキャンセル",
-    cancelShortcut: "キャンセル (⌥⇧C)",
+    cancel: "録画を破棄",
+    cancelShortcut: "破棄 (⌥⇧C)",
+    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmDescription:
+      "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
+    resume: "再開",
+    discardRecording: "録画を破棄",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",
@@ -1090,6 +1144,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     searchNextMatch: "次の一致",
     searchClose: "検索を閉じる",
   },
+  bulletLink: {
+    jumpToTranscript: "文字起こしの{{time}}にジャンプ",
+    noMatchingMoment: "一致する箇所が見つかりません",
+  },
   editorLayout: {
     trimmed: "トリミングしました",
     trimFailed: "トリミングに失敗しました",
@@ -1158,7 +1216,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    connectBuilder: "Builder.io を使用 (無料)",
+    connectBuilder: "Builder.io を使用",
     free: "無料",
     configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",
@@ -1555,10 +1613,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
-    googleMayShowWarning: "Google アクセスを確認",
-    googleNotVerifiedTitle: "接続前にアプリを確認してください",
-    googleWarningBeforeAdvanced:
-      "アプリ名と要求される Calendar へのアクセスが、信頼する Clips のデプロイと一致することを確認してください。Google に未確認アプリの警告が表示された場合や、見覚えのない識別情報が表示された場合は中止し、ワークスペース管理者に連絡してください。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (ローカライズ済み)",
     getDesktopApp: "Get desktop app (ローカライズ済み)",
@@ -1567,6 +1621,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarConnected: "Calendar connected (ローカライズ済み)",
     calendarDisconnected: "Calendar disconnected (ローカライズ済み)",
     calendarSettings: "Calendar settings (ローカライズ済み)",
+    calendarAccountsButton: "カレンダー",
+    connectedAccounts: "接続済みアカウント",
+    calendarConnectedLabel: "接続済み",
+    calendarNeedsReconnectLabel: "再接続が必要",
+    calendarDisconnectedLabel: "切断済み",
+    calendarStatusUnavailable: "ステータスを取得できません",
+    reconnectCalendar: "カレンダーを再接続",
+    addAnotherCalendarAccount: "別のアカウントを追加",
+    connectCalendar: "カレンダーを接続",
+    disconnectCalendarAccount: "アカウントを切断",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (ローカライズ済み)",
     disconnectGoogleCalendarTitle:
@@ -1574,7 +1638,15 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     title: "Meetings (ローカライズ済み)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
-    searchPlaceholder: "Search meetings... (ローカライズ済み)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (ローカライズ済み)",
+    agendaTab: "Agenda (ローカライズ済み)",
+    pastTab: "Past (ローカライズ済み)",
+    now: "Now (ローカライズ済み)",
+    noPastMeetings: "No past meetings yet (ローカライズ済み)",
+    loadOlder: "Load older (ローカライズ済み)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",
     clearSearch: "Clear search (ローカライズ済み)",
     noMeetingsYet: "No meetings yet (ローカライズ済み)",
     noMeetingsDescription:

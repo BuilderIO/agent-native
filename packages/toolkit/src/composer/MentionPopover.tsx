@@ -31,6 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
 export interface MentionPopoverRef {
@@ -101,6 +102,7 @@ function CommandIcon({ icon }: { icon?: string }) {
 }
 
 function HintWithLink({ hint }: { hint: string }) {
+  const t = useComposerRuntimeAdapters().translate!;
   // If hint contains a URL, split it and render the URL as a link
   const urlMatch = hint.match(/(https?:\/\/\S+)/);
   if (!urlMatch) return <>{hint}</>;
@@ -115,7 +117,7 @@ function HintWithLink({ hint }: { hint: string }) {
         rel="noopener noreferrer"
         className="underline hover:text-foreground"
       >
-        Learn more
+        {t("agentChat.mentions.learnMore", { defaultValue: "Learn more" })}
       </a>
     </>
   );
@@ -161,7 +163,7 @@ function FullDescriptionTooltip({
       <TooltipContent
         side="right"
         align="start"
-        className="max-w-[280px] whitespace-normal break-words"
+        className="z-[10001] max-w-[280px] whitespace-normal break-words"
       >
         {description}
       </TooltipContent>
@@ -190,6 +192,30 @@ export const MentionPopover = forwardRef<
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const t = useComposerRuntimeAdapters().translate!;
+
+  const sectionLabel = (section: string) => {
+    switch (section) {
+      case "Agents":
+        return t("agentChat.mentions.sections.agents", {
+          defaultValue: "Agents",
+        });
+      case "Connected Agents":
+        return t("agentChat.mentions.sections.connectedAgents", {
+          defaultValue: "Connected Agents",
+        });
+      case "Files":
+        return t("agentChat.mentions.sections.files", {
+          defaultValue: "Files",
+        });
+      case "Other":
+        return t("agentChat.mentions.sections.other", {
+          defaultValue: "Other",
+        });
+      default:
+        return section;
+    }
+  };
 
   const itemCount =
     type === "@" ? mentionItems.length : commands.length + skills.length;
@@ -302,14 +328,20 @@ export const MentionPopover = forwardRef<
           <div className="px-3 py-4 text-center text-xs text-muted-foreground">
             {type === "@" ? (
               query ? (
-                "No results found"
+                t("agentChat.mentions.noResults", {
+                  defaultValue: "No results found",
+                })
               ) : (
-                "Type to search..."
+                t("agentChat.mentions.typeToSearch", {
+                  defaultValue: "Type to search...",
+                })
               )
             ) : hint ? (
               <HintWithLink hint={hint} />
             ) : (
-              "No skills available"
+              t("agentChat.mentions.noSkills", {
+                defaultValue: "No skills available",
+              })
             )}
           </div>
         ) : (
@@ -321,7 +353,7 @@ export const MentionPopover = forwardRef<
                   return groupedMentions.map((group) => (
                     <div key={group.section}>
                       <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                        {group.section}
+                        {sectionLabel(group.section)}
                       </div>
                       {group.items.map((item) => {
                         const idx = flatIndex++;
@@ -359,7 +391,9 @@ export const MentionPopover = forwardRef<
                       {commands.length > 0 && (
                         <div>
                           <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                            Commands
+                            {t("agentChat.mentions.commands", {
+                              defaultValue: "Commands",
+                            })}
                           </div>
                           {commands.map((cmd) => {
                             const i = idx++;
@@ -395,7 +429,9 @@ export const MentionPopover = forwardRef<
                         <div>
                           {commands.length > 0 && (
                             <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                              Skills
+                              {t("agentChat.mentions.skills", {
+                                defaultValue: "Skills",
+                              })}
                             </div>
                           )}
                           <TooltipProvider delayDuration={200}>

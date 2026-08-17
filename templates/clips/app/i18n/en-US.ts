@@ -256,6 +256,41 @@ const messages = {
     passwordProtected: "This clip is password-protected",
     linkExpired: "Link expired",
     linkExpiredMessage: "The creator set an expiry on this share link.",
+    privateClip: "Private clip",
+    privateClipMessage:
+      "This clip is private. Request access and the owner will be notified.",
+    privateClipSignedOutMessage:
+      "This clip is private. Sign in or enter your email to request access.",
+    requestAccess: "Request access",
+    requestAccessDialogTitle: "Request access",
+    requestAccessDialogDescription:
+      "Sign in, or enter the email address the owner should share this clip with.",
+    requestAccessSignIn: "Sign in or sign up",
+    requestAccessOr: "or",
+    requestAccessEmailLabel: "Email address",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "After access is granted, sign in with this email to view the clip.",
+    requestAccessWithEmail: "Request with email",
+    requestAccessEmailRequired: "Enter a valid email address.",
+    requestingAccess: "Requesting access...",
+    accessRequested: "Access requested",
+    accessRequestSent: "The clip owner was notified.",
+    accessRequestSentWithEmail:
+      "The clip owner was asked to share this clip with {{email}}.",
+    accessRequestFailed: "Couldn't request access. Try again.",
+    accessApprovalTitle: "Access granted",
+    accessApprovalAlreadyTitle: "Access already granted",
+    accessApprovalMessage: "{{email}} can now view this clip.",
+    accessApprovalAlreadyMessage: "{{email}} already has access to this clip.",
+    accessApprovalErrorTitle: "Couldn't grant access",
+    accessApprovalInvalid: "This access request is invalid or expired.",
+    accessApprovalSignInTitle: "Sign in to allow access",
+    accessApprovalSignInMessage:
+      "Sign in as the clip owner or admin to approve this request.",
+    accessApprovalOpenClip: "Open clip",
+    accessApprovalSignIn: "Sign in",
+    accessApprovalLoading: "Granting access...",
     clipUnavailable: "Clip unavailable",
     clipUnavailableMessage:
       "This recording isn't public, or the link is invalid. If it's your clip, sign in to check access.",
@@ -505,8 +540,13 @@ const messages = {
     },
     roles: {
       viewer: "Viewer",
+      commenter: "Commenter",
       editor: "Editor",
       admin: "Admin",
+    },
+    recordingCommenter: {
+      label: "Commenter",
+      description: "Can view, comment, and react",
     },
   },
   quickAsk: {
@@ -642,13 +682,13 @@ const messages = {
     collapse: "Collapse",
     changelogMarkdown: `# Changelog
 
-All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd+K -> "What's new") or from Settings.
+All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd K -> "What's new") or from Settings.
 
 ## 2026-06-23
 
 ### Added
 
-- See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
+- See what's new right inside Clips. A changelog now lives in the command menu (Cmd K) and in Settings.`,
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -675,11 +715,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Builder.io is the primary storage path for Clips uploads. S3 is available when you need to bring your own bucket.",
     checkingBuilder: "Checking Builder.io",
     builderConnected: "Builder.io connected",
-    connectBuilder: "Use Builder.io (free)",
+    connectBuilder: "Use Builder.io",
     builderConnectedFor: "Using Builder.io for {{orgName}}.",
     builderConnectedGeneric: "New clips use the connected Builder.io provider.",
     builderIncludes:
-      "Includes object storage, uploads, and managed transcription for new clips.",
+      "Builder.io's free tier includes object storage, uploads, and managed transcription for new clips.",
     s3Title: "S3-compatible storage",
     secondary: "Secondary",
     active: "Active",
@@ -705,8 +745,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
     s3RegionInvalid: 'Must be a valid region (e.g. us-east-1) or "auto"',
     apiSetup: "AI setup",
-    apiSetupDescription:
-      "Connect AI with Builder.io free credits or your own LLM keys.",
+    apiSetupDescription: "Choose how Clips connects to AI.",
     builderEasySetup: "Builder.io free credits",
     builderAiAvailable:
       "Included AI credits and managed transcription are available for Clips.",
@@ -714,8 +753,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Use Builder.io first for included AI credits, object storage, uploads, and managed transcription.",
     providerKeyTitle: "Bring your own provider key",
     providerKeyDescription:
-      "Add Anthropic, OpenAI, Gemini, Groq, or OpenRouter keys for provider-billed usage.",
+      "Choose Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama for provider-billed usage.",
     providerKeysSet: "{{count}} set",
+    providerActionTitle: "AI provider",
+    providerActionDescription:
+      "Builder.io includes a free tier, or use custom keys.",
+    providerManage: "Manage",
+    providerCustomKeys: "Custom keys",
     checkingProviderKeys: "Checking provider keys…",
     keySet: "Set",
     keyCleared: "Storage credentials cleared",
@@ -725,8 +769,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     apiKeySaved: "API key saved",
     apiKeyFailed: "Failed to save key",
     slackTitle: "Agent-Native Clips for Slack",
-    slackDescription:
-      "Share a public clip, paste the link in Slack, and it plays inline — no extra steps for viewers. Connect each workspace once.",
+    slackDescription: "Preview public Clips links inline in Slack.",
     checkingSlack: "Checking Slack",
     slackConnected_one: "{{count}} workspace connected",
     slackConnected_other: "{{count}} workspaces connected",
@@ -961,6 +1004,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     includeTranscriptDescription:
       "Anyone with access to this meeting can read the complete transcript.",
     transcriptUnavailable: "The transcript isn't ready yet.",
+    agentLinkDescription:
+      "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",
@@ -986,8 +1031,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Stop recording",
     elapsed: "Elapsed time",
-    cancel: "Cancel recording",
-    cancelShortcut: "Cancel (⌥⇧C)",
+    cancel: "Discard recording",
+    cancelShortcut: "Discard (⌥⇧C)",
+    discardConfirmTitle: "Discard this recording?",
+    discardConfirmDescription:
+      "This can't be undone. Your recording so far will be permanently deleted.",
+    resume: "Resume",
+    discardRecording: "Discard recording",
   },
   countdownOverlay: {
     startsIn: "Recording starts in {{count}}",
@@ -1077,6 +1127,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     searchNextMatch: "Next match",
     searchClose: "Close search",
   },
+  bulletLink: {
+    jumpToTranscript: "Jump to {{time}} in transcript",
+    noMatchingMoment: "No matching moment found",
+  },
   editorLayout: {
     trimmed: "Trimmed",
     trimFailed: "Trim failed",
@@ -1145,7 +1199,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    connectBuilder: "Use Builder.io (free)",
+    connectBuilder: "Use Builder.io",
     free: "Free",
     configureS3: "configure S3-compatible storage",
     whyPrompt: "Why am I seeing this?",
@@ -1185,7 +1239,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z)",
+    undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1529,10 +1583,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
-    googleMayShowWarning: "Review Google access",
-    googleNotVerifiedTitle: "Verify the app before connecting",
-    googleWarningBeforeAdvanced:
-      "Confirm the app name and requested Calendar access match the Clips deployment you trust. If Google shows an unverified-app warning or the identity looks unfamiliar, stop and contact your workspace administrator.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",
@@ -1541,12 +1591,28 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendars",
+    connectedAccounts: "Connected accounts",
+    calendarConnectedLabel: "Connected",
+    calendarNeedsReconnectLabel: "Needs reconnect",
+    calendarDisconnectedLabel: "Disconnected",
+    calendarStatusUnavailable: "Status unavailable",
+    reconnectCalendar: "Reconnect calendar",
+    addAnotherCalendarAccount: "Add another account",
+    connectCalendar: "Connect calendar",
+    disconnectCalendarAccount: "Disconnect an account",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    agendaTab: "Agenda",
+    pastTab: "Past",
+    now: "Now",
+    noPastMeetings: "No past meetings yet",
+    loadOlder: "Load older",
+    searchFailed: "Couldn't search meetings. Try again in a moment.",
+    searchPlaceholder: "Search meetings, attendees, and transcripts...",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

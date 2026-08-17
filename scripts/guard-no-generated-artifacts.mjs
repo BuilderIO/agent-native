@@ -14,9 +14,12 @@ const deletedFiles = new Set(
     .filter(Boolean),
 );
 
+// The repository-level Claude settings are source-controlled hook configuration,
+// not generated workspace state.
 const forbidden = trackedFiles.filter(
   (file) =>
     !deletedFiles.has(file) &&
+    file !== ".claude/settings.json" &&
     (/(^|\/)\.vercel\/output\//.test(file) ||
       /(^|\/)\.claude\/settings\.json$/.test(file)),
 );

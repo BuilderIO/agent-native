@@ -39,7 +39,10 @@ import {
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
 import { getDb, schema } from "../db/index.js";
-import { resolveAnalyticsEventDimensions } from "./first-party-analytics.js";
+import {
+  resolveAnalyticsEventDimensions,
+  touchPublicKeyLastUsedAt,
+} from "./first-party-analytics.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -1654,10 +1657,7 @@ export async function recordSessionReplayChunks(
     })
     .where(eq(schema.sessionRecordings.id, recording.id));
 
-  await db
-    .update(schema.analyticsPublicKeys)
-    .set({ lastUsedAt: ingestedAt })
-    .where(eq(schema.analyticsPublicKeys.id, key.id));
+  await touchPublicKeyLastUsedAt(key.id, ingestedAt);
 
   recordChange({
     source: "session-recordings",

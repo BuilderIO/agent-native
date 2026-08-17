@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getOrgDomain } from "../../org/context.js";
 import { requireFeatureFlagManager } from "../permissions.js";
 import { getFeatureFlagDefinition } from "../registry.js";
 import {
@@ -56,6 +57,12 @@ export default defineAction({
     if (!getFeatureFlagDefinition(args.key)) {
       throw new Error(`Unknown feature flag: ${args.key}`);
     }
+    const orgDomain = manager.orgId
+      ? (await getOrgDomain(manager.orgId))?.trim().toLowerCase() || null
+      : null;
+    if (ctx?.caller === "a2a" && manager.orgId && !orgDomain) {
+      throw new Error("Feature flag organization domain is unavailable.");
+    }
 
     const persistedRules = await mutateFeatureFlagRules(
       args.key,
@@ -79,11 +86,11 @@ export default defineAction({
       },
     );
     return {
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       status: "ready" as const,
       key: args.key,
       rules: persistedRules,
-      scope: { orgId: manager.orgId },
+      scope: { orgId: manager.orgId, orgDomain },
     };
   },
 });

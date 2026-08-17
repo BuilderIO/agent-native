@@ -222,23 +222,152 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
     expect(repairEntry).toContain("sql: {},");
     expect(repairEntry).not.toContain("run:");
-    expect(dbTsSource).not.toContain("deferMigration");
+    expect(repairEntry).not.toContain("deferMigration");
     expect(dbTsSource).not.toContain(
       "isHistoricalAnalyticsRollupBackfillComplete",
     );
   });
 
-  it("keeps the incremental rollup lock inside the rollup write transaction", () => {
-    const writeIdx = analyticsRollupsTsSource.indexOf(
-      "const writeRollups = async (tx: any) => {",
+  it("stores BigQuery backfill progress in a durable scoped job table", () => {
+    const jobStart = dbTsSource.indexOf("version: 139,");
+    const jobEnd = dbTsSource.indexOf("\n    },", jobStart);
+    const jobEntry = dbTsSource.slice(jobStart, jobEnd);
+
+    expect(jobStart).toBeGreaterThan(-1);
+    expect(jobEnd).toBeGreaterThan(jobStart);
+    expect(jobEntry).toContain('name: "analytics-bigquery-backfill-jobs"');
+    expect(jobEntry).toContain("analytics_bigquery_backfill_jobs");
+    expect(jobEntry).toContain("lease_token");
+    expect(jobEntry).toContain("next_run_at");
+    expect(jobEntry).toContain("analytics_bigquery_backfill_jobs_due_idx");
+    expect(jobEntry).not.toContain("FROM analytics_events");
+  });
+
+  it("repairs interrupted non-http event cursor indexes", () => {
+    const repairStart = dbTsSource.indexOf("version: 144,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-backfill-filtered-cursor-index-repair"',
     );
-    const lockIdx = analyticsRollupsTsSource.lastIndexOf(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
+    expect(repairEntry).toContain(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
     );
-    expect(writeIdx).toBeGreaterThan(-1);
-    expect(lockIdx).toBeGreaterThan(writeIdx);
-    expect(analyticsRollupsTsSource).toContain(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    expect(repairEntry).toContain(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
+    );
+    expect(repairEntry).toContain(
+      "event_name IS DISTINCT FROM 'http.response'",
+    );
+  });
+
+  it("has a direct-endpoint repair for indexes interrupted by statement budgets", () => {
+    const repairStart = dbTsSource.indexOf("version: 145,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-backfill-filtered-cursor-index-direct-repair"',
+    );
+    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(dbTsSource).toContain("pg_try_advisory_lock");
+    expect(dbTsSource).toContain("deferMigration()");
+    expect(repairEntry).toContain('postgres: "SELECT 1"');
+    expect(dbTsSource).toContain(
+      "ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
+    );
+    expect(dbTsSource).toContain("getAnalyticsMigrationDatabaseUrl()");
+  });
+
+  it("indexes bounded purge inventory counts", () => {
+    const repairStart = dbTsSource.indexOf("version: 146,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-purge-inventory-index-direct-repair"',
+    );
+    expect(dbTsSource).toContain(
+      "analytics_event_daily_rollups_org_event_date_idx",
+    );
+    expect(dbTsSource).toContain("analytics_user_days_org_event_date_idx");
+    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+  });
+
+  it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
+    const shardStart = dbTsSource.indexOf("version: 142,");
+    const shardEnd = dbTsSource.indexOf("\n    },", shardStart);
+    const shardEntry = dbTsSource.slice(shardStart, shardEnd);
+
+    expect(shardStart).toBeGreaterThan(-1);
+    expect(shardEnd).toBeGreaterThan(shardStart);
+    expect(shardEntry).toContain('name: "analytics-bigquery-backfill-shards"');
+    expect(shardEntry).toContain("postgres:");
+    expect(shardEntry).toContain("sqlite:");
+    for (const column of [
+      "shard_id",
+      "job_id",
+      "org_id",
+      "owner_email",
+      "table_ref",
+      "start_at",
+      "start_id",
+      "end_at",
+      "end_id",
+      "end_inclusive",
+      "batch_size",
+      "backfill_cursor",
+      "backfill_cursor_at",
+      "backfill_cursor_id",
+      "status",
+      "copied_count",
+      "lease_token",
+      "lease_expires_at",
+      "next_run_at",
+      "last_error",
+      "completed_at",
+      "updated_at",
+    ]) {
+      expect(shardEntry).toContain(column);
+    }
+    expect(shardEntry).toContain(
+      "CHECK (status IN ('pending', 'running', 'completed'))",
+    );
+    expect(shardEntry).toContain("analytics_bigquery_backfill_shards_due_idx");
+    expect(shardEntry).toContain(
+      "analytics_bigquery_backfill_shards_scope_time_idx",
+    );
+    expect(shardEntry).not.toContain("ALTER TABLE");
+    expect(shardEntry).not.toContain("FROM analytics_events");
+
+    const shardColumnsEntryStart = dbTsSource.indexOf("version: 143,");
+    const shardColumnsEntryEnd = dbTsSource.indexOf(
+      "\n    },",
+      shardColumnsEntryStart,
+    );
+    const shardColumnsEntry = dbTsSource.slice(
+      shardColumnsEntryStart,
+      shardColumnsEntryEnd,
+    );
+    expect(shardColumnsEntry).toContain(
+      "analytics-bigquery-backfill-shard-columns",
+    );
+    expect(shardColumnsEntry).toContain(
+      "analytics_bigquery_backfill_shards_job_due_idx",
+    );
+  });
+
+  it("does not serialize foreground rollup ingest behind historical backfill", () => {
+    expect(analyticsRollupsTsSource).not.toContain("pg_advisory_xact_lock");
+    expect(analyticsRollupsTsSource).not.toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY",
     );
   });
 
@@ -248,15 +377,53 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("does not run dashboard repair during database startup", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).not.toContain(
+      "repairPersistedFirstPartyDashboardQueries",
+    );
+  });
+
   it("skips Analytics migrations in non-rollup durable background functions", () => {
     const pluginSource = dbTsSource.slice(
       dbTsSource.lastIndexOf("export default async"),
     );
-    expect(pluginSource).toMatch(
-      /if \(isInBackgroundFunctionRuntime\(\) && !isScheduledRollupRuntime\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+    const backgroundGuardIdx = pluginSource.indexOf(
+      "if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {",
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    expect(backgroundGuardIdx).toBeGreaterThan(-1);
+    expect(migrationsCallIdx).toBeGreaterThan(backgroundGuardIdx);
+    expect(pluginSource.slice(backgroundGuardIdx, migrationsCallIdx)).toMatch(
+      /return;/,
     );
     expect(pluginSource).toContain(
       "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
     );
+  });
+
+  it("returns before runAnalyticsMigrations in unscheduled production serverless runtime", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    const serverlessGuardIdx = pluginSource.indexOf(
+      "if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {",
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    expect(serverlessGuardIdx).toBeGreaterThan(-1);
+    expect(migrationsCallIdx).toBeGreaterThan(serverlessGuardIdx);
+    expect(pluginSource.slice(serverlessGuardIdx, migrationsCallIdx)).toMatch(
+      /return;/,
+    );
+    expect(pluginSource).toContain(
+      "Skipping Analytics migrations in production serverless runtime",
+    );
+    expect(pluginSource).not.toContain("ANALYTICS_SKIP_BOOT_MIGRATIONS");
   });
 });

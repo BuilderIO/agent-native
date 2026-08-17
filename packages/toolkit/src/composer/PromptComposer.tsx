@@ -36,6 +36,7 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
@@ -47,6 +48,7 @@ import {
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
+  type ComposerAgentOption,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
@@ -81,9 +83,15 @@ export interface PromptComposerProps {
     files: PromptComposerFile[],
     references: Reference[],
     options: PromptComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
+  /** Called when a host-gated composer is clicked while it is disabled. */
+  onDisabledClick?: () => void;
+  /** Override the generic document attachment cap for a multipart host. */
+  maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
+  documentAttachmentLimitLabel?: string;
   autoFocus?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -95,6 +103,10 @@ export interface PromptComposerProps {
   preserveDraftOnSubmit?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
+  modelSelectorOpen?: boolean;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
@@ -103,7 +115,9 @@ export interface PromptComposerProps {
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
-  plusMenuMode?: "full" | "upload-only" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /**
    * Include extension creation in the full "+" menu. Defaults to false.
    */
@@ -143,6 +157,16 @@ export interface PromptComposerProps {
   selectedEffort?: ReasoningEffort;
   onModelChange?: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. */
+  selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
+  onModelSelectorOpenChange?: (open: boolean) => void;
   /**
    * Enable server-backed model/provider status checks. Defaults off when the
    * host supplies model state and callbacks, otherwise on.
@@ -309,6 +333,7 @@ function ImagePreviewLightbox({
   alt: string;
   onClose: () => void;
 }) {
+  const t = useComposerRuntimeAdapters().translate!;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -324,7 +349,9 @@ function ImagePreviewLightbox({
   return (
     <div
       role="dialog"
-      aria-label="Image preview"
+      aria-label={t("agentChat.composer.imagePreview", {
+        defaultValue: "Image preview",
+      })}
       onClick={onClose}
       className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-6 cursor-zoom-out"
     >
@@ -337,7 +364,9 @@ function ImagePreviewLightbox({
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close preview"
+        aria-label={t("agentChat.composer.closePreview", {
+          defaultValue: "Close preview",
+        })}
         className="absolute end-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
       >
         <IconX className="h-4 w-4" />
@@ -355,6 +384,7 @@ function AttachmentChip({
 }) {
   const src = useMemo(() => getImageSrc(attachment), [attachment]);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const t = useComposerRuntimeAdapters().translate!;
   useEffect(
     () => () => {
       if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
@@ -372,7 +402,10 @@ function AttachmentChip({
         <button
           type="button"
           onClick={() => setPreviewOpen(true)}
-          aria-label={`Preview ${attachment.name}`}
+          aria-label={t("agentChat.composer.previewAttachment", {
+            name: attachment.name,
+            defaultValue: `Preview ${attachment.name}`,
+          })}
           className="agent-composer-attachment-image group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
         >
           <img
@@ -394,7 +427,10 @@ function AttachmentChip({
                 onRemove(attachment.id);
               }
             }}
-            aria-label={`Remove ${attachment.name}`}
+            aria-label={t("agentChat.composer.removeAttachment", {
+              name: attachment.name,
+              defaultValue: `Remove ${attachment.name}`,
+            })}
             className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3 w-3" />
@@ -414,13 +450,17 @@ function AttachmentChip({
   return (
     <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background text-[9px] font-semibold uppercase text-muted-foreground">
-        {attachment.name.split(".").pop() || "file"}
+        {attachment.name.split(".").pop() ||
+          t("agentChat.composer.file", { defaultValue: "file" })}
       </div>
       <span className="min-w-0 truncate font-medium">{attachment.name}</span>
       <button
         type="button"
         onClick={() => onRemove(attachment.id)}
-        aria-label={`Remove ${attachment.name}`}
+        aria-label={t("agentChat.composer.removeAttachment", {
+          name: attachment.name,
+          defaultValue: `Remove ${attachment.name}`,
+        })}
         className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
       >
         <IconX className="h-3 w-3" />
@@ -458,6 +498,9 @@ function PromptComposerInner({
   onSubmit,
   placeholder,
   disabled,
+  onDisabledClick,
+  maxDocumentAttachmentBytes,
+  documentAttachmentLimitLabel,
   autoFocus,
   className,
   style,
@@ -466,9 +509,12 @@ function PromptComposerInner({
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
+  modelSelectorOpen,
+  showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
+  terminalModeControl,
   extensionTools = false,
   initialText,
   initialTextKey,
@@ -490,6 +536,11 @@ function PromptComposerInner({
   selectedEffort,
   onModelChange,
   onEffortChange,
+  availableAgents,
+  selectedAgent,
+  agentOnly = false,
+  onAgentChange,
+  onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   onTextChange,
   onConnectProvider,
@@ -497,6 +548,7 @@ function PromptComposerInner({
   composerRef,
 }: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
   const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
@@ -578,7 +630,7 @@ function PromptComposerInner({
         text,
         attachments,
       });
-      onSubmit(finalText, files, references, {
+      await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
         model: composerModel,
         engine: composerEngine,
@@ -601,12 +653,13 @@ function PromptComposerInner({
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
           bouncePulse={missingKeyBouncePulse}
+          attached
           fullWidth
           layout="sidebar"
         />
       ) : null}
       {missingApiKey && useInlineMissingKeySetup && BuilderSetupContent ? (
-        <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
+        <div className="agent-builder-setup-inline--attached mb-0 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
           <BuilderSetupContent
             onConnected={handleBuilderConnected}
             layout="sidebar"
@@ -617,20 +670,34 @@ function PromptComposerInner({
         className={cn(
           "text-start",
           gateComposer && "cursor-pointer",
+          (gateComposer || onDisabledClick) &&
+            "agent-composer-area--attached-above",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={gateComposer ? bounceMissingKeySetup : undefined}
+        onClick={
+          gateComposer
+            ? bounceMissingKeySetup
+            : onDisabledClick
+              ? () => onDisabledClick()
+              : undefined
+        }
       >
         <PromptAttachmentStrip />
         <TiptapComposer
           focusRef={handleRef}
           disabled={disabled || gateComposer}
+          maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
+          documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={
-            gateComposer ? "Connect AI above to continue..." : placeholder
+            gateComposer
+              ? t("agentChat.composer.connectAbove", {
+                  defaultValue: "Connect AI above to continue...",
+                })
+              : placeholder
           }
           initialText={initialText}
           initialTextKey={initialTextKey}
@@ -639,6 +706,7 @@ function PromptComposerInner({
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
           }
+          terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
@@ -655,11 +723,18 @@ function PromptComposerInner({
           onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={composerModel}
+          modelSelectorOpen={modelSelectorOpen}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
+          availableAgents={availableAgents}
+          selectedAgent={selectedAgent}
+          agentOnly={agentOnly}
+          showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
+          onAgentChange={onAgentChange}
+          onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}

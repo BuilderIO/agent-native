@@ -3,18 +3,19 @@ import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 
 import {
   renderDesignSystemThemeCss,
   type DesignSystemTheme,
 } from "@agent-native/toolkit/design-system/theme";
-import type {
-  ConfigEnv,
-  HotUpdateOptions,
-  NormalizedHotChannel,
-  Plugin,
-  UserConfig,
+import {
+  loadEnv,
+  type ConfigEnv,
+  type HotUpdateOptions,
+  type NormalizedHotChannel,
+  type Plugin,
+  type UserConfig,
 } from "vite";
 
 import {
@@ -24,7 +25,6 @@ import {
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
   mergeAgentNativeConfigs,
-  normalizeAgentNativeConfig,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
@@ -53,12 +53,23 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
+import {
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+} from "../shared/runtime-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
+import {
+  createAgentNativeConfigContext,
+  loadAgentNativeConfigFile,
+  loadWorkspaceAgentNativeConfigFile,
+  readAgentNativeJsonConfig,
+} from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let nitroFsWatchGuardInstalled = false;
+const emittedRuntimeConfigDiagnostics = new Set<string>();
 
 type FsWatchArgs = [fs.PathLike, ...any[]];
 
@@ -1083,6 +1094,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
   "@agent-native/core/client/transcription/use-live-transcription",
+  "@agent-native/core/workspace-connections/credential-key-aliases",
   "@agent-native/core/voice",
 ];
 
@@ -1555,6 +1567,8 @@ function getCoreSourceAliases(
       coreSrc,
       "workspace-connections/index.ts",
     ),
+    "@agent-native/core/workspace-connections/credential-key-aliases":
+      path.join(coreSrc, "workspace-connections/credential-key-aliases.ts"),
     "@agent-native/core/provider-api": path.join(
       coreSrc,
       "provider-api/index.ts",
@@ -1644,7 +1658,9 @@ export interface ClientConfigOptions {
   /**
    * Public app behavior from `agent-native.json` or an optional typed
    * `agent-native.config.ts` file. Explicit Vite options win over the JSON
-   * file, while the file remains the default project-level source of truth.
+   * file, while the typed file remains the default project-level source of
+   * truth. `agent-native.ts`, `.mts`, and `agent-native.config.mts` remain
+   * compatibility aliases.
    */
   agentNativeConfig?: AgentNativeConfigInput;
   /**
@@ -3040,9 +3056,19 @@ function createNitroDevPlugin(
   options: Pick<ClientConfigOptions, "nitro">,
   appBasePath: string,
 ) {
+  const nitroOptions = options.nitro ?? {};
   return nitroVitePlugin({
     serverDir: "./server",
-    ...(options.nitro ?? {}),
+    ...nitroOptions,
+    replace: {
+      ...(nitroOptions as { replace?: Record<string, string> }).replace,
+      // Netlify's netlify.toml environment is available to the build but not
+      // injected into deployed Functions. Nitro is a separate server build,
+      // so it needs the release ownership decision in its own replacement map.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+    },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
     // *.spec.ts would otherwise be loaded at runtime and crash the server
@@ -3187,7 +3213,12 @@ const DEFAULT_VITE_WATCH_IGNORES = [
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
-  return { ...pluginOrPreset, apply: "serve" };
+  return {
+    ...pluginOrPreset,
+    apply: (_config: UserConfig, configEnv: ConfigEnv) =>
+      configEnv.command === "serve" &&
+      !(configEnv.isPreview && process.env.IS_RR_BUILD_REQUEST === "yes"),
+  };
 }
 
 function nitroPresetMarkerPlugin(
@@ -3235,7 +3266,7 @@ function createAgentNativePlugins(
     ...userPlugins,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
-    agentsBundlePlugin(),
+    agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3282,59 +3313,45 @@ function resolveAgentNativeTemplate(cwd: string): string {
   );
 }
 
-function createAgentNativeConfigContext(
-  command: AgentNativeViteCommand | undefined,
+function reportRuntimeConfigDiagnostics(
+  appConfig: AgentNativeConfig,
+  context: AgentNativeConfigContext,
   mode: string,
-): AgentNativeConfigContext {
-  const resolvedCommand = command === "build" ? "build" : "serve";
-  return {
-    command: resolvedCommand,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  const production =
+    mode === "production" || process.env.NODE_ENV === "production";
+  if (!production) return;
+
+  const report = getRuntimeConfigReport(
+    env,
+    {
+      authEnabled: appConfig.runtime?.auth?.enabled,
+      databaseRequired: appConfig.runtime?.database?.required,
+      requiredEnv: appConfig.runtime?.environment?.required,
+    },
+    {
+      environment: "production",
+      phase: context.isBuild ? "build" : "runtime",
+      appName: process.env.APP_NAME,
+    },
+  );
+  if (report.issues.length === 0) return;
+
+  const key = [
+    process.cwd(),
+    context.command,
     mode,
-    isDev: resolvedCommand === "serve",
-    isBuild: resolvedCommand === "build",
-  };
-}
+    report.issues.map((issue) => `${issue.code}:${issue.severity}`).join(","),
+  ].join("|");
+  if (emittedRuntimeConfigDiagnostics.has(key)) return;
+  emittedRuntimeConfigDiagnostics.add(key);
 
-function readAgentNativeJsonConfig(cwd: string): AgentNativeConfig {
-  const configPath = path.join(cwd, "agent-native.json");
-  if (!fs.existsSync(configPath)) return {};
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  } catch (error) {
-    throw new Error(
-      `Could not read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+  const message = formatRuntimeConfigReport(report);
+  if (context.isBuild && appConfig.diagnostics?.failOnBuild === true) {
+    throw new Error(message);
   }
-
-  return normalizeAgentNativeConfig(parsed, configPath);
-}
-
-async function loadAgentNativeConfigFile(
-  cwd: string,
-): Promise<AgentNativeConfigInput | undefined> {
-  const candidates = ["agent-native.config.ts", "agent-native.config.mts"];
-  const configPath = candidates
-    .map((filename) => path.join(cwd, filename))
-    .find((candidate) => fs.existsSync(candidate));
-  if (!configPath) return undefined;
-
-  try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
-      default?: unknown;
-      agentNativeConfig?: unknown;
-    };
-    const config = module.default ?? module.agentNativeConfig;
-    if (typeof config !== "object" && typeof config !== "function") {
-      throw new Error("the default export must be an object or function");
-    }
-    return config as AgentNativeConfigInput;
-  } catch (error) {
-    throw new Error(
-      `Could not load ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  console.warn(message);
 }
 
 function createAgentNativeConfig(
@@ -3385,6 +3402,15 @@ function createAgentNativeConfig(
       });
     } catch {}
   }
+
+  const runtimeEnv = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+  reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
@@ -3457,6 +3483,12 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      // The release migration owner is configured at build time. Netlify's
+      // netlify.toml environment is available to the build but not injected
+      // into deployed Functions, so embed the decision in the server bundle.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
       __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",
@@ -3686,16 +3718,25 @@ function createAgentNativeConfigPlugin(
     name: "agent-native-config",
     enforce: "pre",
     async config(config: UserConfig, env: ConfigEnv) {
+      const context = createAgentNativeConfigContext(env.command, env.mode);
+      const workspaceConfig = await loadWorkspaceAgentNativeConfigFile(
+        process.cwd(),
+      );
       const projectConfig =
-        options.agentNativeConfig === undefined
-          ? await loadAgentNativeConfigFile(process.cwd())
-          : undefined;
+        options.agentNativeConfig ??
+        (await loadAgentNativeConfigFile(process.cwd()));
+      const resolvedConfig = mergeAgentNativeConfigs(
+        workspaceConfig
+          ? resolveAgentNativeConfig(workspaceConfig, context)
+          : {},
+        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
+      );
       return createAgentNativeConfig(
         options,
         env.command,
         config,
         env.mode,
-        projectConfig,
+        resolvedConfig,
       );
     },
   };

@@ -5,7 +5,7 @@ description: "अपने एजेंट-नेटिव ऐप से एक 
 
 # डेटाबेस
 
-हर एजेंट-नेटिव ऐप अपनी स्थिति SQL में संग्रहीत करता है। UI और एजेंट दोनों एक ही [Drizzle ORM](https://orm.drizzle.team) क्लाइंट का उपयोग करते हुए, एक ही Actions के माध्यम से एक ही तालिकाओं को पढ़ते और लिखते हैं। जब कोई भी पक्ष डेटा बदलता है, तो दूसरा पक्ष पोलिंग परत के माध्यम से उसे देख लेता है।
+हर एजेंट-नेटिव ऐप अपनी स्थिति SQL में संग्रहीत करता है। UI और एजेंट दोनों एक ही [Drizzle ORM](https://orm.drizzle.team) क्लाइंट का उपयोग करते हुए, एक ही Actions के माध्यम से एक ही तालिकाओं को पढ़ते और लिखते हैं। लाइव सिंक SSE का उपयोग करता है और पोलिंग को fallback के रूप में रखता है, इसलिए बदलाव दूसरे surface में manual refresh के बिना दिखाई देते हैं।
 
 <Diagram id="doc-block-9mtx2f" title="डेटा डेटाबेस तक कैसे प्रवाहित होता है" summary="UI और एजेंट दोनों एक ही Actions परत के माध्यम से डेटाबेस तक पहुँचते हैं। दोनों कॉलर एक ही getDb() क्लाइंट और एक ही SQL तालिकाओं का उपयोग करते हैं। हर एक के लिए कोई अलग बैकएंड नहीं है।">
 
@@ -110,7 +110,7 @@ _योजनाबद्ध (अभी तक उपलब्ध नहीं):
 
 - `server/db/schema.ts`: तालिका परिभाषाएँ
 - `server/db/index.ts`: टाइप किया गया DB क्लाइंट सिंगलटन
-- `server/plugins/db.ts`: माइग्रेशन जो स्टार्टअप पर चलते हैं
+- `server/plugins/db.ts`: local startup के लिए app-owned migrations
 
 ### 1. अपनी स्कीमा परिभाषित करें {#schema}
 
@@ -208,7 +208,10 @@ actions और routes में `getDb` को इस टेम्पलेट-�
 
 ### 3. माइग्रेशन लिखें {#migrations}
 
-स्कीमा परिवर्तन `server/plugins/db.ts` में एक Nitro प्लगइन के माध्यम से स्टार्टअप पर लागू होते हैं। `@agent-native/core/db` से `runMigrations` का उपयोग करें:
+Local development में schema changes को `server/plugins/db.ts` के Nitro plugin
+से लागू किया जा सकता है। Production या serverless deployments में migrations को
+पहली request पर नहीं, बल्कि release या deploy step में चलाएं।
+`@agent-native/core/db` से `runMigrations` का उपयोग करें:
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +245,14 @@ actions और routes में `getDb` को इस टेम्पलेट-�
   ]}
 />
 
-`runMigrations` प्रत्येक प्रविष्टि को क्रम में एक बार चलाता है, फिर संस्करण रिकॉर्ड करता है ताकि भविष्य के पुनरारंभ पर इसे छोड़ दिया जाए। प्रविष्टियाँ इडमपोटेंट हैं। प्लगइन को हर बूट पर कॉल करना सुरक्षित है।
+`runMigrations` हर pending entry को क्रम से एक बार चलाता है, उसे applied के रूप में
+record करता है, और बाद की runs में छोड़ देता है। नई entries को स्थिर `name` दें;
+named migrations को version number से स्वतंत्र track किया जाता है।
+
+<Callout tone="warning">
+  Chat template migrations को release step में चलाने के लिए `pnpm
+  migrate:production` देता है।
+</Callout>
 
 <Callout tone="risk">
   उत्पादन डेटाबेस के विरुद्ध कभी भी `drizzle-kit push` न चलाएं। टेम्प्लेट स्कीमा
@@ -421,6 +431,6 @@ const { rows } = await getDbExec().execute({
 - [**Security — Data Scoping**](/docs/security#data-scoping): कैसे `owner_email` और access हेल्पर्स पठन और लेखन को स्कोप करते हैं
 - [**Sharing**](/docs/sharing#building): `ownableColumns()` और साझा संसाधनों के लिए visibility मॉडल
 - [**प्लगइन्स**](/docs/server-plugins): स्टार्टअप प्लगइन लाइफ़साइकिल जहां माइग्रेशन चलते हैं
-- [**Actions**](/docs/actions): वह सतह जहां actions डेटा पढ़ने और लिखने के लिए `getDb()` को कॉल करती हैं
+- [**Actions**](/docs/actions-overview): वह सतह जहां actions डेटा पढ़ने और लिखने के लिए `getDb()` को कॉल करती हैं
 - [**तैनाती**](/docs/deployment#persistent-database): प्रति डिप्लॉय टारगेट एक स्थायी डेटाबेस कनेक्ट करना
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` और पूरा क्लाइंट-साइड सिंक मॉडल

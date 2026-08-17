@@ -5,6 +5,7 @@ export interface DispatchAutomationItem {
   name: string;
   path: string;
   owner: string;
+  appId?: string;
   scope?: "personal" | "organization";
   canUpdate?: boolean;
   triggerType?: "schedule" | "event" | string;

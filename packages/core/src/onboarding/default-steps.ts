@@ -14,6 +14,12 @@ import {
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  getActiveFileUploadProviderForRequest,
+  registerFileUploadProvider,
+} from "../file-upload/registry.js";
+import { s3FileUploadProvider } from "../file-upload/s3.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -355,11 +361,10 @@ const githubRepositoryStep: OnboardingStep = {
         const { resolveWorkspaceConnectionCredentialForApp } =
           await import("../workspace-connections/index.js");
         const result = await resolveWorkspaceConnectionCredentialForApp({
+          // Deliberately not `resolveOnboardingAppId()` — that normalizes, and
+          // this id is matched against a stored workspace connection grant.
           appId:
-            process.env.AGENT_NATIVE_APP_ID ||
-            process.env.APP_ID ||
-            process.env.npm_package_name ||
-            "app",
+            getAppConfig().app.id ?? getAppConfig().app.packageName ?? "app",
           provider: "github",
           key: "GITHUB_TOKEN",
           userEmail,
@@ -414,13 +419,85 @@ const githubRepositoryStep: OnboardingStep = {
   },
 };
 
+const fileStorageStep: OnboardingStep = {
+  id: "file-storage",
+  order: 15,
+  required: false,
+  title: "File uploads and storage",
+  description:
+    "Keep uploaded images and files available throughout the thread with Builder or S3-compatible object storage.",
+  methods: [
+    {
+      id: "builder",
+      kind: "builder-cli-auth",
+      label: "Connect Builder",
+      description:
+        "Builder includes managed file storage alongside its AI connection.",
+      primary: true,
+      badge: "free",
+      payload: { scope: "llm" },
+    },
+    {
+      id: "s3",
+      kind: "form",
+      label: "Use custom storage keys",
+      description:
+        "Connect AWS S3, Cloudflare R2, MinIO, or another S3-compatible bucket with a stable public base URL.",
+      payload: {
+        writeScope: "workspace",
+        saveTo: "scoped-secrets",
+        secretDescription: "S3-compatible object storage for file uploads",
+        fields: [
+          {
+            key: "S3_ENDPOINT",
+            label: "Endpoint URL",
+            placeholder: "https://s3.us-east-1.amazonaws.com",
+          },
+          {
+            key: "S3_BUCKET",
+            label: "Bucket name",
+            placeholder: "my-uploads-bucket",
+          },
+          {
+            key: "S3_ACCESS_KEY_ID",
+            label: "Access key ID",
+            placeholder: "AKIA...",
+          },
+          {
+            key: "S3_SECRET_ACCESS_KEY",
+            label: "Secret access key",
+            secret: true,
+          },
+          {
+            key: "S3_REGION",
+            label: "Region",
+            placeholder: "auto",
+          },
+          {
+            key: "S3_PUBLIC_BASE_URL",
+            label: "Public base URL",
+            placeholder: "https://cdn.example.com",
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: async () =>
+    (await getActiveFileUploadProviderForRequest()) !== null,
+};
+
 let registered = false;
 
 /** Idempotent. Safe to call from every plugin-mount call. */
 export function registerDefaultOnboardingSteps(): void {
   if (registered) return;
   registered = true;
+  // The framework provides a generic S3/R2 implementation for the custom-key
+  // onboarding path. Templates may replace the same provider id with a
+  // domain-specific implementation after this default plugin mounts.
+  registerFileUploadProvider(s3FileUploadProvider);
   registerOnboardingStep(llmStep);
+  registerOnboardingStep(fileStorageStep);
   registerOnboardingStep(databaseStep);
   registerOnboardingStep(authStep);
   registerOnboardingStep(emailStep);

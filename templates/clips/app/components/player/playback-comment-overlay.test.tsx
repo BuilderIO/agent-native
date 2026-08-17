@@ -30,7 +30,7 @@ const comment: PlaybackComment = {
 };
 
 describe("playback comment timing", () => {
-  it("shows a root comment from its timestamp for one second", () => {
+  it("shows a root comment from its timestamp for three seconds", () => {
     expect(getActivePlaybackComments([comment], 11_999)).toEqual([]);
     expect(getActivePlaybackComments([comment], 12_000)).toEqual([comment]);
     expect(
@@ -48,11 +48,11 @@ describe("playback comment timing", () => {
   });
 
   it("scales the media-time window with playback speed", () => {
-    expect(getPlaybackCommentVisibleMs(2.5)).toBe(2_500);
-    expect(getActivePlaybackComments([comment], 12_000 + 2_499, 2.5)).toEqual([
+    expect(getPlaybackCommentVisibleMs(2.5)).toBe(7_500);
+    expect(getActivePlaybackComments([comment], 12_000 + 7_499, 2.5)).toEqual([
       comment,
     ]);
-    expect(getActivePlaybackComments([comment], 12_000 + 2_500, 2.5)).toEqual(
+    expect(getActivePlaybackComments([comment], 12_000 + 7_500, 2.5)).toEqual(
       [],
     );
   });
@@ -84,6 +84,30 @@ describe("PlaybackCommentOverlay", () => {
 
     expect(container.textContent).toContain("Madison");
     expect(container.textContent).toContain("Please take a look at this.");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders inline Markdown without creating heading elements", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, content: "# Label\n\n**Bold** and `code`" }]}
+          currentMs={12_500}
+        />,
+      );
+    });
+
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.textContent).toContain("Label");
 
     act(() => root.unmount());
     container.remove();

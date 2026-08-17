@@ -10,7 +10,7 @@ search: "智能应用 富聊天 原生聊天 UI 完整应用 自动化 无头 BY
 
 ## 界面之间的关系
 
-四种主要产品形态处于一个从最具交互性到完全无头的连续谱上。它们之所以可以自由组合，是因为基础始终保持不变：相同的动作、相同的 SQL 数据库以及相同的 Agent 循环为每种形态提供支持。添加新界面并不意味着重写底层逻辑——你只是在增加一种访问相同操作的新方式。
+四种主要产品形态处于一个从最具交互性到完全无头的连续谱上。它们之所以可以自由组合，是因为共享相同的动作和 SQL 支持的应用状态。界面需要智能体时，使用框架的 Agent 循环。添加新界面并不意味着重写底层逻辑——你只是在增加一种访问相同操作的新方式。
 
 <Diagram id="doc-block-hvdxgh" title="界面连续谱" summary={"一个动作界面，四种产品形态，每种形态都在不改变底层操作的情况下增加 UI。"}>
 
@@ -37,7 +37,9 @@ search: "智能应用 富聊天 原生聊天 UI 完整应用 自动化 无头 BY
   </div>
 </div>
 <div class="diagram-base" data-rough>
-  <span class="diagram-muted">相同动作 · 相同 SQL · 相同 Agent 循环</span>
+  <span class="diagram-muted"
+    >相同动作 · SQL 支持的状态 · 按需使用 Agent 循环</span
+  >
 </div>
 ```
 
@@ -154,6 +156,34 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 动作可以返回明确的原生控件结果，使聊天输出不仅仅是文字。表格、图表和带类型的产品卡片以第一方 React 组件的形式在聊天中渲染，无需 iframe。详见 [Native Chat UI](/docs/native-chat-ui)。当 Agent 需要的是任意生成的控件而非预定义的 React 组件时，请使用 [Generative UI](/docs/generative-ui)：它在沙箱中内联渲染 Alpine/Tailwind UI，可以读取应用状态和插槽上下文，并将选中的值发回聊天。
 
+### 请求级操作界面
+
+当所选 Agent 或线程只能公开服务器已授权的原生操作子集时，请使用
+`resolveActionSurface`。该回调会在每个交互式聊天请求的
+`prepareRequest` 之后运行。返回的名称构成严格允许列表：未包含的操作
+不会出现在提供商 schema、执行注册表、Plan 模式预加载或
+`tool-search` 搜索结果中。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+空列表不会公开任何原生操作。未知名称会使请求失败，而不会扩大访问范围。
+所有允许的操作都会在第一次模型请求中直接加载；只有需要在已授权目录内
+搜索时才显式加入 `tool-search`。该回调仅限制交互式 Agent 聊天，不会
+更改 HTTP、MCP、A2A、任务或触发器的暴露范围。默认框架说明和启动的子
+Agent 会继承同一操作范围。由于不受限制的 shell 无法强制执行严格的操作
+边界，trusted shell 工具会自动降为按请求过滤的 sandbox。
+
 ## 原生内联 UI {#native-inline-ui}
 
 当你的动作返回结构化数据——记录列表、图表数据集、状态摘要——且这些数据应在聊天会话中以真实 UI 组件而非纯文字描述的形式渲染时，请使用此功能。你在动作上定义一个 `chatUI` 渲染器，Agent-Native 会将其渲染为第一方 React 组件：无 iframe，无独立渲染路径。
@@ -180,7 +210,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 ### SQL 状态
 
-应用数据、导航、设置和聊天历史都是持久化的。Agent 读写与 UI 相同的数据行。
+应用数据、导航、设置和聊天历史都持久化在 SQL 中。Agent 读写与 UI 相同的数据行。
 
 ### 上下文感知
 
@@ -188,7 +218,7 @@ Agent 知道当前路由、选择项和焦点对象，因此"编辑这个"始终
 
 ### 实时同步
 
-Agent 的变更实时更新 UI，UI 的变更同时更新 Agent 的上下文。无需轮询，无需刷新。
+Agent 的变更通过实时同步更新 UI，UI 的变更同时更新 Agent 的上下文。框架使用 SSE 和轮询回退，因此用户不需要手动刷新。
 
 ### 深度链接
 
@@ -210,9 +240,9 @@ Agent 可以动态创建内联控件，并在工作流需要持久化时保存�
 
 每个 Agent-Native 应用最终都需要一个让用户配置其 Agent 的地方：设置常驻指令、查看已完成的工作、连接 MCP 服务器、管理自动化，以及控制访问权限。从头构建该 UI 工作量很大。Agent-Native 内置了一个预构建的全页组件 `AgentTabsPage`，涵盖了所有这些功能，分布在十二个标签页中。
 
-在你的应用中将其挂载到 `/agent`。当前模板将该路由与应用导航条目配对，并向 `AgentSidebar` 传递 `agentPageHref="/agent"`，这样边栏的资源和设置模式就可以链接到全页，而无需重复这些流程。
+在你的应用中将其挂载到 `/settings/agent`。当前模板将其作为规范路由，并向 `AgentSidebar` 传递 `agentPageHref="/settings/agent"`。`/agent` 作为旧版重定向保留。
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -446,7 +476,7 @@ await runAgentLoop({
 });
 ```
 
-对于大多数应用，定时提示词和集成 webhooks 已经会为你调用此循环。只有在构建自定义无浏览器宿主、评估运行器或服务端编排界面时才直接使用它。完整签名请参见 [Server: Production agent handler](/docs/server#agent-handler)。
+对于大多数应用，定时提示词和集成 webhooks 已经会为你调用此循环。只有在构建自定义无浏览器宿主、评估运行器或服务端编排界面时才直接使用它。完整签名请参见 [Server: Production agent handler](/docs/server-plugins#agent-chat-plugin)。
 
 ### 针对文件夹运行 {#folder-loop}
 
@@ -495,7 +525,7 @@ export function SupportAgentChat() {
 
 <Cards>
 
-### [动作（Actions）](/docs/actions)
+### [动作（Actions）](/docs/actions-overview)
 
 一次定义操作，以上所有界面都调用同一个。
 

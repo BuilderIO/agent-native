@@ -43,15 +43,16 @@
  *   // guard:allow-raw-color — short reason
  *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
- * base can't be resolved we say so loudly and exit 0 — a silent pass here
- * would look identical to a real clean run.
+ * base can't be resolved the guard exits GUARD_EXIT_COULD_NOT_RUN, which
+ * run-guards.ts reports as SKIPPED. A silent pass here would look identical
+ * to a real clean run.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedLines } from "./lib/changed-lines.mjs";
+import { requireAddedLines } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -83,6 +84,9 @@ const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/;
 const COLOR_FUNC_RE = /\b(?:rgba?|hsla?)\(\s*(?!var\()/i;
 
 const UTILITY_MONO_RE = /\b(bg|text|border)-(white|black)(?=[/\s"'`)]|$)/;
+/** The same utility given an explicit `dark:` counterpart on the same line. */
+const PAIRED_MONO_RE =
+  /\bdark:(?:[\w-]+:)*(bg|text|border)-(white|black)(?=[/\s"'`)]|$)/;
 const UTILITY_SHADE_RE =
   /\b(bg|text|border)-(red|green|blue|gray|slate|zinc)-(\d{2,3})(?=[/\s"'`)]|$)/;
 
@@ -133,6 +137,14 @@ function checkLine(lineText) {
     return { snippet: colorFunc[0].trim(), help: HEX_HSL_HELP };
   }
   const mono = UTILITY_MONO_RE.exec(lineText);
+  // `bg-black/5 dark:bg-white/10` is the theme layer, expressed inline: the
+  // pair adapts in both directions, which is the property this guard exists to
+  // protect. Flagging it named one instance of the rule (the literal word
+  // "black") instead of the rule itself, and sent readers to replace working
+  // code with a token that does not exist for scrim/overlay tints.
+  if (mono && PAIRED_MONO_RE.test(lineText)) {
+    return null;
+  }
   if (mono) {
     const [snippet, , word] = mono;
     return {
@@ -152,16 +164,7 @@ function checkLine(lineText) {
 }
 
 function main() {
-  const added = addedLines(REPO_ROOT);
-  if (added === null) {
-    console.error(
-      "guard-no-raw-colors: could not resolve a diff base against this branch " +
-        "(checked GUARD_DIFF_BASE/GITHUB_BASE_REF, origin/main, main) — cannot " +
-        "tell which lines are new. Skipping the check rather than reporting a " +
-        "false pass; this is not a clean result.",
-    );
-    process.exit(0);
-  }
+  const added = requireAddedLines(REPO_ROOT, "guard-no-raw-colors");
 
   const violations = [];
 

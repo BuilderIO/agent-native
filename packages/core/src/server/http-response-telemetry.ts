@@ -22,23 +22,39 @@ import { getAppName } from "./app-name.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
+// Provider delivery posts back to these collectors. Recording the collector
+// response would feed another `http.response` event into the same collector.
 const TRACKING_INGEST_PATHS = new Set([
   "/track",
   "/api/analytics/track",
   "/api/events/track",
   "/_agent-native/track",
 ]);
+const SLOW_REQUEST_MS = 1_000;
+const SLOW_REQUEST_LOG_EVENT = "agent-native.slow_request";
 const PROCESS_STATE_KEY = Symbol.for(
   "@agent-native/core/http-response-telemetry.process-state",
 );
-type ProcessTelemetryState = { requestSequence: number };
+type ProcessTelemetryState = {
+  requestSequence: number;
+  moduleEvalUptimeMs: number;
+};
 type GlobalWithProcessTelemetry = typeof globalThis & {
   [PROCESS_STATE_KEY]?: ProcessTelemetryState;
 };
 const globalRef = globalThis as GlobalWithProcessTelemetry;
+// Process start → this module being evaluated. On a serverless cold start that
+// span is the platform's container boot plus server-bundle evaluation, which
+// happens entirely before any request handler runs and is therefore invisible
+// to every in-handler measurement. Recorded here because module scope is the
+// earliest point our own code can observe. Stored on globalThis so the
+// earliest-evaluated copy wins if the bundle loads this module twice.
 const processState =
   globalRef[PROCESS_STATE_KEY] ??
-  (globalRef[PROCESS_STATE_KEY] = { requestSequence: 0 });
+  (globalRef[PROCESS_STATE_KEY] = {
+    requestSequence: 0,
+    moduleEvalUptimeMs: Math.max(0, Math.round(process.uptime() * 1_000)),
+  });
 const REQUEST_TELEMETRY_KEY = Symbol.for(
   "@agent-native/core/http-response-telemetry.request",
 );
@@ -75,6 +91,11 @@ function sampleRate(): number {
 
 function shouldDisableTelemetry(): boolean {
   return boolEnv("AGENT_NATIVE_HTTP_TELEMETRY_DISABLED");
+}
+
+function isTrackingIngestPath(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return TRACKING_INGEST_PATHS.has(normalized);
 }
 
 function requestPath(event: H3Event): string {
@@ -153,7 +174,7 @@ function shouldTrack(
   state: HttpRequestTelemetryState,
 ): boolean {
   if (shouldDisableTelemetry()) return false;
-  if (TRACKING_INGEST_PATHS.has(pathname)) return false;
+  if (isTrackingIngestPath(pathname)) return false;
   if (pathname.startsWith("/api/analytics/replay")) return false;
   if (statusCode >= 500) return true;
   if (
@@ -165,7 +186,7 @@ function shouldTrack(
   }
   if (state.requestSequence === 1) return true;
   if (state.startupDb) return true;
-  if (Date.now() - state.startedAt >= 1_000) return true;
+  if (Date.now() - state.startedAt >= SLOW_REQUEST_MS) return true;
   if (state.db.errorCount > 0 || state.db.timeoutCount > 0) {
     return true;
   }
@@ -196,6 +217,14 @@ function runtimeProvider(): string {
   return "node";
 }
 
+/** Module evaluation → this request starting, i.e. idle boot the app paid for. */
+function moduleToRequestMs(state: HttpRequestTelemetryState): number {
+  return Math.max(
+    0,
+    state.processAgeAtStartMs - processState.moduleEvalUptimeMs,
+  );
+}
+
 function emitTelemetry(
   event: H3Event,
   state: HttpRequestTelemetryState,
@@ -224,6 +253,8 @@ function emitTelemetry(
       cold_start: state.requestSequence === 1,
       request_sequence: state.requestSequence,
       process_age_ms: state.processAgeAtStartMs,
+      boot_to_module_ms: processState.moduleEvalUptimeMs,
+      module_to_request_ms: moduleToRequestMs(state),
       framework_ready_wait_ms: state.frameworkReadyWaitMs,
       runtime_provider: runtimeProvider(),
       function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
@@ -299,17 +330,122 @@ function appendServerTiming(
   event: H3Event,
   name: string,
   durationMs: number,
+  desc?: string,
 ): void {
   const duration = Math.max(0, Math.round(durationMs));
+  const suffix = desc ? `;desc=${JSON.stringify(desc)}` : "";
   try {
-    response.headers.append("server-timing", `${name};dur=${duration}`);
+    response.headers.append(
+      "server-timing",
+      `${name};dur=${duration}${suffix}`,
+    );
   } catch {
     try {
-      setServerTiming(event, name, { dur: duration });
+      setServerTiming(
+        event,
+        name,
+        desc ? { dur: duration, desc } : { dur: duration },
+      );
     } catch {
       // Some adapters finalize headers eagerly. Tracking still runs.
     }
   }
+}
+
+/**
+ * Does this response get stored in a shared (CDN) cache and replayed?
+ *
+ * SSR HTML and React Router `.data` are one impersonal shell hard-cached for
+ * every visitor, so their headers are written ONCE by the origin render and
+ * then handed unchanged to everyone who hits the cache afterwards.
+ */
+function isSharedCacheable(response: Response): boolean {
+  const cacheControl =
+    response.headers.get("cache-control")?.toLowerCase() ?? "";
+  if (!cacheControl) return false;
+  if (/\b(?:no-store|no-cache|private)\b/.test(cacheControl)) return false;
+  return (
+    /\bpublic\b/.test(cacheControl) || /\bs-maxage=[1-9]/.test(cacheControl)
+  );
+}
+
+/**
+ * Per-phase `server-timing` entries do NOT belong on a shared-cacheable
+ * response. `app;dur=2159` on a cached shell describes one origin render from
+ * an arbitrary point in the past, yet every later visitor reads it as the cost
+ * of their own request — a stale number wearing a live number's name.
+ *
+ * So a cacheable response gets exactly one entry, `origin`, whose description
+ * leads with the absolute wall-clock time of the render that produced it. Two
+ * visitors comparing notes see the identical timestamp, which is what a replay
+ * is. The live per-invocation breakdown goes to the slow-request log line and
+ * to tracking instead; neither is ever cached.
+ */
+function originSnapshotDesc(state: HttpRequestTelemetryState): string {
+  const parts = [new Date(state.startedAt).toISOString()];
+  if (state.requestSequence === 1) {
+    parts.push(
+      "cold",
+      `boot=${processState.moduleEvalUptimeMs}`,
+      `init=${moduleToRequestMs(state)}`,
+    );
+  }
+  if (state.frameworkReadyWaitMs > 0) {
+    parts.push(`startup=${Math.round(state.frameworkReadyWaitMs)}`);
+  }
+  if (state.db.operationCount > 0) {
+    parts.push(
+      `db=${Math.round(state.db.operationWallMs)}`,
+      `dbops=${state.db.operationCount}`,
+    );
+  }
+  return parts.join(" ");
+}
+
+/**
+ * One structured line per cold or slow request, straight to stdout.
+ *
+ * Function logs are the only timing surface readable without a deploy, and
+ * `track()` silently no-ops when no tracking provider is registered — which is
+ * the common case. Deliberately NOT wrapped in a catch: a swallowed emit would
+ * leave a slow request indistinguishable from a fast one.
+ */
+function logSlowRequest(
+  event: H3Event,
+  state: HttpRequestTelemetryState,
+  response: Response | undefined,
+  durationMs: number,
+  pathname: string,
+): void {
+  const coldStart = state.requestSequence === 1;
+  if (!coldStart && durationMs < SLOW_REQUEST_MS) return;
+  console.log(
+    JSON.stringify({
+      event: SLOW_REQUEST_LOG_EVENT,
+      app: getAppName(),
+      method: getMethod(event),
+      path: normalizeHttpTelemetryPath(pathname),
+      status: responseStatusCode(event, response),
+      duration_ms: Math.round(durationMs),
+      cold_start: coldStart,
+      request_sequence: state.requestSequence,
+      boot_to_module_ms: processState.moduleEvalUptimeMs,
+      module_to_request_ms: moduleToRequestMs(state),
+      process_age_ms: state.processAgeAtStartMs,
+      framework_ready_wait_ms: Math.round(state.frameworkReadyWaitMs),
+      db_ms: Math.round(state.db.operationWallMs),
+      db_connect_ms: Math.round(state.db.connectTotalMs),
+      db_operation_count: state.db.operationCount,
+      db_error_count: state.db.errorCount,
+      db_timeout_count: state.db.timeoutCount,
+      startup_db_ms: state.startupDb
+        ? Math.round(state.startupDb.operationWallMs)
+        : undefined,
+      shared_cacheable: response ? isSharedCacheable(response) : undefined,
+      runtime_provider: runtimeProvider(),
+      request_id: state.requestId,
+    }),
+  );
 }
 
 export function recordFrameworkReadyWait(
@@ -357,7 +493,29 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         // Some adapters finalize headers eagerly. Tracking still has the id.
       }
     }
+    if (isSharedCacheable(response)) {
+      appendServerTiming(
+        response,
+        event,
+        "origin",
+        durationMs,
+        originSnapshotDesc(state),
+      );
+      logSlowRequest(event, state, response, durationMs, requestPath(event));
+      emitTelemetry(event, state, response);
+      return;
+    }
+
     appendServerTiming(response, event, "app", durationMs);
+    if (state.requestSequence === 1) {
+      appendServerTiming(
+        response,
+        event,
+        "boot",
+        processState.moduleEvalUptimeMs,
+      );
+      appendServerTiming(response, event, "init", moduleToRequestMs(state));
+    }
     if (state.frameworkReadyWaitMs > 0) {
       appendServerTiming(
         response,
@@ -397,6 +555,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       );
     }
 
+    logSlowRequest(event, state, response, durationMs, requestPath(event));
     emitTelemetry(event, state, response);
   });
 }

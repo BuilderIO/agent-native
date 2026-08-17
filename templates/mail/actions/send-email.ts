@@ -1,4 +1,6 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import { getRequestUserEmail } from "@agent-native/core/server";
@@ -7,6 +9,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import {
   collectLinks,
   newClickToken,
@@ -82,6 +85,12 @@ function buildTrackingContext(
   };
 }
 
+async function signalMailRefresh(): Promise<void> {
+  await writeAppState("refresh-signal", { ts: Date.now() }).catch((error) => {
+    console.error("[send-email] refresh signal failed:", error);
+  });
+}
+
 const attachmentSchema = z.object({
   filename: z
     .string()
@@ -102,7 +111,7 @@ const attachmentSchema = z.object({
 
 export default defineAction({
   description:
-    "Send an email via Gmail. IMPORTANT: Never call this unless the user explicitly asks to send — always draft first and show the content to the user for review before sending.",
+    "Send an email via Gmail. Interactive sends require approval. Automation-triggered sends require the owner to opt in through Mail settings; otherwise they remain approval-gated.",
   schema: z.object({
     to: z.string().describe("Recipient email(s), comma-separated"),
     subject: z.string().describe("Email subject"),
@@ -128,16 +137,22 @@ export default defineAction({
         "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
       ),
   }),
-  // Human-in-the-loop gate: actually sending an email is outward-facing and
-  // hard to undo, so the agent can never send without a human approving the
-  // specific call. The loop pauses with `approval_required`; the user approves
-  // before the message goes out. Drafting/queueing is unaffected — only the
-  // real send is gated. This is the canonical (and intentionally rare) use of
-  // `needsApproval` in the framework.
-  needsApproval: true,
-  run: async (args) => {
+  // Interactive sends stay human-approved. Event-triggered automations may
+  // opt out through the owner's Mail Automation settings, which are read from
+  // trusted action context rather than from tool input.
+  needsApproval: (_args, ctx?: ActionRunContext) =>
+    requiresEmailSendApproval(ctx),
+  run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    if (
+      ctx?.caller === "automation" &&
+      (await requiresEmailSendApproval(ctx))
+    ) {
+      throw new Error(
+        "Automation email sending is disabled. Enable it in Mail settings to send automatically.",
+      );
+    }
     const settings = await readSettings();
 
     // Resolve attachments eagerly — fail before touching Gmail if any are missing.
@@ -224,6 +239,7 @@ export default defineAction({
             { owner: ownerEmail },
           );
         } catch {}
+        await signalMailRefresh();
         return JSON.stringify(newEmail, null, 2);
       });
     }
@@ -322,6 +338,7 @@ export default defineAction({
       } catch {
         // best-effort — never block the send response
       }
+      await signalMailRefresh();
 
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {

@@ -3,6 +3,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconAlertTriangle,
   IconArchive,
@@ -19,6 +21,7 @@ import {
   IconExternalLink,
   IconFileSearch,
   IconFileText,
+  IconFolderOpen,
   IconLoader2,
   IconNotes,
   IconPlayerPlay,
@@ -30,7 +33,14 @@ import {
   IconVideo,
   IconWebhook,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import { useSearchParams } from "react-router";
 
 import {
@@ -89,6 +99,7 @@ import {
   type CapturesResponse,
   type CreateSourceResponse,
   type BrainSource,
+  type MarkdownImportResponse,
   type BrainWorkspaceConnectionGrantState,
   type BrainWorkspaceConnectionStatus,
   type BrainWorkspaceCredentialRef,
@@ -105,6 +116,10 @@ import {
   sourceReviewRequired,
   sourceType,
 } from "@/lib/brain";
+import {
+  dispatchIntegrationsHref,
+  getDispatchHref,
+} from "@/lib/dispatch-links";
 import {
   createOneTimeIngestHandoff,
   type OneTimeIngestHandoff,
@@ -416,11 +431,6 @@ function captureCanQueue(capture: BrainCaptureReviewItem) {
 
 function isSourceProvider(providerId: string): providerId is Provider {
   return providers.some((provider) => provider.value === providerId);
-}
-
-function dispatchIntegrationsHref(providerId: string) {
-  const params = new URLSearchParams({ provider: providerId, appId: "brain" });
-  return `/dispatch/integrations?${params.toString()}`;
 }
 
 function grantStateLabel(state: BrainWorkspaceConnectionGrantState, t: BrainT) {
@@ -1045,11 +1055,13 @@ function ProviderCatalog({
   providers: connectionProviders,
   loading,
   workspaceError,
+  dispatchHref,
   onAddSource,
 }: {
   providers: BrainConnectionProvider[];
   loading: boolean;
   workspaceError?: string | null;
+  dispatchHref: string;
   onAddSource: (provider: Provider) => void;
 }) {
   const t = useT();
@@ -1122,7 +1134,8 @@ function ProviderCatalog({
                 provider.providerHealth?.status === "unhealthy" ||
                 provider.providerHealth?.status === "missing_credentials");
             const providerSetupHref =
-              provider.setupLink ?? dispatchIntegrationsHref(provider.id);
+              provider.setupLink ??
+              dispatchIntegrationsHref(provider.id, dispatchHref);
             return (
               <div
                 key={provider.id}
@@ -1411,7 +1424,11 @@ function ProviderCatalog({
                   </Button>
                   {grantState === "needs_grant" || providerNeedsSetup ? (
                     <Button size="sm" variant="outline" asChild>
-                      <a href={providerSetupHref}>
+                      <a
+                        href={providerSetupHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         <IconExternalLink className="size-4" />
                         {grantState === "needs_grant"
                           ? t("sources.grantInDispatch")
@@ -1537,6 +1554,229 @@ function ingestSourceKey(source: BrainSource) {
     : null;
 }
 
+type MarkdownFileSelection = {
+  path: string;
+  file: File;
+};
+
+function isMarkdownFilePath(path: string) {
+  return /\.(?:md|markdown)$/i.test(path);
+}
+
+function actionErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function MarkdownImportDialog({
+  source,
+  open,
+  onOpenChange,
+  onComplete,
+}: {
+  source: BrainSource | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onComplete: () => void;
+}) {
+  const t = useT();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<MarkdownFileSelection[]>([]);
+  const [skippedFileCount, setSkippedFileCount] = useState(0);
+  const [result, setResult] = useState<MarkdownImportResponse | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  const importMarkdownFiles = useActionMutation<
+    MarkdownImportResponse,
+    {
+      sourceId: string;
+      files: Array<{ path: string; content: string }>;
+      enqueueDistillation: boolean;
+    }
+  >("import-markdown-files" as any);
+
+  useEffect(() => {
+    if (!open) {
+      setFiles([]);
+      setSkippedFileCount(0);
+      setResult(null);
+      setReadError(null);
+    }
+  }, [open]);
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.currentTarget.files ?? []);
+    const byPath = new Map<string, MarkdownFileSelection>();
+    for (const file of selected) {
+      const path = file.webkitRelativePath || file.name;
+      if (isMarkdownFilePath(path)) byPath.set(path, { path, file });
+    }
+    setFiles(Array.from(byPath.values()));
+    setSkippedFileCount(selected.length - byPath.size);
+    setResult(null);
+    setReadError(null);
+    event.currentTarget.value = "";
+  }
+
+  async function submitImport() {
+    if (!source || !files.length) return;
+    setReadError(null);
+    try {
+      const payload = await Promise.all(
+        files.map(async ({ path, file }) => ({
+          path,
+          content: await file.text(),
+        })),
+      );
+      const nextResult = await importMarkdownFiles.mutateAsync({
+        sourceId: source.id,
+        files: payload,
+        enqueueDistillation: true,
+      });
+      setResult(nextResult);
+      onComplete();
+    } catch (error) {
+      setReadError(actionErrorMessage(error));
+    }
+  }
+
+  const resultIssues =
+    result?.files.filter((file) => file.status !== "imported") ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {source ? (
+        <DialogContent className="max-w-2xl gap-5">
+          <DialogHeader>
+            <DialogTitle>
+              {t("sources.manualImportTitle", { source: sourceName(source) })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("sources.manualImportDescription")}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={handleFileSelection}
+              {...({
+                webkitdirectory: "",
+                directory: "",
+              } as { webkitdirectory: string; directory: string })}
+            />
+            <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/25 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {files.length
+                    ? t("sources.manualImportFilesSelected", {
+                        count: files.length.toLocaleString(),
+                      })
+                    : t("sources.manualImportNoFiles")}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t("sources.manualImportFileLimit")}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => inputRef.current?.click()}
+              >
+                <IconFolderOpen className="size-4" />
+                {t("sources.chooseMarkdownFolder")}
+              </Button>
+            </div>
+
+            {skippedFileCount ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t("sources.manualImportSkippedFiles", {
+                  count: skippedFileCount.toLocaleString(),
+                })}
+              </p>
+            ) : null}
+
+            {files.length ? (
+              <div className="grid max-h-48 gap-1 overflow-y-auto rounded-md border border-border p-3 text-xs text-muted-foreground">
+                {files.slice(0, 20).map(({ path }) => (
+                  <p key={path} className="truncate font-mono">
+                    {path}
+                  </p>
+                ))}
+                {files.length > 20 ? (
+                  <p>
+                    {t("sources.manualImportMoreFiles", {
+                      count: (files.length - 20).toLocaleString(),
+                    })}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {result ? (
+              <div className="grid gap-2 rounded-md border border-border bg-muted/25 p-3 text-sm">
+                <p className="font-medium">
+                  {t("sources.manualImportResult", {
+                    imported: result.summary.imported.toLocaleString(),
+                    queued: result.summary.queued.toLocaleString(),
+                    failed: result.summary.failed.toLocaleString(),
+                    blocked: result.summary.blocked.toLocaleString(),
+                  })}
+                </p>
+                {resultIssues.length ? (
+                  <div className="grid gap-1 text-xs leading-5 text-muted-foreground">
+                    {resultIssues.slice(0, 5).map((file) => (
+                      <p key={file.path}>
+                        <span className="font-mono">{file.path}</span>:{" "}
+                        {file.error ?? t("sources.manualImportBlocked")}
+                      </p>
+                    ))}
+                    {resultIssues.length > 5 ? (
+                      <p>
+                        {t("sources.manualImportMoreIssues", {
+                          count: (resultIssues.length - 5).toLocaleString(),
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {readError ? (
+              <p className="text-sm leading-6 text-destructive">{readError}</p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              {t("sources.cancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={!files.length || importMarkdownFiles.isPending}
+              onClick={() => void submitImport()}
+            >
+              {importMarkdownFiles.isPending ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : (
+                <IconFolderOpen className="size-4" />
+              )}
+              {t("sources.importMarkdownFiles")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      ) : null}
+    </Dialog>
+  );
+}
+
 function SourceListItem({
   source,
   syncPending,
@@ -1544,6 +1784,8 @@ function SourceListItem({
   onRotateIngestToken,
   onSync,
   onTune,
+  onImportMarkdown,
+  onArchive,
 }: {
   source: BrainSource;
   syncPending: boolean;
@@ -1551,6 +1793,8 @@ function SourceListItem({
   onRotateIngestToken?: () => void;
   onSync: () => void;
   onTune: () => void;
+  onImportMarkdown?: () => void;
+  onArchive?: () => void;
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -1580,6 +1824,7 @@ function SourceListItem({
               {sourceName(source)}
             </h2>
             <StatusBadge status={sourceHealth(source)} />
+            <VisibilityBadge visibility={source.visibility} />
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
             <span className="capitalize">{sourceType(source)}</span>
@@ -1625,6 +1870,14 @@ function SourceListItem({
             <TooltipContent>{t("sources.captures")}</TooltipContent>
           </Tooltip>
 
+          <ShareButton
+            resourceType="brain-source"
+            resourceId={source.id}
+            allowedRoles={["viewer", "editor", "admin"]}
+            resourceTitle={sourceName(source)}
+            triggerClassName="h-8 px-2"
+          />
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1651,6 +1904,21 @@ function SourceListItem({
                 <DropdownMenuItem onSelect={onRotateIngestToken}>
                   <IconRefresh className="size-4" />
                   {t("sources.rotateIngestToken")}
+                </DropdownMenuItem>
+              ) : null}
+              {source.provider === "manual" && onImportMarkdown ? (
+                <DropdownMenuItem onSelect={onImportMarkdown}>
+                  <IconFolderOpen className="size-4" />
+                  {t("sources.importMarkdownFiles")}
+                </DropdownMenuItem>
+              ) : null}
+              {onArchive ? (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={onArchive}
+                >
+                  <IconArchive className="size-4" />
+                  {t("sources.archiveSource")}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -1690,6 +1958,22 @@ function SourceListItem({
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
                 {sourceDescription(source)}
               </p>
+              {source.provider === "manual" && onImportMarkdown ? (
+                <div className="mt-3 flex flex-col gap-3 rounded-md border border-border bg-muted/25 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {t("sources.manualImportDescription")}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={onImportMarkdown}
+                  >
+                    <IconFolderOpen className="size-4" />
+                    {t("sources.importMarkdownFiles")}
+                  </Button>
+                </div>
+              ) : null}
               {hasSyncNotice ? (
                 <div className="mt-3 flex gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm">
                   <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -1734,6 +2018,7 @@ function SourceListItem({
 
 export default function SourcesRoute() {
   const t = useT();
+  const dispatchHref = getDispatchHref();
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -1744,6 +2029,9 @@ export default function SourcesRoute() {
     null,
   );
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
+  const [markdownImportSource, setMarkdownImportSource] =
+    useState<BrainSource | null>(null);
+  const [archiveSource, setArchiveSource] = useState<BrainSource | null>(null);
   const [reviewSource, setReviewSource] = useState<BrainSource | null>(null);
   const [captureStatus, setCaptureStatus] =
     useState<CaptureStatusFilter>("queued");
@@ -1786,11 +2074,14 @@ export default function SourcesRoute() {
     {
       title: string;
       provider: Provider;
-      visibility: "org";
+      visibility: "private" | "org";
       config: Record<string, unknown>;
       sourceKey?: string;
     }
   >("create-source" as any);
+  const deleteSource = useActionMutation<unknown, { id: string }>(
+    "delete-source" as any,
+  );
   const rotateSourceIngestToken = useActionMutation<
     CreateSourceResponse,
     { sourceId: string }
@@ -1956,7 +2247,7 @@ export default function SourcesRoute() {
       const result = await createSource.mutateAsync({
         title: form.title.trim() || defaultTitle(form.provider, t),
         provider: form.provider,
-        visibility: "org",
+        visibility: "private",
         config,
         sourceKey: form.sourceKey.trim() || undefined,
       });
@@ -1969,6 +2260,13 @@ export default function SourcesRoute() {
       if (handoff) setIngestHandoff(handoff);
     }
     setSetupOpen(false);
+  }
+
+  async function confirmArchiveSource() {
+    if (!archiveSource) return;
+    await deleteSource.mutateAsync({ id: archiveSource.id });
+    if (reviewSource?.id === archiveSource.id) closeCaptureReview();
+    setArchiveSource(null);
   }
 
   async function rotateIngestToken(source: BrainSource) {
@@ -2020,9 +2318,7 @@ export default function SourcesRoute() {
   return (
     <div className="min-h-full bg-muted/20">
       <PageHeader
-        eyebrow={t("sources.eyebrow")}
         title={t("sources.title")}
-        description={t("sources.description")}
         actions={
           <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
             <Button
@@ -2069,6 +2365,8 @@ export default function SourcesRoute() {
                 }
                 onSync={() => syncSource.mutate({ sourceId: source.id })}
                 onTune={() => openEdit(source)}
+                onImportMarkdown={() => setMarkdownImportSource(source)}
+                onArchive={() => setArchiveSource(source)}
               />
             ))}
           </div>
@@ -2088,7 +2386,8 @@ export default function SourcesRoute() {
         rotateSourceIngestToken.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
-        enqueueCapturesDistillation.isError ? (
+        enqueueCapturesDistillation.isError ||
+        deleteSource.isError ? (
           <div>
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
@@ -2149,6 +2448,7 @@ export default function SourcesRoute() {
             <ProviderCatalog
               providers={connectionProviders}
               loading={connectionProvidersQuery.isLoading}
+              dispatchHref={dispatchHref}
               workspaceError={
                 connectionProvidersQuery.data?.workspaceConnections?.error ??
                 null
@@ -2459,6 +2759,61 @@ export default function SourcesRoute() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <MarkdownImportDialog
+        source={markdownImportSource}
+        open={Boolean(markdownImportSource)}
+        onOpenChange={(open) => {
+          if (!open) setMarkdownImportSource(null);
+        }}
+        onComplete={() => {
+          void sourcesQuery.refetch();
+          void healthQuery.refetch();
+        }}
+      />
+
+      <Dialog
+        open={Boolean(archiveSource)}
+        onOpenChange={(open) => {
+          if (!open && !deleteSource.isPending) setArchiveSource(null);
+        }}
+      >
+        {archiveSource ? (
+          <DialogContent className="max-w-md gap-5">
+            <DialogHeader>
+              <DialogTitle>{t("sources.archiveSourceTitle")}</DialogTitle>
+              <DialogDescription>
+                {t("sources.archiveSourceDescription", {
+                  source: sourceName(archiveSource),
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={deleteSource.isPending}
+                onClick={() => setArchiveSource(null)}
+              >
+                {t("sources.cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deleteSource.isPending}
+                onClick={() => void confirmArchiveSource()}
+              >
+                {deleteSource.isPending ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : (
+                  <IconArchive className="size-4" />
+                )}
+                {t("sources.archiveSource")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
 
       <Dialog
         open={Boolean(ingestHandoff)}

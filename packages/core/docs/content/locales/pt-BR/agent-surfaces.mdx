@@ -10,7 +10,7 @@ Uma **superfície** é a forma como usuários (ou outros sistemas) interagem com
 
 ## Como as superfícies se relacionam
 
-As quatro formas principais de produto estão em um espectro que vai da mais interativa até a totalmente headless. O que as torna combináveis é que a base permanece a mesma em todos os casos: as mesmas actions, o mesmo banco de dados SQL e o mesmo loop de agente alimentam cada forma. Adicionar uma nova superfície não significa reescrever o que está por baixo — você está apenas adicionando uma nova forma de acessar as mesmas operações.
+As quatro formas principais de produto estão em um espectro que vai da mais interativa até a totalmente headless. O que as torna combináveis é que compartilham as mesmas actions e o estado do app respaldado por SQL. Use o loop de agente quando uma superfície precisar de um agente. Adicionar uma nova superfície não significa reescrever o que está por baixo — você está apenas adicionando uma nova forma de acessar as mesmas operações.
 
 <Diagram id="doc-block-hvdxgh" title="O espectro de superfícies" summary={"Uma superfície de action, quatro formas de produto, cada uma adicionando UI sem alterar a operação subjacente."}>
 
@@ -40,7 +40,8 @@ As quatro formas principais de produto estão em um espectro que vai da mais int
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >mesmas actions · mesmo SQL · mesmo loop de agente</span
+    >mesmas actions · estado respaldado por SQL · loop de agente quando
+    usado</span
   >
 </div>
 ```
@@ -158,6 +159,38 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 As actions podem retornar resultados de widgets nativos explícitos para que a saída do chat não seja apenas texto. Tabelas, gráficos e cards de produto tipados são renderizados como componentes React de primeira linha no chat, sem iframes. Veja [Native Chat UI](/docs/native-chat-ui). Quando o agente precisa de controles gerados arbitrários em vez de um widget React predefinido, use [Generative UI](/docs/generative-ui): ele renderiza UI Alpine/Tailwind em sandbox inline, pode ler o estado do app e o contexto de slot, e pode enviar valores selecionados de volta ao chat.
 
+### Superfícies de ações por solicitação
+
+Use `resolveActionSurface` quando o agente ou thread selecionado puder expor
+somente um subconjunto de ações nativas autorizado pelo servidor. O callback é
+executado em cada solicitação de chat interativo após `prepareRequest`. Os
+nomes retornados formam uma allowlist rígida: ações omitidas não aparecem nos
+schemas do provedor, no registro de execução, no pré-carregamento do modo Plan
+nem na descoberta por `tool-search`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+Uma lista vazia não expõe ações nativas. Nomes desconhecidos fazem a
+solicitação falhar em vez de ampliar o acesso. Todas as ações permitidas são
+carregadas diretamente na primeira solicitação ao modelo; inclua
+`tool-search` explicitamente apenas para pesquisar dentro do catálogo já
+autorizado. O callback limita apenas o chat interativo, não HTTP, MCP, A2A,
+jobs ou triggers. As orientações padrão do framework e os subagentes iniciados
+herdam a mesma superfície. Ferramentas shell confiáveis são automaticamente
+reduzidas ao sandbox filtrado por solicitação, pois um shell irrestrito não
+consegue impor uma fronteira rígida de ações.
+
 ## UI inline nativa {#native-inline-ui}
 
 Use isso quando suas actions retornam dados estruturados — uma lista de registros, um conjunto de dados de gráfico, um resumo de status — que devem ser renderizados como um componente de UI real dentro da thread do chat, em vez de uma descrição em texto simples. Você define um renderizador `chatUI` na action, e o Agent-Native o renderiza como um componente React de primeira linha: sem iframes, sem caminho de renderização separado.
@@ -184,7 +217,7 @@ Apps completos adicionam UI de produto em torno do mesmo contrato de action e ag
 
 ### Estado SQL
 
-Dados do app, navegação, configurações e histórico de chat são todos duráveis. O agente lê e escreve as mesmas linhas que a UI faz.
+Dados do app, navegação, configurações e histórico de chat são persistentes em SQL. O agente lê e escreve as mesmas linhas que a UI faz.
 
 ### Context awareness
 
@@ -192,7 +225,7 @@ O agente conhece a rota atual, a seleção e o objeto em foco, então "editar is
 
 ### Sincronização em tempo real
 
-As mudanças do agente atualizam a UI em tempo real, e as mudanças da UI atualizam o contexto do agente. Sem polling, sem atualização de página.
+As mudanças do agente atualizam a UI por meio da sincronização ao vivo, e as mudanças da UI atualizam o contexto do agente. O framework usa SSE com fallback de polling, então os usuários não precisam atualizar a página manualmente.
 
 ### Deep links
 
@@ -214,9 +247,9 @@ Comece pelo [template Chat](/docs/template-chat) quando quiser um app mínimo em
 
 Todo app Agent-Native eventualmente precisa de um lugar onde os usuários possam configurar seu agente: definir instruções permanentes, revisar o que ele fez, conectar servidores MCP, gerenciar automações e controlar o acesso. Construir essa UI do zero dá muito trabalho. O Agent-Native inclui um componente pré-construído de página completa, `AgentTabsPage`, que cobre tudo isso em doze abas.
 
-Monte-o em `/agent` no seu app. Os templates atuais combinam essa rota com uma entrada de navegação do app e passam `agentPageHref="/agent"` para `AgentSidebar`, para que os modos Resources e Settings do sidebar possam linkar para a página completa sem duplicar esses fluxos.
+Monte-o em `/settings/agent` no seu app. Os templates atuais usam essa como rota canônica e passam `agentPageHref="/settings/agent"` para `AgentSidebar`. `/agent` continua disponível como redirecionamento legado.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -453,7 +486,7 @@ await runAgentLoop({
 });
 ```
 
-Para a maioria dos apps, prompts agendados e webhooks de integração já chamam esse loop para você. Use-o diretamente apenas quando estiver construindo um host sem navegador personalizado, um executor de avaliação ou uma superfície de orquestração no lado do servidor. Veja [Servidor: Manipulador de agente de produção](/docs/server#agent-handler) para a assinatura completa.
+Para a maioria dos apps, prompts agendados e webhooks de integração já chamam esse loop para você. Use-o diretamente apenas quando estiver construindo um host sem navegador personalizado, um executor de avaliação ou uma superfície de orquestração no lado do servidor. Veja [Servidor: Manipulador de agente de produção](/docs/server-plugins#agent-chat-plugin) para a assinatura completa.
 
 ### Rodando contra uma pasta {#folder-loop}
 
@@ -502,7 +535,7 @@ Existem helpers de runtime prontos para OpenAI Agents, OpenAI Responses, o Claud
 
 <Cards>
 
-### [Actions](/docs/actions)
+### [Actions](/docs/actions-overview)
 
 Defina a operação uma vez. Cada superfície acima chama a mesma.
 

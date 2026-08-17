@@ -9,8 +9,13 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
+import {
+  hasTriageSourceChanged,
+  statusAfterTriageSourceUpdate,
+} from "../server/triage/review-state.js";
 import { createSentryClient } from "../server/triage/sentry-client.js";
 
 export default defineAction({
@@ -97,6 +102,25 @@ export default defineAction({
           firstSeen: issue.firstSeen,
           lastSeen: issue.lastSeen,
         });
+        const summary = [issue.culprit, `${issue.count} events`, issue.level]
+          .filter(Boolean)
+          .join(" · ")
+          .slice(0, 4_000);
+        const sourceChanged = hasTriageSourceChanged(existing, {
+          sourceUrl: issue.permalink,
+          title: issue.title,
+          summary,
+          lastSeenAt: issue.lastSeen,
+        });
+        const status = statusAfterTriageSourceUpdate(
+          existing?.status,
+          sourceChanged,
+          "received",
+        );
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
+        const lastSeenAt = sourceChanged
+          ? issue.lastSeen
+          : (existing?.lastSeenAt ?? issue.lastSeen);
         await tx
           .insert(triageItems)
           .values({
@@ -105,18 +129,15 @@ export default defineAction({
             externalId: issue.id,
             sourceUrl: issue.permalink,
             title: issue.title,
-            summary: [issue.culprit, `${issue.count} events`, issue.level]
-              .filter(Boolean)
-              .join(" · ")
-              .slice(0, 4_000),
-            status: existing?.status ?? "received",
+            summary,
+            status,
             risk: existing?.risk ?? "unknown",
             coverage: existing?.coverage ?? "complete",
             dedupeKey: id,
             metadataJson: metadata,
-            lastSeenAt: issue.lastSeen,
+            lastSeenAt,
             createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
+            updatedAt,
             ownerEmail: existing?.ownerEmail ?? userEmail,
             orgId,
           })
@@ -125,13 +146,11 @@ export default defineAction({
             set: {
               sourceUrl: issue.permalink,
               title: issue.title,
-              summary: [issue.culprit, `${issue.count} events`, issue.level]
-                .filter(Boolean)
-                .join(" · ")
-                .slice(0, 4_000),
+              summary,
+              status,
               metadataJson: metadata,
-              lastSeenAt: issue.lastSeen,
-              updatedAt: now,
+              lastSeenAt,
+              updatedAt,
             },
           });
       }
@@ -150,6 +169,44 @@ export default defineAction({
         })
         .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)));
     });
+
+    if (observedIssues.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-sentry-errors",
+          kind: "observed",
+          source: "sentry",
+          summary: "No unresolved Sentry errors were observed.",
+          details: { sentryOrgSlug: config.sentryOrgSlug },
+        },
+      );
+    } else {
+      for (const issue of observedIssues) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-sentry-errors",
+            kind: "observed",
+            itemId: itemDedupeKey(
+              { source: "sentry", externalId: issue.id },
+              orgId,
+            ),
+            source: "sentry",
+            sourceUrl: issue.permalink,
+            summary: issue.title,
+            details: {
+              shortId: issue.shortId,
+              level: issue.level,
+              count: issue.count,
+              projectSlug: issue.projectSlug,
+            },
+          },
+        );
+      }
+    }
 
     return {
       ok: true,

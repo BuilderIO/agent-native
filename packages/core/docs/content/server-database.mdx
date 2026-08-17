@@ -5,7 +5,7 @@ description: "Connect a portable SQL database to your agent-native app: schema h
 
 # Database
 
-Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. When either side changes data, the other sees it through the polling layer.
+Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
 
 <Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
 
@@ -110,7 +110,7 @@ An app that uses the database needs three files:
 
 - `server/db/schema.ts`: table definitions
 - `server/db/index.ts`: the typed DB client singleton
-- `server/plugins/db.ts`: migrations that run at startup
+- `server/plugins/db.ts`: app-owned migrations for local startup
 
 ### 1. Define your schema {#schema}
 
@@ -208,7 +208,8 @@ Import `getDb` from this template-local path in actions and routes. Do not impor
 
 ### 3. Write migrations {#migrations}
 
-Schema changes are applied at startup via a Nitro plugin in `server/plugins/db.ts`. Use `runMigrations` from `@agent-native/core/db`:
+For local development, schema changes can run through a Nitro plugin in
+`server/plugins/db.ts`. Use `runMigrations` from `@agent-native/core/db`:
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +243,15 @@ Schema changes are applied at startup via a Nitro plugin in `server/plugins/db.t
   ]}
 />
 
-`runMigrations` runs each entry in order once, then records the version so it is skipped on future restarts. Entries are idempotent. The plugin is safe to call on every boot.
+`runMigrations` runs each pending entry in order once, records it as applied, and
+skips it on later runs. Give new entries a stable `name`; named migrations are
+tracked independently of their version number.
+
+<Callout tone="warning">
+  For production or serverless deployments, run migrations in a release or
+  deploy step instead of on the first request. The Chat template provides `pnpm
+  migrate:production` for this.
+</Callout>
 
 <Callout tone="warning">
   Give every new migration a stable `name` (e.g. `{ version: 4, name:
@@ -432,6 +441,6 @@ const { rows } = await getDbExec().execute({
 - [**Security — Data Scoping**](/docs/security#data-scoping): how `owner_email` and access helpers scope reads and writes
 - [**Sharing**](/docs/sharing#building): `ownableColumns()` and the visibility model for shared resources
 - [**Plugins**](/docs/server-plugins): the startup plugin lifecycle where migrations run
-- [**Actions**](/docs/actions): the surface where actions call `getDb()` to read and write data
+- [**Actions**](/docs/actions-overview): the surface where actions call `getDb()` to read and write data
 - [**Deployment**](/docs/deployment#persistent-database): connecting a persistent database per deploy target
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` and the full client-side sync model

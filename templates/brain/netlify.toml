@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs brain"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter brain migrate:production; fi"
 publish = "templates/brain/dist"
 functions = "templates/brain/.netlify/functions-internal"
 
@@ -9,6 +9,9 @@ GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+
+[context.production.environment]
+AGENT_NATIVE_HOSTED_HARNESS = "true"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # The framework does not impose a default agent-run timeout; if a template sets

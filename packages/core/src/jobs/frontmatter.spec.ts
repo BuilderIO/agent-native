@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildJobResourceContent,
   classifyJobResource,
+  jobBelongsToApp,
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -17,7 +18,16 @@ describe("job resource frontmatter", () => {
       condition: 'attendee says "yes"\nwith context',
       mode: "agentic",
       domain: "calendar",
+      appId: "calendar",
       delegatedPolicyId: "calendar-safe:v1",
+      executionHostId: "remote-device-laptop",
+      executionEngine: "claude-cli",
+      executionCwd: "/Users/alice/Projects/calendar",
+      remoteRequestId:
+        "remote-automation:alice:jobs/calendar.md:2026-07-29T16:00:00.000Z",
+      remoteCommandId: "remote-command-1",
+      remoteRunId: "run-1",
+      remoteAutomationRunId: "automation-run-1",
       createdBy: "alice@example.com",
       orgId: "org-1",
       runAs: "creator",
@@ -31,6 +41,8 @@ describe("job resource frontmatter", () => {
       deliveryThreadRef: "1785343277.030909",
       deliveryTenantId: "T012345",
       model: "claude-sonnet-4-5",
+      maxIterations: 32,
+      maxRunInputTokens: 1_000_000,
       mcpTools: ["mcp__calendar__list_events"],
     };
 
@@ -93,5 +105,16 @@ mcpTools: ["https://example.com/not-a-tool"]
 
 Run the job.`),
     ).toThrow(/mcpTools must contain only framework MCP tool names/);
+  });
+
+  it("fails closed for organization resources without an app owner", () => {
+    expect(jobBelongsToApp({ orgId: "org-1" }, "factory")).toBe(false);
+    expect(
+      jobBelongsToApp({ orgId: "org-1", appId: "factory" }, "factory"),
+    ).toBe(true);
+    expect(jobBelongsToApp({ orgId: "org-1", appId: "factory" }, "mail")).toBe(
+      false,
+    );
+    expect(jobBelongsToApp({}, "mail")).toBe(true);
   });
 });

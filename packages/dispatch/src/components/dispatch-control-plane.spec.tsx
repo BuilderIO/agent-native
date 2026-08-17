@@ -8,10 +8,12 @@ import { DispatchControlPlane } from "./dispatch-control-plane";
 import { TooltipProvider } from "./ui/tooltip";
 
 const clientState = vi.hoisted(() => ({
+  inBuilderFrame: false,
   navigateWithTransition: vi.fn(),
   promptComposerProps: null as Record<string, unknown> | null,
   workspaceApps: [] as Array<Record<string, unknown>>,
   connectedApps: [] as Array<Record<string, unknown>>,
+  curatedTemplates: [] as Array<Record<string, unknown>>,
   useChatModels: vi.fn(() => ({
     availableModels: [],
     defaultModel: "auto",
@@ -31,6 +33,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
     options?: unknown,
   ) => clientState.navigateWithTransition(navigate, path, options),
+  orderChatFirstAppIds: (appIds: string[]) => appIds,
+  readChatFirstAppLayout: () => ({ pinnedIds: [], orderedIds: [] }),
+  writeChatFirstAppLayout: () => ({ ok: true }),
   useChatModels: clientState.useChatModels,
 }));
 
@@ -51,12 +56,19 @@ vi.mock("@agent-native/core/client/composer", () => ({
   },
 }));
 
+vi.mock("@agent-native/core/client/application-state", () => ({
+  readClientAppState: vi.fn(async () => null),
+  writeClientAppState: vi.fn(async () => null),
+}));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => ({
     data:
       name === "list-connected-agents"
         ? clientState.connectedApps
-        : clientState.workspaceApps,
+        : name === "list-curated-workspace-templates"
+          ? clientState.curatedTemplates
+          : clientState.workspaceApps,
     isLoading: false,
     isError: false,
     error: null,
@@ -66,7 +78,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
-  isInBuilderFrame: () => false,
+  isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -76,7 +88,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("./create-app-popover", () => ({
-  CreateAppPopover: () => <div>Create app</div>,
+  CreateAppPopover: ({ trigger }: { trigger?: React.ReactNode }) => (
+    <div>
+      {trigger}
+      <span>Create app</span>
+    </div>
+  ),
 }));
 
 describe("DispatchControlPlane", () => {
@@ -85,10 +102,12 @@ describe("DispatchControlPlane", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    clientState.inBuilderFrame = false;
     clientState.navigateWithTransition.mockReset();
     clientState.promptComposerProps = null;
     clientState.workspaceApps = [];
     clientState.connectedApps = [];
+    clientState.curatedTemplates = [];
     clientState.useChatModels.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -113,9 +132,20 @@ describe("DispatchControlPlane", () => {
     });
 
     expect(container.textContent).toContain("Chat across your apps");
+    expect(container.querySelector('[class*="max-w-[750px]"]')).not.toBeNull();
+    expect(container.querySelector('[class*="max-w-[1000px]"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Open chat");
     expect(container.textContent).not.toContain("Also");
     expect(container.textContent).not.toContain("active");
+    expect(container.textContent).not.toContain(
+      "Summarize the current workspace health",
+    );
+    expect(container.textContent).toContain(
+      "Create an app for onboarding requests",
+    );
+    expect(container.textContent).toContain(
+      "Check which agents can help with analytics",
+    );
     expect(container.querySelector("nav")).toBeNull();
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
@@ -129,6 +159,7 @@ describe("DispatchControlPlane", () => {
       selectedEffort: "medium",
       selectedEngine: "",
       selectedModel: "auto",
+      rootClassName: "bg-card",
     });
 
     await act(async () => {
@@ -145,6 +176,36 @@ describe("DispatchControlPlane", () => {
             selectedModel: "auto",
             selectedEngine: "",
             selectedEffort: "medium",
+          }),
+        },
+      }),
+    );
+  });
+
+  it("keeps overview submissions on Dispatch Chat inside Builder frames", async () => {
+    clientState.inBuilderFrame = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <DispatchControlPlane />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-placeholder]")?.click();
+    });
+
+    expect(clientState.navigateWithTransition).toHaveBeenCalledWith(
+      expect.any(Function),
+      "/chat",
+      expect.objectContaining({
+        state: {
+          dispatchPrompt: expect.objectContaining({
+            message: "Route onboarding work",
           }),
         },
       }),
@@ -187,12 +248,30 @@ describe("DispatchControlPlane", () => {
         id: "clips",
         name: "Clips",
         description: "Record and share",
-        url: "https://clips.agent-native.com",
+        url: "https://clips.agent-native.com/share/WrA8ZQ3oxa2T?ref=clip_share",
+        homeUrl: "https://clips.agent-native.com",
+        source: "builtin",
       },
       {
         id: "onboarding",
         name: "Duplicate onboarding",
         url: "https://duplicate.example.com",
+      },
+    ];
+    clientState.curatedTemplates = [
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Email client",
+        liveUrl: "https://mail.agent-native.com",
+        installed: false,
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        description: "Workspace insights",
+        liveUrl: "https://analytics.agent-native.com",
+        installed: false,
       },
     ];
 
@@ -209,12 +288,40 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Onboarding");
     expect(container.textContent).toContain("Mail");
     expect(container.textContent).toContain("Clips");
+    expect(container.textContent).toContain("Analytics");
+    expect(container.textContent).toContain("Apps");
+    expect(container.textContent).toContain("New");
+    const viewAllLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "View all",
+    );
+    expect(viewAllLink?.className).toContain("text-muted-foreground");
+    expect(container.textContent).not.toContain("Other apps");
+    expect(container.textContent).not.toContain("available");
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
+    expect(container.textContent).not.toContain("CRM");
     expect(
-      Array.from(container.querySelectorAll("a")).filter((anchor) =>
-        anchor.getAttribute("href")?.includes("onboarding"),
+      container.querySelectorAll(
+        'button[aria-label="Open options for Onboarding"]',
       ),
     ).toHaveLength(1);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open options for Onboarding"]',
+        )
+        ?.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
+      'a[href="/onboarding"][target="_blank"]',
+    );
+    expect(onboardingNewTabLink).not.toBeNull();
+    const clipsHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href"))
+      .find((href) => href?.includes("clips.agent-native.com"));
+    expect(clipsHref).toContain("https://clips.agent-native.com");
+    expect(clipsHref).not.toContain("/share/");
   });
 });

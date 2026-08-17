@@ -10,7 +10,7 @@ Une **surface** désigne la façon dont les utilisateurs (ou d'autres systèmes)
 
 ## Comment les surfaces s'articulent entre elles
 
-Les quatre formes de produit principales s'inscrivent sur un spectre allant de la plus interactive à la totalement sans interface. Ce qui les rend composables, c'est que la fondation reste la même tout au long : les mêmes actions, la même base de données SQL et la même boucle d'agent alimentent chaque forme. Ajouter une nouvelle surface ne signifie pas réécrire ce qui se trouve en dessous — vous ajoutez simplement une nouvelle façon d'atteindre les mêmes opérations.
+Les quatre formes de produit principales s'inscrivent sur un spectre allant de la plus interactive à la totalement sans interface. Ce qui les rend composables, c'est qu'elles partagent les mêmes actions et le même état d'application stocké dans SQL. Utilisez la boucle d'agent lorsqu'une surface a besoin d'un agent. Ajouter une nouvelle surface ne signifie pas réécrire ce qui se trouve en dessous — vous ajoutez simplement une nouvelle façon d'atteindre les mêmes opérations.
 
 <Diagram id="doc-block-hvdxgh" title="Le spectre des surfaces" summary={"Une surface d'action, quatre formes de produit, chacune ajoutant une interface sans modifier l'opération sous-jacente."}>
 
@@ -41,7 +41,7 @@ Les quatre formes de produit principales s'inscrivent sur un spectre allant de l
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >mêmes actions · même SQL · même boucle d'agent</span
+    >mêmes actions · état stocké dans SQL · boucle d'agent si nécessaire</span
   >
 </div>
 ```
@@ -169,6 +169,38 @@ widget React prédéfini, utilisez [Generative UI](/docs/generative-ui) : il aff
 dans un bac à sable intégré, peut lire l'état de l'application et le contexte de l'emplacement, et peut renvoyer
 les valeurs sélectionnées vers le chat.
 
+### Surfaces d’actions limitées à la requête
+
+Utilisez `resolveActionSurface` lorsque l’agent ou le fil sélectionné ne doit
+exposer qu’un sous-ensemble d’actions natives autorisé par le serveur. Le
+callback s’exécute pour chaque requête de chat interactif après
+`prepareRequest`. Les noms retournés forment une liste d’autorisation stricte :
+les actions omises sont absentes des schémas du fournisseur, du registre
+d’exécution, du préchargement du mode Plan et de la recherche `tool-search`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+Une liste vide n’expose aucune action native. Un nom inconnu fait échouer la
+requête au lieu d’élargir l’accès. Toutes les actions autorisées sont chargées
+dès la première requête au modèle ; ajoutez explicitement `tool-search`
+uniquement pour rechercher dans le catalogue déjà autorisé. Le callback limite
+seulement le chat interactif, pas HTTP, MCP, A2A, les jobs ou les triggers. En
+outre, les consignes par défaut du framework et les sous-agents lancés héritent
+de la même surface. Les outils shell de confiance sont automatiquement ramenés
+au bac à sable filtré par requête, car un shell sans restriction ne peut pas
+appliquer une frontière d’actions stricte.
+
 ## Interface utilisateur native intégrée {#native-inline-ui}
 
 Utilisez cette surface lorsque vos actions renvoient des données structurées — une liste d'enregistrements, un jeu de données de graphique, un résumé d'état — qui doivent s'afficher en tant que vrai composant d'interface dans le fil de chat plutôt qu'une simple description textuelle. Vous définissez un renderer `chatUI` sur l'action, et Agent-Native l'affiche en tant que composant React de premier niveau : pas d'iframe, pas de chemin de rendu séparé.
@@ -196,7 +228,7 @@ Les applications complètes ajoutent une interface produit autour du même contr
 
 ### État SQL
 
-Les données de l'application, la navigation, les paramètres et l'historique du chat sont tous durables. L'agent lit et écrit les mêmes lignes que l'interface utilisateur.
+Les données de l'application, la navigation, les paramètres et l'historique du chat sont persistants dans SQL. L'agent lit et écrit les mêmes lignes que l'interface utilisateur.
 
 ### Prise de conscience du contexte
 
@@ -204,7 +236,7 @@ L'agent connaît la route actuelle, la sélection et l'objet ciblé, de sorte qu
 
 ### Synchronisation en direct
 
-Les modifications de l'agent mettent à jour l'interface en temps réel, et les modifications de l'interface mettent à jour le contexte de l'agent. Pas de polling, pas de rechargement.
+Les modifications de l'agent mettent à jour l'interface via la synchronisation en direct, et les modifications de l'interface mettent à jour le contexte de l'agent. Le framework utilise SSE avec un fallback par polling : les utilisateurs n'ont pas besoin de recharger manuellement.
 
 ### Liens profonds
 
@@ -228,9 +260,9 @@ souhaitez une forme de produit complète.
 
 Chaque application Agent-Native finit par avoir besoin d'un endroit où les utilisateurs peuvent configurer leur agent : définir des instructions permanentes, consulter ce qu'il a fait, connecter des serveurs MCP, gérer des automatisations et contrôler l'accès. Construire cette interface de zéro représente beaucoup de travail. Agent-Native propose un composant pleine page préconfiguré, `AgentTabsPage`, qui couvre tout cela sur douze onglets.
 
-Montez-le à `/agent` dans votre application. Les modèles actuels associent cette route à une entrée de navigation de l'application et transmettent `agentPageHref="/agent"` à `AgentSidebar`, afin que les modes Ressources et Paramètres de la barre latérale puissent renvoyer vers la page complète sans dupliquer ces flux.
+Montez-le à `/settings/agent` dans votre application. Les modèles actuels utilisent cette route canonique et transmettent `agentPageHref="/settings/agent"` à `AgentSidebar`. `/agent` reste disponible comme redirection héritée.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -482,7 +514,7 @@ await runAgentLoop({
 
 Pour la plupart des applications, les prompts planifiés et les webhooks d'intégration appellent déjà cette boucle
 pour vous. Utilisez-la directement uniquement lorsque vous construisez un hôte personnalisé sans navigateur, un exécuteur d'évaluation
-ou une surface d'orchestration côté serveur. Consultez [Serveur : Gestionnaire d'agent en production](/docs/server#agent-handler) pour la signature complète.
+ou une surface d'orchestration côté serveur. Consultez [Serveur : Gestionnaire d'agent en production](/docs/server-plugins#agent-chat-plugin) pour la signature complète.
 
 ### Exécution sur un dossier {#folder-loop}
 
@@ -557,7 +589,7 @@ métadonnées de résultat d'outil `chatUI`. Commencez là lors du câblage d'un
 
 <Cards>
 
-### [Actions](/docs/actions)
+### [Actions](/docs/actions-overview)
 
 Définissez l'opération une fois. Chaque surface ci-dessus appelle la même.
 

@@ -28,7 +28,16 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -62,10 +71,12 @@ export interface DashboardSummaryRecord {
   id: string;
   kind: DashboardKind;
   name: string;
+  description: string | null;
   configName: string | null;
   catalogTemplateId: string | null;
   demoId: string | null;
   parentId: string | null;
+  folderId: string | null;
   ownerEmail: string;
   orgId: string | null;
   visibility: "private" | "org" | "public";
@@ -75,6 +86,30 @@ export interface DashboardSummaryRecord {
   hiddenAt: string | null;
   hiddenBy: string | null;
 }
+
+/** Compact, access-scoped reference returned by dashboard discovery. */
+export interface DashboardReferenceRecord {
+  id: string;
+  kind: DashboardKind;
+  name: string;
+  description: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
+  updatedAt: string;
+  matchedFields: Array<"id" | "name" | "description" | "config">;
+}
+
+/** Hydrated dashboard row for catalog ranking only. */
+export interface DashboardCatalogRecord {
+  id: string;
+  kind: DashboardKind;
+  title: string;
+  description: string | null;
+  config: Record<string, unknown>;
+}
+
+const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
 
 export interface DashboardRevisionRecord {
   id: string;
@@ -134,9 +169,23 @@ interface AccessCtx {
 
 const SQL_PREFIX = "sql-dashboard-";
 const EXPLORER_PREFIX = "dashboard-";
+
+/**
+ * `EXPLORER_PREFIX` also prefixes per-dashboard preference keys such as
+ * `dashboard-filters:<id>`, so an unqualified prefix match reads every saved
+ * filter set back as an "Untitled" explorer dashboard. Settings sub-namespaces
+ * are the only thing that puts a separator inside the remainder, encoded or
+ * not, and no dashboard id contains one.
+ */
+function isLegacyDashboardId(id: string): boolean {
+  return id.length > 0 && !/:|%3a/i.test(id);
+}
 const ANALYSIS_PREFIX = "adhoc-analysis-";
 const DASHBOARD_REVISION_LIMIT = 50;
 const ANALYSIS_REVISION_LIMIT = 30;
+const MAX_DASHBOARD_REFERENCE_RESULTS = 24;
+const MAX_DASHBOARD_REFERENCE_CANDIDATES = 200;
+const OUT_OF_SCOPE_REFERENCE_PROBE_LIMIT = 5;
 
 export function normalizeDashboardName(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -144,6 +193,138 @@ export function normalizeDashboardName(value: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function escapeLikeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
+type DashboardReferenceSearchQuery = {
+  phrase: string;
+  terms: string[];
+};
+
+function dashboardReferenceSearchQuery(
+  search: string,
+): DashboardReferenceSearchQuery {
+  const phrase = search.trim().replace(/\s+/g, " ").toLowerCase();
+  return {
+    phrase,
+    terms: phrase.split(" ").filter(Boolean).slice(0, 8),
+  };
+}
+
+function dashboardReferenceFieldText(value: unknown): string {
+  if (typeof value === "string") return value.toLowerCase();
+  if (!value || typeof value !== "object") return "";
+  const serialized = JSON.stringify(value);
+  return typeof serialized === "string" ? serialized.toLowerCase() : "";
+}
+
+function dashboardReferenceMatch(
+  row: {
+    id?: unknown;
+    kind?: unknown;
+    name?: unknown;
+    description?: unknown;
+    config?: unknown;
+    ownerEmail?: unknown;
+    orgId?: unknown;
+    visibility?: unknown;
+    updatedAt?: unknown;
+  },
+  query: DashboardReferenceSearchQuery,
+): { record: DashboardReferenceRecord; score: number } | null {
+  const fields = {
+    id: dashboardReferenceFieldText(row.id),
+    name: dashboardReferenceFieldText(row.name),
+    description: dashboardReferenceFieldText(row.description),
+    config: dashboardReferenceFieldText(row.config),
+  } satisfies Record<DashboardReferenceRecord["matchedFields"][number], string>;
+  const matchedFields = Object.entries(fields)
+    .filter(([, value]) => query.terms.some((term) => value.includes(term)))
+    .map(
+      ([field]) => field as DashboardReferenceRecord["matchedFields"][number],
+    );
+  const matchedTerms = query.terms.filter((term) =>
+    Object.values(fields).some((value) => value.includes(term)),
+  ).length;
+  if (matchedTerms !== query.terms.length) return null;
+
+  let score = matchedTerms * 100;
+  for (const [field, value] of Object.entries(fields)) {
+    const weight =
+      field === "name"
+        ? 80
+        : field === "description"
+          ? 45
+          : field === "id"
+            ? 30
+            : 10;
+    if (value.includes(query.phrase)) score += 100 + weight;
+    if (field === "name" && value === query.phrase) score += 300;
+    if (field === "name" && value.startsWith(query.phrase)) score += 40;
+  }
+
+  return {
+    record: {
+      id: String(row.id ?? ""),
+      kind: row.kind === "explorer" ? "explorer" : "sql",
+      name: String(row.name ?? "Untitled dashboard"),
+      description: typeof row.description === "string" ? row.description : null,
+      ownerEmail: String(row.ownerEmail ?? ""),
+      orgId: typeof row.orgId === "string" ? row.orgId : null,
+      visibility:
+        row.visibility === "public" || row.visibility === "org"
+          ? row.visibility
+          : "private",
+      updatedAt: String(row.updatedAt ?? ""),
+      matchedFields,
+    },
+    score,
+  };
+}
+
+function legacyDashboardReferenceScope(
+  key: string,
+  ctx: AccessCtx,
+): {
+  id: string;
+  kind: DashboardKind;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: DashboardReferenceRecord["visibility"];
+} | null {
+  if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+    return {
+      id: key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length),
+      kind: "sql",
+      ownerEmail: ctx.email,
+      orgId: ctx.orgId,
+      visibility: "org",
+    };
+  }
+  if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+    return {
+      id: key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length),
+      kind: "sql",
+      ownerEmail: ctx.email,
+      orgId: null,
+      visibility: "private",
+    };
+  }
+  if (ctx.email && key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)) {
+    const id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
+    if (!isLegacyDashboardId(id)) return null;
+    return {
+      id,
+      kind: "explorer",
+      ownerEmail: ctx.email,
+      orgId: null,
+      visibility: "private",
+    };
+  }
+  return null;
 }
 
 function nanoidFallback(): string {
@@ -279,6 +460,13 @@ function rowToDashboardRevision(row: any): DashboardRevisionRecord {
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
   };
+}
+
+function configDescriptionFromValue(
+  value: Record<string, unknown>,
+): string | null {
+  const description = value["description"];
+  return typeof description === "string" ? description : null;
 }
 
 function configFromSettings(data: Record<string, unknown>): {
@@ -498,7 +686,7 @@ export async function listDashboards(
         key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
       ) {
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-        kind = "explorer";
+        kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
       if (!id || !kind) continue;
       if (filter?.kind && filter.kind !== kind) continue;
@@ -564,6 +752,11 @@ export async function listDashboardSummaries(
     : sql<
         string | null
       >`json_extract(${schema.dashboards.config}, '$.parentId')`;
+  const description = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.description')`;
   const configName = isPostgres()
     ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
     : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
@@ -586,10 +779,12 @@ export async function listDashboardSummaries(
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       name: schema.dashboards.title,
+      description,
       ...(includeCatalogMetadata
         ? { configName, catalogTemplateId, demoId }
         : {}),
       parentId,
+      folderId: schema.dashboards.folderId,
       ownerEmail: schema.dashboards.ownerEmail,
       orgId: schema.dashboards.orgId,
       visibility: schema.dashboards.visibility,
@@ -603,11 +798,13 @@ export async function listDashboardSummaries(
     .where(where);
   const out: DashboardSummaryRecord[] = rows.map((row: any) => ({
     ...row,
+    description: typeof row.description === "string" ? row.description : null,
     configName: typeof row.configName === "string" ? row.configName : null,
     catalogTemplateId:
       typeof row.catalogTemplateId === "string" ? row.catalogTemplateId : null,
     demoId: typeof row.demoId === "string" ? row.demoId : null,
     parentId: typeof row.parentId === "string" ? row.parentId : null,
+    folderId: typeof row.folderId === "string" ? row.folderId : null,
     orgId: row.orgId ?? null,
     archivedAt: row.archivedAt ?? null,
     hiddenAt: row.hiddenAt ?? null,
@@ -636,7 +833,7 @@ export async function listDashboardSummaries(
         key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
       ) {
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-        kind = "explorer";
+        kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
       if (!id || !kind || seen.has(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
@@ -656,8 +853,10 @@ export async function listDashboardSummaries(
         id,
         kind,
         name: title,
+        description: configDescriptionFromValue(config),
         ...catalogMetadata,
         parentId: typeof config.parentId === "string" ? config.parentId : null,
+        folderId: null,
         ownerEmail: ctx.email,
         orgId,
         visibility,
@@ -672,6 +871,285 @@ export async function listDashboardSummaries(
   } catch (error) {
     if (filter?.legacyScan === "strict") throw error;
     // Legacy scan is best-effort.
+  }
+  return out;
+}
+
+/**
+ * Find active saved dashboards by metadata or serialized config.
+ *
+ * This is deliberately separate from the query catalog: a matching saved
+ * dashboard is a replication reference, not proof that its source is
+ * authoritative for the question being asked.
+ */
+export async function searchDashboardReferences(
+  ctx: AccessCtx,
+  search: string,
+  limit = 8,
+  dbOverride?: any,
+): Promise<DashboardReferenceRecord[]> {
+  const query = dashboardReferenceSearchQuery(search);
+  if (!query.phrase || query.terms.length === 0) return [];
+  const boundedLimit = Math.min(
+    Math.max(Number.isFinite(limit) ? Math.trunc(limit) : 8, 1),
+    MAX_DASHBOARD_REFERENCE_RESULTS,
+  );
+  const db = (dbOverride ?? getDb()) as any;
+  const access = accessFilter(schema.dashboards, schema.dashboardShares, {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const wildcardMatches = (term: string) => {
+    const pattern = `%${escapeLikeLiteral(term)}%`;
+    return or(
+      sql<boolean>`lower(${schema.dashboards.id}) LIKE ${pattern} ESCAPE '\\'`,
+      sql<boolean>`lower(${schema.dashboards.title}) LIKE ${pattern} ESCAPE '\\'`,
+      sql<boolean>`lower(coalesce(${schema.dashboards.config}, '')) LIKE ${pattern} ESCAPE '\\'`,
+    );
+  };
+  const phraseMatch = wildcardMatches(query.phrase);
+  const tokenMatch =
+    query.terms.length === 1
+      ? wildcardMatches(query.terms[0]!)
+      : and(...query.terms.map(wildcardMatches));
+  const where = and(
+    access,
+    isNull(schema.dashboards.archivedAt),
+    isNull(schema.dashboards.hiddenAt),
+    or(phraseMatch, tokenMatch),
+  );
+  // guard:allow-heavy-dashboard-list-read — bounded wildcard candidates need serialized config to rank references.
+  const rows = await db
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      name: schema.dashboards.title,
+      description: isPostgres()
+        ? sql<
+            string | null
+          >`(${schema.dashboards.config}::jsonb ->> 'description')`
+        : sql<
+            string | null
+          >`json_extract(${schema.dashboards.config}, '$.description')`,
+      config: schema.dashboards.config,
+      ownerEmail: schema.dashboards.ownerEmail,
+      orgId: schema.dashboards.orgId,
+      visibility: schema.dashboards.visibility,
+      updatedAt: schema.dashboards.updatedAt,
+    })
+    .from(schema.dashboards)
+    .where(where)
+    .orderBy(desc(schema.dashboards.updatedAt))
+    .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES);
+
+  const ranked: Array<{
+    record: DashboardReferenceRecord;
+    score: number;
+  }> = rows
+    .map((row: any) => dashboardReferenceMatch(row, query))
+    .filter(
+      (
+        match: { record: DashboardReferenceRecord; score: number } | null,
+      ): match is {
+        record: DashboardReferenceRecord;
+        score: number;
+      } => match !== null,
+    );
+
+  // Older Analytics deployments still have dashboards in settings KV. Search
+  // that scoped fallback too, but keep SQL rows authoritative when an id has
+  // already been migrated.
+  const seen = new Set(
+    ranked.map(({ record }) => `${record.kind}:${record.id}`),
+  );
+  const allSettings = await getAllSettings();
+  for (const [key, value] of Object.entries(allSettings)) {
+    const scope = legacyDashboardReferenceScope(key, ctx);
+    if (
+      !scope ||
+      !scope.id ||
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      continue;
+    }
+    const { title, config } = configFromSettings(
+      value as Record<string, unknown>,
+    );
+    const match = dashboardReferenceMatch(
+      {
+        id: scope.id,
+        kind: scope.kind,
+        name: title,
+        description: configDescriptionFromValue(config),
+        config,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        visibility: scope.visibility,
+        updatedAt:
+          typeof config.updatedAt === "string"
+            ? config.updatedAt
+            : typeof config.createdAt === "string"
+              ? config.createdAt
+              : "",
+      },
+      query,
+    );
+    if (!match || seen.has(`${match.record.kind}:${match.record.id}`)) {
+      continue;
+    }
+    seen.add(`${match.record.kind}:${match.record.id}`);
+    ranked.push(match);
+  }
+
+  if (ranked.length === 0) {
+    await assertNoOwnedReferenceHiddenByScope(db, ctx, search, query);
+  }
+
+  return ranked
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.record.updatedAt.localeCompare(a.record.updatedAt),
+    )
+    .slice(0, boundedLimit)
+    .map(({ record }) => record);
+}
+
+/**
+ * With no active organization, `ownerScopeFilter` narrows the owner clause to
+ * `org_id IS NULL` and drops the `visibility = 'org'` clause entirely, so every
+ * dashboard the caller owns under an organization vanishes from this search.
+ * An empty result then reads as "no such dashboard" and the agent answers by
+ * querying raw event tables instead of the dashboard the user named. Probe on
+ * the empty path only, so an ordinary miss stays one query.
+ */
+async function assertNoOwnedReferenceHiddenByScope(
+  db: any,
+  ctx: AccessCtx,
+  search: string,
+  query: ReturnType<typeof dashboardReferenceSearchQuery>,
+): Promise<void> {
+  if (ctx.orgId || !ctx.email) return;
+  const nameMatches = (term: string) => {
+    const pattern = `%${escapeLikeLiteral(term)}%`;
+    return or(
+      sql<boolean>`lower(${schema.dashboards.id}) LIKE ${pattern} ESCAPE '\\'`,
+      sql<boolean>`lower(${schema.dashboards.title}) LIKE ${pattern} ESCAPE '\\'`,
+    );
+  };
+  const rows = await db
+    .select({
+      id: schema.dashboards.id,
+      name: schema.dashboards.title,
+      orgId: schema.dashboards.orgId,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        sql<boolean>`lower(${schema.dashboards.ownerEmail}) = ${ctx.email.toLowerCase()}`,
+        isNotNull(schema.dashboards.orgId),
+        isNull(schema.dashboards.archivedAt),
+        isNull(schema.dashboards.hiddenAt),
+        or(
+          nameMatches(query.phrase),
+          query.terms.length === 1
+            ? nameMatches(query.terms[0]!)
+            : and(...query.terms.map(nameMatches)),
+        ),
+      ),
+    )
+    .limit(OUT_OF_SCOPE_REFERENCE_PROBE_LIMIT);
+  if (!rows?.length) return;
+  const named = rows
+    .map((row: any) => `"${row.name ?? row.id}" (id ${row.id})`)
+    .join(", ");
+  throw new Error(
+    `No dashboard readable in this session matches "${search}", but ${rows.length} organization-scoped dashboard(s) owned by ${ctx.email} do: ${named}. This session resolved no active organization, so they cannot be read. Tell the user their organization context is missing and that the dashboard exists — do not answer from a different data source.`,
+  );
+}
+
+/**
+ * Hydrate a bounded set of dashboard ids for catalog ranking.
+ *
+ * This is the catalog-specific path: it reads only the id, kind, title,
+ * description, and config needed for ranking, and only for explicit ids that
+ * were already shortlisted from the metadata path.
+ */
+export async function loadDashboardCatalogDashboards(
+  ctx: AccessCtx,
+  ids: readonly string[],
+  dbOverride?: any,
+): Promise<DashboardCatalogRecord[]> {
+  const db = (dbOverride ?? getDb()) as any;
+  const uniqueIds = [
+    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
+  ].slice(0, MAX_CATALOG_DASHBOARD_HYDRATION);
+  if (!uniqueIds.length) return [];
+
+  const description = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.description')`;
+  const archived = isNull(schema.dashboards.archivedAt);
+  const visible = isNull(schema.dashboards.hiddenAt);
+  const where = and(
+    accessFilter(schema.dashboards, schema.dashboardShares, {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    }),
+    inArray(schema.dashboards.id, uniqueIds),
+    archived,
+    visible,
+  );
+
+  // guard:allow-heavy-dashboard-list-read - bounded explicit ids shortlisted from metadata
+  const sqlRows = await db
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      title: schema.dashboards.title,
+      description,
+      config: schema.dashboards.config,
+    })
+    .from(schema.dashboards)
+    .where(where);
+
+  const byId = new Map<string, DashboardCatalogRecord>(
+    sqlRows.map((row: any) => {
+      const catalogRow: DashboardCatalogRecord = {
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        description:
+          typeof row.description === "string" ? row.description : null,
+        config:
+          typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+      };
+      return [row.id, catalogRow];
+    }),
+  );
+
+  const out: DashboardCatalogRecord[] = [];
+  for (const id of uniqueIds) {
+    const row = byId.get(id);
+    if (row) {
+      out.push(row);
+      continue;
+    }
+
+    const legacy = await findLegacyDashboard(id, ctx);
+    if (!legacy) continue;
+    const { title, config } = configFromSettings(legacy.data);
+    out.push({
+      id,
+      kind: legacy.kind,
+      title,
+      description: configDescriptionFromValue(config),
+      config,
+    });
   }
   return out;
 }
@@ -717,6 +1195,35 @@ async function lockDashboardNames(db: any, names: string[]): Promise<void> {
       );
     }
   }
+}
+
+/**
+ * Persist a visibility change while holding the same name lock used by create
+ * and rename. Sharing a private duplicate must not bypass the visible-name
+ * invariant by changing visibility after the dashboard was created.
+ */
+export async function persistDashboardVisibilityChange(
+  resource: Pick<DashboardRecord, "id" | "title" | "orgId">,
+  visibility: DashboardRecord["visibility"],
+  update: Record<string, unknown>,
+  ctx: AccessCtx,
+): Promise<void> {
+  const db = getDb() as any;
+  await db.transaction(async (tx: any) => {
+    if (visibility !== "private") {
+      await lockDashboardNames(tx, [resource.title]);
+      await assertDashboardNameIsAvailable(
+        resource.title,
+        ctx,
+        resource.id,
+        tx,
+      );
+    }
+    await tx
+      .update(schema.dashboards)
+      .set(update)
+      .where(eq(schema.dashboards.id, resource.id));
+  });
 }
 
 async function pruneDashboardRevisions(
@@ -2038,8 +2545,30 @@ export async function listDashboardViews(
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord[]> {
   // Parent access gates view visibility.
-  const dash = await getDashboard(dashboardId, ctx);
-  if (!dash) return [];
+  const access = await resolveAccess(
+    "dashboard",
+    dashboardId,
+    {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    },
+    { skipResourceBody: true },
+  );
+  if (!access) {
+    // Keep the migration-aware legacy fallback for dashboards that predate
+    // SQL materialization while retaining the projected SQL fast path.
+    const legacy = await findLegacyDashboard(dashboardId, ctx);
+    if (!legacy) return [];
+    await migrateDashboardFromSettings(
+      dashboardId,
+      legacy.kind,
+      legacy.data,
+      legacy.ownerEmail,
+      legacy.orgId,
+      legacy.visibility,
+      "owner",
+    );
+  }
   const db = getDb() as any;
   const rows = await db
     .select()

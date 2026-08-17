@@ -75,7 +75,7 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 
 | Field         | Type                           | Purpose                                                |
 | ------------- | ------------------------------ | ------------------------------------------------------ |
-| `schedule`    | `string`                       | Cron expression (required for schedule triggers)       |
+| `schedule`    | `string`                       | Cron expression; new scheduled automations default to once per hour (`0 * * * *`) when omitted |
 | `enabled`     | `boolean`                      | Whether the automation is active                       |
 | `triggerType` | `"schedule" \| "event"`        | How the automation fires                               |
 | `event`       | `string?`                      | Event name to subscribe to (event triggers)            |

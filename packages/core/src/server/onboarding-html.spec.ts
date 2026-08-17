@@ -2,11 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -29,6 +33,58 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("__an_auth_redirect");
   });
 
+  it("keeps the local-dev CTA hidden in cached HTML and reveals it only for loopback hosts", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain('id="local-dev-signin" hidden');
+    expect(html).toContain('id="local-dev-btn"');
+    expect(html).toContain('class="btn-local-dev btn-primary"');
+    expect(html).toContain('id="local-dev-full-options" hidden');
+    expect(html).toContain('id="full-auth-options" class="full-auth-options"');
+    expect(html).toContain("Continue as local dev");
+    expect(html).toContain("Show full sign in options");
+    expect(html).toContain("Only works in local development on this computer.");
+    expect(html).toContain('id="local-dev-help"');
+    expect(html).toContain(
+      'href="https://www.agent-native.com/docs/authentication#local-development-sign-in"',
+    );
+    expect(html).toContain("Learn about local development sign-in");
+    expect(html).toContain('class="local-dev-help-glyph"');
+    expect(html).toContain("width: 1.5rem;");
+    expect(html).toContain("width: 0.625rem;");
+    expect(html).toContain("height: 0.625rem;");
+    expect(html).toContain(".full-auth-options { margin-top: 1rem; }");
+    expect(html).toContain("function __anIsLoopbackHostname()");
+    expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
+    expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
+    expect(html).toContain("method: 'GET'");
+    expect(html).toContain("cache: 'no-store'");
+    expect(html).toContain("data.available === true");
+    expect(html).toContain("hostname.indexOf('127.') === 0");
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
+    expect(html).not.toContain("NODE_ENV");
+  });
+
+  it("enables the local-dev CTA on Builder previews only with explicit opt-in", () => {
+    vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = true;",
+    );
+    expect(html).toContain("function __anIsBuilderPreviewHost()");
+    expect(html).toContain("function __anCanUseLocalDevSignin()");
+    expect(html).toContain("hostname.endsWith('.builder.my')");
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getOnboardingHtml()).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
+  });
+
   describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
     it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
       // Capture baseline with the env unequivocally absent.
@@ -41,6 +97,16 @@ describe("getOnboardingHtml", () => {
       // Re-render with the env still unset → must be the exact same string.
       const again = getOnboardingHtml();
       expect(again).toBe(baseline);
+    });
+
+    it("canonical hosted login pages omit the browser SSO option", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      const html = getOnboardingHtml();
+
+      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain("Sign in with Agent-Native");
     });
 
     it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {
@@ -56,6 +122,13 @@ describe("getOnboardingHtml", () => {
       expect(html).toContain("params.set('return', __anResumeHref())");
       expect(html).toContain(
         "identity.addEventListener('click', __anStartIdentitySso)",
+      );
+      expect(html).toContain("data-agent-native-embedded-init");
+      expect(html).toContain(
+        'params.get("embedded") === "1" || window.self !== window.top',
+      );
+      expect(html).toContain(
+        'html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }',
       );
       // Exactly one rendered element — not duplicated across layout branches.
       expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
@@ -84,6 +157,8 @@ describe("getOnboardingHtml", () => {
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
+      expect(html).toContain('onclick="signInWithGoogle()"');
+      expect(html).not.toContain("google-preflight");
       expect(html).not.toContain("Google sign-in is not configured");
     });
 
@@ -141,6 +216,78 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("uses clear client-side validation and hides technical auth errors", () => {
+    const html = getOnboardingHtml();
+    const resetHtml = getResetPasswordHtml();
+
+    expect(html).toContain("function __anAuthErrorText(data, fallback)");
+    expect(html).toContain("function __anBindPasswordValidation(input)");
+    expect(html).toContain(
+      "input.setCustomValidity(__anT('passwordMinPlaceholder'))",
+    );
+    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(html).toContain(
+      "We couldn't create your account. Please try again.",
+    );
+    expect(html).toContain(
+      "We couldn't reach the server. Check your connection and try again.",
+    );
+    expect(html).toContain("function __anVerificationRedirectError()");
+    expect(html).toContain("verification_link_invalid");
+    expect(html).toContain(
+      "This verification link is invalid or expired. Request a new one.",
+    );
+    expect(resetHtml).toContain(
+      "This password reset link is missing or invalid. Request a new one.",
+    );
+    expect(resetHtml).toContain(
+      "We couldn't update your password. The link may have expired; request a new one.",
+    );
+    expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    const resetScript = resetHtml.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(resetScript).toBeTruthy();
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+    expect(() => new Function(resetScript!)).not.toThrow();
+  });
+
+  it("does not render a run-local CTA in the auth marketing panel", () => {
+    const html = getOnboardingHtml({
+      googleOnly: true,
+      marketing: {
+        appName: "Calendar",
+        tagline: "Your AI agent manages your calendar.",
+        runLocalCommand:
+          "npx @agent-native/core@latest create my-calendar-app --template calendar",
+      },
+    });
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(html).not.toContain('id="run-local-button"');
+    expect(html).not.toContain('id="run-local-panel"');
+    expect(html).not.toContain("Run Locally");
+    expect(html).not.toContain("function __anCopyRunLocalCommand()");
+    expect(html).toContain('onclick="signInWithGoogle()"');
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+  });
+
+  it("renders the policy password minimum in signup and reset forms", () => {
+    const html = getOnboardingHtml();
+    const resetHtml = getResetPasswordHtml();
+
+    expect(html).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(html).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
+    expect(html).not.toContain('minlength="8"');
+    expect(resetHtml).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(resetHtml).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
+    expect(resetHtml).not.toContain('minlength="8"');
+  });
+
   it("keeps the password flow unchanged by default", () => {
     const html = getOnboardingHtml();
 
@@ -179,10 +326,15 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain("/_agent-native/auth/magic-link");
+    expect(html).toContain("callbackURL: isDesktopMagicLink");
+    expect(html).toContain("/_agent-native/auth/magic-link/desktop-callback");
     expect(html).toContain(
-      "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
+      "__anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier)",
     );
-    expect(html).toContain("var initial = 'signup';");
+    expect(html).toContain(
+      "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
+    );
+    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm();");
     expect(html).toContain('class="tabs" id="auth-tabs"');
     expect(html).not.toContain('class="tabs" id="auth-tabs" hidden');
     expect(html).toContain(
@@ -469,43 +621,6 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     );
   });
 
-  it("puts hosted Google warnings in a popover with a run-local choice", () => {
-    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-
-    const command =
-      "npx @agent-native/core@latest create my-mail-app --template mail";
-    const html = getOnboardingHtml({
-      googleOnly: true,
-      marketing: {
-        appName: "Agent-Native Mail",
-        tagline: "Manage email with an agent.",
-        runLocalCommand: command,
-      },
-      googleSignInNotice: {
-        host: "mail.agent-native.com",
-        title: "Google may show a warning",
-        body: "Google may ask you to confirm before continuing.",
-        continueLabel: "Continue to Google",
-        cancelLabel: "Run locally",
-      },
-    });
-
-    expect(html).toContain('class="google-signin"');
-    expect(html).toContain(
-      'aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"',
-    );
-    expect(html).toContain('role="dialog"');
-    expect(html).toContain("Google may show a warning");
-    expect(html).toContain('id="google-preflight-run-local"');
-    expect(html).toContain("Run locally");
-    expect(html).not.toContain("Not now");
-    expect(html).toContain('id="google-preflight-run-local-panel"');
-    expect(html).toContain(command);
-    expect(html).toContain("function __anChooseRunLocalFromGoogleNotice()");
-    expect(html).toContain("__anCopyGoogleNoticeRunLocalCommand()");
-  });
-
   it("has branded auth marketing for every core built-in template host", () => {
     const coreSlugs = [
       "calendar",
@@ -530,6 +645,19 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
 
       expect(html).toContain('class="marketing-panel"');
       expect(html).toContain(BUILT_IN_AUTH_MARKETING[slug]!.appName);
+    }
+  });
+
+  it("omits the run-local CTA from Mail and Calendar auth pages", () => {
+    for (const slug of ["mail", "calendar"]) {
+      const html = getOnboardingHtml({
+        requestHost: `${slug}.agent-native.com`,
+        googleOnly: true,
+      });
+
+      expect(html).not.toContain('id="run-local-button"');
+      expect(html).not.toContain('id="run-local-panel"');
+      expect(html).not.toContain("Run Locally");
     }
   });
 

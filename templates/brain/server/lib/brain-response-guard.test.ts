@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   brainFinalResponseGuard,
+  isCorrectionFollowUp,
   isCompanyKnowledgeQuestion,
 } from "./brain-response-guard.js";
 
@@ -47,6 +48,9 @@ describe("Brain company-knowledge response guard", () => {
     expect(isCompanyKnowledgeQuestion("What is our product strategy?")).toBe(
       true,
     );
+    expect(
+      isCompanyKnowledgeQuestion("What retailer is Nick Nestle demoing to?"),
+    ).toBe(true);
     expect(isCompanyKnowledgeQuestion("Where was that pulled from?")).toBe(
       true,
     );
@@ -54,6 +58,12 @@ describe("Brain company-knowledge response guard", () => {
     expect(isCompanyKnowledgeQuestion("How do I import a transcript?")).toBe(
       false,
     );
+  });
+
+  it("recognizes correction follow-ups that must reset answer context", () => {
+    expect(isCorrectionFollowUp("Why did it do that?")).toBe(true);
+    expect(isCorrectionFollowUp("That's wrong - not what I asked.")).toBe(true);
+    expect(isCorrectionFollowUp("What is our product strategy?")).toBe(false);
   });
 
   it("requires ask-brain before accepting a company-specific answer", () => {
@@ -104,6 +114,54 @@ describe("Brain company-knowledge response guard", () => {
         requestText: "What is Builder's mission statement?",
         text: "I don't have a verified source for Builder's official mission statement.",
         toolResults: [askBrainResult([])],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("rejects a correction answer that keeps using the earlier context", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "Why did it do that?",
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "Earlier answer about Brent." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Why did it do that?" }],
+          },
+        ],
+        text: "Brent's individual feedback explains the strategy.",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("untrusted context"),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "Raw captures are leads",
+    );
+  });
+
+  it("accepts a correction that explicitly names the context mistake", () => {
+    const result = brainFinalResponseGuard(
+      guardContext({
+        requestText: "Why did it do that?",
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "Earlier answer about Brent." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Why did it do that?" }],
+          },
+        ],
+        text: "You're right. I over-indexed on the earlier request and carried an irrelevant example into the answer.",
       }),
     );
 

@@ -1,5 +1,4 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import { LanguagePicker } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";
@@ -20,10 +19,18 @@ const pageTitles: Record<string, string> = {
   "/approvals": "Approvals",
   "/automations": "Automations",
   "/audit": "Audit",
+  "/dreams": "Dreams",
+  "/thread-debug": "Thread Debug",
+  "/transactional-email": "Transactional email",
   "/settings": "Settings",
 };
 
 function resolveTitle(pathname: string): string {
+  if (pathname === "/admin" || pathname === "/admin/") return "Admin";
+  if (pathname.startsWith("/admin/")) {
+    const adminPath = pathname.slice("/admin".length);
+    return pageTitles[adminPath] ?? "Admin";
+  }
   if (pageTitles[pathname]) return pageTitles[pathname];
 
   if (pathname.startsWith("/extensions")) return "Extensions";
@@ -83,7 +90,6 @@ export function Header({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <RunsTray limit={8} onOpenThread={openRunThread} />
         {showAgentToggle ? (
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />

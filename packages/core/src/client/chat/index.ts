@@ -71,6 +71,17 @@ export {
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
 export {
+  DESKTOP_LOCAL_CODE_CHANGE_EVENT,
+  requestDesktopLocalCodeChange,
+  type DesktopLocalCodeChangeDetail,
+} from "../desktop-local-code-change.js";
+export {
+  AGENT_SIDEBAR_DEFAULT_MAX_WIDTH,
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
+  clampAgentSidebarWidth,
+  getAgentSidebarMaxWidth,
+  getAgentSidebarWideWidth,
   requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,
   setAgentSidebarOpenPreference,

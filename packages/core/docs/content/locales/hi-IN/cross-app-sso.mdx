@@ -177,17 +177,17 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **सेट** → ऐप एक **"Agent-Native के साथ साइन इन करें"** विकल्प दिखाता है जो उपरोक्त प्रवाह को चलाता है। प्रत्यक्ष स्थानीय लॉगिन (ईमेल/पासवर्ड, Google) अभी भी इसके साथ काम करता है।
-- **अनसेट (डिफ़ॉल्ट)** → **शून्य व्यवहार परिवर्तन।** ऐप बिल्कुल वैसे ही प्रमाणित करता है जैसे उसने पहले किया था; फ़ेडरेशन कोड पथ निष्क्रिय है. कोई स्कीमा परिवर्तन नहीं है और माइग्रेट करने के लिए कुछ भी नहीं है, इसलिए वेरिएबल को चालू या बंद करना किसी भी समय पूरी तरह से उलटा हो सकता है।
+- **Canonical hosted client** → registered origin वाले ऐप में **"Agent-Native से साइन इन करें"** विकल्प दिखता है; self-hosted apps को variable सेट करना जारी रखना होगा। कोई schema बदलाव या migration आवश्यक नहीं है।
 
 ## सुरक्षा {#security}
 
 पूरा मॉडल जानबूझकर कुछ छोटी-छोटी गारंटियों पर टिका है:
 
 - **अल्पकालिक हस्ताक्षरित टोकन।** पहचान का दावा एक `A2A_SECRET`-हस्ताक्षरित JWT है जिसकी **≤ 2-मिनट** समाप्ति और `scope: "identity"` है। यह एकल साइन-इन को अधिकृत करता है और इसे लंबे समय तक दोबारा नहीं चलाया जा सकता है या API/A2A एक्सेस के लिए दोबारा उपयोग नहीं किया जा सकता है।
-- **सख्त `redirect_uri` अनुमति सूची।** डिस्पैच केवल डिफ़ॉल्ट रूप से `*.agent-native.com` या लोकलहोस्ट पर रीडायरेक्ट होता है। मनमाना, योजना-सापेक्ष (`//host`), और क्रॉस-ओरिजिन रीडायरेक्ट लक्ष्य अस्वीकार कर दिए जाते हैं, इसलिए प्राधिकरण को ओपन-रीडायरेक्ट या टोकन-एक्सफ़िल्ट्रेशन ऑरेकल में नहीं बदला जा सकता है।
+- **ऐप से बंधी सख्त `redirect_uri` अनुमति सूची।** हर कैनोनिकल ऐप ID को एक सटीक प्रोडक्शन ओरिजिन और कॉलबैक पथ से जोड़ा गया है; लोकलहोस्ट विकास के लिए उपलब्ध रहता है। अज्ञात सबडोमेन, बेमेल ऐप ID, मनमाने पथ और क्रॉस-ओरिजिन लक्ष्य अस्वीकार किए जाते हैं।
 - **सत्यापित टोकन से केवल-ईमेल से जुड़ें।** विश्वास सीमा को पार करने वाली एकमात्र चीज़ हस्ताक्षरित टोकन में सत्यापित ईमेल है। ऐप उपयोगकर्ता आईडी, भूमिका, संगठन सदस्यता, या वायर से किसी भी विशेषाधिकार प्राप्त स्थिति को स्वीकार नहीं करता है - यह मिलान किए गए खाते से स्थानीय रूप से सब कुछ प्राप्त करता है।
 - **एडिटिव-ओनली आइडेंटिटी लिखता है।** लिंक करने से या तो मौजूदा समान-ईमेल खाते को अछूता पुन: उपयोग किया जाता है या एक नया डाला जाता है। इस पथ पर कभी भी पहचान पंक्तियों को अद्यतन, नाम बदलना, पुनः इंगित करना या हटाना नहीं होता है।
-- **डिफ़ॉल्ट रूप से बंद।** `AGENT_NATIVE_IDENTITY_HUB_URL` के अनसेट होने पर संपूर्ण सुविधा निष्क्रिय हो जाती है।
+- **Canonical hosted clients origin के आधार पर सक्षम।** Registered origin वाले canonical hosted apps अपने-आप सक्षम होते हैं; self-hosted apps `AGENT_NATIVE_IDENTITY_HUB_URL` के बिना निष्क्रिय रहते हैं।
 
 <Callout id="doc-block-13c14jr" tone="success">
 
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **रीडायरेक्ट अनुमति सूची।** हब (डिस्पैच) टोकन जारी करने से पहले अधिकृत एंडपॉइंट पर `redirect_uri` को मान्य करता है। अनुमति सूची `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **डिफ़ॉल्ट:** `*.agent-native.com` और केवल लोकलहोस्ट (`DEFAULT_ALLOWED_HOST_SUFFIXES` स्थिरांक)।
+- **डिफ़ॉल्ट:** केवल सटीक पंजीकृत Agent Native ऐप ID/ओरिजिन जोड़े और लोकलहोस्ट (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`)।
 - **इसे विस्तारित करना:** अतिरिक्त होस्ट प्रत्ययों की अल्पविराम से अलग की गई सूची के साथ डिस्पैच परिनियोजन पर `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` पर्यावरण चर सेट करें:
 
   ```बैश
@@ -323,3 +323,8 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - [Dispatch](/docs/dispatch) - कार्यक्षेत्र पहचान प्राधिकरण और रूटिंग हब।
 - [Security & Data Scoping](/docs/security) - केवल-योगात्मक डेटा लिखना और प्रति-खाता स्कोपिंग।
 - [Multi-App Workspaces](/docs/multi-app-workspace) - एकीकृत एकल-मूल परिनियोजन जो क्रॉस-डोमेन SSO से पूरी तरह बचता है।
+
+Dispatch का default-off `desktop.workspace-sso` flag केवल उपलब्धता नियंत्रित करता है; authentication, signature, nonce, origin, callback, session और revocation जाँच हमेशा अनिवार्य रहती हैं। flag बंद या अपठनीय होने पर Desktop प्रति-app sign-in, sign-out या Settings नहीं बदलता।
+Canary user-agent marker केवल availability hint है, remote attestation नहीं; authentication और authorization उस पर भरोसा नहीं करते।
+हर Desktop build broker शुरू कर सकता है जब device preference `desktopSsoEnabled` true (default) हो; स्पष्ट रूप से persist किया गया `false` opt-out बना रहता है। Dispatch flag `desktop.workspace-sso` भी enabled होना चाहिए। Canary user-agent marker अब broker initialization को gate नहीं करता; यह केवल update channel बताता है।
+Canary अनाम ऐप sign-in navigation को intercept नहीं करता। उपयोगकर्ता को सक्रिय registered app के लिए Desktop Settings में workspace sign-in स्पष्ट रूप से चुनना होगा; सामान्य app sign-in default path बना रहता है।

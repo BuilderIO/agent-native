@@ -115,6 +115,20 @@ export interface ShareableResourceRegistration {
    */
   getDb: () => any;
   /**
+   * Optional resource-owned persistence hook for visibility changes. Use this
+   * when changing visibility must share a transaction with another invariant,
+   * such as reserving a human-readable name before the row becomes visible.
+   * The generic action falls back to a direct update when this is omitted.
+   */
+  persistVisibilityChange?: (args: {
+    resource: any;
+    resourceId: string;
+    visibility: "private" | "org" | "public";
+    update: Record<string, unknown>;
+    userEmail?: string;
+    orgId?: string;
+  }) => void | Promise<void>;
+  /**
    * When `false`, `visibility: "public"` is rejected by `set-resource-visibility`,
    * and `accessFilter` / `resolveAccess` treat any stored public row as private
    * (defense in depth — only owner + explicit shares grant access).
@@ -143,6 +157,7 @@ export interface ShareableResourceRegistration {
    */
   publicAccessRole?:
     | "viewer"
+    | "commenter"
     | "editor"
     | "admin"
     | ((
@@ -154,9 +169,10 @@ export interface ShareableResourceRegistration {
         },
       ) =>
         | "viewer"
+        | "commenter"
         | "editor"
         | "admin"
-        | Promise<"viewer" | "editor" | "admin">);
+        | Promise<"viewer" | "commenter" | "editor" | "admin">);
   /**
    * When `true`, individual user shares (`principalType: "user"`) must target
    * an email that is already a member of the same org as the resource, OR has

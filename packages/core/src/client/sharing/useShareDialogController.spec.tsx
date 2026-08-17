@@ -152,7 +152,6 @@ describe("useShareDialogController", () => {
     expect(result.activeTab).toBe("link");
     expect(result.tabs).toEqual([
       { value: "link", label: "share.link" },
-      { value: "invite", label: "share.invite" },
       { value: "embed", label: "share.embed" },
     ]);
     expect(result.canManage).toBe(true);
@@ -214,6 +213,27 @@ describe("useShareDialogController", () => {
     act(() => mocks.share.mutate.mock.calls[0]?.[1]?.onSuccess());
     expect((controller as ShareDialogController).invite.email).toBe("");
     expect(mocks.query.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("passes an optional message with an invite notification", async () => {
+    let result = await render();
+
+    act(() => {
+      result.invite.setEmail("recipient@example.test");
+      result.invite.setMessage("Here is the latest version.");
+      result.invite.setMessageOpen(true);
+    });
+    result = controller as ShareDialogController;
+    act(() => result.invite.submit());
+
+    expect(mocks.share.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "recipient@example.test",
+        notify: true,
+        message: "Here is the latest version.",
+      }),
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
   });
 
   it("gates mutations by role and refetches after permitted changes", async () => {

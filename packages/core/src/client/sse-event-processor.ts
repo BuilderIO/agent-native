@@ -7,10 +7,12 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
 
@@ -130,23 +132,35 @@ export interface AgentAutoContinueErrorInfo {
   upgradeUrl?: string;
 }
 
-const INTERRUPTED_TOOL_RESULT =
+/**
+ * Kept verbatim in sync with `INTERRUPTED_TOOL_RESULT_MARKER`
+ * (agent/production-agent.ts): the server matches this substring in replayed
+ * history to count how many times a write tool was interrupted, which is the
+ * only thing that tells "we do not know if it landed" apart from "it failed".
+ */
+export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 /**
  * Maximum number of assistant-ui repository updates we deliver in one browser
  * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
- * stream queue before the client attaches; draining all of them through
- * assistant-ui without a macrotask boundary synchronously nests React external
- * store notifications until React throws "Maximum update depth exceeded."
+ * stream queue before the client attaches; allowing even a small burst through
+ * assistant-ui can synchronously nest React external-store notifications until
+ * React throws "Maximum update depth exceeded."
  *
- * A timer scheduled on the first result resets the count when the stream is
+ * A task scheduled on the first result resets the count when the stream is
  * naturally idle between network chunks. We only await it when results are
  * arriving densely enough to hit this bound, so normal live token streaming
  * keeps its existing latency while replay bursts yield cooperatively.
  */
-const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 20;
+const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 1;
+
+function waitForNextEventLoopTurn(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 
 export function settleInterruptedToolCalls(
   content: ContentPart[],
@@ -261,18 +275,30 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
 export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
 export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
 
+function sseTimeoutOverrideMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
-    : SSE_NO_PROGRESS_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.noProgressTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
+      : SSE_NO_PROGRESS_TIMEOUT_MS)
+  );
 }
 
 function sseActionPreparationStallTimeoutMs(
   options?: SSEStreamOptions,
 ): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
-    : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.actionPreparationStallTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+      : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS)
+  );
 }
 
 export interface SSEStreamOptions {
@@ -286,6 +312,16 @@ export interface SSEStreamOptions {
    * the tight foreground 75s/90s windows.
    */
   durableBackgroundRun?: boolean;
+  /**
+   * Optional reader-local watchdog override. A background follow reader can
+   * use a shorter value because a timeout only detaches that read; the follow
+   * loop immediately re-checks the server-owned run state.
+   */
+  noProgressTimeoutMs?: number;
+  /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
+  actionPreparationStallTimeoutMs?: number;
+  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
+  markTerminalResults?: boolean;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a
@@ -341,6 +377,23 @@ function isMeaningfulProgressEvent(
   }
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     if (options?.durableBackgroundRun === true) return true;
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
+/**
+ * The browser's durable liveness cursor must mirror the server's
+ * `last_progress_at` predicate. The stream watchdog intentionally has a
+ * broader background policy, so it cannot be reused for this cursor: raw
+ * keepalives and repeated zero-byte preparation are not proof of real work.
+ */
+function isDurableProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     return actionPreparationProgress === true;
   }
   return true;
@@ -792,6 +845,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   }
 
   if (ev.recoverable === true) return true;
+  // An explicit flag outranks the message sniff below, which exists only for
+  // events that carry no flag at all. The repeat guards stop a turn with
+  // `recoverable: false` and a message that names the looping tool, so a stop
+  // on `list-workspace-connections` matched the "connection" sniff and
+  // auto-continued the very loop it was emitted to break.
+  if (ev.recoverable === false) return false;
 
   if (msg.includes("daily gateway request cap")) return false;
 
@@ -1129,6 +1188,7 @@ export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
 ): { message: string; errorCode: string; recoverable: true } | null {
+  if (content.some((part) => isToolCallActive(part))) return null;
   const lastTextIndex = lastAssistantTextIndex(content);
   const successfulToolNames = [
     ...new Set(
@@ -1205,6 +1265,51 @@ function shouldDispatchStreamProgress(
   if (state?.streamProgressDispatched) return false;
   if (state) state.streamProgressDispatched = true;
   return true;
+}
+
+function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
+  if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
+    return;
+  }
+  if (ev.isError === true) return;
+  if (!ev.result?.trim()) {
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  let result: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(ev.result);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(
+        "[chat-first] open_app completed without a readable result; no app pane opened",
+      );
+      return;
+    }
+    result = parsed as Record<string, unknown>;
+  } catch {
+    // coercion-ok: unreadable tool output must not be treated as a successful handoff.
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  const readString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value : undefined;
+  const delivery = emitChatFirstOpenApp({
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  });
+  if (!delivery.delivered) {
+    console.warn(
+      `[chat-first] open_app was completed but not delivered (${delivery.reason ?? "unknown"})`,
+    );
+  }
 }
 
 /**
@@ -1519,6 +1624,7 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
+    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -1593,6 +1699,7 @@ export function processEvent(
                 : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
+            ...(ev.status === "pending" ? { agentPending: true } : {}),
             ...(ev.durationMs != null
               ? { agentDurationMs: ev.durationMs }
               : {}),
@@ -1721,6 +1828,9 @@ export function processEvent(
         }),
       );
     }
+    // This event is terminal. There may be no visible text or tool_done after
+    // the last preparation activity, so do not leave its label mounted.
+    dispatchActivityClear(tabId);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
@@ -1824,6 +1934,9 @@ export function processEvent(
       ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
       ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
     };
+    // Non-recoverable errors end the turn. Recoverable errors return above as
+    // auto-continue signals and must keep their activity state alive.
+    dispatchActivityClear(tabId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
@@ -1847,6 +1960,11 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    // `done` is authoritative even when the final model chunk contains only
+    // a wrap-up marker. Clear any preparation label before inspecting pending
+    // tools so both success and interrupted-terminal paths settle the UI.
+    dispatchActivityClear(tabId);
+    const userStoppedRun = ev.reason === "user";
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -1854,6 +1972,16 @@ export function processEvent(
     ];
     if (allInterruptedTools.length > 0) {
       settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      if (userStoppedRun) {
+        return {
+          action: "done",
+          result: {
+            content: contentSnapshot(content),
+            status: { type: "complete" as const, reason: "stop" as const },
+            metadata: { custom: { userStopped: true } },
+          } as ChatModelRunResult,
+        };
+      }
       const message = interruptedToolMessage(interruptedTools);
       const runError = {
         message,
@@ -1878,6 +2006,16 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
+    if (userStoppedRun) {
+      return {
+        action: "done",
+        result: {
+          content: contentSnapshot(content),
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: { custom: { userStopped: true } },
         } as ChatModelRunResult,
       };
     }
@@ -1908,10 +2046,26 @@ export function processEvent(
   return { action: "continue" };
 }
 
+/**
+ * Drop the draft the server is about to re-emit — the narration since the last
+ * completed tool, not the whole turn. A `clear` arrives on a final-answer-guard
+ * retry or a continuation, both of which resume AFTER the last completed tool
+ * call, so anything before that boundary is settled multi-step narration the
+ * retry will never re-send. Wiping it read to users as "it deleted its reply
+ * and started over", and `thread-data-builder` replays this same scoping on
+ * rebuild, so the loss survived a reload.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
@@ -1943,7 +2097,7 @@ export async function* readSSEStream(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
@@ -1968,15 +2122,20 @@ export async function* readSSEStream(
       ? Math.max(noProgressTimeoutMs, SSE_IN_FLIGHT_WORK_TIMEOUT_MS)
       : noProgressTimeoutMs;
 
-  const paceRenderUpdate = async (): Promise<void> => {
+  const paceRenderUpdate = async (hasBufferedEvent: boolean): Promise<void> => {
+    // A single event in a network chunk already has a natural read boundary.
+    // Avoid inserting a task into quiet streams so watchdogs and fake-clock
+    // consumers can continue to observe their own timers normally.
+    if (!hasBufferedEvent) {
+      renderUpdatesThisTurn = 0;
+      return;
+    }
+
     renderUpdatesThisTurn += 1;
     if (!nextEventLoopTurn) {
-      nextEventLoopTurn = new Promise<void>((resolve) => {
-        setTimeout(() => {
-          renderUpdatesThisTurn = 0;
-          nextEventLoopTurn = null;
-          resolve();
-        }, 0);
+      nextEventLoopTurn = waitForNextEventLoopTurn().then(() => {
+        renderUpdatesThisTurn = 0;
+        nextEventLoopTurn = null;
       });
     }
     if (renderUpdatesThisTurn >= SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN) {
@@ -2042,11 +2201,22 @@ export async function* readSSEStream(
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       let sawProgressEvent = false;
+      let bufferedDataEvents = lines.reduce(
+        (count, pendingLine) =>
+          count +
+          (pendingLine.startsWith("data: ") &&
+          pendingLine.slice(6).trim().length > 0
+            ? 1
+            : 0),
+        0,
+      );
 
-      for (const line of lines) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex]!;
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
         if (!raw) continue;
+        bufferedDataEvents -= 1;
 
         let ev: SSEEvent;
         try {
@@ -2061,14 +2231,23 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
@@ -2102,9 +2281,23 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) {
-          await paceRenderUpdate();
-          yield withStreamMetadata(result);
+        const terminalResult =
+          result &&
+          options?.markTerminalResults === true &&
+          action === "done" &&
+          result.status == null
+            ? {
+                ...result,
+                status: {
+                  type: "complete" as const,
+                  reason: "stop" as const,
+                },
+              }
+            : result;
+        if (terminalResult) {
+          const hasBufferedEvent = bufferedDataEvents > 0;
+          await paceRenderUpdate(hasBufferedEvent);
+          yield withStreamMetadata(terminalResult);
         }
         if (
           hasStalledPreparingAction(
@@ -2178,7 +2371,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
@@ -2252,13 +2445,22 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {

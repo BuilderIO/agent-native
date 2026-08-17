@@ -1,12 +1,6 @@
-import {
-  IconArrowUpRight,
-  IconLoader2,
-  IconPlugConnected,
-  IconX,
-} from "@tabler/icons-react";
+import { IconLoader2, IconPlugConnected, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
 import {
@@ -15,15 +9,15 @@ import {
   saveMcpConnectionResume,
 } from "./mcp-connection-resume.js";
 import {
-  buildMcpOAuthStartUrl,
   findMcpIntegrationForText,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isMcpConnectionFailureText,
-  navigateToMcpOAuthStart,
+  isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   useCreateMcpServer,
   useMcpServers,
@@ -39,16 +33,42 @@ export interface McpConnectionSuggestionProps {
   integrations?: DefaultMcpIntegration[];
 }
 
+function visibleUserAuthoredText(text: string): string {
+  return text
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<\/context>/gi, "")
+    .trim();
+}
+
 export function findMcpConnectionSuggestionIntegration({
   text,
   contextText = "",
   variant = "composer",
   integrations = getDefaultMcpIntegrations(),
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
-  return findMcpIntegrationForText(
-    variant === "response" ? contextText : text,
-    integrations,
-  );
+  const responseText = visibleUserAuthoredText(text);
+  if (variant !== "response") {
+    return findMcpIntegrationForText(responseText, integrations);
+  }
+
+  // A completed response may itself be the agent's request for setup. Prefer
+  // that provider, then fall back to the user's preceding provider mention for
+  // responses such as "I can't access it yet - please connect it.".
+  if (
+    isMcpConnectionSuggestionText(responseText) ||
+    isMcpConnectionFailureText(responseText)
+  ) {
+    return (
+      findMcpIntegrationForText(responseText, integrations) ??
+      findMcpIntegrationForText(
+        visibleUserAuthoredText(contextText),
+        integrations,
+      )
+    );
+  }
+
+  return null;
 }
 
 export function shouldRenderMcpIntegrationFallback(
@@ -80,21 +100,6 @@ function isConnected(
   );
 }
 
-function returnUrl(): string {
-  if (typeof window === "undefined") return "/";
-  return (
-    window.location.pathname + window.location.search + window.location.hash
-  );
-}
-
-function canStartOAuth(integration: DefaultMcpIntegration): boolean {
-  return (
-    integration.authMode === "oauth" &&
-    integration.connectionMode === "oauth" &&
-    integration.availability === "ready"
-  );
-}
-
 function hasApiFallback(
   apiFallback: DefaultMcpIntegration["apiFallback"] | null,
 ): boolean {
@@ -111,10 +116,12 @@ export function McpConnectionSuggestion({
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [quickConnectIntegrationId, setQuickConnectIntegrationId] = useState<
+    string | null
+  >(null);
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const integrations = useMemo(
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
@@ -140,17 +147,24 @@ export function McpConnectionSuggestion({
     [mcpServersQuery.data],
   );
   const connected = integration ? isConnected(integration, servers) : false;
+  const hasOrg = Boolean(mcpServersQuery.data?.orgId);
+  const canCreateOrgMcp = Boolean(
+    hasOrg &&
+    (mcpServersQuery.data?.role === "owner" ||
+      mcpServersQuery.data?.role === "admin"),
+  );
   const shouldSuggest =
     mcpServersQuery.isSuccess &&
     integration &&
     !connected &&
     dismissedId !== integration.id &&
-    (variant === "composer" || isMcpConnectionFailureText(text));
+    (variant === "composer" ||
+      isMcpConnectionFailureText(text) ||
+      isMcpConnectionSuggestionText(text));
 
   useEffect(() => {
     setError(null);
     setConnecting(false);
-    setLogoLoadFailed(false);
   }, [integration?.id, integration?.logoUrl, variant]);
 
   if (!shouldSuggest) return null;
@@ -158,67 +172,22 @@ export function McpConnectionSuggestion({
   const connect = async () => {
     if (!integration || connecting) return;
     setError(null);
+    setConnecting(true);
 
     if (apiFallback) {
       openAgentSettings(`secrets:${apiFallback.secretKey}`);
-      return;
-    }
-
-    if (canStartOAuth(integration)) {
-      setConnecting(true);
-      saveMcpConnectionResume(variant === "response" ? contextText : text);
-      navigateToMcpOAuthStart(
-        agentNativePath(
-          buildMcpOAuthStartUrl({
-            name: integration.name,
-            url: integration.url,
-            description: integration.description,
-            scope: "user",
-            returnUrl: returnUrl(),
-          }),
-        ),
-      );
-      return;
-    }
-
-    if (
-      integration.authMode === "none" &&
-      integration.connectionMode === "direct"
-    ) {
-      saveMcpConnectionResume(variant === "response" ? contextText : text);
-      setConnecting(true);
-      try {
-        await createMcpServer.mutateAsync({
-          scope: "user",
-          name: integration.name,
-          url: integration.url,
-          description: integration.description,
-        });
-        setDismissedId(integration.id);
-        notifyMcpConnectionComplete();
-      } catch (cause) {
-        clearMcpConnectionResume();
-        setError(
-          cause instanceof Error ? cause.message : t("mcpIntegrations.failed"),
-        );
-      } finally {
-        setConnecting(false);
-      }
+      setConnecting(false);
       return;
     }
 
     saveMcpConnectionResume(variant === "response" ? contextText : text);
+    setQuickConnectIntegrationId(integration.id);
     setDialogOpen(true);
   };
 
   const actionLabel = hasApiFallback(apiFallback)
     ? t("mcpIntegrations.useApiToken")
-    : canStartOAuth(integration)
-      ? t("mcpIntegrations.connectWithOAuth")
-      : integration.availability === "client-restricted" ||
-          integration.availability === "provider-setup"
-        ? t("mcpIntegrations.viewSetup")
-        : t("mcpIntegrations.connect");
+    : t("mcpIntegrations.connect");
 
   return (
     <>
@@ -226,27 +195,18 @@ export function McpConnectionSuggestion({
         className={
           variant === "response"
             ? "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--response mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
-            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),684px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),750px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
         }
         data-mcp-connection-suggestion={integration.id}
         data-mcp-connection-suggestion-variant={variant}
       >
-        <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[10px] font-semibold text-muted-foreground">
-          {shouldRenderMcpIntegrationFallback(
-            integration.logoUrl,
-            logoLoadFailed,
-          ) ? (
-            <span aria-hidden="true">{integration.name.slice(0, 1)}</span>
-          ) : null}
-          {integration.logoUrl && (
-            <img
-              src={integration.logoUrl}
-              alt=""
-              className={`absolute h-5 w-5 object-contain${logoLoadFailed ? " hidden" : ""}`}
-              onError={() => setLogoLoadFailed(true)}
-            />
-          )}
-        </div>
+        <McpIntegrationLogo
+          name={integration.name}
+          logoUrl={integration.logoUrl}
+          integrationId={integration.id}
+          className="size-6 rounded-md text-[10px]"
+          imageClassName="size-5"
+        />
         <span className="min-w-0 flex-1 leading-snug text-foreground">
           {t(
             hasApiFallback(apiFallback)
@@ -263,20 +223,8 @@ export function McpConnectionSuggestion({
           className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
         >
           {connecting && <IconLoader2 className="h-3 w-3 animate-spin" />}
-          {!connecting &&
-            canStartOAuth(integration) &&
-            !hasApiFallback(apiFallback) && (
-              <IconPlugConnected className="h-3 w-3" />
-            )}
-          {!connecting && hasApiFallback(apiFallback) && (
-            <IconPlugConnected className="h-3 w-3" />
-          )}
+          {!connecting && <IconPlugConnected className="h-3 w-3" />}
           {actionLabel}
-          {!connecting &&
-            !canStartOAuth(integration) &&
-            !hasApiFallback(apiFallback) && (
-              <IconArrowUpRight className="h-3 w-3" />
-            )}
         </button>
         <button
           type="button"
@@ -292,7 +240,7 @@ export function McpConnectionSuggestion({
           className={
             variant === "response"
               ? "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--response mt-1 max-w-[520px] text-[11px] text-destructive"
-              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),684px)] text-[11px] text-destructive"
+              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),750px)] text-[11px] text-destructive"
           }
         >
           {error}
@@ -302,12 +250,17 @@ export function McpConnectionSuggestion({
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
-          if (!open) clearMcpConnectionResume();
+          if (!open) {
+            clearMcpConnectionResume();
+            setQuickConnectIntegrationId(null);
+            setConnecting(false);
+          }
         }}
         initialIntegrationId={integration.id}
+        quickConnectIntegrationId={quickConnectIntegrationId}
         defaultScope="user"
-        canCreateOrgMcp={false}
-        hasOrg={Boolean(mcpServersQuery.data?.orgId)}
+        canCreateOrgMcp={canCreateOrgMcp}
+        hasOrg={hasOrg}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
         onCreated={() => {
           setDismissedId(integration.id);

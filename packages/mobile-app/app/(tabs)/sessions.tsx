@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
@@ -13,7 +13,12 @@ import {
   View,
 } from "react-native";
 
+import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
+import {
+  useMobileThemeColors,
+  type MobileThemeColors,
+} from "@/lib/mobile-colors";
 import {
   appendRemoteFollowUp,
   clearRemoteSessionToken,
@@ -40,11 +45,38 @@ import {
 import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 
 const POLL_INTERVAL_MS = 4000;
+const POLL_TIMEOUT_MS = Math.max(10_000, POLL_INTERVAL_MS * 4);
 const GOAL_ID = "task";
 type RelayState = "checking" | "online" | "offline" | "error" | "signed-out";
 
+/**
+ * Bounds a poll cycle so a hung relay request can't pin `inFlight` forever.
+ * The underlying request keeps running if it loses the race, but nothing is
+ * listening to it anymore, so a late resolution can't clobber a newer cycle.
+ */
+function withPollTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Poll timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export default function SessionsScreen() {
-  const router = useRouter();
+  const {
+    foreground,
+    mutedForeground,
+    primaryForeground,
+    errorText,
+    successText,
+    warningYellowText,
+  } = useMobileThemeColors();
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
   const [runs, setRuns] = useState<RemoteRun[]>([]);
   const [events, setEvents] = useState<RemoteTranscriptEvent[]>([]);
@@ -67,6 +99,7 @@ export default function SessionsScreen() {
     null,
   );
   const [authRequired, setAuthRequired] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const pushRegistration = useRemotePushRegistration();
@@ -196,8 +229,12 @@ export default function SessionsScreen() {
     setError(null);
     setNotice(null);
     setRelayState("checking");
-    router.push("/dispatch" as never);
-  }, [router]);
+    setSignInOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (signInOpen && relayState === "online") setSignInOpen(false);
+  }, [relayState, signInOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,14 +257,39 @@ export default function SessionsScreen() {
   }, [loadRunDetail, loadTranscript, selectedRunId]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      void refresh(true);
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      const pending = [refresh(true)];
       if (selectedRunId) {
-        void loadRunDetail(selectedRunId);
-        void loadTranscript(selectedRunId, true);
+        pending.push(loadRunDetail(selectedRunId));
+        pending.push(loadTranscript(selectedRunId, true));
       }
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+      // The relay loaders take no abort signal, so the timeout can only
+      // report a slow cycle — it must not release `inFlight`. Releasing there
+      // would let the next tick run against still-live requests whose late
+      // responses then overwrite the newer hosts/runs/events state.
+      const work = Promise.all(pending).then(
+        () => {},
+        () => {},
+      );
+      void withPollTimeout(work, POLL_TIMEOUT_MS).catch((err: unknown) => {
+        console.warn("[sessions] poll cycle slow:", err);
+      });
+      void work.finally(() => {
+        inFlight = false;
+      });
+    };
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [loadRunDetail, loadTranscript, refresh, selectedRunId]);
 
   const selectedHost = hosts.find((host) => host.id === selectedHostId);
@@ -442,7 +504,7 @@ export default function SessionsScreen() {
   }, [confirmingRevokeHostId, hosts, refresh, revokingHostId, selectedHost]);
 
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -453,58 +515,49 @@ export default function SessionsScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              tintColor="#ffffff"
+              tintColor={mutedForeground}
               onRefresh={() => void refresh(false)}
             />
           }
         >
-          <View className="flex-row items-center gap-3 pb-3">
-            <View className="w-10.5 h-10.5 rounded-lg bg-gray-medium-dark items-center justify-center border border-gray-border-light">
-              <Feather name="terminal" size={20} color="#ffffff" />
-            </View>
+          <View className="flex-row items-end justify-between pb-5">
             <View className="flex-1">
-              <Text className="text-text-muted text-xs font-bold uppercase tracking-wider">
-                Code Agents
+              <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
+                Connect computer
               </Text>
-              <Text className="text-white text-3xl font-bold mt-0.5">
-                Sessions
-              </Text>
-              <Text
-                className="text-status-gray text-xs mt-0.5"
-                numberOfLines={1}
-              >
-                {getRemoteRelayBaseUrl()}
+              <Text className="text-text-muted text-sm leading-5 mt-1">
+                Connect your laptop to run agents from your phone.
               </Text>
             </View>
-            <RelayPill state={relayState} />
-            <TouchableOpacity
-              className="w-10 h-10 rounded-lg items-center justify-center bg-gray-dark border border-gray-border-dim active:opacity-75"
-              onPress={() => void refresh(false)}
-              accessibilityLabel="Refresh sessions"
-            >
-              <Feather name="refresh-cw" size={18} color="#ffffff" />
-            </TouchableOpacity>
+            {!authRequired && relayState !== "checking" ? (
+              <View className="flex-row items-center gap-2 pl-3">
+                <RelayPill state={relayState} />
+                <TouchableOpacity
+                  className="h-10 w-10 items-center justify-center rounded-lg bg-gray-dark border border-gray-border-dim active:opacity-75"
+                  onPress={() => void refresh(false)}
+                  accessibilityLabel="Refresh sessions"
+                >
+                  <Feather name="refresh-cw" size={18} color={foreground} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
 
           {error && !authRequired && (
             <View className="flex-row items-center gap-2 p-3 rounded-lg bg-error-bg border border-error-border my-2">
-              <Feather name="alert-circle" size={16} color="#FCA5A5" />
+              <Feather name="alert-circle" size={16} color={errorText} />
               <Text className="flex-1 text-error-text text-sm">{error}</Text>
             </View>
           )}
           {notice && (
             <View className="flex-row items-center gap-2 p-3 rounded-lg bg-success-bg border border-success-border my-2">
-              <Feather name="check-circle" size={16} color="#86EFAC" />
+              <Feather name="check-circle" size={16} color={successText} />
               <Text className="flex-1 text-success-text text-sm">{notice}</Text>
             </View>
           )}
 
           {authRequired ? (
-            <ConnectPhoneCard
-              relayUrl={getRemoteRelayBaseUrl()}
-              onConnect={handleConnectPhone}
-              onRefresh={() => void refresh(false)}
-            />
+            <ConnectPhoneCard onConnect={handleConnectPhone} />
           ) : (
             <>
               <RelayStatusCard
@@ -515,10 +568,7 @@ export default function SessionsScreen() {
 
               <SectionHeader title="Paired Hosts" action={selectedHost?.name} />
               {hosts.length === 0 && !loading ? (
-                <PairDesktopCard
-                  relayUrl={getRemoteRelayBaseUrl()}
-                  onRefresh={() => void refresh(false)}
-                />
+                <PairDesktopCard onRefresh={() => void refresh(false)} />
               ) : (
                 <ScrollView
                   horizontal
@@ -552,11 +602,15 @@ export default function SessionsScreen() {
                   <Text className="text-white text-lg font-bold">
                     New Session
                   </Text>
-                  {creating && <ActivityIndicator color="#ffffff" />}
+                  {creating && <ActivityIndicator color={foreground} />}
                 </View>
                 {selectedHostOffline && (
                   <View className="flex-row items-start gap-2 p-2.5 rounded-lg bg-warning-yellow-bg border border-warning-yellow-border mb-2.5">
-                    <Feather name="wifi-off" size={15} color="#FBBF24" />
+                    <Feather
+                      name="wifi-off"
+                      size={15}
+                      color={warningYellowText}
+                    />
                     <Text className="flex-1 text-warning-yellow-text text-xs leading-4">
                       {selectedHost.name} looks offline. New work will queue
                       until it reconnects.
@@ -568,12 +622,12 @@ export default function SessionsScreen() {
                   value={newPrompt}
                   onChangeText={setNewPrompt}
                   placeholder="Ask a paired host to implement, inspect, or fix something..."
-                  placeholderTextColor="#666666"
+                  placeholderTextColor={mutedForeground}
                   multiline
                   textAlignVertical="top"
                 />
                 <TouchableOpacity
-                  className={`mt-3 h-11 rounded-lg bg-white flex-row items-center justify-center gap-2 active:opacity-75 ${
+                  className={`mt-3 h-11 rounded-lg bg-primary flex-row items-center justify-center gap-2 active:opacity-75 ${
                     !newPrompt.trim() || creating || relayState === "offline"
                       ? "opacity-45"
                       : ""
@@ -583,8 +637,8 @@ export default function SessionsScreen() {
                   }
                   onPress={handleCreateRun}
                 >
-                  <Feather name="play" size={16} color="#111111" />
-                  <Text className="text-background-pure text-sm font-bold">
+                  <Feather name="play" size={16} color={primaryForeground} />
+                  <Text className="text-primary-foreground text-sm font-bold">
                     {relayState === "offline"
                       ? "Relay Offline"
                       : "Start Session"}
@@ -598,7 +652,7 @@ export default function SessionsScreen() {
               />
               {loading ? (
                 <View className="items-center justify-center gap-2 py-5">
-                  <ActivityIndicator color="#ffffff" />
+                  <ActivityIndicator color={foreground} />
                   <Text className="text-status-gray text-xs">
                     Loading sessions...
                   </Text>
@@ -645,7 +699,11 @@ export default function SessionsScreen() {
                   {pendingCommand && (
                     <View className="mt-3.5 p-3 rounded-lg bg-warning-yellow-bg border border-warning-yellow-border">
                       <View className="flex-row items-center gap-2">
-                        <Feather name="shield" size={16} color="#FBBF24" />
+                        <Feather
+                          name="shield"
+                          size={16}
+                          color={warningYellowText}
+                        />
                         <Text className="text-warning-yellow-text text-sm font-bold">
                           Approval needed
                         </Text>
@@ -676,27 +734,31 @@ export default function SessionsScreen() {
                           }
                         >
                           {acting === "deny" ? (
-                            <ActivityIndicator color="#FCA5A5" />
+                            <ActivityIndicator color={errorText} />
                           ) : (
-                            <Feather name="x" size={15} color="#FCA5A5" />
+                            <Feather name="x" size={15} color={errorText} />
                           )}
                           <Text className="text-error-text text-sm font-bold">
                             {acting === "deny" ? "Denying" : "Deny"}
                           </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          className="flex-1 h-10 rounded-lg bg-white flex-row items-center justify-center gap-1.75 active:opacity-75"
+                          className="flex-1 h-10 rounded-lg bg-primary flex-row items-center justify-center gap-1.75 active:opacity-75"
                           disabled={Boolean(acting)}
                           onPress={() =>
                             void handleDecision("approve", pendingCommand)
                           }
                         >
                           {acting === "approve" ? (
-                            <ActivityIndicator color="#111111" />
+                            <ActivityIndicator color={primaryForeground} />
                           ) : (
-                            <Feather name="check" size={15} color="#111111" />
+                            <Feather
+                              name="check"
+                              size={15}
+                              color={primaryForeground}
+                            />
                           )}
-                          <Text className="text-background-pure text-sm font-bold">
+                          <Text className="text-primary-foreground text-sm font-bold">
                             {acting === "approve" ? "Approving" : "Approve"}
                           </Text>
                         </TouchableOpacity>
@@ -709,7 +771,7 @@ export default function SessionsScreen() {
                       className="flex-1 h-10 rounded-lg bg-gray-medium-dark border border-gray-border-light flex-row items-center justify-center gap-1.75 active:opacity-75"
                       onPress={() => void loadTranscript(selectedRun.id)}
                     >
-                      <Feather name="rotate-cw" size={15} color="#ffffff" />
+                      <Feather name="rotate-cw" size={15} color={foreground} />
                       <Text className="text-white text-sm font-semibold">
                         Refresh
                       </Text>
@@ -722,9 +784,9 @@ export default function SessionsScreen() {
                       onPress={handleStop}
                     >
                       {acting === "stop" ? (
-                        <ActivityIndicator color="#ffffff" />
+                        <ActivityIndicator color={foreground} />
                       ) : (
-                        <Feather name="square" size={15} color="#ffffff" />
+                        <Feather name="square" size={15} color={foreground} />
                       )}
                       <Text className="text-white text-sm font-semibold">
                         {acting === "stop" ? "Stopping" : "Stop Run"}
@@ -735,7 +797,7 @@ export default function SessionsScreen() {
                   <View className="gap-3 pt-4 pb-3">
                     {transcriptLoading ? (
                       <View className="items-center justify-center gap-2 py-5">
-                        <ActivityIndicator color="#ffffff" />
+                        <ActivityIndicator color={foreground} />
                       </View>
                     ) : events.length === 0 ? (
                       <EmptyInline
@@ -755,12 +817,12 @@ export default function SessionsScreen() {
                       value={followUpPrompt}
                       onChangeText={setFollowUpPrompt}
                       placeholder="Send a follow-up..."
-                      placeholderTextColor="#666666"
+                      placeholderTextColor={mutedForeground}
                       multiline
                       textAlignVertical="top"
                     />
                     <TouchableOpacity
-                      className={`w-11.5 h-11.5 rounded-lg items-center justify-center bg-white active:opacity-75 ${
+                      className={`w-11.5 h-11.5 rounded-lg items-center justify-center bg-primary active:opacity-75 ${
                         !followUpPrompt.trim() || sending ? "opacity-45" : ""
                       }`}
                       disabled={!followUpPrompt.trim() || sending}
@@ -768,9 +830,13 @@ export default function SessionsScreen() {
                       accessibilityLabel="Send follow-up"
                     >
                       {sending ? (
-                        <ActivityIndicator color="#111111" />
+                        <ActivityIndicator color={primaryForeground} />
                       ) : (
-                        <Feather name="send" size={17} color="#111111" />
+                        <Feather
+                          name="send"
+                          size={17}
+                          color={primaryForeground}
+                        />
                       )}
                     </TouchableOpacity>
                   </View>
@@ -786,6 +852,14 @@ export default function SessionsScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <NativeSignInSheet
+        visible={signInOpen}
+        onClose={() => setSignInOpen(false)}
+        onSignedIn={async () => {
+          setSignInOpen(false);
+          await refresh(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -801,93 +875,53 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
   );
 }
 
-function ConnectPhoneCard({
-  relayUrl,
-  onConnect,
-  onRefresh,
-}: {
-  relayUrl: string;
-  onConnect: () => void;
-  onRefresh: () => void;
-}) {
+function ConnectPhoneCard({ onConnect }: { onConnect: () => void }) {
+  const { mutedForeground, primaryForeground } = useMobileThemeColors();
   return (
-    <View className="items-stretch p-4.5 rounded-2xl bg-card-dark border border-border-dark mt-2.5">
-      <View className="w-11 h-11 rounded-xl bg-white items-center justify-center mb-3.5">
-        <Feather name="log-in" size={22} color="#111111" />
+    <View className="w-full items-stretch rounded-2xl bg-card-dark border border-border-dark p-5">
+      <View className="h-11 w-11 items-center justify-center rounded-xl bg-gray-charcoal mb-4">
+        <Feather name="monitor" size={21} color={mutedForeground} />
       </View>
-      <Text className="text-white text-2xl font-extrabold">
-        Connect this phone
+      <Text className="text-foreground text-2xl font-bold">
+        Connect your laptop
       </Text>
       <Text className="text-text-muted text-sm leading-5 mt-2">
-        Sign in to Dispatch once, then return to Sessions. The app will use that
-        session to list paired computers and start remote code-agent runs.
+        Sign in, then pair your desktop app. Once connected, you can start and
+        monitor code-agent sessions from here.
       </Text>
-      <View className="flex-row items-center gap-2 p-2.5 rounded-lg bg-background-pure border border-border-dark mt-3.5">
-        <Feather name="globe" size={14} color="#9CA3AF" />
-        <Text className="flex-1 text-text-light text-xs" numberOfLines={1}>
-          {relayUrl}
-        </Text>
-      </View>
       <TouchableOpacity
-        className="mt-3 h-11 rounded-lg bg-white flex-row items-center justify-center gap-2 active:opacity-75"
+        className="mt-5 h-11 rounded-xl bg-primary flex-row items-center justify-center gap-2 active:opacity-75"
         onPress={onConnect}
       >
-        <Feather name="external-link" size={16} color="#111111" />
-        <Text className="text-background-pure text-sm font-bold">
-          Open Dispatch sign-in
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        className="mt-2.5 h-10.5 rounded-lg bg-gray-medium-dark border border-gray-border-light flex-row items-center justify-center gap-1.75 active:opacity-75"
-        onPress={onRefresh}
-      >
-        <Feather name="refresh-cw" size={15} color="#ffffff" />
-        <Text className="text-white text-sm font-semibold">
-          I signed in, refresh
+        <Feather name="external-link" size={16} color={primaryForeground} />
+        <Text className="text-primary-foreground text-sm font-bold">
+          Sign in
         </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function PairDesktopCard({
-  relayUrl,
-  onRefresh,
-}: {
-  relayUrl: string;
-  onRefresh: () => void;
-}) {
+function PairDesktopCard({ onRefresh }: { onRefresh: () => void }) {
+  const { foreground } = useMobileThemeColors();
   return (
     <View className="p-3.5 rounded-xl bg-card-dark border border-border-dark">
       <View className="flex-row items-center gap-2.5">
         <View className="w-9.5 h-9.5 rounded-lg bg-gray-medium-dark items-center justify-center">
-          <Feather name="monitor" size={17} color="#ffffff" />
+          <Feather name="monitor" size={17} color={foreground} />
         </View>
         <View className="flex-1">
-          <Text className="text-white text-base font-bold">
-            Pair your desktop
-          </Text>
+          <Text className="text-white text-lg font-bold">Pair your laptop</Text>
           <Text className="text-status-gray text-xs leading-4 mt-0.75">
-            Remote sessions need an awake Mac polling this relay.
+            Open Agent Native Desktop and pair it in Remote Control.
           </Text>
         </View>
-      </View>
-      <View className="gap-2.5 mt-3.5">
-        <StepRow
-          index="1"
-          text="Open Agent Native Desktop and sign in to Dispatch."
-        />
-        <StepRow
-          index="2"
-          text="Go to Settings, Remote Control, then Pair or repair."
-        />
-        <StepRow index="3" text={`Pair this Mac with ${relayUrl}.`} />
       </View>
       <TouchableOpacity
         className="mt-2.5 h-10.5 rounded-lg bg-gray-medium-dark border border-gray-border-light flex-row items-center justify-center gap-1.75 active:opacity-75"
         onPress={onRefresh}
       >
-        <Feather name="refresh-cw" size={15} color="#ffffff" />
+        <Feather name="refresh-cw" size={15} color={foreground} />
         <Text className="text-white text-sm font-semibold">
           Refresh paired hosts
         </Text>
@@ -896,28 +930,24 @@ function PairDesktopCard({
   );
 }
 
-function StepRow({ index, text }: { index: string; text: string }) {
-  return (
-    <View className="flex-row items-start gap-2.5">
-      <View className="w-5.5 h-5.5 rounded-full items-center justify-center bg-gray-charcoal">
-        <Text className="text-white text-xs font-bold">{index}</Text>
-      </View>
-      <Text className="flex-1 text-text-light text-sm leading-5">{text}</Text>
-    </View>
-  );
-}
-
 function RelayPill({ state }: { state: RelayState }) {
+  const {
+    successText,
+    errorText,
+    warningYellowText,
+    accentBlue,
+    mutedForeground,
+  } = useMobileThemeColors();
   const color =
     state === "online"
-      ? "#86EFAC"
+      ? successText
       : state === "offline"
-        ? "#FCA5A5"
+        ? errorText
         : state === "error"
-          ? "#FBBF24"
+          ? warningYellowText
           : state === "signed-out"
-            ? "#93C5FD"
-            : "#9CA3AF";
+            ? accentBlue
+            : mutedForeground;
   return (
     <View
       style={{ borderColor: color }}
@@ -947,16 +977,17 @@ function RelayStatusCard({
   lastSyncedAt: string | null;
   hostSummary: string;
 }) {
+  const { foreground, errorText } = useMobileThemeColors();
   const offline = state === "offline";
   return (
     <View
-      className={`flex-row items-center gap-3 p-3 rounded-xl bg-card-dark border border-border-dark mt-1 ${offline ? "bg-[#211212] border-error-border" : ""}`}
+      className={`flex-row items-center gap-3 p-3 rounded-xl bg-card-dark border border-border-dark mt-1 ${offline ? "bg-error-bg border-error-border" : ""}`}
     >
       <View className="w-9 h-9 rounded-lg items-center justify-center bg-gray-medium-dark">
         <Feather
           name={offline ? "wifi-off" : "radio"}
           size={17}
-          color={offline ? "#FCA5A5" : "#ffffff"}
+          color={offline ? errorText : foreground}
         />
       </View>
       <View className="flex-1">
@@ -997,6 +1028,7 @@ function HostControls({
   onRevoke: () => void;
   onRegisterPush: () => void;
 }) {
+  const { foreground, errorText, successText } = useMobileThemeColors();
   if (!host) return null;
   const pushDone = pushStatus === "registered";
   return (
@@ -1024,12 +1056,12 @@ function HostControls({
           accessibilityLabel={`Revoke ${host.name}`}
         >
           {revoking ? (
-            <ActivityIndicator color="#FCA5A5" />
+            <ActivityIndicator color={errorText} />
           ) : (
             <Feather
               name="trash-2"
               size={14}
-              color={confirming ? "#FCA5A5" : "#ffffff"}
+              color={confirming ? errorText : foreground}
             />
           )}
           <Text
@@ -1049,12 +1081,12 @@ function HostControls({
           accessibilityLabel="Enable push alerts"
         >
           {registeringPush ? (
-            <ActivityIndicator color="#ffffff" />
+            <ActivityIndicator color={foreground} />
           ) : (
             <Feather
               name={pushDone ? "bell" : "bell-off"}
               size={14}
-              color={pushDone ? "#86EFAC" : "#ffffff"}
+              color={pushDone ? successText : foreground}
             />
           )}
           <Text
@@ -1085,16 +1117,24 @@ function HostCard({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { successText, warningYellowText, mutedForeground } =
+    useMobileThemeColors();
   return (
     <TouchableOpacity
       className={`w-41 p-3 rounded-lg bg-card-dark border border-border-dark ${
-        selected ? "border-white bg-[#202020]" : ""
+        selected ? "border-white bg-gray-medium-dark" : ""
       }`}
       onPress={onPress}
     >
       <View className="flex-row items-center gap-2">
         <View
-          style={{ backgroundColor: hostStatusColor(host.status) }}
+          style={{
+            backgroundColor: hostStatusColor(host.status, {
+              successText,
+              warningYellowText,
+              mutedForeground,
+            }),
+          }}
           className="w-2 h-2 rounded-full"
         />
         <Text
@@ -1125,8 +1165,8 @@ function RunRow({
 }) {
   return (
     <TouchableOpacity
-      className={`p-3 rounded-lg bg-card-dark border border-[#242424] ${
-        selected ? "border-white bg-[#202020]" : ""
+      className={`p-3 rounded-lg bg-card-dark border border-gray-border-dark ${
+        selected ? "border-white bg-gray-medium-dark" : ""
       }`}
       onPress={onPress}
     >
@@ -1163,18 +1203,17 @@ function StatusPill({
   status: RemoteRunStatus;
   compact?: boolean;
 }) {
+  const colors = useMobileThemeColors();
+  const color = runStatusColor(status, colors);
   return (
     <View
       style={{
-        borderColor: runStatusColor(status),
-        backgroundColor: runStatusBg(status),
+        borderColor: color,
+        backgroundColor: runStatusBg(status, colors),
       }}
       className={`border rounded-full px-2.25 py-1 ${compact ? "px-1.75 py-0.75" : ""}`}
     >
-      <Text
-        style={{ color: runStatusColor(status) }}
-        className="text-xs font-bold uppercase"
-      >
+      <Text style={{ color }} className="text-xs font-bold uppercase">
         {statusLabel(status)}
       </Text>
     </View>
@@ -1182,16 +1221,18 @@ function StatusPill({
 }
 
 function TranscriptItem({ event }: { event: RemoteTranscriptEvent }) {
+  const { primaryForeground, foreground, mutedForeground } =
+    useMobileThemeColors();
   return (
     <View className="flex-row gap-2.5">
       <View className="w-7 h-7 rounded bg-gray-charcoal items-center justify-center mt-0.5">
         <Feather
           name={eventIcon(event.type)}
           size={14}
-          color={event.type === "user" ? "#111111" : "#ffffff"}
+          color={event.type === "user" ? primaryForeground : foreground}
         />
       </View>
-      <View className="flex-1 pb-3 border-b border-[#242424]">
+      <View className="flex-1 pb-3 border-b border-gray-border-dark">
         <View className="flex-row items-center justify-between gap-2">
           <Text className="flex-1 text-white text-sm font-bold">
             {event.title || eventTypeLabel(event.type)}
@@ -1205,7 +1246,7 @@ function TranscriptItem({ event }: { event: RemoteTranscriptEvent }) {
         </Text>
         {(event.artifactPath || event.artifactUrl) && (
           <View className="mt-2 p-2 rounded-lg bg-background-pure flex-row gap-1.5">
-            <Feather name="paperclip" size={13} color="#9CA3AF" />
+            <Feather name="paperclip" size={13} color={mutedForeground} />
             <Text className="flex-1 text-text-muted text-xs" numberOfLines={2}>
               {event.artifactPath || event.artifactUrl}
             </Text>
@@ -1225,9 +1266,10 @@ function EmptyBlock({
   title: string;
   text: string;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   return (
-    <View className="items-center justify-center p-6 rounded-xl bg-card-dark border border-[#242424]">
-      <Feather name={icon} size={24} color="#666666" />
+    <View className="items-center justify-center p-6 rounded-xl bg-card-dark border border-gray-border-dark">
+      <Feather name={icon} size={24} color={mutedForeground} />
       <Text className="text-white text-base font-bold mt-2.5">{title}</Text>
       <Text className="text-status-gray text-sm leading-4 text-center mt-1">
         {text}
@@ -1243,9 +1285,10 @@ function EmptyInline({
   icon: keyof typeof Feather.glyphMap;
   text: string;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   return (
     <View className="min-w-55 flex-row items-center gap-2 p-3">
-      <Feather name={icon} size={18} color="#666666" />
+      <Feather name={icon} size={18} color={mutedForeground} />
       <Text className="text-status-gray text-sm leading-4 text-center mt-1">
         {text}
       </Text>
@@ -1253,11 +1296,16 @@ function EmptyInline({
   );
 }
 
-function hostStatusColor(status: RemoteHostStatus): string {
-  if (status === "online") return "#86EFAC";
-  if (status === "busy") return "#FBBF24";
-  if (status === "offline") return "#6B7280";
-  return "#9CA3AF";
+function hostStatusColor(
+  status: RemoteHostStatus,
+  colors: Pick<
+    MobileThemeColors,
+    "successText" | "warningYellowText" | "mutedForeground"
+  >,
+): string {
+  if (status === "online") return colors.successText;
+  if (status === "busy") return colors.warningYellowText;
+  return colors.mutedForeground;
 }
 
 function hostStatusLabel(host: RemoteHost): string {
@@ -1267,20 +1315,26 @@ function hostStatusLabel(host: RemoteHost): string {
   return `${host.name} status unknown`;
 }
 
-function runStatusColor(status: RemoteRunStatus): string {
-  if (status === "completed") return "#86EFAC";
-  if (status === "needs-approval") return "#FBBF24";
-  if (status === "errored") return "#FCA5A5";
-  if (status === "running" || status === "queued") return "#93C5FD";
-  return "#9CA3AF";
+function runStatusColor(
+  status: RemoteRunStatus,
+  colors: MobileThemeColors,
+): string {
+  if (status === "completed") return colors.successText;
+  if (status === "needs-approval") return colors.warningYellowText;
+  if (status === "errored") return colors.errorText;
+  if (status === "running" || status === "queued") return colors.accentBlue;
+  return colors.mutedForeground;
 }
 
-function runStatusBg(status: RemoteRunStatus): string {
-  if (status === "completed") return "#052E16";
-  if (status === "needs-approval") return "#422006";
-  if (status === "errored") return "#450A0A";
-  if (status === "running" || status === "queued") return "#172554";
-  return "#1F2937";
+function runStatusBg(
+  status: RemoteRunStatus,
+  colors: MobileThemeColors,
+): string {
+  if (status === "completed") return colors.successBg;
+  if (status === "needs-approval") return colors.warningYellowBg;
+  if (status === "errored") return colors.errorBg;
+  if (status === "running" || status === "queued") return colors.secondary;
+  return colors.muted;
 }
 
 function statusLabel(status: RemoteRunStatus): string {

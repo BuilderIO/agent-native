@@ -5,7 +5,7 @@ description: "Connectez une base de données SQL portable à votre application n
 
 # Base de données
 
-Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). Lorsqu'un côté modifie des données, l'autre le voit grâce à la couche de polling.
+Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). La synchronisation en direct utilise SSE avec le polling en secours, de sorte que les changements apparaissent dans l'autre surface sans actualisation manuelle.
 
 <Diagram id="doc-block-9mtx2f" title="Comment les données circulent vers la base de données" summary="L'UI et l'agent atteignent tous deux la base de données via la même couche Actions. Les deux appelants utilisent le même client getDb() et les mêmes tables SQL. Il n'existe pas de backend distinct pour chacun.">
 
@@ -110,7 +110,7 @@ Une application qui utilise la base de données a besoin de trois fichiers :
 
 - `server/db/schema.ts` : définitions des tables
 - `server/db/index.ts` : le singleton client de base de données typé
-- `server/plugins/db.ts` : les migrations exécutées au démarrage
+- `server/plugins/db.ts` : les migrations de l'application pour le démarrage local
 
 ### 1. Définissez votre schéma {#schema}
 
@@ -208,7 +208,11 @@ Importez `getDb` depuis ce chemin local au modèle dans les actions et les route
 
 ### 3. Écrivez les migrations {#migrations}
 
-Les modifications de schéma sont appliquées au démarrage via un plugin Nitro dans `server/plugins/db.ts`. Utilisez `runMigrations` depuis `@agent-native/core/db` :
+En développement local, les modifications de schéma peuvent être appliquées via
+un plugin Nitro dans `server/plugins/db.ts`. En production ou dans un déploiement
+serverless, exécutez les migrations lors d'une étape de release ou de déploiement,
+et non lors de la première requête. Utilisez `runMigrations` depuis
+`@agent-native/core/db` :
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +246,15 @@ Les modifications de schéma sont appliquées au démarrage via un plugin Nitro 
   ]}
 />
 
-`runMigrations` exécute chaque entrée une fois, dans l'ordre, puis enregistre la version afin qu'elle soit ignorée lors des redémarrages suivants. Les entrées sont idempotentes. Le plugin peut être appelé sans risque à chaque démarrage.
+`runMigrations` exécute chaque entrée en attente une fois, dans l'ordre, l'enregistre
+comme appliquée, puis l'ignore lors des exécutions suivantes. Donnez un `name`
+stable aux nouvelles entrées ; les migrations nommées sont suivies indépendamment
+de leur numéro de version.
+
+<Callout tone="warning">
+  Le template Chat fournit `pnpm migrate:production` pour exécuter les
+  migrations lors de l'étape de release.
+</Callout>
 
 <Callout tone="risk">
   N'exécutez jamais `drizzle-kit push` sur une base de données de production.
@@ -425,6 +437,6 @@ const { rows } = await getDbExec().execute({
 - [**Security — Data Scoping**](/docs/security#data-scoping) : comment `owner_email` et les assistants d'accès cadrent les lectures et écritures
 - [**Sharing**](/docs/sharing#building) : `ownableColumns()` et le modèle de visibilité pour les ressources partagées
 - [**Plugins**](/docs/server-plugins) : le cycle de vie des plugins de démarrage où s'exécutent les migrations
-- [**Actions**](/docs/actions) : la surface où les actions appellent `getDb()` pour lire et écrire des données
+- [**Actions**](/docs/actions-overview) : la surface où les actions appellent `getDb()` pour lire et écrire des données
 - [**Deployment**](/docs/deployment#persistent-database) : connecter une base de données persistante pour chaque cible de déploiement
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync) : `useDbSync()` et le modèle de synchronisation côté client complet

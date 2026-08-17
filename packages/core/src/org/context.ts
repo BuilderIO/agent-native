@@ -1,14 +1,18 @@
 import type { H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
+import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
+import { FIRST_RUN_ONBOARDING_ELIGIBLE_KEY } from "../shared/first-run-onboarding.js";
 import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
 import {
-  invalidateRequestMemberOrgIds,
+  cachedMemberships,
+  invalidateMemberOrgCaches,
   requestMemberOrgIds,
 } from "./request-org-cache.js";
 import type { OrgContext, OrgRole } from "./types.js";
@@ -256,9 +260,14 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   // signal. Recognizing the personal workspace by its *name* instead breaks the
   // moment the provider display name or the workspace name changes, which
   // strands an existing user in Personal with no way into their company org.
+  // `isFreeEmailProvider` short-circuits before the round trip rather than
+  // relying on the negative cache inside `autoJoinDomainMatchingOrgs`: a
+  // consumer-email domain can NEVER match (see `org/handlers.ts`, which refuses
+  // to set `allowed_domain` to a free provider), so it needs no TTL at all.
   const shouldTryDomainAutoJoin =
     !explicitPersonal &&
     emailDomain !== null &&
+    !isFreeEmailProvider(emailDomain) &&
     !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
 
   if (
@@ -388,6 +397,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
 
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
+  return cachedMemberships(email, () => loadMembershipsUncached(email));
+}
+
+async function loadMembershipsUncached(
+  email: string,
+): Promise<MembershipRow[] | null> {
   const rows = await queryOrgMembers({
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
                  o.allowed_domain AS "allowedDomain"
@@ -508,7 +523,7 @@ export async function createOrganization(
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     args: [nanoid(), id, email, role, createdAt],
   });
-  invalidateRequestMemberOrgIds();
+  invalidateMemberOrgCaches();
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
@@ -693,9 +708,28 @@ async function tryCreateDefaultOrg(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), orgId, email, "owner", now],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "auto-created default organization");
+    try {
+      await appStatePut(
+        email,
+        FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+        { orgId, at: new Date(now).toISOString() },
+        { requestSource: "org-auto-create" },
+      );
+    } catch (error) {
+      // The safe failure mode is to omit first-run onboarding. The org itself
+      // already exists, so do not turn a marker-write failure into a false
+      // zero-membership result or retry that creates another org.
+      warnAgent({
+        severity: "advisory",
+        code: "first-run-onboarding-eligibility-unreadable",
+        message:
+          `Auto-created organization ${orgId} for ${email}, but could not persist ` +
+          `the first-run onboarding eligibility marker: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
 
     return { email, orgId, orgName, role: "owner" };
   } catch {

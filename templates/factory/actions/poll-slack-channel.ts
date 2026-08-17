@@ -4,11 +4,17 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
+import {
+  hasTriageSourceChanged,
+  statusAfterTriageSourceUpdate,
+} from "../server/triage/review-state.js";
 import { pollSlackChannel } from "../server/triage/slack-poller.js";
 
 export default defineAction({
@@ -17,10 +23,15 @@ export default defineAction({
   schema: z.object({
     channelId: z.string().trim().min(1).max(128).optional(),
   }),
-  http: { method: "POST" },
+  http: false,
   run: async ({ channelId: requestedChannelId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
+    );
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "sourcePolling",
     );
     const db = getDb();
     const config = (
@@ -52,6 +63,36 @@ export default defineAction({
     await db.transaction(async (tx) => {
       for (const envelope of result.envelopes) {
         const id = itemDedupeKey(envelope, orgId);
+        const existing = (
+          await tx
+            .select()
+            .from(triageItems)
+            .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
+            .limit(1)
+        )[0];
+        const sourceChanged = hasTriageSourceChanged(existing, {
+          title: envelope.title,
+          summary: envelope.summary ?? null,
+          sourceUrl: envelope.sourceUrl ?? null,
+          coverage: envelope.coverage,
+          lastSeenAt:
+            typeof envelope.metadata?.messageTs === "string"
+              ? envelope.metadata.messageTs
+              : undefined,
+        });
+        const status = statusAfterTriageSourceUpdate(
+          existing?.status,
+          sourceChanged,
+          "received",
+        );
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
+        const sourceLastSeenAt =
+          typeof envelope.metadata?.messageTs === "string"
+            ? envelope.metadata.messageTs
+            : now;
+        const lastSeenAt = sourceChanged
+          ? sourceLastSeenAt
+          : (existing?.lastSeenAt ?? now);
         await tx
           .insert(triageItems)
           .values({
@@ -61,7 +102,7 @@ export default defineAction({
             sourceUrl: envelope.sourceUrl ?? null,
             title: envelope.title,
             summary: envelope.summary ?? null,
-            status: "received",
+            status,
             risk: "unknown",
             channelId: envelope.channelId ?? null,
             threadTs: envelope.threadTs ?? null,
@@ -71,9 +112,9 @@ export default defineAction({
             coverage: envelope.coverage,
             dedupeKey: id,
             metadataJson: JSON.stringify(envelope.metadata ?? {}),
-            lastSeenAt: now,
+            lastSeenAt,
             createdAt: now,
-            updatedAt: now,
+            updatedAt,
             ownerEmail: userEmail,
             orgId,
           })
@@ -86,8 +127,10 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              lastSeenAt: now,
-              updatedAt: now,
+              metadataJson: JSON.stringify(envelope.metadata ?? {}),
+              status,
+              lastSeenAt,
+              updatedAt,
             },
           });
       }
@@ -105,6 +148,43 @@ export default defineAction({
           );
       }
     });
+
+    if (result.envelopes.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-slack-channel",
+          kind: "observed",
+          source: "slack",
+          summary: "No new Slack feedback was observed.",
+          details: {
+            channelId,
+            coverage: result.hasMore ? "partial" : "complete",
+          },
+        },
+      );
+    } else {
+      for (const envelope of result.envelopes) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-slack-channel",
+            kind: "observed",
+            itemId: itemDedupeKey(envelope, orgId),
+            source: envelope.source,
+            sourceUrl: envelope.sourceUrl ?? null,
+            summary: envelope.summary ?? envelope.title,
+            details: {
+              channelId,
+              threadTs: envelope.threadTs ?? null,
+              coverage: envelope.coverage,
+            },
+          },
+        );
+      }
+    }
 
     return {
       ok: true,

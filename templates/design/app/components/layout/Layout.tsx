@@ -153,7 +153,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           storageKey={DESIGN_CHAT_STORAGE_KEY}
-          agentPageHref="/agent"
+          agentPageHref="/settings/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionLandingPage"),

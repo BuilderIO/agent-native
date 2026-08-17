@@ -5,7 +5,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 
 # 伺服器
 
-`server/` 目錄是 Agent-Native 應用的基礎架構層。它負責啟動時的任務、驗證，以及 actions 涵蓋不到的 HTTP 介面。大多數產品行為屬於 [Actions](/docs/actions) 的範疇；伺服器的職責是讓這些 actions 得以對外提供服務。
+`server/` 目錄是 Agent-Native 應用的基礎架構層。它負責啟動時的任務、驗證，以及 actions 涵蓋不到的 HTTP 介面。大多數產品行為屬於 [Actions](/docs/actions-overview) 的範疇；伺服器的職責是讓這些 actions 得以對外提供服務。
 
 <Diagram id="doc-block-server-overview-1" title="請求如何流經伺服器" summary="呼叫者抵達 Nitro 伺服器，其中大部分請求由 Actions 處理。中間件與路由涵蓋 Actions 無法表達的情況。兩條路徑都可以查詢資料庫。">
 
@@ -196,7 +196,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 | ------------------------------------- | ------------------------------------------------------------------ |
 | **[資料庫](/docs/server-database)**   | 使用 `table()` 幫手定義架構、`getDb`，以及可共用表的模式           |
 | **[中間件](/docs/server-middleware)** | `server/middleware/` 中的驗證守衛，以及為何在此執行而非放在外掛中  |
-| **[外掛](/docs/server-plugins)**      | 每個應用都會附帶的三個啟動外掛：資料庫遷移、驗證，以及 agent-chat  |
+| **[外掛](/docs/server-plugins)**      | 用於驗證和 agent-chat 的啟動外掛，以及可選的應用程式自有資料庫遷移 |
 | **[路由](/docs/server-routes)**       | 基於檔案的路由、SSR 全捕獲路由，以及將自訂路由範圍限定給請求使用者 |
 
 ## Nitro {#nitro}
@@ -204,7 +204,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 [Nitro](https://nitro.build) 是驅動 Agent-Native HTTP 層的伺服器工具套件。您在 `server/` 中設定的內容大多是 Nitro：基於檔案的路由、啟動外掛，以及中間件。
 
 - **基於檔案的路由**：檔名直接對應到 HTTP 方法與 URL 路徑，無需註冊。`server/routes/api/health.get.ts` 會自動變成 `GET /api/health`。詳情請參閱 [路由](/docs/server-routes)。
-- **外掛**：僅在伺服器啟動時執行一次的程式碼，早於任何請求被服務之前。資料庫遷移、驗證設定，以及 agent-chat 的掛載都發生在 `server/plugins/` 中。詳情請參閱 [外掛](/docs/server-plugins)。
+- **外掛**：在伺服器啟動時註冊並載入一次的程式碼。框架輔助函式會初始化驗證與 agent-chat；選用的應用程式自有資料庫遷移在第一個請求抵達時可能仍在執行。詳情請參閱 [外掛](/docs/server-plugins)。
 - **中間件**：在每個傳入請求抵達路由之前執行的程式碼。驗證守衛就位於 `server/middleware/` 中。詳情請參閱 [中間件](/docs/server-middleware)。
 
 Nitro 同時也與部署平台無關。同一個應用可以無須修改程式碼就部署到 Node.js、Cloudflare Workers、Netlify、Vercel 及其他執行環境，只需設定對應的 preset。請參閱 [部署](/docs/deployment)。
@@ -221,11 +221,11 @@ Agent Native 的架構思路不同。每當您想到應用的新功能時，先�
 - 可透過 MCP 與 A2A 呼叫的工具。
 - 用於開發的 CLI 指令。
 
-只有在您需要路由形式的協定或二進位／串流行為時，才使用自訂的 `/api/*` 路由。詳情請參閱 [Actions](/docs/actions)。
+只有在您需要路由形式的協定或二進位／串流行為時，才使用自訂的 `/api/*` 路由。詳情請參閱 [Actions](/docs/actions-overview)。
 
 ## 下一步是什麼 {#whats-next}
 
-- [**Actions**](/docs/actions)：預設的操作介面。只有在不合用時才改用自訂路由。
+- [**Actions**](/docs/actions-overview)：預設的操作介面。只有在不合用時才改用自訂路由。
 - [**資料庫**](/docs/server-database)：自訂路由與 actions 都會匯入的 `getDb()`／架構模式
 - [**中間件**](/docs/server-middleware)：驗證守衛與 `server/middleware/` 目錄
 - [**外掛**](/docs/server-plugins)：用於遷移、驗證與 agent 的啟動外掛

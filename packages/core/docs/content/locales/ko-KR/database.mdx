@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-`@agent-native/core`에서 직접 가져오는 대신 이 템플릿 로컬 경로(경로의 `../../server/db/index.js`, actions의 `../server/db/index.js`)에서 `getDb`를 가져옵니다. 핵심 내보내기는 형식화되지 않은 일반 인스턴스를 반환합니다. 템플릿의 `getDb()`에는 스키마 유형이 포함됩니다. actions 및 사용자 정의 경로가 각각 이를 가져오는 방법은 [Server](/docs/server#request-context)를 참조하세요.
+`@agent-native/core`에서 직접 가져오는 대신 이 템플릿 로컬 경로(경로의 `../../server/db/index.js`, actions의 `../server/db/index.js`)에서 `getDb`를 가져옵니다. 핵심 내보내기는 형식화되지 않은 일반 인스턴스를 반환합니다. 템플릿의 `getDb()`에는 스키마 유형이 포함됩니다. actions 및 사용자 정의 경로가 각각 이를 가져오는 방법은 [Server](/docs/server-routes#request-context)를 참조하세요.
 
 ## 방언에 구애받지 않는 스키마 및 쿼리 {#schema}
 

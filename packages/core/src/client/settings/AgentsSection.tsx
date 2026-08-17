@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/design-system";
 import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
 import {
   IconPlus,
@@ -312,12 +313,19 @@ function AgentAddPopover({
     const trimmedUrl = url.trim();
     if (!trimmedName || !trimmedUrl) return;
     const trimmedDescription = description.trim();
-    const ok = await onAdd(trimmedName, trimmedUrl, trimmedDescription);
-    if (ok) {
-      setAdded({
-        name: trimmedName,
-        url: trimmedUrl,
-        description: trimmedDescription,
+    try {
+      const ok = await onAdd(trimmedName, trimmedUrl, trimmedDescription);
+      if (ok) {
+        setAdded({
+          name: trimmedName,
+          url: trimmedUrl,
+          description: trimmedDescription,
+        });
+      }
+    } catch (error) {
+      setCheck({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not add agent",
       });
     }
   };
@@ -612,8 +620,13 @@ export function AgentsSection() {
     AgentProbeResult
   > | null>(null);
 
-  const { data: org } = useOrg();
+  const orgQuery = useOrg();
+  const { data: org } = orgQuery;
   const syncSecret = useSyncA2ASecret();
+  const canManageSharedAgents =
+    !orgQuery.isLoading &&
+    !orgQuery.isError &&
+    (!org?.orgId || org.role === "owner" || org.role === "admin");
 
   // Landing from a peer's "register back" deep link (see
   // buildPeerRegisterBackLink): the open route only echoes `f_*` params onto
@@ -734,24 +747,34 @@ export function AgentsSection() {
       2,
     );
 
-    try {
-      const res = await fetch(agentNativePath("/_agent-native/resources"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: remoteAgentResourcePath(id),
-          content: agentJson,
-          shared: true,
-        }),
-      });
-      // Deliberately don't close the popover here — a successful add shows a
-      // follow-up state (registration is one-way; the peer doesn't know
-      // about us yet) that the user dismisses explicitly.
-      if (res.ok) fetchAgents();
-      return res.ok;
-    } catch {
-      return false;
+    const res = await fetch(agentNativePath("/_agent-native/resources"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: remoteAgentResourcePath(id),
+        content: agentJson,
+        shared: true,
+      }),
+    });
+    if (!res.ok) {
+      let body: { error?: string; message?: string } | null;
+      try {
+        body = (await res.json()) as {
+          error?: string;
+          message?: string;
+        };
+      } catch {
+        throw new Error(`Add failed (${res.status})`);
+      }
+      throw new Error(
+        body?.error ?? body?.message ?? `Add failed (${res.status})`,
+      );
     }
+    // Deliberately don't close the popover here — a successful add shows a
+    // follow-up state (registration is one-way; the peer doesn't know
+    // about us yet) that the user dismisses explicitly.
+    fetchAgents();
+    return true;
   };
 
   const handleSave = async (agent: AgentInfo) => {
@@ -802,41 +825,52 @@ export function AgentsSection() {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
-        <div className="relative">
-          <button
-            onClick={() => {
-              setShowAdd(!showAdd);
-              setEditingAgent(null);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            {showAdd ? <IconX size={13} /> : <IconPlus size={13} />}
-            {showAdd ? "Cancel" : "Connect agent"}
-          </button>
-          {showAdd && (
-            <AgentAddPopover
-              initialName={prefill?.name}
-              initialUrl={prefill?.url}
-              initialDescription={prefill?.description}
-              secretSet={org?.a2aSecretSet}
-              syncSecret={syncSecret}
-              onAdd={handleAdd}
-              onClose={() => {
-                setShowAdd(false);
-                setPrefill(null);
+        {canManageSharedAgents ? (
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowAdd(!showAdd);
+                setEditingAgent(null);
               }}
-            />
-          )}
-        </div>
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              {showAdd ? <IconX size={13} /> : <IconPlus size={13} />}
+              {showAdd ? "Cancel" : "Connect agent"}
+            </button>
+            {showAdd && (
+              <AgentAddPopover
+                initialName={prefill?.name}
+                initialUrl={prefill?.url}
+                initialDescription={prefill?.description}
+                secretSet={org?.a2aSecretSet}
+                syncSecret={syncSecret}
+                onAdd={handleAdd}
+                onClose={() => {
+                  setShowAdd(false);
+                  setPrefill(null);
+                }}
+              />
+            )}
+          </div>
+        ) : !orgQuery.isLoading ? (
+          <span className="text-[10px] text-muted-foreground">
+            Only workspace owners and admins can connect agents.
+          </span>
+        ) : null}
       </div>
 
       <A2ASecretStatusRow org={org} syncSecret={syncSecret} />
 
       {/* Agent list */}
       {loading ? (
-        <div className="space-y-1.5">
-          <div className="h-6 w-full rounded bg-muted/50 animate-pulse" />
-          <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
+        <div
+          className="space-y-1.5"
+          role="status"
+          aria-busy="true"
+          aria-label="Loading connected agents"
+        >
+          <Skeleton className="h-6 w-full bg-muted/50" />
+          <Skeleton className="h-6 w-3/4 bg-muted/50" />
         </div>
       ) : agents.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-border/70 bg-card px-5 py-8 text-center">
@@ -849,13 +883,19 @@ export function AgentsSection() {
           <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
             Connect an A2A agent to delegate work from chat.
           </p>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <IconPlus size={13} />
-            Connect agent
-          </button>
+          {canManageSharedAgents ? (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              <IconPlus size={13} />
+              Connect agent
+            </button>
+          ) : !orgQuery.isLoading ? (
+            <p className="mt-4 text-xs text-muted-foreground">
+              Ask a workspace owner or admin to connect an agent.
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
@@ -901,19 +941,21 @@ export function AgentsSection() {
                         {agent.url}
                       </span>
                     </div>
-                    <button
-                      onClick={() => {
-                        setEditingAgent(
-                          editingAgent === agent.id ? null : agent.id,
-                        );
-                        setShowAdd(false);
-                      }}
-                      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-                    >
-                      Manage
-                    </button>
+                    {canManageSharedAgents ? (
+                      <button
+                        onClick={() => {
+                          setEditingAgent(
+                            editingAgent === agent.id ? null : agent.id,
+                          );
+                          setShowAdd(false);
+                        }}
+                        className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                      >
+                        Manage
+                      </button>
+                    ) : null}
                   </div>
-                  {editingAgent === agent.id && (
+                  {canManageSharedAgents && editingAgent === agent.id && (
                     <AgentEditPopover
                       agent={agent}
                       onSave={handleSave}

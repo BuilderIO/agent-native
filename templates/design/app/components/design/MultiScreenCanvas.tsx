@@ -51,6 +51,7 @@ import {
   IconHandClick,
   IconPlus,
 } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import {
   memo,
   useRef,
@@ -89,6 +90,7 @@ import {
 } from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import { roundGeo, trace } from "./design-trace";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
 import {
@@ -181,6 +183,19 @@ const MAX_WHEEL_PAN_DELTA = 140;
  *  number as the var's fallback, so first paint and SSR are unaffected. */
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
 const PIXEL_GRID_ZOOM = 800;
+
+function hasScreenChildLayers(content: string): boolean {
+  const body = content.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1] ?? "";
+  const editableMarkup = body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(
+      /<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>|<(link|meta|base)\b[^>]*>/gi, // i18n-ignore regex removes non-rendered document elements
+      "",
+    )
+    .trim();
+
+  return editableMarkup.length > 0;
+}
 
 import {
   BOARD_SURFACE_BACKGROUND,
@@ -460,6 +475,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onPrimitiveCreated,
   onPrimitiveReparent,
   onCreateScreenFrame,
+  frameToolDraws = "frame",
   onDeleteSelection,
   onNudgeSelection,
   onZoomChange,
@@ -509,6 +525,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onDropFiles,
   cameraCommand,
 }: MultiScreenCanvasProps) {
+  const { resolvedTheme } = useTheme();
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -628,6 +645,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
+  // The board iframe cannot read the host's CSS vars, so the themed canvas
+  // colour has to be resolved out here or the board stays dark in light mode.
+  const boardSurfaceBackground = useMemo(() => {
+    if (typeof window === "undefined") return BOARD_SURFACE_BACKGROUND;
+    const themed = window
+      .getComputedStyle(document.documentElement)
+      .getPropertyValue("--design-editor-canvas-bg")
+      .trim();
+    return themed || BOARD_SURFACE_BACKGROUND;
+  }, [resolvedTheme]);
+
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
     const focusGeometry = boardSurfaceFocusPoint
@@ -679,8 +707,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       html: boardSurfaceHtml,
       logicalGeometry: boardFrameGeometry,
       viewport: boardStaticPreviewViewport,
+      background: boardSurfaceBackground,
     });
-  }, [boardSurfaceHtml, boardFrameGeometry, boardStaticPreviewViewport]);
+  }, [
+    boardSurfaceHtml,
+    boardFrameGeometry,
+    boardStaticPreviewViewport,
+    boardSurfaceBackground,
+  ]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
     boardSurfaceRenderGeometry &&
@@ -2176,6 +2210,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const sourceIsBoard = sourceScreenId === boardFileId;
       setCrossScreenSourceIsBoard(sourceIsBoard);
       const target = getFrameEntryAtPoint(boardPoint);
+      trace("drop", "resolve-target", {
+        pointerInCanvasUnits: {
+          x: Math.round(boardPoint.x),
+          y: Math.round(boardPoint.y),
+        },
+        hitFrame: target?.id ?? null,
+        sourceScreen: sourceScreenId,
+        sourceIsBoard,
+        frames: Object.entries(frameGeometryRef.current ?? {}).map(
+          ([id, g]: [string, any]) =>
+            `${id.slice(0, 6)} @ ${Math.round(g.x)},${Math.round(g.y)} ${Math.round(g.width)}x${Math.round(g.height)}`,
+        ),
+        verdict:
+          target && target.id !== sourceScreenId
+            ? "will drop into that frame"
+            : target
+              ? "hit the SOURCE frame, so no cross-screen move"
+              : "NO frame under the pointer — drop cannot resolve a screen",
+      });
       if (target && target.id !== sourceScreenId) {
         const nextTarget = { id: target.id, geometry: target.geometry };
         if (crossScreenTargetRef.current?.id !== nextTarget.id) {
@@ -2248,6 +2301,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const hasIdentifier = !!(payload.selector || payload.sourceId);
       if (!hasIdentifier || !sourceScreenId) return;
       if (!lastBoardPoint) return;
+      // No candidate means the pointer never left the source screen, so the
+      // bridge already handled it as an in-place reorder. Falling back to the
+      // board here re-persists the move against a file that does not contain
+      // the element, which fails to resolve and silently discards the drop.
+      const sourceFrameGeometry = frameGeometryRef.current?.[sourceScreenId];
+      const droppedInsideSourceScreen =
+        !candidate &&
+        !!sourceFrameGeometry &&
+        lastBoardPoint.x >= sourceFrameGeometry.x &&
+        lastBoardPoint.x <= sourceFrameGeometry.x + sourceFrameGeometry.width &&
+        lastBoardPoint.y >= sourceFrameGeometry.y &&
+        lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
+      if (droppedInsideSourceScreen) return;
+      trace("drop", "finalize", {
+        candidate: candidate?.id ?? null,
+        sourceScreen: sourceScreenId,
+        droppedInsideSourceScreen,
+        outcome: droppedInsideSourceScreen
+          ? "discarded — pointer never left the source screen"
+          : candidate
+            ? "moving into candidate"
+            : "no candidate; falling back to the board",
+      });
       const targetCandidate =
         candidate ??
         (boardFileId && sourceScreenId !== boardFileId && boardFrameGeometry
@@ -2914,6 +2990,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const viewportWidth = iframe?.clientWidth || metadata.width;
           const viewportHeight = iframe?.clientHeight || metadata.height;
           const infos = await requestSelectableElementInfos(entry.id);
+          // entry.geometry.height trails the measured auto-height, and an
+          // independent y-scale off it squashes every child rect.
+          const contentScale =
+            entry.geometry.width / Math.max(1, viewportWidth);
+          const renderedFrame = {
+            ...entry.geometry,
+            height: viewportHeight * contentScale,
+          };
           return infos.map((info) => ({
             screenId: entry.id,
             info,
@@ -2924,7 +3008,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 width: info.boundingRect.width,
                 height: info.boundingRect.height,
               },
-              entry.geometry,
+              renderedFrame,
               { width: viewportWidth, height: viewportHeight },
             ),
             frameGeometry: entry.geometry,
@@ -3430,6 +3514,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
+      let lastLayerSelectionSignature: string | null = null;
       const marqueeState: MarqueeDragState = {
         type: "marquee",
         originClient: { x: e.clientX, y: e.clientY },
@@ -3469,6 +3554,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             screenId: candidate.screenId,
             info: candidate.info,
           }));
+        const signature = selection
+          .map(
+            (item) =>
+              `${item.screenId}:${item.info.sourceId ?? item.info.pendingNodeId ?? item.info.selector ?? item.info.id ?? ""}`,
+          )
+          .join("|");
+        if (signature === lastLayerSelectionSignature) return;
+        lastLayerSelectionSignature = signature;
         onLayerMarqueeSelectionChange?.(selection, {
           source: "marquee",
           additive: state.additive,
@@ -3513,6 +3606,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           additive: false,
           shiftKey: false,
         });
+        lastLayerSelectionSignature = "";
       }
       setIsDragging(true);
       // Seed collection with whatever the zero-size origin rect already
@@ -3695,11 +3789,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             getScreenMetadata?.(targetScreen),
           )
         : undefined;
+      // Metadata defaults to 1280x2560 while the renderer lays the iframe out
+      // at the frame's own size; trusting metadata scales every drawn
+      // primitive by metadataWidth/frameWidth. Same precedence as the marquee.
+      const targetIframe = targetScreen
+        ? surfaceRef.current?.querySelector<HTMLIFrameElement>(
+            `[data-screen-iframe-id="${CSS.escape(getActiveScreenIframeId(targetScreen))}"]`,
+          )
+        : null;
+      const measuredMetadata =
+        targetMetadata && targetIframe?.clientWidth && targetIframe.clientHeight
+          ? {
+              ...targetMetadata,
+              width: targetIframe.clientWidth,
+              height: targetIframe.clientHeight,
+            }
+          : targetMetadata;
 
       const localPrimitive = draftPrimitiveToInsert(
         draft,
         targetFrame.geometry,
-        targetMetadata,
+        measuredMetadata,
       );
       const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
       if (!persisted) {
@@ -4413,6 +4523,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // originating screen.
         if (
           state.tool === "frame" &&
+          frameToolDraws === "screen" &&
           !state.originFrameId &&
           onCreateScreenFrame
         ) {
@@ -4436,9 +4547,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 0,
               )
             : null;
-          onCreateScreenFrame(
-            clampFrameGeometryToViewport(draftGeometry, viewportBounds),
+          const screenGeometry = clampFrameGeometryToViewport(
+            draftGeometry,
+            viewportBounds,
           );
+          trace("screen", "create-from-frame-tool", {
+            why: "frame tool started on empty canvas, so it becomes a SCREEN",
+            drawn: roundGeo(draftGeometry),
+            committed: roundGeo(screenGeometry),
+            clamped:
+              Math.round(draftGeometry.x) !== Math.round(screenGeometry.x) ||
+              Math.round(draftGeometry.y) !== Math.round(screenGeometry.y),
+          });
+          onCreateScreenFrame(screenGeometry);
           if (activeTool === undefined) {
             setLocalActiveTool("move");
           }
@@ -4446,6 +4567,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           finishDrag();
           return;
         }
+        trace("draw", "commit-primitive", {
+          tool: state.tool,
+          startedInScreen: state.originFrameId ?? "(empty canvas → board)",
+        });
         const nextDraft = createDraftPrimitive({
           tool: state.tool,
           start: state.originCanvas,
@@ -4480,6 +4605,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       activeTool,
       commitDraftPrimitive,
       finishDrag,
+      frameToolDraws,
       getCanvasPoint,
       getFrameEntryAtPoint,
       installDragListeners,
@@ -5051,10 +5177,210 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [updateSelectedDraftIds, updateSelectedIds],
   );
 
+  const beginDuplicateGesture = useCallback(
+    (id: string, e: React.MouseEvent) => {
+      const entries = getCurrentFrameEntries();
+      const selection = selectedIdsRef.current;
+      const targets = (selection.includes(id) ? selection : [id])
+        .filter((targetId) => !lockedScreenIdSet.has(targetId))
+        .flatMap((targetId) => {
+          const target = screensRef.current.find((s) => s.id === targetId);
+          const geometry = entries.find(
+            (entry) => entry.id === targetId,
+          )?.geometry;
+          return target && geometry ? [{ screen: target, geometry }] : [];
+        });
+      const source = targets.find((target) => target.screen.id === id);
+      if (!source) return;
+      e.preventDefault();
+      e.stopPropagation();
+      duplicateCleanup.current?.();
+
+      const display = screenDisplayName(
+        source.screen,
+        getResolvedMetadata(source.screen),
+      );
+      const surfaceRect = surfaceRef.current?.getBoundingClientRect();
+      const origin = { x: e.clientX, y: e.clientY };
+      const originCanvas = canvasPointFromClient(e.clientX, e.clientY);
+      const previewPoint = {
+        x: surfaceRect ? e.clientX - surfaceRect.left + 16 : e.clientX,
+        y: surfaceRect ? e.clientY - surfaceRect.top + 16 : e.clientY,
+      };
+
+      const previewWidth = source.geometry.width;
+      const previewHeight = source.geometry.height;
+
+      setDuplicatePreview({
+        display,
+        count: targets.length,
+        x: previewPoint.x,
+        y: previewPoint.y,
+        width: previewWidth,
+        height: previewHeight,
+        canDuplicate: !!onDuplicate,
+        moved: false,
+      });
+      // Mount the interaction shield and mute preview-iframe pointer events for
+      // the duration of the gesture, same as every other drag — otherwise the
+      // pointer freezes crossing a live embedded iframe and a release over a
+      // screen never reaches handleMouseUp.
+      setIsDragging(true);
+      // Figma parity: show a copy-affordance cursor while the alt-drag
+      // duplicate gesture is armed. Tracked live in handleMouseMove below
+      // (same live e.altKey tracking that already drives canDuplicate), so
+      // releasing alt mid-drag falls back to the default arrow instead of
+      // staying on the copy cursor for a gesture that will no longer
+      // duplicate on mouseup.
+      setDragCursor(e.altKey ? "copy" : null);
+
+      // PERF: track the last committed canDuplicate/moved/cursor values in
+      // plain closure locals (not state) so the mousemove tick below can tell
+      // whether anything conditional actually changed without reading back
+      // through React state (which the imperative writes below intentionally
+      // stop keeping fresh every tick — see duplicatePreviewElRef).
+      let lastCanDuplicate = !!onDuplicate;
+      let lastMoved = false;
+      let lastCursor: string | null = e.altKey ? "copy" : null;
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - origin.x;
+        const dy = ev.clientY - origin.y;
+        const moved = Math.hypot(dx, dy) >= DUPLICATE_DRAG_THRESHOLD;
+        const rect = surfaceRef.current?.getBoundingClientRect();
+        const x = rect ? ev.clientX - rect.left + 16 : ev.clientX;
+        const y = rect ? ev.clientY - rect.top + 16 : ev.clientY;
+        // Live alt state, not just capability: if the user releases alt
+        // mid-drag the preview should visibly fall back to its "not armed"
+        // dashed/preview styling, matching that mouseup will then cancel
+        // the duplicate instead of creating one (see handleMouseUp below).
+        const canDuplicate = !!onDuplicate && ev.altKey;
+
+        // PERF9: the ghost's position is a direct DOM write every tick
+        // instead of a setDuplicatePreview (full re-render) — same
+        // "imperative now, commit state only when something conditional
+        // changes" discipline as the frame/draft drag paths above. Falls
+        // back to setDuplicatePreview itself if the node hasn't mounted yet
+        // (e.g. the very first tick right after mousedown, before React has
+        // committed the initial preview).
+        const el = duplicatePreviewElRef.current;
+        if (el) {
+          el.style.left = `${x}px`;
+          el.style.top = `${y}px`;
+        }
+
+        if (!el || canDuplicate !== lastCanDuplicate || moved !== lastMoved) {
+          lastCanDuplicate = canDuplicate;
+          lastMoved = moved;
+          setDuplicatePreview({
+            display,
+            count: targets.length,
+            x,
+            y,
+            width: previewWidth,
+            height: previewHeight,
+            canDuplicate,
+            moved,
+          });
+        }
+
+        const cursor = ev.altKey ? "copy" : null;
+        if (cursor !== lastCursor) {
+          lastCursor = cursor;
+          setDragCursor(cursor);
+        }
+      };
+
+      const cleanupDuplicateGesture = () => {
+        setDuplicatePreview(null);
+        duplicateCleanup.current = null;
+        // finishDrag clears isDragging, unmounts the shield, and — critically —
+        // runs dragCleanup.current() to detach the window listeners installed
+        // by installDragListeners and restore preview-iframe pointer events.
+        // dragState.current was never set for this gesture, so finishDrag's
+        // other resets (marquee/creation-preview/etc.) are no-ops here.
+        finishDrag();
+      };
+
+      const handleMouseUp = (ev: MouseEvent) => {
+        const moved =
+          Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) >=
+          DUPLICATE_DRAG_THRESHOLD;
+        // Alt is read live, not from mousedown: the gesture only ever showed a
+        // ghost, so releasing alt must cancel outright, never fall back to a
+        // move the original frame never started.
+        const shouldDuplicate = moved && ev.altKey;
+
+        if (onDuplicate && shouldDuplicate) {
+          const dropCanvasPosition = canvasPointFromClient(
+            ev.clientX,
+            ev.clientY,
+          );
+          const delta = {
+            x: dropCanvasPosition.x - originCanvas.x,
+            y: dropCanvasPosition.y - originCanvas.y,
+          };
+          // The user placed these clones deliberately — suppress the
+          // lineup-recenter camera move when the created screens land in
+          // `screens` (Figma keeps the camera still on alt-drag duplicate).
+          lineupRecenterSuppressRef.current = {
+            atMs: Date.now(),
+            fromCount: screensRef.current.length,
+            addedCount: targets.length,
+          };
+          targets.forEach((target) => {
+            const canvasPosition = {
+              x: target.geometry.x + delta.x,
+              y: target.geometry.y + delta.y,
+            };
+            onDuplicate(target.screen.id, {
+              mode: "alt-drag",
+              screen: target.screen,
+              canvasPosition,
+              canvasOffset: {
+                x: dropCanvasPosition.x - canvasPosition.x,
+                y: dropCanvasPosition.y - canvasPosition.y,
+              },
+              dropCanvasPosition,
+            });
+          });
+        } else if (!moved) {
+          onPick(id);
+        }
+
+        cleanupDuplicateGesture();
+      };
+
+      duplicateCleanup.current = cleanupDuplicateGesture;
+      installDragListeners(
+        handleMouseMove,
+        handleMouseUp,
+        cleanupDuplicateGesture,
+      );
+    },
+    [
+      canvasPointFromClient,
+      finishDrag,
+      getCurrentFrameEntries,
+      getResolvedMetadata,
+      installDragListeners,
+      lockedScreenIdSet,
+      onDuplicate,
+      onPick,
+    ],
+  );
+
   const beginFrameDrag = useCallback(
     (id: string, e: React.MouseEvent) => {
       if (readOnly) return;
-      if (e.button !== 0 || e.shiftKey || lockedScreenIdSet.has(id)) return;
+      if (e.button !== 0 || lockedScreenIdSet.has(id)) return;
+      // Frame body, label row, and the selection box over a selected frame all
+      // start drags here, so alt's move-vs-copy meaning is decided exactly once.
+      if (e.altKey) {
+        beginDuplicateGesture(id, e);
+        return;
+      }
+      if (e.shiftKey) return;
       e.preventDefault();
       e.stopPropagation();
       // Frame mousedowns stop propagation, so they never reach handleMouseDown.
@@ -5406,6 +5732,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     },
     [
       activeId,
+      beginDuplicateGesture,
       findPrimitiveDropTarget,
       finishDrag,
       getCanvasPoint,
@@ -6258,191 +6585,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onLayerMarqueeSelectionChange,
       updateSelectedDraftIds,
       updateSelectedIds,
-    ],
-  );
-
-  const beginDuplicateGesture = useCallback(
-    (screen: ScreenFile, display: string, e: React.MouseEvent<HTMLElement>) => {
-      if (readOnly) return;
-      if (e.button !== 0 || !e.altKey || lockedScreenIdSet.has(screen.id)) {
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      duplicateCleanup.current?.();
-
-      const surfaceRect = surfaceRef.current?.getBoundingClientRect();
-      const origin = { x: e.clientX, y: e.clientY };
-      const originCanvas = canvasPointFromClient(e.clientX, e.clientY);
-      const sourceFrame = getCurrentFrameEntries().find(
-        (entry) => entry.id === screen.id,
-      );
-      const pointerOffset = sourceFrame
-        ? {
-            x: originCanvas.x - sourceFrame.geometry.x,
-            y: originCanvas.y - sourceFrame.geometry.y,
-          }
-        : { x: 0, y: 0 };
-      const previewPoint = {
-        x: surfaceRect ? e.clientX - surfaceRect.left + 16 : e.clientX,
-        y: surfaceRect ? e.clientY - surfaceRect.top + 16 : e.clientY,
-      };
-
-      const previewWidth = sourceFrame?.geometry.width ?? SCREEN_WIDTH;
-      const previewHeight = sourceFrame?.geometry.height ?? SCREEN_HEIGHT;
-
-      setDuplicatePreview({
-        display,
-        x: previewPoint.x,
-        y: previewPoint.y,
-        width: previewWidth,
-        height: previewHeight,
-        canDuplicate: !!onDuplicate,
-        moved: false,
-      });
-      // Mount the interaction shield and mute preview-iframe pointer events for
-      // the duration of the gesture, same as every other drag — otherwise the
-      // pointer freezes crossing a live embedded iframe and a release over a
-      // screen never reaches handleMouseUp.
-      setIsDragging(true);
-      // Figma parity: show a copy-affordance cursor while the alt-drag
-      // duplicate gesture is armed. Tracked live in handleMouseMove below
-      // (same live e.altKey tracking that already drives canDuplicate), so
-      // releasing alt mid-drag falls back to the default arrow instead of
-      // staying on the copy cursor for a gesture that will no longer
-      // duplicate on mouseup.
-      setDragCursor(e.altKey ? "copy" : null);
-
-      // PERF: track the last committed canDuplicate/moved/cursor values in
-      // plain closure locals (not state) so the mousemove tick below can tell
-      // whether anything conditional actually changed without reading back
-      // through React state (which the imperative writes below intentionally
-      // stop keeping fresh every tick — see duplicatePreviewElRef).
-      let lastCanDuplicate = !!onDuplicate;
-      let lastMoved = false;
-      let lastCursor: string | null = e.altKey ? "copy" : null;
-
-      const handleMouseMove = (ev: MouseEvent) => {
-        const dx = ev.clientX - origin.x;
-        const dy = ev.clientY - origin.y;
-        const moved = Math.hypot(dx, dy) >= DUPLICATE_DRAG_THRESHOLD;
-        const rect = surfaceRef.current?.getBoundingClientRect();
-        const x = rect ? ev.clientX - rect.left + 16 : ev.clientX;
-        const y = rect ? ev.clientY - rect.top + 16 : ev.clientY;
-        // Live alt state, not just capability: if the user releases alt
-        // mid-drag the preview should visibly fall back to its "not armed"
-        // dashed/preview styling, matching that mouseup will then cancel
-        // the duplicate instead of creating one (see handleMouseUp below).
-        const canDuplicate = !!onDuplicate && ev.altKey;
-
-        // PERF9: the ghost's position is a direct DOM write every tick
-        // instead of a setDuplicatePreview (full re-render) — same
-        // "imperative now, commit state only when something conditional
-        // changes" discipline as the frame/draft drag paths above. Falls
-        // back to setDuplicatePreview itself if the node hasn't mounted yet
-        // (e.g. the very first tick right after mousedown, before React has
-        // committed the initial preview).
-        const el = duplicatePreviewElRef.current;
-        if (el) {
-          el.style.left = `${x}px`;
-          el.style.top = `${y}px`;
-        }
-
-        if (!el || canDuplicate !== lastCanDuplicate || moved !== lastMoved) {
-          lastCanDuplicate = canDuplicate;
-          lastMoved = moved;
-          setDuplicatePreview({
-            display,
-            x,
-            y,
-            width: previewWidth,
-            height: previewHeight,
-            canDuplicate,
-            moved,
-          });
-        }
-
-        const cursor = ev.altKey ? "copy" : null;
-        if (cursor !== lastCursor) {
-          lastCursor = cursor;
-          setDragCursor(cursor);
-        }
-      };
-
-      const cleanupDuplicateGesture = () => {
-        setDuplicatePreview(null);
-        duplicateCleanup.current = null;
-        // finishDrag clears isDragging, unmounts the shield, and — critically —
-        // runs dragCleanup.current() to detach the window listeners installed
-        // by installDragListeners and restore preview-iframe pointer events.
-        // dragState.current was never set for this gesture, so finishDrag's
-        // other resets (marquee/creation-preview/etc.) are no-ops here.
-        finishDrag();
-      };
-
-      const handleMouseUp = (ev: MouseEvent) => {
-        const moved =
-          Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) >=
-          DUPLICATE_DRAG_THRESHOLD;
-        const mode = moved ? "alt-drag" : "alt-click";
-        // Figma semantics: a plain alt-click (no drag) never duplicates —
-        // only an actual alt-drag does. And alt is evaluated live: releasing
-        // it before mouseup cancels the pending duplicate rather than
-        // creating one anyway (this gesture never moves the original frame
-        // during the drag — it only shows a floating ghost preview — so
-        // "cancel" here means no-op, not handing off to a live move).
-        const shouldDuplicate = moved && ev.altKey;
-
-        if (onDuplicate && shouldDuplicate) {
-          const dropCanvasPosition = canvasPointFromClient(
-            ev.clientX,
-            ev.clientY,
-          );
-          // shouldDuplicate implies moved, so the drop position is always
-          // relative to the pointer's offset into the source frame (the
-          // "snap next to source" placement only applied to the old
-          // zero-move alt-click case, which no longer duplicates at all).
-          const canvasPosition = {
-            x: dropCanvasPosition.x - pointerOffset.x,
-            y: dropCanvasPosition.y - pointerOffset.y,
-          };
-          // The user placed this clone deliberately — suppress the
-          // lineup-recenter camera move when the created screen lands in
-          // `screens` (Figma keeps the camera still on alt-drag duplicate).
-          lineupRecenterSuppressRef.current = {
-            atMs: Date.now(),
-            fromCount: screensRef.current.length,
-            addedCount: 1,
-          };
-          onDuplicate(screen.id, {
-            mode,
-            screen,
-            canvasPosition,
-            canvasOffset: pointerOffset,
-            dropCanvasPosition,
-          });
-        } else if (!moved) {
-          onPick(screen.id);
-        }
-
-        cleanupDuplicateGesture();
-      };
-
-      duplicateCleanup.current = cleanupDuplicateGesture;
-      installDragListeners(
-        handleMouseMove,
-        handleMouseUp,
-        cleanupDuplicateGesture,
-      );
-    },
-    [
-      canvasPointFromClient,
-      finishDrag,
-      getCurrentFrameEntries,
-      installDragListeners,
-      lockedScreenIdSet,
-      onDuplicate,
-      onPick,
     ],
   );
 
@@ -7363,15 +7505,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ) {
         return;
       }
-      // Always suppress the browser default (bookmark dialog) — but leave
-      // propagation intact until we know a frame is duplicable here, so the
-      // global hotkey hook can still duplicate non-frame layer selections.
-      event.preventDefault();
       // Only act on frame IDs — filter out canvas primitives (sub-elements).
       const frameIds = selectedIdsRef.current.filter(
         (id) => frameGeometryRef.current[id],
       );
+      // Claim the event only once a frame will really be duplicated — the
+      // global hotkey hook skips anything already defaultPrevented, and it
+      // suppresses the bookmark dialog itself when it takes over.
       if (frameIds.length === 0) return;
+      event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
       // Duplicate every selected frame, not just the first — each duplicate
@@ -7435,6 +7577,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const chromeScale = scale > 0 ? 1 / scale : 1;
   const showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
+  const lastTracedToolRef = useRef<string | null>(null);
+  if (lastTracedToolRef.current !== effectiveTool) {
+    lastTracedToolRef.current = effectiveTool;
+    trace("tool", "active-tool", { tool: effectiveTool });
+  }
   useEffect(() => {
     effectiveToolRef.current = effectiveTool;
   }, [effectiveTool]);
@@ -7585,7 +7732,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         metadata.previewUrl ?? getPreviewUrl(screen.content)
       );
       const autoHeight =
-        isInlineScreen && measuredPrimaryHeight
+        isInlineScreen && measuredPrimaryHeight && !metadata.heightPinned
           ? Math.max(
               deviceViewportFloorForWidth(metadata.width),
               rawGeometry.height ?? 0,
@@ -8016,7 +8163,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
-                  embeddedFrameBackground={BOARD_SURFACE_BACKGROUND}
+                  embeddedFrameBackground={boardSurfaceBackground}
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
@@ -8129,7 +8276,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               onStartFrameDrag={beginFrameDrag}
               onStartResize={beginResize}
               onStartRotate={beginRotate}
-              onStartDuplicateGesture={beginDuplicateGesture}
               // Pass the id-first callbacks straight through (PF18): Screen
               // itself binds screen.id when it calls these, so every screen
               // instance gets the exact same stable function reference here
@@ -8236,6 +8382,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartRotate={(event) =>
               beginRotate(singleSelectedFrame.id, event)
             }
+            onStartDrag={(event) =>
+              beginFrameDrag(singleSelectedFrame.id, event)
+            }
           />
         ) : null}
 
@@ -8259,6 +8408,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             chromeScale={chromeScale}
             chromeSettling={chromeSettling}
             handlesEnabled={!readOnly}
+            onStartDrag={(event) =>
+              beginFrameDrag(selectedFrameEntries[0]!.id, event)
+            }
             onStartResize={beginGroupResize}
             onStartRotate={beginGroupRotate}
           />
@@ -8270,6 +8422,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             chromeScale={chromeScale}
             chromeSettling={chromeSettling}
             handlesEnabled={!readOnly}
+            onStartDrag={(event) =>
+              beginDraftDrag(selectedDraftEntries[0]!.id, event)
+            }
             onStartResize={beginDraftGroupResize}
           />
         ) : null}
@@ -8542,7 +8697,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         >
           <div className="flex h-full w-full items-start justify-between rounded-lg bg-muted/20 p-2">
             <span className="max-w-[190px] truncate !text-[11px] font-medium text-foreground">
-              {duplicatePreview.display}
+              {duplicatePreview.count > 1
+                ? `${duplicatePreview.display} +${duplicatePreview.count - 1}`
+                : duplicatePreview.display}
             </span>
             <span className="flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
               <IconCopy className="h-3 w-3" />
@@ -9379,6 +9536,14 @@ function GradientEditOverlay({
   );
 }
 
+/** The name shown in a frame's label row and in the alt-drag copy ghost. */
+function screenDisplayName(
+  screen: ScreenFile,
+  metadata: ResolvedScreenMetadata,
+): string {
+  return metadata.title ?? prettyScreenName(screen.filename);
+}
+
 /** Standard Tailwind breakpoint widths, mobile-first (base / md: / lg: / xl:). */
 const STANDARD_BREAKPOINT_WIDTHS = [390, 768, 1280] as const;
 
@@ -9451,11 +9616,6 @@ interface ScreenProps {
     e: React.MouseEvent,
   ) => void;
   onStartRotate: (id: string, e: React.MouseEvent) => void;
-  onStartDuplicateGesture: (
-    screen: ScreenFile,
-    display: string,
-    e: React.MouseEvent<HTMLElement>,
-  ) => void;
   // Id-first (screenId, widthPx) shape, same as MultiScreenCanvas's own
   // onActiveBreakpointChange prop (PF18): Screen binds screen.id itself when
   // calling these, so the parent can pass the same stable function reference
@@ -9509,7 +9669,6 @@ const Screen = memo(function Screen({
   onStartFrameDrag,
   onStartResize,
   onStartRotate,
-  onStartDuplicateGesture,
   screenContent,
   renderBreakpointContent,
   cullTier,
@@ -9520,7 +9679,7 @@ const Screen = memo(function Screen({
   onEditBreakpoint,
 }: ScreenProps) {
   const t = useT();
-  const display = metadata.title ?? prettyScreenName(screen.filename);
+  const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
@@ -9563,6 +9722,7 @@ const Screen = memo(function Screen({
     !suppressFrameChromeForChild;
   const screenContentInteractive =
     Boolean(screenContent) &&
+    (isSelected || hasScreenChildLayers(screen.content)) &&
     !locked &&
     !penActive &&
     !creationToolActive &&
@@ -9651,15 +9811,11 @@ const Screen = memo(function Screen({
             return;
           }
           if (e.altKey) {
-            // Matches the data-screen-card mousedown handler below: without
-            // this, a trailing click after the alt-drag/duplicate gesture
-            // ends falls through to this row's onClick and steals selection
-            // away from the newly created duplicate.
+            // Without this the trailing click after an alt-drag copy falls
+            // through to this row's onClick and steals selection back from the
+            // new duplicate.
             suppressNextClick.current = true;
-            onStartDuplicateGesture(screen, display, e);
-            return;
-          }
-          if (e.shiftKey) {
+          } else if (e.shiftKey) {
             e.stopPropagation();
             return;
           }
@@ -9771,16 +9927,14 @@ const Screen = memo(function Screen({
         role="button"
         tabIndex={0}
         onClick={(e) => {
-          if (isInteractiveScreenContentTarget(e.target)) {
-            e.stopPropagation();
-            return;
-          }
+          const interactiveContent = isInteractiveScreenContentTarget(e.target);
           e.stopPropagation();
           if (suppressNextClick.current) {
             suppressNextClick.current = false;
             return;
           }
           if (e.detail > 1) return;
+          if (interactiveContent && isSelected) return;
           onPick(screen.id, e);
         }}
         onDoubleClick={(e) => {
@@ -9807,13 +9961,10 @@ const Screen = memo(function Screen({
             e.stopPropagation();
             return;
           }
-          if (e.altKey && e.button === 0) {
-            suppressNextClick.current = true;
-            onStartDuplicateGesture(screen, display, e);
-            return;
-          }
           if (e.button === 0) {
-            if (e.shiftKey) {
+            if (e.altKey) {
+              suppressNextClick.current = true;
+            } else if (e.shiftKey) {
               e.stopPropagation();
               return;
             }
@@ -10074,7 +10225,6 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.onStartFrameDrag === next.onStartFrameDrag &&
     prev.onStartResize === next.onStartResize &&
     prev.onStartRotate === next.onStartRotate &&
-    prev.onStartDuplicateGesture === next.onStartDuplicateGesture &&
     // Now id-first (screenId, widthPx) callbacks passed straight through
     // from MultiScreenCanvas's own props (PF18) instead of a fresh
     // per-screen arrow allocated in the render loop, so these are expected
@@ -10672,6 +10822,7 @@ function GroupSelectionBox({
   bounds,
   chromeScale,
   chromeSettling,
+  onStartDrag,
   onStartResize,
   onStartRotate,
   handlesEnabled = true,
@@ -10679,6 +10830,7 @@ function GroupSelectionBox({
   bounds: NonNullable<ReturnType<typeof getFrameGroupBounds>>;
   chromeScale: number;
   chromeSettling: boolean;
+  onStartDrag?: (e: React.MouseEvent) => void;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   /** Multi-selection rotate (CV14). Omit to keep the previous behavior (no
    *  rotate handle shown) — used by callers whose selection kind doesn't
@@ -10699,6 +10851,7 @@ function GroupSelectionBox({
       showRotate={!!onStartRotate}
       handlesEnabled={handlesEnabled}
       filled
+      onStartDrag={onStartDrag}
       onStartResize={onStartResize}
       onStartRotate={onStartRotate ?? (() => {})}
     />
@@ -10765,6 +10918,7 @@ function SelectionBox({
   handlesEnabled = true,
   onStartResize,
   onStartRotate,
+  onStartDrag,
 }: {
   geometry: FrameGeometry;
   chromeScale: number;
@@ -10774,6 +10928,7 @@ function SelectionBox({
   handlesEnabled?: boolean;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
+  onStartDrag?: (e: React.MouseEvent) => void;
 }) {
   return (
     <div
@@ -10798,6 +10953,13 @@ function SelectionBox({
         zIndex: 1_000_000,
       }}
     >
+      {onStartDrag ? (
+        <span
+          data-frame-drag-surface
+          className="pointer-events-auto absolute inset-0 z-[5] cursor-move"
+          onMouseDown={onStartDrag}
+        />
+      ) : null}
       <ResizeHandles
         active
         enabled={handlesEnabled}

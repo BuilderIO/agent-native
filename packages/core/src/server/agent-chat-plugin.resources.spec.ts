@@ -305,6 +305,22 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("uses runtime-scoped instructions and excludes development instructions", async () => {
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: "",
+      agentsMd: "# Legacy instructions",
+      runtimeAgentsMd: "# Runtime instructions",
+      developmentAgentsMd: "# Development instructions",
+      skills: {},
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test");
+
+    expect(prompt).toContain("# Runtime instructions");
+    expect(prompt).not.toContain("# Development instructions");
+    expect(prompt).not.toContain("# Legacy instructions");
+  });
+
   it("loads bounded package context providers into every prompt path", async () => {
     const unregister = registerPromptContextProvider({
       id: "creative-context-test",
@@ -488,6 +504,47 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).not.toContain("Protect customer data.");
     expect(prompt).not.toContain("Narrow workspace guardrails.");
     expect(prompt).not.toContain("Prefer concise local overrides.");
+  });
+
+  it("keeps a saved personal AGENTS.md instruction in compact startup context", async () => {
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: "",
+      agentsMd: "",
+      skills: {},
+    });
+    mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+      if (path === "AGENTS.md") {
+        return {
+          content:
+            owner === "user@example.test"
+              ? "# Saved personal rule\n\nAlways preserve the user's requested output format."
+              : `# ${owner} rule\n\n${"context ".repeat(2_000)}`,
+        };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain(
+      "Always preserve the user's requested output format.",
+    );
+    expect(prompt).toContain("# Saved personal rule");
+  });
+
+  it("fails loudly when a durable AGENTS.md resource cannot be read", async () => {
+    mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+      if (owner === "user@example.test" && path === "AGENTS.md") {
+        throw new Error("resource backend unavailable");
+      }
+      return null;
+    });
+
+    await expect(
+      loadResourcesForPrompt("user@example.test", true),
+    ).rejects.toThrow(
+      "Unable to read durable AGENTS.md instructions for personal (user@example.test)",
+    );
   });
 
   it("keeps aggregate compact startup resources within a fixed budget", async () => {

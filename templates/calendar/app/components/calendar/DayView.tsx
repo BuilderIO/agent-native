@@ -31,6 +31,10 @@ import {
 import { partitionAllDayEvents } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
+import {
   fullDayOutOfOfficeCoversDate,
   isFullDayOutOfOfficeEvent,
   isOutOfOfficeEvent,
@@ -138,54 +142,6 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}–${endStr}`;
 }
 
-interface LayoutInfo {
-  left: number; // percentage 0-100
-  width: number; // percentage 0-100
-  col: number;
-  totalCols: number;
-}
-
-function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
-  const result = new Map<string, LayoutInfo>();
-  if (dayEvents.length === 0) return result;
-
-  const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = parseISO(a.start).getTime();
-    const bStart = parseISO(b.start).getTime();
-    if (aStart !== bStart) return aStart - bStart;
-    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
-  });
-
-  const times = new Map<string, { start: number; end: number }>();
-  for (const ev of sorted) {
-    times.set(ev.id, {
-      start: parseISO(ev.start).getTime(),
-      end: parseISO(ev.end).getTime(),
-    });
-  }
-
-  const INDENT_PX = 20; // DayView has wider columns, more indent room
-
-  for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      const ta = times.get(other.id)!;
-      const tb = times.get(ev.id)!;
-      if (ta.start < tb.end && tb.start < ta.end) depth++;
-    }
-
-    result.set(ev.id, {
-      left: depth * INDENT_PX,
-      width: 0,
-      col: depth,
-      totalCols: depth + 1,
-    });
-  }
-
-  return result;
-}
-
 function getEventStyleForDate(event: CalendarEvent, date: Date) {
   const start = parseISO(event.start);
   const end = parseISO(event.end);
@@ -207,7 +163,7 @@ function getEventStyleForDate(event: CalendarEvent, date: Date) {
 interface DayEventCardProps {
   event: CalendarEvent;
   date: Date;
-  layout: Map<string, LayoutInfo>;
+  layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
   focusedEventId: string | null;
@@ -276,8 +232,10 @@ const DayEventCard = memo(function DayEventCard({
   const li = layout.get(event.id) ?? {
     left: 0,
     width: 100,
+    indent: 0,
     col: 0,
     totalCols: 1,
+    stackOrder: 0,
   };
   const overrides =
     overrideTop !== null && overrideHeight !== null
@@ -347,14 +305,14 @@ const DayEventCard = memo(function DayEventCard({
       }
       style={{
         ...posStyle,
-        left: `${li.left}px`,
-        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
             : focusedEventId === event.id
               ? 50
-              : li.col + 1,
+              : li.stackOrder + 1,
         backgroundColor: color
           ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
           : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -625,7 +583,10 @@ export const DayView = memo(function DayView({
     () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
     [events],
   );
-  const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
+  const layout = useMemo(
+    () => computeTimedEventLayout(timedEvents, date),
+    [date, timedEvents],
+  );
 
   // Timezone label: prefer the short generic name (e.g. "PT", "ET")
   // over the offset form ("GMT-7"), and fall back to the IANA id when

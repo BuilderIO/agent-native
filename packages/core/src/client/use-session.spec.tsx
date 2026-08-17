@@ -10,7 +10,7 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
-import { useSession } from "./use-session.js";
+import { notifySessionInvalidated, useSession } from "./use-session.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -32,6 +32,18 @@ function SessionConsumers({ labels }: { labels: string[] }) {
 function StatusConsumer() {
   const { status } = useSession();
   return <div data-testid="status">{status}</div>;
+}
+
+function RetryConsumer() {
+  const { status, retry } = useSession();
+  return (
+    <div>
+      <div data-testid="status">{status}</div>
+      <button type="button" onClick={retry}>
+        Retry
+      </button>
+    </div>
+  );
 }
 
 async function renderConsumers(labels: string[]) {
@@ -80,6 +92,47 @@ describe("useSession", () => {
     expect(container.textContent).toBe("person@example.comperson@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(1);
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+  });
+
+  it("reports the definitive session state to an embedding host", async () => {
+    const postMessage = vi.fn();
+    const parentWindow = { postMessage };
+    const parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "agentNative.frameOrigin",
+          origin: "https://host.example",
+        },
+        origin: "https://host.example",
+        source: parentWindow as Window,
+      }),
+    );
+    postMessage.mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: "signed out" })),
+    );
+
+    try {
+      await renderConsumers(["embedded"]);
+
+      expect(postMessage).toHaveBeenCalledWith(
+        {
+          type: "agentNative.authState",
+          data: { status: "unauthenticated" },
+        },
+        "https://host.example",
+      );
+    } finally {
+      if (parentDescriptor) {
+        Object.defineProperty(window, "parent", parentDescriptor);
+      }
+    }
   });
 
   it("keeps loading and retries after a non-OK response", async () => {
@@ -190,6 +243,49 @@ describe("useSession", () => {
     expect(container.textContent).toBe("loading");
   });
 
+  it("retries successfully after the unavailable notice is shown", async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const fetchMock = vi.fn(async () => {
+      attempts += 1;
+      if (attempts < 5) return new Response(null, { status: 503 });
+      return new Response(
+        JSON.stringify({
+          userId: "user-recovered",
+          email: "retry-after-unavailable@example.com",
+          name: "Recovered",
+          orgId: "org-recovered",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RetryConsumer />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
+      "unavailable",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
+      "authenticated",
+    );
+  });
+
   it("caches a definitive unauthenticated response", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ error: "Not authenticated" }),
@@ -203,6 +299,58 @@ describe("useSession", () => {
     expect(container.textContent).toBe("signed-outsigned-out");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(false);
+  });
+
+  it("revalidates a cached session after logout invalidates it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          userId: "user-4",
+          email: "logout@example.com",
+          name: "Logout",
+          orgId: "org-4",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("logout@example.com");
+
+    await act(async () => {
+      notifySessionInvalidated();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("signed-out");
+  });
+
+  it("revalidates a cached session when the browser regains focus", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          userId: "user-5",
+          email: "focus@example.com",
+          name: "Focus",
+          orgId: "org-5",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("focus@example.com");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("signed-out");
   });
 });
 

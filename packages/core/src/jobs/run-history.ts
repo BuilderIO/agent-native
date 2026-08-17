@@ -8,6 +8,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
 
 registerEvent({
@@ -46,6 +47,7 @@ export interface AutomationRun {
   path: string;
   scope: string | null;
   orgId: string | null;
+  appId: string | null;
   runId: string | null;
   threadId: string | null;
   status: AutomationRunStatus;
@@ -60,6 +62,7 @@ export interface StartAutomationRunInput {
   path: string;
   scope?: string | null;
   orgId?: string | null;
+  appId?: string | null;
   runId?: string | null;
   threadId?: string | null;
   /** A pre-created row still waiting for its background worker handoff. */
@@ -70,7 +73,7 @@ const TABLE = "automation_runs";
 const MAX_ERROR_LENGTH = 500;
 
 /**
- * Generous multiple of the runner's own 5 minute hard abort
+ * Generous multiple of the runner's own 10 minute hard abort
  * (BACKGROUND_RUN_HARD_TIMEOUT_MS). Past this, no run is still alive.
  */
 const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
@@ -85,6 +88,59 @@ const CLAIM_LEASE_MS = RUN_LIVENESS_CEILING_MS;
 /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
 const RUNS_RETAINED_PER_AUTOMATION = 50;
 
+/** Authoritative release-time schema for durable automation history. */
+export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
+  {
+    version: 1,
+    name: "automation-runs-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS ${TABLE} (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        automation TEXT NOT NULL,
+        path TEXT NOT NULL,
+        scope TEXT,
+        org_id TEXT,
+        app_id TEXT,
+        run_id TEXT,
+        thread_id TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        error TEXT,
+        claimed_at INTEGER,
+        dispatch_pending INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation
+        ON ${TABLE} (owner, automation, started_at)
+    `,
+  },
+  {
+    version: 2,
+    name: "automation-runs-claimed-at",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at INTEGER`,
+  },
+  {
+    version: 3,
+    name: "automation-runs-dispatch-pending",
+    sql: `ALTER TABLE ${TABLE}
+      ADD COLUMN IF NOT EXISTS dispatch_pending INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 4,
+    name: "automation-runs-app-id",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS app_id TEXT`,
+  },
+];
+
+export async function runAutomationRunMigrations(
+  nitroApp: unknown,
+): Promise<void> {
+  await runMigrations(AUTOMATION_RUN_MIGRATIONS, {
+    table: "_automation_run_migrations",
+  })(nitroApp);
+}
+
 let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
@@ -96,10 +152,11 @@ async function ensureTable(): Promise<void> {
           id TEXT PRIMARY KEY,
           owner TEXT NOT NULL,
           automation TEXT NOT NULL,
-          path TEXT NOT NULL,
-          scope TEXT,
-          org_id TEXT,
-          run_id TEXT,
+            path TEXT NOT NULL,
+            scope TEXT,
+            org_id TEXT,
+            app_id TEXT,
+            run_id TEXT,
           thread_id TEXT,
           status TEXT NOT NULL DEFAULT 'running',
           started_at ${intType()} NOT NULL,
@@ -135,6 +192,7 @@ async function ensureTable(): Promise<void> {
       for (const [name, definition] of [
         ["claimed_at", `${intType()}`],
         ["dispatch_pending", `${intType()} NOT NULL DEFAULT 0`],
+        ["app_id", "TEXT"],
       ] as const) {
         if (columns.has(name)) continue;
         try {
@@ -176,6 +234,7 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
     path: String(row.path),
     scope: row.scope == null ? null : String(row.scope),
     orgId: row.org_id == null ? null : String(row.org_id),
+    appId: row.app_id == null ? null : String(row.app_id),
     runId: row.run_id == null ? null : String(row.run_id),
     threadId: row.thread_id == null ? null : String(row.thread_id),
     status,
@@ -201,8 +260,8 @@ export async function startAutomationRun(
   await ensureTable();
   const id = randomUUID();
   await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, run_id, thread_id, status, started_at, dispatch_pending)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
+    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, run_id, thread_id, status, started_at, dispatch_pending)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
     args: [
       id,
       input.owner,
@@ -210,6 +269,7 @@ export async function startAutomationRun(
       input.path,
       input.scope ?? null,
       input.orgId ?? null,
+      input.appId ?? null,
       input.runId ?? null,
       input.threadId ?? null,
       Date.now(),
@@ -249,18 +309,26 @@ export async function claimAutomationRun(id: string): Promise<boolean> {
  * redeliver it because claimAutomationRun is an atomic CAS.
  */
 export async function listUnclaimedAutomationRuns(options?: {
+  appId?: string | null;
   olderThanMs?: number;
   limit?: number;
 }): Promise<AutomationRun[]> {
   await ensureTable();
+  const appId = options?.appId?.trim() || null;
   const olderThanMs = Math.max(options?.olderThanMs ?? 10_000, 0);
   const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+  const appFilter = appId ? " AND (app_id = ? OR app_id IS NULL)" : "";
   const result = await getDbExec().execute({
     sql: `SELECT * FROM ${TABLE}
           WHERE dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'
+            ${appFilter}
             AND started_at <= ?
           ORDER BY started_at ASC LIMIT ${limit}`,
-    args: [Date.now() - CLAIM_LEASE_MS, Date.now() - olderThanMs],
+    args: [
+      Date.now() - CLAIM_LEASE_MS,
+      ...(appId ? [appId] : []),
+      Date.now() - olderThanMs,
+    ],
   });
   const now = Date.now();
   return (result.rows ?? []).map((row) =>
@@ -377,17 +445,21 @@ export async function deleteAutomationRuns(
 export async function listAutomationRuns(options: {
   owners: string[];
   automation: string;
+  appId?: string | null;
   limit?: number;
 }): Promise<AutomationRun[]> {
   await ensureTable();
   const owners = options.owners.filter(Boolean);
   if (!owners.length) return [];
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+  const appId = options.appId?.trim() || null;
   const placeholders = owners.map(() => "?").join(", ");
+  const appFilter = appId ? " AND (app_id = ? OR app_id IS NULL)" : "";
   const result = await getDbExec().execute({
     sql: `SELECT * FROM ${TABLE} WHERE owner IN (${placeholders}) AND automation = ?
+          ${appFilter}
           ORDER BY started_at DESC LIMIT ${limit}`,
-    args: [...owners, options.automation],
+    args: [...owners, options.automation, ...(appId ? [appId] : [])],
   });
   const now = Date.now();
   return (result.rows ?? []).map((row) =>

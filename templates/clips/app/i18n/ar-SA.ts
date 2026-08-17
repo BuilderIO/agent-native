@@ -255,6 +255,40 @@ const messages = {
     linkExpired: "انتهت صلاحية الرابط",
     linkExpiredMessage:
       "قام المنشئ بتعيين انتهاء الصلاحية على رابط المشاركة هذا.",
+    privateClip: "مقطع خاص",
+    privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
+    privateClipSignedOutMessage:
+      "هذا المقطع خاص. سجّل الدخول أو أدخل بريدك الإلكتروني لطلب الوصول.",
+    requestAccess: "طلب الوصول",
+    requestAccessDialogTitle: "طلب الوصول",
+    requestAccessDialogDescription:
+      "اختر الطريقة التي سيتعرّف بها المالك عليك عند مشاركة هذا المقطع.",
+    requestAccessSignIn: "تسجيل الدخول أو إنشاء حساب",
+    requestAccessOr: "أو",
+    requestAccessEmailLabel: "عنوان البريد الإلكتروني",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "بعد منح الوصول، سجّل الدخول بهذا البريد الإلكتروني لمشاهدة المقطع.",
+    requestAccessWithEmail: "طلب الوصول بالبريد الإلكتروني",
+    requestAccessEmailRequired: "أدخل عنوان بريد إلكتروني صالحًا.",
+    requestingAccess: "جارٍ طلب الوصول...",
+    accessRequested: "تم طلب الوصول",
+    accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestSentWithEmail: "طُلب من مالك المقطع مشاركته مع {{email}}.",
+    accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
+    accessApprovalTitle: "تم منح الوصول",
+    accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
+    accessApprovalMessage: "يمكن لـ {{email}} مشاهدة هذا المقطع الآن.",
+    accessApprovalAlreadyMessage:
+      "لدى {{email}} صلاحية الوصول إلى هذا المقطع بالفعل.",
+    accessApprovalErrorTitle: "تعذّر منح الوصول",
+    accessApprovalInvalid: "طلب الوصول هذا غير صالح أو منتهي الصلاحية.",
+    accessApprovalSignInTitle: "سجّل الدخول للسماح بالوصول",
+    accessApprovalSignInMessage:
+      "سجّل الدخول بصفتك مالك المقطع أو مسؤولاً للموافقة على هذا الطلب.",
+    accessApprovalOpenClip: "فتح المقطع",
+    accessApprovalSignIn: "تسجيل الدخول",
+    accessApprovalLoading: "جارٍ منح الوصول...",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",
@@ -344,7 +378,7 @@ const messages = {
     attendee_other: "الحضور {{count}}",
     joinCall: "الانضمام إلى المكالمة",
     myNotes: "ملاحظاتي",
-    aiNotes: "تلاحظ منظمة العفو الدولية",
+    aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
     working: "عمل…",
@@ -510,8 +544,13 @@ const messages = {
     },
     roles: {
       viewer: "مشاهد",
+      commenter: "معلّق",
       editor: "محرر",
       admin: "مسؤول",
+    },
+    recordingCommenter: {
+      label: "معلّق",
+      description: "يمكنه العرض والتعليق والتفاعل",
     },
   },
   quickAsk: {
@@ -679,11 +718,11 @@ const messages = {
       "Builder.io هو مسار التخزين الأساسي لعمليات رفع Clips. يتوفر S3 عندما تحتاج إلى استخدام حاويتك الخاصة.",
     checkingBuilder: "جار فحص Builder.io",
     builderConnected: "Builder.io متصل",
-    connectBuilder: "استخدام Builder.io (مجاني)",
+    connectBuilder: "استخدام Builder.io",
     builderConnectedFor: "يتم استخدام Builder.io لـ {{orgName}}.",
     builderConnectedGeneric: "تستخدم المقاطع الجديدة مزود Builder.io المتصل.",
     builderIncludes:
-      "يتضمن تخزين الكائنات والرفع والنسخ المُدار للمقاطع الجديدة.",
+      "يشمل المستوى المجاني من Builder.io تخزين الكائنات والرفع والنسخ المُدار للمقاطع الجديدة.",
     s3Title: "تخزين متوافق مع S3",
     secondary: "ثانوي",
     active: "نشط",
@@ -709,8 +748,7 @@ const messages = {
       "يجب أن يتكون اسم الحاوية من 3 إلى 63 حرفًا صغيرًا أو رقمًا أو شرطة",
     s3RegionInvalid: 'يجب أن تكون منطقة صالحة (مثال: us-east-1) أو "auto"',
     apiSetup: "إعداد الذكاء الاصطناعي",
-    apiSetupDescription:
-      "صِل الذكاء الاصطناعي باستخدام أرصدة Builder.io المجانية أو مفاتيح LLM الخاصة بك.",
+    apiSetupDescription: "اختر كيفية اتصال Clips بالذكاء الاصطناعي.",
     builderEasySetup: "أرصدة Builder.io مجانية",
     builderAiAvailable:
       "تتوفر اعتمادات الذكاء الاصطناعي المضمنة والنسخ المُدار لـ Clips.",
@@ -718,8 +756,13 @@ const messages = {
       "استخدم Builder.io أولًا لاعتمادات الذكاء الاصطناعي المضمنة وتخزين الكائنات والرفع والنسخ المُدار.",
     providerKeyTitle: "استخدام مفتاح مزود خاص بك",
     providerKeyDescription:
-      "أضف مفاتيح Anthropic أو OpenAI أو Gemini أو Groq أو OpenRouter للاستخدام المفوتر من المزود.",
+      "اختر Anthropic أو OpenAI أو OpenRouter أو Gemini أو Groq أو Mistral أو Cohere أو Ollama للاستخدام المفوتر من المزود.",
     providerKeysSet: "تم تعيين {{count}}",
+    providerActionTitle: "مزود الذكاء الاصطناعي",
+    providerActionDescription:
+      "يتضمن Builder.io مستوى مجانيًا، أو استخدم مفاتيح مخصصة.",
+    providerManage: "إدارة",
+    providerCustomKeys: "مفاتيح مخصصة",
     checkingProviderKeys: "جار فحص مفاتيح المزود…",
     keySet: "تم التعيين",
     keyCleared: "تم مسح بيانات اعتماد التخزين",
@@ -974,6 +1017,8 @@ const messages = {
     includeTranscriptDescription:
       "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
     transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    agentLinkDescription:
+      "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",
@@ -999,8 +1044,13 @@ const messages = {
     pauseShortcut: "إيقاف مؤقت (⌥⇧P)",
     stop: "إيقاف التسجيل",
     elapsed: "الوقت المنقضي",
-    cancel: "إلغاء التسجيل",
-    cancelShortcut: "إلغاء (⌥⇧C)",
+    cancel: "حذف التسجيل",
+    cancelShortcut: "حذف (⌥⇧C)",
+    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmDescription:
+      "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
+    resume: "استئناف",
+    discardRecording: "حذف التسجيل",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",
@@ -1089,6 +1139,10 @@ const messages = {
     searchNextMatch: "النتيجة التالية",
     searchClose: "إغلاق البحث",
   },
+  bulletLink: {
+    jumpToTranscript: "الانتقال إلى {{time}} في النص",
+    noMatchingMoment: "لم يتم العثور على لحظة مطابقة",
+  },
   editorLayout: {
     trimmed: "تم القص",
     trimFailed: "فشل القص",
@@ -1157,7 +1211,7 @@ const messages = {
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    connectBuilder: "استخدام Builder.io (مجاني)",
+    connectBuilder: "استخدام Builder.io",
     free: "مجاني",
     configureS3: "تكوين تخزين متوافق مع S3",
     whyPrompt: "لماذا أرى هذا؟",
@@ -1546,10 +1600,6 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
-    googleMayShowWarning: "مراجعة صلاحيات Google",
-    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
-    googleWarningBeforeAdvanced:
-      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",
@@ -1558,13 +1608,29 @@ const messages = {
     calendarConnected: "Calendar connected (مترجم)",
     calendarDisconnected: "Calendar disconnected (مترجم)",
     calendarSettings: "Calendar settings (مترجم)",
+    calendarAccountsButton: "التقويمات",
+    connectedAccounts: "الحسابات المتصلة",
+    calendarConnectedLabel: "متصل",
+    calendarNeedsReconnectLabel: "تحتاج إلى إعادة الاتصال",
+    calendarDisconnectedLabel: "غير متصل",
+    calendarStatusUnavailable: "الحالة غير متاحة",
+    reconnectCalendar: "إعادة الاتصال بالتقويم",
+    addAnotherCalendarAccount: "إضافة حساب آخر",
+    connectCalendar: "توصيل التقويم",
+    disconnectCalendarAccount: "فصل حساب",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (مترجم)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (مترجم)",
     title: "Meetings (مترجم)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
-    searchPlaceholder: "Search meetings... (مترجم)",
+    searchPlaceholder: "Search meetings, attendees, and transcripts... (مترجم)",
+    agendaTab: "Agenda (مترجم)",
+    pastTab: "Past (مترجم)",
+    now: "Now (مترجم)",
+    noPastMeetings: "No past meetings yet (مترجم)",
+    loadOlder: "Load older (مترجم)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:

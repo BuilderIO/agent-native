@@ -15,6 +15,8 @@ import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import type { StoredResumableSession } from "./resumable-session.js";
+import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 
 /**
  * ponytail: one horizon for both in-progress statuses. A paused recorder emits
@@ -148,6 +150,61 @@ export interface ReapResult {
   expired: ReapedUpload[];
   failed: number;
   scratchKeysDeleted: number;
+  resumableSessionsAborted: number;
+  resumableCleanupFailed: number;
+}
+
+function resumableSessionKey(
+  recordingId: string,
+  generationId: string | null,
+): string {
+  return generationId
+    ? `resumable-session-${recordingId}-${generationId}`
+    : `resumable-session-${recordingId}`;
+}
+
+function parseStoredResumableSession(
+  value: unknown,
+): StoredResumableSession | null {
+  let parsed: unknown = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      // coercion-ok: malformed persisted session is absent, not an active session.
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    typeof candidate.providerId !== "string" ||
+    typeof candidate.sessionId !== "string" ||
+    !candidate.meta ||
+    typeof candidate.meta !== "object" ||
+    typeof candidate.bytesUploaded !== "number" ||
+    !Number.isFinite(candidate.bytesUploaded) ||
+    candidate.bytesUploaded < 0
+  ) {
+    return null;
+  }
+  return candidate as unknown as StoredResumableSession;
+}
+
+async function readResumableSessionState(
+  exec: ReturnType<typeof getDbExec>,
+  placeholder: string,
+  key: string,
+): Promise<{ present: boolean; session: StoredResumableSession | null }> {
+  const result = await exec.execute({
+    sql: `SELECT value FROM application_state WHERE key = ${placeholder}`,
+    args: [key],
+  });
+  const row = (result.rows as Array<{ value?: unknown }> | undefined)?.[0];
+  return {
+    present: row !== undefined,
+    session: row === undefined ? null : parseStoredResumableSession(row.value),
+  };
 }
 
 /**
@@ -196,6 +253,8 @@ export async function reapExpiredUploads(
   }));
 
   let failed = 0;
+  let resumableSessionsAborted = 0;
+  let resumableCleanupFailed = 0;
   if (expired.length > 0 && !dryRun) {
     const ids = expired.map((row) => row.id);
     const result = await exec.execute({
@@ -223,16 +282,35 @@ export async function reapExpiredUploads(
     failed = terminated.size;
 
     for (const id of terminated) {
-      const generationId = expired.find(
-        (row) => row.id === id,
-      )?.uploadGenerationId;
+      const generationId =
+        expired.find((row) => row.id === id)?.uploadGenerationId ?? null;
+      const sessionKey = resumableSessionKey(id, generationId);
+      const sessionState = await readResumableSessionState(
+        exec,
+        p(1),
+        sessionKey,
+      );
+      if (sessionState.present && !sessionState.session) {
+        resumableCleanupFailed += 1;
+        console.warn(
+          `[upload-reaper-${id}] resumable session state is unreadable; keeping it for manual cleanup`,
+        );
+        continue;
+      }
+      if (sessionState.session) {
+        const cleaned = await abortResumableUploadSession(
+          sessionState.session,
+          { label: `upload-reaper-${id}` },
+        );
+        if (!cleaned) {
+          resumableCleanupFailed += 1;
+          continue;
+        }
+        resumableSessionsAborted += 1;
+      }
       await exec.execute({
         sql: `DELETE FROM application_state WHERE key = ${p(1)}`,
-        args: [
-          generationId
-            ? `resumable-session-${id}-${generationId}`
-            : `resumable-session-${id}`,
-        ],
+        args: [sessionKey],
       });
     }
   }
@@ -241,7 +319,14 @@ export async function reapExpiredUploads(
     ? (await selectUnclaimedChunkKeys(limit)).length
     : await deleteUnclaimedChunkScratch(limit);
 
-  return { dryRun, expired, failed, scratchKeysDeleted };
+  return {
+    dryRun,
+    expired,
+    failed,
+    scratchKeysDeleted,
+    resumableSessionsAborted,
+    resumableCleanupFailed,
+  };
 }
 
 /**

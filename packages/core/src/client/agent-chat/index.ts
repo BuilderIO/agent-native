@@ -1,3 +1,5 @@
+export { MemoryRouter as AgentChatMemoryRouter } from "react-router";
+
 export {
   AgentAskPopover,
   type AgentAskPopoverProps,
@@ -88,6 +90,11 @@ export {
   CodeRequiredDialog,
   type CodeRequiredDialogProps,
 } from "../components/CodeRequiredDialog.js";
+export {
+  ChatFirstAgentActivityPanel,
+  type ChatFirstAgentActivityPanelProps,
+} from "../chat-first-agent-activity.js";
+export { ChatFirstSurfacePanelToggle } from "../chat-first-surface-panel-toggle.js";
 export {
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
@@ -224,6 +231,7 @@ export {
 } from "../AgentPanel.js";
 export {
   AgentTabsPage,
+  ConnectionsTab,
   type AgentPageExtraTabContext,
   type AgentPageExtraTabFactory,
   type AgentTabsPageProps,
@@ -251,6 +259,12 @@ export {
   type UseAgentChatHomeHandoffOptions,
 } from "../use-agent-chat-home-handoff.js";
 export {
+  AGENT_SIDEBAR_DEFAULT_MAX_WIDTH,
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
+  clampAgentSidebarWidth,
+  getAgentSidebarMaxWidth,
+  getAgentSidebarWideWidth,
   requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,
   setAgentSidebarOpenPreference,
@@ -277,3 +291,68 @@ export {
 } from "../chat/tool-render-registry.js";
 export * from "../chat/connectors.js";
 export * from "../chat/runtime.js";
+export {
+  CHAT_FIRST_APP_LAYOUT_STORAGE_KEY,
+  CHAT_FIRST_DEFAULT_APP_IDS,
+  CHAT_FIRST_SURFACE_TABS_STORAGE_KEY,
+  CHAT_FIRST_SURFACE_PANEL_STORAGE_KEY,
+  CHAT_FIRST_SURFACE_WIDTH_DEFAULT,
+  CHAT_FIRST_SURFACE_WIDTH_MIN,
+  clampChatFirstSurfaceWidth,
+  CHAT_FIRST_MODE_STORAGE_KEY,
+  CHAT_FIRST_MODE_CHANGED_EVENT,
+  CHAT_FIRST_OPEN_APP_EVENT,
+  CHAT_FIRST_OPEN_BROWSER_EVENT,
+  CHAT_FIRST_WATCH_SESSION_EVENT,
+  CHAT_FIRST_SURFACE_CATALOG,
+  chatFirstSurfaceTabId,
+  closeChatFirstSessionWatch,
+  emitChatFirstOpenApp,
+  emitChatFirstOpenBrowser,
+  emitChatFirstSessionWatch,
+  getChatFirstSessionWatchStore,
+  getChatFirstSurfaceTabsStore,
+  getChatFirstSurfacePanelStore,
+  orderChatFirstAppIds,
+  readChatFirstAppLayout,
+  resolveChatFirstAppTarget,
+  resolveChatFirstBrowserTarget,
+  resolveChatFirstSessionId,
+  normalizeChatFirstSessionReference,
+  readChatFirstMode,
+  readChatFirstModeState,
+  readChatFirstSurfaceWidth,
+  subscribeChatFirstOpenApp,
+  subscribeChatFirstOpenBrowser,
+  subscribeChatFirstSessionWatch,
+  useChatFirstSessionWatch,
+  useChatFirstSurfaceResize,
+  useChatFirstSurfacePanel,
+  useChatFirstSurfaceTabs,
+  writeChatFirstAppLayout,
+  writeChatFirstMode,
+  writeChatFirstSurfaceWidth,
+  type ChatFirstAppLayoutPreference,
+  type ChatFirstModeReadResult,
+  type ChatFirstAppRegistration,
+  type ChatFirstAppResolution,
+  type ChatFirstAppTarget,
+  type ChatFirstAppSurfacePlacement,
+  type ChatFirstAgentActivity,
+  type ChatFirstAgentActivityStatus,
+  type ChatFirstOpenAppDelivery,
+  type ChatFirstOpenAppDetail,
+  type ChatFirstOpenBrowserDetail,
+  type ChatFirstBrowserResolution,
+  type ChatFirstSessionKind,
+  type ChatFirstSessionReference,
+  type ChatFirstSessionWatchDelivery,
+  type ChatFirstSessionWatchState,
+  type ChatFirstSessionWatchStore,
+  type ChatFirstSurfaceKind,
+  type ChatFirstSurfaceTab,
+  type ChatFirstSurfacePanelState,
+  type ChatFirstSurfacePanelStore,
+  type ChatFirstSurfaceTabsState,
+  type ChatFirstSurfaceTabsStore,
+} from "../chat-first.js";

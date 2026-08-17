@@ -6,6 +6,7 @@ import {
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
+import type { AgentSkill } from "../../a2a/types.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
@@ -17,10 +18,13 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import { getAppConfig } from "../../app-config/index.js";
+import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
+import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
@@ -106,6 +110,18 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
 }
 
 /**
+ * The two policy fields A2A shares with the MCP mount. Structural rather than
+ * `Pick<AgentChatPluginOptions, …>` so callers pass the *resolved* MCP options:
+ * reading the raw plugin options here would leave A2A on the deprecated
+ * top-level keys, so `mcp: { connectorCatalog }` would narrow the MCP surface
+ * while A2A kept serving the old one.
+ */
+export interface A2AExternalAgentSurface {
+  connectorCatalog?: string[];
+  externalAgents?: ExternalAgentPolicy;
+}
+
+/**
  * Direct A2A action calls share the authenticated external-agent policy with
  * MCP, but remain stricter: only explicitly exposed, authenticated read-only
  * actions can skip the receiver's model loop, and never one that takes a raw
@@ -113,7 +129,7 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
  */
 export function filterDirectA2AActions(
   actions: Record<string, ActionEntry>,
-  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
+  options: A2AExternalAgentSurface,
 ): Record<string, ActionEntry> {
   const catalog = new Set(options.connectorCatalog ?? []);
   const denied = new Set(options.externalAgents?.denyActions ?? []);
@@ -140,6 +156,33 @@ export function filterDirectA2AActions(
         exposure.requiresAuth === true &&
         (entry.needsApproval === undefined || entry.needsApproval === false) &&
         exposure.isConsequential !== true
+      );
+    }),
+  );
+}
+
+/**
+ * Authenticated write capabilities that a sibling may delegate to this app's
+ * agent, but never invoke directly. `publicAgent` is the action-owned opt-in;
+ * keeping this projection independent of `connectorCatalog` avoids making apps
+ * maintain a second capability registry. The deny list remains a final veto.
+ */
+export function filterDelegatedA2ACapabilityActions(
+  actions: Record<string, ActionEntry>,
+  options: A2AExternalAgentSurface,
+): Record<string, ActionEntry> {
+  const denied = new Set(options.externalAgents?.denyActions ?? []);
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name, entry]) => {
+      const exposure = entry.publicAgent;
+      return (
+        !denied.has(name) &&
+        entry.agentTool !== false &&
+        entry.readOnly !== true &&
+        exposure?.expose === true &&
+        exposure.readOnly === false &&
+        exposure.requiresAuth === true
       );
     }),
   );
@@ -173,55 +216,70 @@ export function buildPublicAgentA2ASkills(
 }
 
 /**
- * Skills for a caller with a verified A2A identity: exactly what
- * `filterDirectA2AActions` will execute. Kept separate from
- * `buildPublicAgentA2ASkills` because the public card may only name actions
- * with `requiresAuth !== true` while direct invocation requires
- * `requiresAuth === true` — advertising the public set alone tells siblings
- * an app has nothing callable when it does.
+ * Skills for a caller with a verified A2A identity. Exact bounded reads carry
+ * schemas and may be invoked directly; explicitly exposed writes carry no
+ * schema and are discoverable only as natural-language delegation targets.
+ * Kept separate from `buildPublicAgentA2ASkills` because neither authenticated
+ * surface may be disclosed by the anonymous card.
  */
 export function buildAuthenticatedAgentA2ASkills(
   actions: Record<string, ActionEntry>,
-  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
-): Array<{
-  id: string;
-  name: string;
-  description: string;
-  publicAgent: ActionEntry["publicAgent"];
-  inputSchema?: Record<string, unknown>;
-}> {
-  return Object.entries(filterDirectA2AActions(actions, options)).map(
-    ([name, entry]) => ({
+  options: A2AExternalAgentSurface,
+): AgentSkill[] {
+  const directActions = filterDirectA2AActions(actions, options);
+  const delegatedActions = filterDelegatedA2ACapabilityActions(
+    actions,
+    options,
+  );
+
+  return Object.entries(actions).flatMap(([name, entry]) => {
+    const directEntry = directActions[name];
+    const delegatedEntry = delegatedActions[name];
+    if (!directEntry && !delegatedEntry) return [];
+
+    if (directEntry) {
+      return {
+        id: name,
+        name,
+        description: entry.tool.description,
+        publicAgent: entry.publicAgent,
+        // Every action in this set is read-only by construction. Omitting the
+        // flag made discovery label all of them "(mutating)", which pushes a
+        // caller away from invoking them and back into open-ended delegation.
+        readOnly: true,
+        // Naming a directly callable action without its parameters is what
+        // makes a caller invoke it with `{}` and fail on a required field.
+        ...(entry.tool.parameters
+          ? {
+              inputSchema: entry.tool.parameters as unknown as Record<
+                string,
+                unknown
+              >,
+            }
+          : {}),
+      };
+    }
+
+    return {
       id: name,
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
-      // Every action in this set is read-only by construction. Omitting the
-      // flag made discovery label all of them "(mutating)", which pushes a
-      // caller away from invoking them and back into open-ended delegation.
-      readOnly: true,
-      // Naming an action without its parameters is what makes a caller invoke
-      // it with `{}` and fail on a required field.
-      ...(entry.tool.parameters
-        ? {
-            inputSchema: entry.tool.parameters as unknown as Record<
-              string,
-              unknown
-            >,
-          }
-        : {}),
-    }),
-  );
+      // No input schema: the sibling sends an objective to the receiving app,
+      // whose agent chooses and validates its own local actions.
+      readOnly: false,
+    };
+  });
 }
 
 export function resolveArtifactBaseUrl(
   event: any | undefined,
 ): string | undefined {
+  // An artifact link is user-facing, so the canonical URL wins; the platform's
+  // per-deploy URLs are the fallback, not the other way round (that ordering
+  // belongs to self-dispatch, which has to reach *this* deploy).
   const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
+    getAppConfig().app.url ?? process.env.URL ?? process.env.DEPLOY_URL;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   try {
@@ -570,9 +628,23 @@ export function createA2AEngineToolSurface(
   };
 }
 
+/**
+ * The first-request tool catalog: an explicit `initialToolNames` verbatim, or
+ * the app's OWN actions by default.
+ *
+ * "Its own actions" excludes the framework kits. They arrive in this same
+ * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
+ * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
+ * into every app's first request whether or not the app had those surfaces. They
+ * remain in `availableTools` and are still found by `tool-search`; an app that
+ * wants one on turn one names it in `initialToolNames`.
+ */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
-  return configured ?? Object.keys(templateActions);
+  if (configured) return configured;
+  return Object.entries(templateActions)
+    .filter(([name, entry]) => !isFrameworkGroupedAction(name, entry))
+    .map(([name]) => name);
 }

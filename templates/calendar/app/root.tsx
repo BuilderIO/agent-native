@@ -95,7 +95,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -121,7 +120,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#00B5FF" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -223,7 +221,7 @@ function AppContent() {
             {t("root.commandSearch")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => navigate("/agent")}
+            onSelect={() => navigate("/settings/agent")}
             keywords={[
               "agent",
               "context",

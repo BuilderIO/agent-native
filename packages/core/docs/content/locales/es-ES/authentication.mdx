@@ -102,6 +102,14 @@ Algunas banderas sintonizan esto; Los detalles completos se encuentran en la tab
 
 </Callout>
 
+## Inicio de sesión en desarrollo local {#local-development-sign-in}
+
+En un servidor de desarrollo con una dirección de bucle local, la página compartida de inicio de sesión muestra primero **Continue as local dev**. Crea o reutiliza la cuenta y la sesión de desarrollo reales de Better Auth, por lo que sigue el mismo flujo autenticado que se usa en el resto de la aplicación.
+
+Selecciona **Show full sign in options** para mostrar las opciones normales de registro, contraseña, magic link y proveedores sociales. Si no se puede crear la sesión local, la página muestra esas opciones automáticamente para que puedas continuar con la autenticación estándar.
+
+Esta comodidad solo está disponible cuando el navegador se conecta mediante `localhost`, `127.0.0.0/8` o `::1` en desarrollo o pruebas. Está desactivada en las vistas previas de despliegue y en la producción alojada. No es una omisión de autenticación. Establece `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` para no usarla y mostrar la página de inicio de sesión normal durante el desarrollo local.
+
 ## Mejor autenticación (predeterminada) {#better-auth}
 
 De forma predeterminada, Better Auth potencia la autenticación. Proporciona:
@@ -446,3 +454,8 @@ La ruta `/_agent-native/google/auth-url` predeterminada hace esto automáticamen
 | `ACCESS_TOKEN`                          | Reserva de portador estático para clientes MCP/connect; no autenticación del navegador                                                                                                                                      |
 | `ACCESS_TOKENS`                         | Reservas de portadores estáticos separados por comas para clientes MCP/connect; no autenticación del navegador                                                                                                              |
 | `A2A_SECRET`                            | Secreto compartido para la verificación de identidad entre aplicaciones A2A firmada por JWT y, cuando esté presente, firma de token de acceso MCP OAuth                                                                     |
+
+La marca de Dispatch `desktop.workspace-sso`, desactivada de forma predeterminada, solo controla la disponibilidad; las comprobaciones de autenticación, firma, nonce, origen, callback, sesión y revocación siguen siendo obligatorias. Si la marca está desactivada o no se puede leer, Desktop no cambia el inicio de sesión, el cierre de sesión ni los ajustes de cada app.
+La marca Canary del agente de usuario es solo una señal de disponibilidad, no una atestación remota; la autenticación y la autorización no confían en ella.
+Las apps alojadas canónicas reconocen las solicitudes de Desktop SSO Canary empaquetado sin configuración del centro de identidad por app. Los navegadores normales y las apps autoalojadas aún requieren `AGENT_NATIVE_IDENTITY_HUB_URL`. Las compilaciones estables de Desktop no inicializan el intermediario hasta que una versión posterior se apruebe por separado.
+La versión Canary no intercepta la navegación de inicio de sesión anónima de las aplicaciones. El usuario debe elegir explícitamente el inicio de sesión del espacio de trabajo en Ajustes de Desktop para la aplicación registrada activa; el inicio de sesión normal de la aplicación sigue siendo la ruta predeterminada.

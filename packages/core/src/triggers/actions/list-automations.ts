@@ -57,6 +57,9 @@ export interface AutomationActionItem {
   nextRun: string | null;
   createdBy: string | null;
   model: string | null;
+  executionHostId: string | null;
+  executionEngine: string | null;
+  executionCwd: string | null;
   mcpTools: string[];
   originScopeId: string | null;
   deliveryPlatform: string | null;
@@ -80,7 +83,7 @@ export default defineAction({
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     const definitions = await listAutomationDefinitions(
-      { userEmail, orgId: ctx?.orgId },
+      { userEmail, orgId: ctx?.orgId, appId: ctx?.appId },
       scope as AutomationScope,
     );
     return definitions.map(({ resource, name, meta, body, canUpdate }) => ({
@@ -105,6 +108,9 @@ export default defineAction({
       nextRun: nextRun(meta),
       createdBy: meta.createdBy ?? null,
       model: meta.model ?? null,
+      executionHostId: meta.executionHostId ?? null,
+      executionEngine: meta.executionEngine ?? null,
+      executionCwd: meta.executionCwd ?? null,
       mcpTools: meta.mcpTools ?? [],
       originScopeId: meta.originScopeId ?? null,
       deliveryPlatform: meta.deliveryPlatform ?? null,

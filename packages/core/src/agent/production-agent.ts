@@ -20,7 +20,8 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
-import { getDbExec } from "../db/client.js";
+import type { AgentNativeHarnessSetting } from "../config.js";
+import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
@@ -33,16 +34,18 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
-  getFrontmatterValue,
-  parseFrontmatter,
-} from "../resources/metadata.js";
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "../server/agent-chat/skill-frontmatter.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
+import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
+  assertRequestActionSurfaceIsolation,
   getRequestRunContext,
   ensureRequestRunContext,
   getRequestContext,
@@ -51,6 +54,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
@@ -87,10 +91,12 @@ import {
 import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
 import {
   resolveEngine,
+  explicitEngineName,
   registerBuiltinEngines,
   getStoredModelForEngine,
   normalizeModelForEngine,
   isResolvedEngineUsableForRequest,
+  type ResolveEngineConfig,
 } from "./engine/index.js";
 import {
   resolveEmptyResponseRetryMaxOutputTokens,
@@ -113,6 +119,10 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import {
+  filterHostedHarnessToolNames,
+  normalizeHostedHarnessRuntime,
+} from "./harness/hosted.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -148,6 +158,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  endsAfterCompletedToolWithoutAssistantFinal,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -170,6 +181,11 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
+import {
+  consumeAgentToolApproval,
+  createAgentToolApproval,
+} from "./tool-approval-store.js";
+import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
   findCompletedJournalEntry,
   type ToolCallJournal,
@@ -521,16 +537,62 @@ export function engineToProvider(engineName: string): string {
   return engineName.startsWith("ai-sdk:") ? engineName.slice(7) : engineName;
 }
 
+/** An API key together with the env var it was issued for. */
+export interface ResolvedOwnerApiKey {
+  apiKey: string | undefined;
+  /** Undefined when no key was found, or when the key's provider is unknown. */
+  apiKeyEnvVar: string | undefined;
+}
+
+const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
+  apiKey: undefined,
+  apiKeyEnvVar: undefined,
+};
+
 /**
- * Resolve the active engine's provider and look up the user's API key for it.
+ * Resolve the owner's key for one named engine, tagged with the env var it was
+ * issued for.
  *
  * If the owner has no scoped key, fall back to provider keys supplied by the
  * hosting environment only when the current request can safely use deploy-level
  * credentials. This is a read from process-level config, not a request-scoped
  * write to `process.env`.
+ */
+export async function getOwnerApiKeyForEngine(
+  engineName: string,
+  ownerEmail: string | null | undefined,
+): Promise<ResolvedOwnerApiKey> {
+  try {
+    const provider = engineToProvider(engineName);
+    const envVar = PROVIDER_TO_ENV[provider];
+    const userKey = await getOwnerApiKey(provider, ownerEmail);
+    if (userKey) return { apiKey: userKey, apiKeyEnvVar: envVar };
+    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+      return NO_OWNER_API_KEY;
+    }
+    const envKey = readDeployCredentialEnv(envVar);
+    if (
+      envKey &&
+      !(await getProviderCredentialAuthFailure({ key: envVar, value: envKey }))
+    ) {
+      return { apiKey: envKey, apiKeyEnvVar: envVar };
+    }
+    return NO_OWNER_API_KEY;
+  } catch {
+    return NO_OWNER_API_KEY;
+  }
+}
+
+/**
+ * Resolve the active engine's provider and look up the user's API key for it.
  *
  * Callers that layer another deployment-key fallback after this should keep the
  * same precedence: scoped key first, host-provided env key second.
+ *
+ * The returned key is untagged, so it is only safe to hand to `resolveEngine`
+ * when the caller has no explicit engine of its own — otherwise the active
+ * setting and the selected engine can name different providers. Prefer
+ * {@link resolveOwnerEngineApiKey}, which decides that per call site.
  */
 export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
@@ -540,24 +602,50 @@ export async function getOwnerActiveApiKey(
     const engineSetting = await getSetting("agent-engine");
     const activeEngine =
       (engineSetting?.engine as string | undefined) ?? "anthropic";
-    const provider = engineToProvider(activeEngine);
-    const userKey = await getOwnerApiKey(provider, ownerEmail);
-    if (userKey) return userKey;
-    const envVar = PROVIDER_TO_ENV[provider];
-    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
-      return undefined;
-    }
-    const envKey = readDeployCredentialEnv(envVar);
-    if (
-      envKey &&
-      !(await getProviderCredentialAuthFailure({ key: envVar, value: envKey }))
-    ) {
-      return envKey;
-    }
-    return undefined;
+    return (await getOwnerApiKeyForEngine(activeEngine, ownerEmail)).apiKey;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Resolve the credential to hand `resolveEngine` alongside `engineOption`.
+ *
+ * The provenance is the point. An explicitly named engine skips the registry's
+ * value-comparison path, so an untagged key resolved from the saved
+ * `agent-engine` setting would ride along to whatever provider the caller
+ * named — shipping, say, a live Anthropic secret to OpenAI's endpoint and
+ * making the resulting 401 blame a key the user never saved. Resolving the key
+ * for the named engine keeps the two in step; only the no-explicit-engine case
+ * may stay untagged, because the registry's automatic branches re-derive the
+ * credential themselves.
+ */
+export async function resolveOwnerEngineApiKey(input: {
+  engineOption?: ResolveEngineConfig["engineOption"];
+  ownerEmail: string | null | undefined;
+  /**
+   * Host-provided credential, which is Anthropic by contract
+   * (`AgentChatPluginOptions.apiKey` / `WebhookHandlerOptions.apiKey`). Used
+   * only when no owner key was found.
+   */
+  anthropicFallback?: string;
+}): Promise<ResolvedOwnerApiKey> {
+  const engineName = explicitEngineName(input.engineOption);
+  if (engineName) {
+    const resolved = await getOwnerApiKeyForEngine(
+      engineName,
+      input.ownerEmail,
+    );
+    if (resolved.apiKey) return resolved;
+  } else {
+    const activeKey = await getOwnerActiveApiKey(input.ownerEmail);
+    if (activeKey) return { apiKey: activeKey, apiKeyEnvVar: undefined };
+  }
+  const fallback = input.anthropicFallback?.trim();
+  return fallback &&
+    canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
+    ? { apiKey: fallback, apiKeyEnvVar: "ANTHROPIC_API_KEY" }
+    : NO_OWNER_API_KEY;
 }
 
 /** @deprecated Use getOwnerApiKey("anthropic", ownerEmail) instead */
@@ -602,6 +690,8 @@ export interface ActionEntry {
   /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** If true, a successful call returns evidence retrieved from a live source. */
+  grounding?: boolean;
   /** False keeps a read-only tool available in Act mode but hides/blocks it in
    *  Plan mode. Use for tools that perform substantive work even without
    *  mutating state. */
@@ -659,12 +749,121 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The action hands control back to the user: once it succeeds the loop stops
+   * the turn instead of asking the model for another step, and any remaining
+   * tool calls in the same assistant message do not execute. Only for actions
+   * whose whole purpose is to wait on a human (`ask-question`) — telling the
+   * model to stop in the tool result does not make it stop.
+   */
+  endsTurn?: boolean;
+  /** Which framework tool group contributed this action. Set by the framework,
+   *  never by an app: apps own their action names, and a tagged action is one
+   *  the app can switch off wholesale through `frameworkTools`. Tagged actions
+   *  are also excluded from the DEFAULT first-request tool list — they stay
+   *  reachable through `tool-search` unless named in `initialToolNames`. */
+  frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
 
 /** @deprecated Use `ActionEntry` instead */
 export type ScriptEntry = ActionEntry;
 
 export type AgentExecutionMode = "act" | "plan";
+
+export interface AgentActionSurface {
+  allowedActionNames: readonly string[];
+}
+
+export interface AgentActionSurfaceDetails {
+  event: any;
+  ownerEmail: string | null;
+  orgId: string | null;
+  threadId?: string;
+  mode: AgentExecutionMode;
+  internalContinuation: boolean;
+  availableActionNames: readonly string[];
+}
+
+function hasOwn(
+  value: unknown,
+  propertyName: string,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.prototype.hasOwnProperty.call(value, propertyName)
+  );
+}
+
+/** Read a persisted allowlist while preserving legacy absence and failing
+ * closed when the field is present but malformed. */
+export function readPersistedAllowedActionNames(
+  value: unknown,
+): string[] | undefined {
+  if (!hasOwn(value, "allowedActionNames")) return undefined;
+  const names = value.allowedActionNames;
+  if (
+    !Array.isArray(names) ||
+    !names.every((name) => typeof name === "string")
+  ) {
+    return [];
+  }
+  return [...new Set(names)];
+}
+
+export interface PersistedActionSurface {
+  orgId: string | null;
+  allowedActionNames: string[];
+}
+
+/** Read a nested persisted action surface. An absent envelope is legacy;
+ * a present but invalid envelope is an explicit org-less, empty surface. */
+export function readPersistedActionSurface(
+  value: unknown,
+  propertyName: string,
+): PersistedActionSurface | undefined {
+  if (!hasOwn(value, propertyName)) return undefined;
+  const surface = value[propertyName];
+  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
+  if (!hasOwn(surface, "orgId")) {
+    return { orgId: null, allowedActionNames: [] };
+  }
+  const orgId = surface.orgId;
+  if (
+    orgId !== null &&
+    (typeof orgId !== "string" || orgId.trim().length === 0)
+  ) {
+    return { orgId: null, allowedActionNames: [] };
+  }
+  return { orgId, allowedActionNames };
+}
+
+export function filterActionsByAllowedNames(
+  actions: Record<string, ActionEntry>,
+  allowedActionNames: readonly string[],
+): Record<string, ActionEntry> {
+  const allowedNames = [...new Set(allowedActionNames)];
+  const unknownNames = allowedNames.filter(
+    (name) => !Object.prototype.hasOwnProperty.call(actions, name),
+  );
+  if (unknownNames.length > 0) {
+    throw new Error(
+      `resolveActionSurface returned unknown action name(s): ${unknownNames.join(", ")}`,
+    );
+  }
+  const filtered = Object.fromEntries(
+    allowedNames.map((name) => [name, actions[name]!]),
+  );
+
+  // `attachToolSearch` closes over the registry it was originally attached to.
+  // Rebind it to this request's filtered registry so explicitly allowing
+  // `tool-search` cannot disclose actions that the resolver omitted.
+  if (filtered[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+
+  return filtered;
+}
 
 export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 
@@ -972,7 +1171,9 @@ export interface ProductionAgentOptions {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
-  /** Default reasoning effort for requests that do not supply an override. */
+  /** Static app capability for the hosted tools-only harness picker. */
+  hostedHarnessConfig?: AgentNativeHarnessSetting;
+  /** Default effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
   providerOptions?: EngineMessage extends never ? never : any;
@@ -1013,6 +1214,15 @@ export interface ProductionAgentOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }>;
+  /**
+   * Resolve the exact action registry exposed to one interactive agent-chat
+   * request. Returned names are a hard allowlist: omitted actions are absent
+   * from both the provider schemas and the searchable registry. When set, all
+   * allowed actions are loaded directly on the first model request.
+   */
+  resolveActionSurface?: (
+    details: AgentActionSurfaceDetails,
+  ) => AgentActionSurface | Promise<AgentActionSurface>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -1094,6 +1304,35 @@ export async function resolveAgentOwnerEmail(
 }
 
 const MAX_RETRIES = 3;
+const COMPLETION_DATABASE_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+
+/**
+ * A transient database failure in the completion callback used to prevent a
+ * background continuation from ever being handed off. Keep the retry bounded
+ * and database-only so a permanent persistence error still fails loudly.
+ */
+export async function runCompletionCallbackWithDatabaseRetry(
+  callback: () => void | Promise<void>,
+  options?: { sleep?: (ms: number) => Promise<void> },
+): Promise<void> {
+  const sleep =
+    options?.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await callback();
+      return;
+    } catch (error) {
+      const retryDelay = COMPLETION_DATABASE_RETRY_DELAYS_MS[attempt];
+      if (!isTransientDatabaseError(error) || retryDelay === undefined) {
+        throw error;
+      }
+      await sleep(retryDelay);
+    }
+  }
+}
+
 /**
  * Retry budget override for `builder_gateway_error` — the no-detail Builder
  * gateway fallback. Production data shows this code is almost never
@@ -1122,6 +1361,13 @@ const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+/**
+ * How long an attempt must have run before its retry is worth narrating.
+ *
+ * Below this, the retry is invisible: the clear-and-retry completes faster
+ * than a person can register the blank. Above it, silence reads as a freeze.
+ */
+const VISIBLE_RETRY_THRESHOLD_MS = 10_000;
 /**
  * FIX 2 (durable-background incident): tighter no-progress deadline for ONLY
  * the FIRST engine-stream event of a model call, and ONLY on the clamped
@@ -1157,7 +1403,7 @@ const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
  */
 const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 // Raised from 1 -> 2 now that each retry actually adapts (raises the token
-// ceiling and steps reasoning effort down a tier) instead of re-issuing the
+// ceiling and steps effort down a tier) instead of re-issuing the
 // exact same doomed request twice.
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
@@ -1767,9 +2013,9 @@ function escapeReferenceAttribute(value: string): string {
 }
 
 function isRuntimeVisibleSkillContent(content: string): boolean {
-  const frontmatter = parseFrontmatter(content);
-  const scope = getFrontmatterValue(frontmatter, "scope")?.trim().toLowerCase();
-  return scope !== "dev";
+  // Route through the shared normalizer so an unrecognized `scope:` stays
+  // invisible here too. A local `!== "dev"` check silently readmits it.
+  return isRuntimeVisibleScope(parseSkillFrontmatter(content).scope);
 }
 
 export async function resolveSkillReferenceContent(
@@ -2050,6 +2296,8 @@ export interface AgentLoopUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   model: string;
+  /** Number of provider model-stream attempts, including retries. */
+  llmCalls?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -2794,6 +3042,22 @@ export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 6;
  */
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 
+/**
+ * A stop that ends the turn from inside the tool loop.
+ *
+ * `message` is the last thing the user reads, so it names the remedy in plain
+ * words and does not quote a raw provider/tool error; the raw error goes in
+ * `details`. Both retry sniffers now honour the `recoverable: false` these
+ * stops are sent with, so a stop that happens to say "timeout" is no longer
+ * auto-continued — but the prose still has one reader who cannot ignore it,
+ * and a pasted stack trace is not a remedy.
+ */
+export interface TerminalActionStop {
+  message: string;
+  errorCode?: string;
+  details?: string;
+}
+
 function seedWriteToolInterruptionsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
@@ -2893,7 +3157,16 @@ export interface ExecuteAgentToolCallOptions {
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
+  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
+}
+
+export interface AgentApprovalBinding {
+  toolName: string;
+  input: unknown;
+  callId: string;
+  approvalKey: string;
 }
 
 /**
@@ -2993,6 +3266,8 @@ export async function executeAgentToolCall(
       threadId: options.threadId,
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
+      onApprovalRequired: options.onApprovalRequired,
+      consumeApproval: options.consumeApproval,
     });
   } catch (error) {
     return {
@@ -3217,6 +3492,58 @@ export function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
+export function findApprovedStructuredToolCall(
+  history: AgentChatStructuredMessage[] | undefined,
+  approvedToolCalls: readonly string[] | undefined,
+): { name: string; input: unknown; callId: string } | undefined {
+  if (!Array.isArray(history) || !approvedToolCalls?.length) return undefined;
+  const approved = new Set(approvedToolCalls);
+  const calls = new Map<string, { name: string; input: unknown }>();
+  let match: { name: string; input: unknown; callId: string } | undefined;
+
+  for (const message of history) {
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type !== "tool-call") continue;
+        const callId =
+          typeof part.id === "string"
+            ? part.id
+            : typeof part.toolCallId === "string"
+              ? part.toolCallId
+              : "";
+        const name =
+          typeof part.name === "string"
+            ? part.name
+            : typeof part.toolName === "string"
+              ? part.toolName
+              : "";
+        if (!callId || !name) continue;
+        calls.set(callId, { name, input: part.input ?? part.args ?? {} });
+      }
+      continue;
+    }
+
+    for (const part of message.content) {
+      if (part.type !== "tool-result") continue;
+      const call = calls.get(part.toolCallId);
+      if (!call || !approved.has(toolCallCacheKey(call.name, call.input))) {
+        continue;
+      }
+      const result = part.content.toLowerCase();
+      if (
+        !result.includes("did not execute") &&
+        !result.includes("awaiting human approval") &&
+        !result.includes("waiting for your approval")
+      ) {
+        continue;
+      }
+      match = { ...call, callId: part.toolCallId };
+    }
+  }
+
+  return match;
+}
+
 const INTERRUPTED_TOOL_LEDGER_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 2_000;
 
@@ -3288,6 +3615,13 @@ async function waitForInterruptedToolLedgerEntry(opts: {
  * Dropping the echoed input costs nothing: the fault is already named by the
  * sentence before it, and two failures that differ ONLY in the arguments they
  * echo are the same failure.
+ *
+ * Digits stay. Collapsing them merges failures that are genuinely different:
+ * "Record 41 not found" and "Record 42 not found" are two missing records, so a
+ * seven-item sweep where every item legitimately 404s would trip the
+ * across-arguments breaker at item six. A guard message that varies its own
+ * running tally is fixed where that message is written, not by blinding every
+ * breaker to numbers.
  */
 function normalizeToolErrorForBreaker(error: string): string {
   return (
@@ -3314,6 +3648,62 @@ function rateLimitRecoveryHint(message: string): string {
   }
   return "\n\nProvider rate-limit guidance: stop retrying this provider in this turn. Report the rate limit as a coverage gap, include any evidence already gathered, and ask the user to retry after the provider quota resets if full coverage is required.";
 }
+
+/**
+ * Tool errors the model has no way to clear: the missing thing lives outside
+ * the turn (a credential, a role grant, a connected account, a runtime, the
+ * user's own approval). Every retry costs a full round-trip carrying the whole
+ * transcript and lands on the identical error, so these stop on the FIRST
+ * occurrence rather than after `MAX_SAME_ERROR_ACROSS_ARGUMENTS` of them.
+ *
+ * The distinction is the one `stopForBigQueryNotConfigured` draws in
+ * templates/analytics: a *configuration* gap is permanent for this turn, a
+ * *query* failure is not. Anything the model can act on — a stale read to
+ * rebase, a bad argument, a full quota it can free, a wrong dataset name, a
+ * statement timeout — must stay out of this list and keep its retries.
+ * Precision over recall: a wrong match kills a turn that would have succeeded,
+ * which is worse than one more retry.
+ */
+export function permanentPreconditionRemedy(message: string): string | null {
+  const trimmed = message.replace(/\s+/g, " ").trim();
+  for (const pattern of PERMANENT_PRECONDITION_PATTERNS) {
+    if (pattern.test(trimmed)) return trimmed;
+  }
+  return null;
+}
+
+const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
+  // "Requires editor role on deck ZJshjrXhjx (have viewer)". The trailing space
+  // is load-bearing: it keeps "must have required property" out.
+  /\brequires? (?:an? |the )?[\w-]+ role\b/i,
+  // "Gemini API key not configured. Save GEMINI_API_KEY in settings." Only the
+  // not-configured/not-set wordings — "not found" is how providers report a
+  // missing dataset or record, which the model can and should correct.
+  /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
+  /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
+  // "Connect Builder.io before indexing a design system from Figma or code."
+  // Case-sensitive, sentence-initial, and followed by a capitalized service
+  // name, because that is the only shape that separates the imperative remedy
+  // from the retryable network failure: "failed to connect to the warehouse
+  // before the deadline" and "Connect timed out, retry first" both satisfy
+  // every looser reading of the same words.
+  /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
+  // "Plan mode blocked `update-extension`. Switch to Act mode …" — cleared by
+  // the user approving the plan, never by the model trying again.
+  /\bplan mode blocked\b/i,
+  // The templates' most-copied throw, and always `if (!getRequestUserEmail())`:
+  // one synchronous AsyncLocalStorage read of a value fixed when the request
+  // context was established. It cannot appear and disappear between tool calls
+  // of the same chunk, so retrying inside this turn lands on it again.
+  /\bno authenticated user\b/i,
+  // "SSRF blocked: refusing to fetch private/internal address (…)"
+  /\bssrf blocked\b/i,
+  // Deliberately absent: "only available in …". Retention windows ("only
+  // available from the last 90 days") share its wording and are fixed by
+  // narrowing the range, so it stopped turns that were one argument away from
+  // succeeding. The count-based breaker still ends a genuine runtime gate
+  // after six.
+];
 
 const SOURCE_SWEEP_TOOL_NAME =
   /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
@@ -3456,9 +3846,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
   });
 }
 
+/**
+ * Deliberately carries no running call count. This decline is recorded as a
+ * tool error, and the breakers key on that text: a message that reports its own
+ * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
+ * decline that exists to stop a spiral becomes the one thing nothing can count.
+ * The fixed threshold below says the same thing without varying.
+ */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
-  priorCalls: number;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
@@ -3468,9 +3864,8 @@ export function repeatedSourceSweepGuardMessage(opts: {
       ? "read-only source/search tools"
       : "the same read-only source/search tool";
   return (
-    `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
-    `call(s) to ${target}, which exceeds the ` +
-    `${threshold}-call convergence budget. Stop calling ${opts.toolName} ` +
+    `Skipped ${opts.toolName}: this turn already exhausted its ` +
+    `${threshold}-call convergence budget for ${target}. Stop calling ${opts.toolName} ` +
     `one item at a time and change strategy before answering. If a broader ` +
     `read-only bulk/source mechanism is available, use it now: provider API ` +
     `catalog/docs/request tools with pagination or staging, code execution ` +
@@ -3514,7 +3909,6 @@ export function shouldGuardRepeatedSourceSweep(opts: {
       priorCalls: priorSourceSweepCalls,
       message: repeatedSourceSweepGuardMessage({
         toolName: opts.toolName,
-        priorCalls: priorSourceSweepCalls,
         threshold,
         scope: "aggregate",
       }),
@@ -3526,7 +3920,6 @@ export function shouldGuardRepeatedSourceSweep(opts: {
     priorCalls,
     message: repeatedSourceSweepGuardMessage({
       toolName: opts.toolName,
-      priorCalls,
       threshold,
       scope: "tool",
     }),
@@ -3995,6 +4388,7 @@ export async function runAgentLoop(opts: {
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
   orgId?: string | null;
+  appId?: string;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
   /** Trusted trigger lineage for automation-dispatched action calls. */
@@ -4066,6 +4460,13 @@ export async function runAgentLoop(opts: {
    * `approval_required`. See `AgentChatRequest.approvedToolCalls`.
    */
   approvedToolCalls?: string[];
+  /**
+   * Server-side approval persistence hooks. The HTTP transport supplies these
+   * so client-supplied history is never the authorization source; direct loop
+   * callers may omit them when they own the surrounding approval boundary.
+   */
+  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
    * streamed chunks, observe model responses around tool execution, and
@@ -4197,13 +4598,32 @@ export async function runAgentLoop(opts: {
   // calls/results are folded into `toolCallHistory` / `toolResultHistory` so
   // final response guards see evidence from earlier chunks of this turn.
   const consumedJournalKeys = new Set<string>();
-  const {
-    toolCallJournal,
-    priorToolCalls: journaledPriorToolCalls,
-    priorToolResults: journaledPriorToolResults,
-  } = await loadPriorTurnToolCallJournal(opts.threadId, opts.turnId);
+  const journalRead = await loadPriorTurnToolCallJournal(
+    opts.threadId,
+    opts.turnId,
+  );
+  const toolCallJournal =
+    journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const journaledPriorToolCalls =
+    journalRead.status === "read" ? journalRead.priorToolCalls : [];
+  const journaledPriorToolResults =
+    journalRead.status === "read" ? journalRead.priorToolResults : [];
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
+  // Every per-turn ceiling below is seeded from that read, and the write-replay
+  // hard block is enforced from it. On a continuation we cannot tell an
+  // already-completed side effect from a fresh one without it, so a failed read
+  // stops the turn instead of quietly resuming with a blank ledger.
+  const unreadableJournalStop: TerminalActionStop | null =
+    journalRead.status === "unreadable" && isInternalContinuationTurn(messages)
+      ? {
+          message:
+            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
+            "Retrying would risk repeating a step that already completed. Please send the request again.",
+          errorCode: "tool_call_journal_unreadable",
+          details: journalRead.error,
+        }
+      : null;
 
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
@@ -4218,25 +4638,34 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+  // All three repetition ledgers are SEEDED from earlier chunks of this turn,
+  // like `toolCallHistory` and `toolResultHistory` above. A fresh Map makes the
+  // limit per-CHUNK rather than per-turn, and a turn may chain up to
+  // MAX_RUN_LOOP_CONTINUATIONS (6) or MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
+  // (20) of them — so the real ceiling becomes 20x the constant, and a spiral
+  // resumes with a clean slate at every chunk boundary.
   const repeatedToolErrors = new Map<string, number>();
-  // Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS.
-  //
-  // SEEDED from earlier chunks of this turn, like `toolCallHistory` and
-  // `toolResultHistory` above. A fresh Map here would make the limit per-CHUNK
-  // rather than per-turn, and a turn may chain up to MAX_RUN_LOOP_CONTINUATIONS
-  // (6) or MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS (20) of them — so the real
-  // ceiling would be 36 or 120 identical failures, not 6, and a spiral would
-  // resume with a clean slate at every chunk boundary.
+  /** Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS. */
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
-  for (const prior of toolResultHistory) {
+  const repeatedToolCalls = new Map<string, number>();
+  for (const prior of journaledPriorToolCalls) {
+    const key = toolCallCacheKey(prior.name, prior.input);
+    repeatedToolCalls.set(key, (repeatedToolCalls.get(key) ?? 0) + 1);
+  }
+  for (const prior of journaledPriorToolResults) {
     if (!prior.isError) continue;
-    const key = `${prior.name}:${normalizeToolErrorForBreaker(prior.content)}`;
+    const normalized = normalizeToolErrorForBreaker(prior.content);
+    const anyArgsKey = `${prior.name}:${normalized}`;
     repeatedToolErrorsAnyArgs.set(
-      key,
-      (repeatedToolErrorsAnyArgs.get(key) ?? 0) + 1,
+      anyArgsKey,
+      (repeatedToolErrorsAnyArgs.get(anyArgsKey) ?? 0) + 1,
+    );
+    const errorKey = `${toolCallCacheKey(prior.name, prior.input)}:${normalized}`;
+    repeatedToolErrors.set(
+      errorKey,
+      (repeatedToolErrors.get(errorKey) ?? 0) + 1,
     );
   }
-  const repeatedToolCalls = new Map<string, number>();
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
@@ -4244,7 +4673,34 @@ export async function runAgentLoop(opts: {
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
   let endedAtLoopLimit = false;
-  let terminalActionStop: { message: string; errorCode?: string } | null = null;
+  let terminalActionStop: TerminalActionStop | null = null;
+  /**
+   * A stop is either a hand-off to the user (the two `input_required` codes) or
+   * a failed run. Failed runs MUST leave a terminal `error` event behind: the
+   * run row's status, `error_code`, `listErroredRuns`, the outcome counters and
+   * the client's retry affordance all key off that event, and a stop that only
+   * streams text is recorded as `status='completed', terminal_reason='done'` —
+   * a guard trip counted as a success.
+   */
+  const sendTerminalActionStop = (stop: TerminalActionStop) => {
+    if (
+      stop.errorCode === "needs-approval" ||
+      stop.errorCode === "awaiting-user-input"
+    ) {
+      send({ type: "text", text: stop.message });
+      return;
+    }
+    // Sent ONLY as an error: both the live client and the thread rebuild render
+    // an error event's message as assistant text themselves, so also sending it
+    // as `text` prints the same sentence twice.
+    send({
+      type: "error",
+      error: stop.message,
+      errorCode: stop.errorCode ?? "tool_failed",
+      ...(stop.details ? { details: stop.details } : {}),
+      recoverable: false,
+    });
+  };
   // Overridden (raised tokens, lowered effort) only after an empty-final-
   // response retry below — kept separate from `opts.maxOutputTokens`/
   // `opts.reasoningEffort` so the very first attempt is unaffected and later
@@ -4272,6 +4728,11 @@ export async function runAgentLoop(opts: {
 
   while (true) {
     if (signal.aborted) break;
+    if (unreadableJournalStop) {
+      terminalActionStop = unreadableJournalStop;
+      sendTerminalActionStop(unreadableJournalStop);
+      break;
+    }
     const turnInputTokens = priorTurnInputTokens + usage.inputTokens;
     if (turnInputTokens > maxRunInputTokens) {
       // Terminal for the whole TURN, not a chunk boundary: emitting
@@ -4342,6 +4803,7 @@ export async function runAgentLoop(opts: {
     }
 
     for (let retry = 0; ; retry++) {
+      const attemptStartedAt = Date.now();
       assistantContent = undefined;
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
@@ -4365,6 +4827,7 @@ export async function runAgentLoop(opts: {
           providerOptions: opts.providerOptions,
         };
 
+        usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -4807,9 +5270,22 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, retry)
         ) {
           // Clear partial text from the failed attempt so the retry
-          // doesn't produce garbled duplicate output. Keep the retry itself
-          // silent so transient provider/backend failures do not leak into
-          // the assistant's final answer.
+          // doesn't produce garbled duplicate output. A fast provider blip
+          // stays silent — it must not leak into the assistant's answer.
+          //
+          // A retry the user WAITED THROUGH is a different event. A 90s model
+          // stall retried three times wiped the visible output at 92s, 182s,
+          // and 272s with no explanation; the screen simply went blank and
+          // stayed blank for four and a half minutes, which is what people
+          // report as "the chat froze". Say what is happening, but only once
+          // the silence is long enough that someone noticed it.
+          const stalledMs = Date.now() - attemptStartedAt;
+          if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
+            send({
+              type: "activity",
+              label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err) + 1})`,
+            });
+          }
           send({ type: "clear" });
           await retryDelay(retry, signal);
           continue;
@@ -5049,8 +5525,24 @@ export async function runAgentLoop(opts: {
 
     flushUnstreamedAssistantText();
 
-    let requestedActionStop: { message: string; errorCode?: string } | null =
-      null;
+    let requestedActionStop: TerminalActionStop | null = null;
+    // An `endsTurn` action ran and handed control to the user. Distinct from
+    // `requestedActionStop`, which also covers failure stops that must not
+    // suppress the remaining tool calls.
+    let turnYieldedToUser = false;
+
+    // Called by every path that completes a tool call successfully — a fresh
+    // invocation, a journal replay, a ledger recovery. A replayed
+    // `ask-question` that skipped this would let the resumed run ask a second
+    // time over the card the user is already looking at.
+    const noteToolCallSucceeded = (actionEntry: ActionEntry) => {
+      if (actionEntry.endsTurn !== true) return;
+      turnYieldedToUser = true;
+      requestedActionStop ??= {
+        message: "Waiting for your answer before continuing.",
+        errorCode: "awaiting-user-input",
+      };
+    };
 
     const noteRepeatedToolCall = (toolName: string, input: unknown) => {
       const key = toolCallCacheKey(toolName, input);
@@ -5075,9 +5567,6 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
-      // Counted before any journal/cache short-circuit: serving a repeat from
-      // cache still means the model is asking the same question again.
-      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -5097,6 +5586,11 @@ export async function runAgentLoop(opts: {
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }
+      // Count after the same normalization that is persisted in the journal:
+      // a model can send a JSON-encoded object/array, while the action and
+      // ledger both see the coerced value. Serving a repeat from cache still
+      // counts as asking the same question again.
+      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
@@ -5136,6 +5630,24 @@ export async function runAgentLoop(opts: {
       };
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
+        // Counting is the wrong instrument for a precondition the turn cannot
+        // satisfy: six identical round-trips through a missing API key cost the
+        // user minutes and end where the first one did. Classified first so the
+        // remedy reaches them on attempt one.
+        const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
+        if (permanentRemedy) {
+          requestedActionStop ??= {
+            message:
+              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+              "Retrying would not have changed it, and anything completed before this is saved.",
+            errorCode: "permanent_precondition",
+            details: sanitizedResult,
+          };
+          return (
+            `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
+            `Do not retry it with different arguments. ${sanitizedResult}`
+          );
+        }
         const errorKey = `${toolCallCacheKey(
           toolCall.name,
           toolCall.input,
@@ -5162,9 +5674,9 @@ export async function runAgentLoop(opts: {
           requestedActionStop ??= {
             message:
               `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
-              "so changing the arguments again would not have worked. Anything completed before this is saved. " +
-              `Error: ${sanitizedResult}`,
+              "so changing the arguments again would not have worked. Anything completed before this is saved.",
             errorCode: "repeated_tool_error_across_arguments",
+            details: sanitizedResult,
           };
           return result;
         }
@@ -5179,15 +5691,23 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message:
             `I stopped because the ${toolCall.name} action failed ${count} times in a row the same way, ` +
-            "so retrying it again would not have worked. Anything completed before this is saved. " +
-            `Error: ${sanitizedResult}`,
+            "so retrying it again would not have worked. Anything completed before this is saved.",
           errorCode: "repeated_identical_tool_error",
+          details: sanitizedResult,
         };
         return result;
       };
-      if (sourceSweepGuard) {
-        sourceSweepDelegationGuardActive = true;
-        const result = sourceSweepGuard.message;
+      /**
+       * A guard refused to run the tool. Recorded as an ERROR, not as a plain
+       * result: a decline costs a full model round-trip carrying the whole
+       * transcript, and `noteRepeatedToolCall` keys on name+args, so a model
+       * iterating ids mints a fresh key every time and declines forever until
+       * `maxIterations`. Routing through `finalizeToolErrorResult` gives the
+       * existing breakers something to count — no new counter — while the text
+       * the model reads is still the guard's own guidance.
+       */
+      const declineToolCall = (guidance: string): EngineContentPart => {
+        const result = finalizeToolErrorResult(guidance);
         send({
           type: "tool_start",
           id: toolCall.id,
@@ -5200,9 +5720,10 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
+          isError: true,
           completedSideEffect: false,
         });
-        recordToolResult(result, false);
+        recordToolResult(result, true);
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -5210,32 +5731,15 @@ export async function runAgentLoop(opts: {
           toolInput: wireToolInput,
           content: result,
         };
+      };
+
+      if (sourceSweepGuard) {
+        sourceSweepDelegationGuardActive = true;
+        return declineToolCall(sourceSweepGuard.message);
       }
 
       if (sourceSweepDelegationGuard) {
-        const result = sourceSweepDelegationGuard;
-        send({
-          type: "tool_start",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
-        });
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, false);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
+        return declineToolCall(sourceSweepDelegationGuard);
       }
 
       if (!actionEntry) {
@@ -5276,7 +5780,17 @@ export async function runAgentLoop(opts: {
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
       // Consume a grant on its first exact match. A second identical call in
       // the same continuation must request its own human approval.
-      const wasApproved = approvedToolCallKeys.delete(approvalKey);
+      const approvalBinding: AgentApprovalBinding = {
+        toolName: toolCall.name,
+        input: toolCall.input,
+        callId: toolCall.id,
+        approvalKey,
+      };
+      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
+      const wasApproved =
+        requestedApproval && opts.consumeApproval
+          ? await opts.consumeApproval(approvalBinding)
+          : requestedApproval;
       if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
         try {
@@ -5286,6 +5800,7 @@ export async function runAgentLoop(opts: {
                   await actionEntry.needsApproval(toolCall.input, {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
+                    appId: opts.appId,
                     caller: opts.actionCaller ?? "tool",
                     automation: opts.automation,
                     networkProtocol: opts.networkProtocol,
@@ -5300,6 +5815,7 @@ export async function runAgentLoop(opts: {
           mustApprove = true;
         }
         if (mustApprove) {
+          await opts.onApprovalRequired?.(approvalBinding);
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -5435,6 +5951,7 @@ export async function runAgentLoop(opts: {
             completedSideEffect: true,
           });
           recordToolResult(result, false);
+          noteToolCallSucceeded(actionEntry);
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -5492,6 +6009,7 @@ export async function runAgentLoop(opts: {
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
             recordToolResult(result, false);
+            noteToolCallSucceeded(actionEntry);
             return {
               type: "tool-result" as const,
               toolCallId: toolCall.id,
@@ -5567,432 +6085,475 @@ export async function runAgentLoop(opts: {
         input: toolCall.input as Record<string, string>,
       });
 
-      const toolCallSchemaError = toolCallErrors.get(toolCall.id);
-      if (toolCallSchemaError && !toolInputNormalized) {
-        const result = finalizeToolErrorResult(
-          toolInputSchemaErrorResult(
-            toolCall.name,
-            toolCallSchemaError.input,
-            toolCallSchemaError.error,
-            actionEntry?.tool.parameters,
-          ),
-        );
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          isError: true,
-        };
-      }
+      let toolDoneEmitted = false;
+      const emitToolDone = (
+        event: Extract<AgentChatEvent, { type: "tool_done" }>,
+      ) => {
+        send(event);
+        toolDoneEmitted = true;
+      };
 
-      const rawToolInputError = validateRawToolInput(
-        actionEntry,
-        toolCall.input,
-      );
-      if (rawToolInputError) {
-        const result = finalizeToolErrorResult(
-          toolInputSchemaErrorResult(
-            toolCall.name,
-            toolCall.input,
-            rawToolInputError,
-            actionEntry.tool.parameters,
-          ),
-        );
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          isError: true,
-        };
-      }
+      // Every tool_start must have exactly one matching tool_done. Keeping the
+      // whole post-start path inside this finally block turns unexpected
+      // synchronous failures in validation, cache handling, or future branches
+      // into an explicit tool error instead of leaving run-manager's in-flight
+      // counter latched forever.
+      try {
+        const toolCallSchemaError = toolCallErrors.get(toolCall.id);
+        if (toolCallSchemaError && !toolInputNormalized) {
+          const result = finalizeToolErrorResult(
+            toolInputSchemaErrorResult(
+              toolCall.name,
+              toolCallSchemaError.input,
+              toolCallSchemaError.error,
+              actionEntry?.tool.parameters,
+            ),
+          );
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
+        }
 
-      // dedupe: false opts a read-only tool out of the guard entirely — the
-      // cacheKey stays null so it never gets skipped-as-duplicate and never
-      // populates the cache (see the success handler below, which also
-      // leaves dedupe:false results uncached and un-cleared).
-      const cacheKey =
-        actionEntry.readOnly === true && actionEntry.dedupe !== false
-          ? toolCallCacheKey(toolCall.name, toolCall.input)
-          : null;
-      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
-        // `contextMessages` (not `messages`) is what the model actually sees
-        // this iteration — context-xray eviction/summarization and
-        // observational-memory trimming can drop the earlier result from
-        // view even though it's still cached here. Only strike-count the
-        // repeat when the model could have looked back and found it itself.
-        const visible = isCachedToolResultVisibleInContext(
-          contextMessages,
-          toolCall,
-          previousResult,
+        const rawToolInputError = validateRawToolInput(
+          actionEntry,
+          toolCall.input,
         );
-        let result: string;
-        if (visible) {
-          const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
-          duplicateReadOnlyToolCalls.set(cacheKey, repeats);
-          result = visibleDuplicateReadOnlyToolResult(toolCall.name);
-          if (repeats >= 3) {
-            requestedActionStop ??= {
-              message:
-                "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-              errorCode: "duplicate_read_only_tool",
-            };
-          }
-        } else {
-          // The earlier result was trimmed out of the model's visible
-          // context — this isn't a repetitive loop, the model legitimately
-          // can't see the answer anymore. Re-serve it in full and don't
-          // count a strike.
-          duplicateReadOnlyToolCalls.set(cacheKey, 0);
-          result = resurfacedDuplicateReadOnlyToolResult(
-            toolCall.name,
+        if (rawToolInputError) {
+          const result = finalizeToolErrorResult(
+            toolInputSchemaErrorResult(
+              toolCall.name,
+              toolCall.input,
+              rawToolInputError,
+              actionEntry.tool.parameters,
+            ),
+          );
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
+        }
+
+        // dedupe: false opts a read-only tool out of the guard entirely — the
+        // cacheKey stays null so it never gets skipped-as-duplicate and never
+        // populates the cache (see the success handler below, which also
+        // leaves dedupe:false results uncached and un-cleared).
+        const cacheKey =
+          actionEntry.readOnly === true && actionEntry.dedupe !== false
+            ? toolCallCacheKey(toolCall.name, toolCall.input)
+            : null;
+        if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
+          const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+          // `contextMessages` (not `messages`) is what the model actually sees
+          // this iteration — context-xray eviction/summarization and
+          // observational-memory trimming can drop the earlier result from
+          // view even though it's still cached here. Only strike-count the
+          // repeat when the model could have looked back and found it itself.
+          const visible = isCachedToolResultVisibleInContext(
+            contextMessages,
+            toolCall,
             previousResult,
           );
+          let result: string;
+          if (visible) {
+            const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
+            duplicateReadOnlyToolCalls.set(cacheKey, repeats);
+            result = visibleDuplicateReadOnlyToolResult(toolCall.name);
+            if (repeats >= 3) {
+              requestedActionStop ??= {
+                message:
+                  "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+                errorCode: "duplicate_read_only_tool",
+              };
+            }
+          } else {
+            // The earlier result was trimmed out of the model's visible
+            // context — this isn't a repetitive loop, the model legitimately
+            // can't see the answer anymore. Re-serve it in full and don't
+            // count a strike.
+            duplicateReadOnlyToolCalls.set(cacheKey, 0);
+            result = resurfacedDuplicateReadOnlyToolResult(
+              toolCall.name,
+              previousResult,
+            );
+          }
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, false);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+          };
         }
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, false);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
-      }
 
-      if (
-        opts.executionMode === "plan" &&
-        !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
-      ) {
-        const result = planModeBlockedMessage(toolCall.name);
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          isError: true,
-        };
-      }
-
-      let result: string;
-      let isError = false;
-      let mcpApp:
-        | import("../mcp-client/app-result.js").AgentMcpAppPayload
-        | undefined;
-      let toolResultImages:
-        | import("./engine/types.js").EngineToolResultImagePart[]
-        | undefined;
-      try {
-        // The run may have been aborted while we waited above for an
-        // interrupted tool's ledger result (the wait can poll for minutes).
-        // Re-check before invoking the action: starting it now would spawn a
-        // fresh zombie execution — a duplicate side effect / double charge —
-        // which the ledger-recovery path exists to prevent. The Promise.race
-        // "Run aborted" leg below only rejects AFTER the action is invoked, so
-        // it cannot guard this. Throw here instead, handled like any abort.
-        if (signal.aborted) {
-          throw new Error("Run aborted");
+        if (
+          opts.executionMode === "plan" &&
+          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+        ) {
+          const result = planModeBlockedMessage(toolCall.name);
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
         }
-        const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
-        const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
-        const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
-        const actionContext = {
-          send,
-          userEmail: actionUserEmail ?? undefined,
-          orgId: actionOrgId,
-          caller: opts.actionCaller ?? "tool",
-          automation: opts.automation,
-          networkProtocol: opts.networkProtocol,
-          networkId: opts.networkId,
-          networkPeer: opts.networkPeer,
-          delegationDepth: opts.delegationDepth,
-          visitedApps: opts.visitedApps,
-          attachments: opts.attachments,
-          signal,
-          // Audit attribution: the action name + the agent thread/turn that
-          // triggered this call, so a mutation can be traced to its run.
-          actionName: toolCall.name,
-          ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-          ...(opts.threadId ? { threadId: opts.threadId } : {}),
-          ...(opts.runId ? { runId: opts.runId } : {}),
-          ...(opts.turnId ? { turnId: opts.turnId } : {}),
-        };
-        const requestContext = getRequestContext();
-        const invokeAction = () =>
-          actionEntry.run(
-            toolCall.input as Record<string, string>,
-            actionContext,
+
+        let result: string;
+        let isError = false;
+        let mcpApp:
+          | import("../mcp-client/app-result.js").AgentMcpAppPayload
+          | undefined;
+        let toolResultImages:
+          | import("./engine/types.js").EngineToolResultImagePart[]
+          | undefined;
+        try {
+          // The run may have been aborted while we waited above for an
+          // interrupted tool's ledger result (the wait can poll for minutes).
+          // Re-check before invoking the action: starting it now would spawn a
+          // fresh zombie execution — a duplicate side effect / double charge —
+          // which the ledger-recovery path exists to prevent. The Promise.race
+          // "Run aborted" leg below only rejects AFTER the action is invoked, so
+          // it cannot guard this. Throw here instead, handled like any abort.
+          if (signal.aborted) {
+            throw new Error("Run aborted");
+          }
+          const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+          const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+          const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+          const actionContext = {
+            send,
+            userEmail: actionUserEmail ?? undefined,
+            orgId: actionOrgId,
+            appId: opts.appId,
+            caller: opts.actionCaller ?? "tool",
+            automation: opts.automation,
+            networkProtocol: opts.networkProtocol,
+            networkId: opts.networkId,
+            networkPeer: opts.networkPeer,
+            delegationDepth: opts.delegationDepth,
+            visitedApps: opts.visitedApps,
+            attachments: opts.attachments,
+            signal,
+            // Audit attribution: the action name + the agent thread/turn that
+            // triggered this call, so a mutation can be traced to its run.
+            actionName: toolCall.name,
+            ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
+            ...(opts.threadId ? { threadId: opts.threadId } : {}),
+            ...(opts.runId ? { runId: opts.runId } : {}),
+            ...(opts.turnId ? { turnId: opts.turnId } : {}),
+          };
+          const requestContext = getRequestContext();
+          const invokeAction = () =>
+            actionEntry.run(
+              toolCall.input as Record<string, string>,
+              actionContext,
+            );
+          // Keep a reference to the action promise so we can attach a zombie-
+          // detection continuation AFTER Promise.race abandons it on run abort.
+          // The promise itself is not awaited here — Promise.race owns the await.
+          const actionPromise = Promise.resolve(
+            runWithRequestContext(
+              {
+                ...(requestContext ?? {}),
+                ...(actionUserEmail ? { userEmail: actionUserEmail } : {}),
+                ...(actionOrgId ? { orgId: actionOrgId } : {}),
+                ...(requestContext?.run ? { run: requestContext.run } : {}),
+              },
+              invokeAction,
+            ),
           );
-        // Keep a reference to the action promise so we can attach a zombie-
-        // detection continuation AFTER Promise.race abandons it on run abort.
-        // The promise itself is not awaited here — Promise.race owns the await.
-        const actionPromise = Promise.resolve(
-          runWithRequestContext(
-            {
-              ...(requestContext ?? {}),
-              ...(actionUserEmail ? { userEmail: actionUserEmail } : {}),
-              ...(actionOrgId ? { orgId: actionOrgId } : {}),
-              ...(requestContext?.run ? { run: requestContext.run } : {}),
-            },
-            invokeAction,
-          ),
-        );
 
-        // When the run is aborted (soft-timeout / user cancel) while this tool
-        // call is in flight, Promise.race below will throw "Run aborted" and the
-        // action's promise becomes a zombie — it keeps running but its result is
-        // never returned to the loop. If the zombie eventually resolves, write
-        // the result to the durable ledger keyed by (threadId, toolKey) so the
-        // next continuation chunk can recover it instead of re-executing the
-        // side effect.
-        if (opts.threadId && !actionEntry.readOnly) {
-          const ledgerThreadId = opts.threadId;
-          const ledgerToolKey = toolCallCacheKey(toolCall.name, toolCall.input);
-          actionPromise
-            .then((zombieRaw: unknown) => {
-              const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
-              if (
-                zombieMcp &&
-                zombieMcp.raw &&
-                typeof zombieMcp.raw === "object" &&
-                (zombieMcp.raw as Record<string, unknown>).isError === true
-              ) {
+          // When the run is aborted (soft-timeout / user cancel) while this tool
+          // call is in flight, Promise.race below will throw "Run aborted" and the
+          // action's promise becomes a zombie — it keeps running but its result is
+          // never returned to the loop. If the zombie eventually resolves, write
+          // the result to the durable ledger keyed by (threadId, toolKey) so the
+          // next continuation chunk can recover it instead of re-executing the
+          // side effect.
+          if (opts.threadId && !actionEntry.readOnly) {
+            const ledgerThreadId = opts.threadId;
+            const ledgerToolKey = toolCallCacheKey(
+              toolCall.name,
+              toolCall.input,
+            );
+            actionPromise
+              .then((zombieRaw: unknown) => {
+                const zombieMcp = isMcpActionResult(zombieRaw)
+                  ? zombieRaw
+                  : null;
+                if (
+                  zombieMcp &&
+                  zombieMcp.raw &&
+                  typeof zombieMcp.raw === "object" &&
+                  (zombieMcp.raw as Record<string, unknown>).isError === true
+                ) {
+                  return;
+                }
+                const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
+                const zombieStr =
+                  typeof zombieText === "string"
+                    ? zombieText
+                    : JSON.stringify(zombieText, null, 2);
+                void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
+              })
+              .catch(() => {
+                // Action errored in the zombie — no result to ledger.
+              });
+          }
+
+          const raw = await Promise.race([
+            actionPromise,
+            new Promise<never>((_, reject) => {
+              timeoutSignal.addEventListener("abort", () =>
+                reject(
+                  new Error(
+                    `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
+                  ),
+                ),
+              );
+            }),
+            // Stop waiting on the tool when the run itself is aborted (e.g. the
+            // run-manager soft timeout, or a user cancel). Without this leg the
+            // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
+            // the run signal has already fired.
+            new Promise<never>((_, reject) => {
+              if (signal.aborted) {
+                reject(new Error("Run aborted"));
                 return;
               }
-              const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
-              const zombieStr =
-                typeof zombieText === "string"
-                  ? zombieText
-                  : JSON.stringify(zombieText, null, 2);
-              void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
-            })
-            .catch(() => {
-              // Action errored in the zombie — no result to ledger.
-            });
-        }
-
-        const raw = await Promise.race([
-          actionPromise,
-          new Promise<never>((_, reject) => {
-            timeoutSignal.addEventListener("abort", () =>
-              reject(
-                new Error(
-                  `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-                ),
-              ),
-            );
-          }),
-          // Stop waiting on the tool when the run itself is aborted (e.g. the
-          // run-manager soft timeout, or a user cancel). Without this leg the
-          // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
-          // the run signal has already fired.
-          new Promise<never>((_, reject) => {
-            if (signal.aborted) {
-              reject(new Error("Run aborted"));
-              return;
+              signal.addEventListener(
+                "abort",
+                () => reject(new Error("Run aborted")),
+                { once: true },
+              );
+            }),
+          ]);
+          const mcpResult = isMcpActionResult(raw) ? raw : null;
+          const rawForAgent = mcpResult ? mcpResult.text : raw;
+          if (
+            mcpResult &&
+            mcpResult.raw &&
+            typeof mcpResult.raw === "object" &&
+            (mcpResult.raw as Record<string, unknown>).isError === true
+          ) {
+            isError = true;
+          }
+          mcpApp = mcpResult?.mcpApp;
+          // Demo mode is browser-local presentation state. The agent and MCP
+          // layers always receive the real, access-scoped tool result.
+          let resultForAgent: unknown = rawForAgent;
+          // Vision images for the model: MCP tools return standard `image`
+          // content parts; first-party actions opt in via the well-known
+          // `_agentImages` result field (stripped from the JSON the model
+          // reads). The images array
+          // never touches the ledger — only the compact text notes appended
+          // below are persisted.
+          let imageNotes: string[] = [];
+          if (mcpResult) {
+            const mcpImages = extractMcpToolResultImages(mcpResult.raw);
+            if (mcpImages.length > 0) toolResultImages = mcpImages;
+          } else {
+            const extracted =
+              extractAgentImagesFromActionResult(resultForAgent);
+            resultForAgent = extracted.value;
+            imageNotes = extracted.notes;
+            if (extracted.images.length > 0) {
+              toolResultImages = extracted.images;
             }
-            signal.addEventListener(
-              "abort",
-              () => reject(new Error("Run aborted")),
-              { once: true },
+          }
+          if (toolResultImages) {
+            imageNotes = [
+              ...describeToolResultImages(toolResultImages),
+              ...imageNotes,
+            ];
+          }
+          let resultStr =
+            typeof resultForAgent === "string"
+              ? resultForAgent
+              : JSON.stringify(resultForAgent, null, 2);
+          if (resultStr.length > toolMaxResultChars) {
+            const truncated = resultStr.slice(0, toolMaxResultChars);
+            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
+          }
+          // Image notes go after truncation so they always survive into the
+          // persisted result string (the durable record that an image existed).
+          if (imageNotes.length > 0) {
+            resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
+          }
+          result = resultStr;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const added = expandActiveTools(
+              extractToolSearchResultNames(rawForAgent),
             );
-          }),
-        ]);
-        const mcpResult = isMcpActionResult(raw) ? raw : null;
-        const rawForAgent = mcpResult ? mcpResult.text : raw;
-        if (
-          mcpResult &&
-          mcpResult.raw &&
-          typeof mcpResult.raw === "object" &&
-          (mcpResult.raw as Record<string, unknown>).isError === true
-        ) {
+            if (added.length > 0) {
+              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+            }
+          }
+        } catch (err: any) {
+          if (isAgentActionStopError(err)) {
+            const message =
+              sanitizeToolErrorValue(err.message) ||
+              `Stopped after ${toolCall.name} failed.`;
+            result = sanitizeToolErrorValue(err.toolResult || message);
+            requestedActionStop ??= {
+              message,
+              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            };
+          } else {
+            const message = sanitizeToolErrorValue(err);
+            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+          }
           isError = true;
         }
-        mcpApp = mcpResult?.mcpApp;
-        // Demo mode is browser-local presentation state. The agent and MCP
-        // layers always receive the real, access-scoped tool result.
-        let resultForAgent: unknown = rawForAgent;
-        // Vision images for the model: MCP tools return standard `image`
-        // content parts; first-party actions opt in via the well-known
-        // `_agentImages` result field (stripped from the JSON the model
-        // reads). The images array
-        // never touches the ledger — only the compact text notes appended
-        // below are persisted.
-        let imageNotes: string[] = [];
-        if (mcpResult) {
-          const mcpImages = extractMcpToolResultImages(mcpResult.raw);
-          if (mcpImages.length > 0) toolResultImages = mcpImages;
-        } else {
-          const extracted = extractAgentImagesFromActionResult(resultForAgent);
-          resultForAgent = extracted.value;
-          imageNotes = extracted.notes;
-          if (extracted.images.length > 0) {
-            toolResultImages = extracted.images;
+        if (isError) {
+          result = finalizeToolErrorResult(result);
+        }
+
+        // Side-channel warnings raised anywhere inside the action's call stack
+        // (see `action-warnings.ts`). Drained here rather than in the success
+        // branch so an action that warns and then throws still surfaces it, and
+        // so nothing stays pending to bleed into a later tool's result.
+        const agentWarnings = drainAgentWarnings();
+        if (agentWarnings.length > 0) {
+          result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
+        }
+
+        // Auto-refresh the UI after a successful mutating tool call. Any call
+        // that isn't read-only — by its own per-call Plan-mode effect, else the
+        // action's readOnly flag — is assumed to mutate. The client's useDbSync
+        // listener sees a change event with source:"action" and invalidates
+        // ["action"] queries so list-* / get-* refetch. This makes refresh after
+        // agent writes reliable without the model needing to remember to call
+        // `refresh-screen` itself.
+        if (!isError) {
+          try {
+            const { actionCallIsReadOnly, notifyActionChangeInBackground } =
+              await import("../server/action-change.js");
+            if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
+              const owner =
+                opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+              const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+              notifyActionChangeInBackground({
+                actionName: toolCall.name,
+                ...(owner ? { owner } : {}),
+                ...(orgId ? { orgId } : {}),
+              });
+            }
+          } catch (error) {
+            // poll module may be unavailable in non-server contexts — keep the
+            // tool result, but make the failed background refresh observable.
+            console.warn(
+              "Could not notify the action-change poller after a tool call",
+              error,
+            );
           }
         }
-        if (toolResultImages) {
-          imageNotes = [
-            ...describeToolResultImages(toolResultImages),
-            ...imageNotes,
-          ];
-        }
-        let resultStr =
-          typeof resultForAgent === "string"
-            ? resultForAgent
-            : JSON.stringify(resultForAgent, null, 2);
-        if (resultStr.length > toolMaxResultChars) {
-          const truncated = resultStr.slice(0, toolMaxResultChars);
-          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-        }
-        // Image notes go after truncation so they always survive into the
-        // persisted result string (the durable record that an image existed).
-        if (imageNotes.length > 0) {
-          resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
-        }
-        result = resultStr;
-        if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-          const added = expandActiveTools(
-            extractToolSearchResultNames(rawForAgent),
-          );
-          if (added.length > 0) {
-            result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+
+        emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          ...(isError ? { isError: true } : {}),
+          ...(isError
+            ? { completedSideEffect: false }
+            : actionEntry.readOnly !== true
+              ? { completedSideEffect: true }
+              : {}),
+          ...(mcpApp ? { mcpApp } : {}),
+          ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+        });
+        recordToolResult(result, isError);
+        if (!isError) {
+          noteToolCallSucceeded(actionEntry);
+          if (cacheKey) {
+            readOnlyToolResultCache.set(cacheKey, result);
+          } else if (actionEntry.readOnly !== true) {
+            // A genuine write invalidates all cached reads. A dedupe:false
+            // read-only tool also has a null cacheKey (see above) but must NOT
+            // clear the cache — it isn't a write and other tools' cached reads
+            // are still valid.
+            readOnlyToolResultCache.clear();
+            duplicateReadOnlyToolCalls.clear();
           }
         }
-      } catch (err: any) {
-        if (isAgentActionStopError(err)) {
-          const message =
-            sanitizeToolErrorValue(err.message) ||
-            `Stopped after ${toolCall.name} failed.`;
-          result = sanitizeToolErrorValue(err.toolResult || message);
-          requestedActionStop ??= {
-            message,
-            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
-          };
-        } else {
-          const message = sanitizeToolErrorValue(err);
-          result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
-        }
-        isError = true;
-      }
-      if (isError) {
-        result = finalizeToolErrorResult(result);
-      }
-
-      // Side-channel warnings raised anywhere inside the action's call stack
-      // (see `action-warnings.ts`). Drained here rather than in the success
-      // branch so an action that warns and then throws still surfaces it, and
-      // so nothing stays pending to bleed into a later tool's result.
-      const agentWarnings = drainAgentWarnings();
-      if (agentWarnings.length > 0) {
-        result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
-      }
-
-      // Auto-refresh the UI after a successful mutating tool call. Any call
-      // that isn't read-only — by its own per-call Plan-mode effect, else the
-      // action's readOnly flag — is assumed to mutate. The client's useDbSync
-      // listener sees a change event with source:"action" and invalidates
-      // ["action"] queries so list-* / get-* refetch. This makes refresh after
-      // agent writes reliable without the model needing to remember to call
-      // `refresh-screen` itself.
-      if (!isError) {
-        try {
-          const { actionCallIsReadOnly, notifyActionChangeInBackground } =
-            await import("../server/action-change.js");
-          if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
-            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-            notifyActionChangeInBackground({
-              actionName: toolCall.name,
-              ...(owner ? { owner } : {}),
-              ...(orgId ? { orgId } : {}),
-            });
-          }
-        } catch {
-          // poll module may be unavailable in non-server contexts — ignore
-        }
-      }
-
-      send({
-        type: "tool_done",
-        id: toolCall.id,
-        tool: toolCall.name,
-        input: toolCall.input as Record<string, unknown>,
-        result,
-        ...(isError ? { isError: true } : {}),
-        ...(isError
-          ? { completedSideEffect: false }
-          : actionEntry.readOnly !== true
-            ? { completedSideEffect: true }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          ...(isError ? { isError } : {}),
+          ...(!isError && toolResultImages && toolResultImages.length > 0
+            ? { images: toolResultImages }
             : {}),
-        ...(mcpApp ? { mcpApp } : {}),
-        ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
-      });
-      recordToolResult(result, isError);
-      if (!isError) {
-        if (cacheKey) {
-          readOnlyToolResultCache.set(cacheKey, result);
-        } else if (actionEntry.readOnly !== true) {
-          // A genuine write invalidates all cached reads. A dedupe:false
-          // read-only tool also has a null cacheKey (see above) but must NOT
-          // clear the cache — it isn't a write and other tools' cached reads
-          // are still valid.
-          readOnlyToolResultCache.clear();
-          duplicateReadOnlyToolCalls.clear();
+        };
+      } finally {
+        if (!toolDoneEmitted) {
+          const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
         }
       }
-      return {
-        type: "tool-result" as const,
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        toolInput: wireToolInput,
-        content: result,
-        ...(isError ? { isError } : {}),
-        ...(!isError && toolResultImages && toolResultImages.length > 0
-          ? { images: toolResultImages }
-          : {}),
-      };
     };
 
     type ParallelBatchKind = "read" | "parallel-write";
@@ -6026,7 +6587,50 @@ export async function runAgentLoop(opts: {
       toolResultParts.push(...(await Promise.all(batch.map(runToolCall))));
     };
 
+    // An `endsTurn` action already handed control to the user, so the rest of
+    // this assistant message belongs to a turn that is over. Report those calls
+    // as not executed rather than running them: a second `ask-question` would
+    // overwrite the first one's card before anyone could answer it.
+    const skipToolCallAfterYield = (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): EngineContentPart => {
+      const result =
+        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
+      send({
+        type: "tool_start",
+        id: toolCall.id,
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, string>,
+      });
+      send({
+        type: "tool_done",
+        id: toolCall.id,
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, unknown>,
+        result,
+        completedSideEffect: false,
+      });
+      toolResultHistory.push({
+        name: toolCall.name,
+        content: result,
+        isError: false,
+      });
+      return {
+        type: "tool-result" as const,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        toolInput: JSON.stringify(toolCall.input ?? {}),
+        content: result,
+      };
+    };
+
     for (const toolCall of toolCallParts) {
+      if (turnYieldedToUser) {
+        await flushParallelBatch();
+        toolResultParts.push(skipToolCallAfterYield(toolCall));
+        continue;
+      }
       const batchKind = getParallelBatchKind(toolCall);
       if (batchKind) {
         if (parallelBatchKind && parallelBatchKind !== batchKind) {
@@ -6044,12 +6648,9 @@ export async function runAgentLoop(opts: {
     messages.push({ role: "user", content: toolResultParts });
     if (requestedActionStop) {
       // TypeScript can't track ??= through async closures; cast to known type.
-      const stop = requestedActionStop as {
-        message: string;
-        errorCode?: string;
-      };
+      const stop = requestedActionStop as TerminalActionStop;
       terminalActionStop = stop;
-      send({ type: "text", text: stop.message });
+      sendTerminalActionStop(stop);
       break;
     }
   }
@@ -6122,7 +6723,7 @@ export async function runAgentLoop(opts: {
       // the user-visible turn.
       if (opts.ownerEmail) {
         const compactThreadId = opts.threadId;
-        void maybeCompactThread({
+        const compaction = maybeCompactThread({
           threadId: compactThreadId,
           ownerEmail: opts.ownerEmail,
           orgId: opts.orgId ?? null,
@@ -6133,10 +6734,24 @@ export async function runAgentLoop(opts: {
             err instanceof Error ? err.message : String(err),
           );
         });
+        // This pass has to finish a streaming model call before it writes, and
+        // it starts after the turn's `done` event — on a host that freezes the
+        // isolate once the response settles, an unregistered promise is simply
+        // killed, so the thread never accrues the memory that would spare the
+        // next turn. Hand it to the platform keep-alive where there is one;
+        // long-lived hosts keep the existing fire-and-forget behavior.
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        if (waitUntil) waitUntil(compaction);
+        else void compaction;
       }
     }
   }
 
+  // Assignments happen inside async tool-loop closures, which TypeScript cannot
+  // use for narrowing at this point. Snapshot the runtime value before the
+  // outcome branches so a stop is still represented as a possible value.
+  const finalTerminalActionStop =
+    terminalActionStop as TerminalActionStop | null;
   if (signal.aborted) {
     reportOutcome({ state: "canceled", message: "Agent run was aborted." });
   } else if (endedAtLoopLimit) {
@@ -6146,18 +6761,24 @@ export async function runAgentLoop(opts: {
       retryable: false,
       message: `Agent stopped after ${maxIterations} iterations.`,
     });
-  } else if (terminalActionStop?.errorCode === "needs-approval") {
+  } else if (finalTerminalActionStop?.errorCode === "needs-approval") {
     reportOutcome({
       state: "input_required",
       code: "needs_approval",
-      message: terminalActionStop.message,
+      message: finalTerminalActionStop.message,
     });
-  } else if (terminalActionStop) {
+  } else if (finalTerminalActionStop?.errorCode === "awaiting-user-input") {
+    reportOutcome({
+      state: "input_required",
+      code: "awaiting_user_input",
+      message: finalTerminalActionStop.message,
+    });
+  } else if (finalTerminalActionStop) {
     reportOutcome({
       state: "failed",
-      code: terminalActionStop.errorCode ?? "tool_failed",
+      code: finalTerminalActionStop.errorCode ?? "tool_failed",
       retryable: false,
-      message: terminalActionStop.message,
+      message: finalTerminalActionStop.message,
     });
   } else {
     reportOutcome({ state: "completed" });
@@ -6183,6 +6804,12 @@ function isRecoverableContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const message = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit flag outranks the message sniff below, which exists for events
+  // that carry no flag at all. Every guard stop sets `recoverable: false`, and
+  // sniffing its prose is how a stop that merely NAMES a connection or a
+  // timeout gets continued into the spiral it was raised to end. The client
+  // applies the same precedence in `isAutoRecoverableError`.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -6334,30 +6961,6 @@ export function lastUnfinishedPreparingActionToolFromEvents(
   return latest?.tool;
 }
 
-function endsAfterCompletedToolWithoutAssistantFinal(run: ActiveRun): boolean {
-  let completedToolAfterLastAssistantText = false;
-  for (const { event } of run.events) {
-    if (event.type === "text" && event.text.trim().length > 0) {
-      completedToolAfterLastAssistantText = false;
-      continue;
-    }
-    if (event.type === "tool_done" && event.isError !== true) {
-      completedToolAfterLastAssistantText = true;
-      continue;
-    }
-    if (
-      event.type === "clear" ||
-      event.type === "error" ||
-      event.type === "missing_api_key" ||
-      event.type === "auto_continue" ||
-      event.type === "loop_limit"
-    ) {
-      completedToolAfterLastAssistantText = false;
-    }
-  }
-  return completedToolAfterLastAssistantText;
-}
-
 function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
   return lastUnfinishedPreparingActionToolFromEvents(
     run.events.map(({ event }) => event),
@@ -6433,6 +7036,9 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    if (typeof next.llmCalls === "number") {
+      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
+    }
     if (next.usageReported) usage.usageReported = true;
     // Keep the earliest attempt's first event — a later continuation
     // attempt starting fresh must not overwrite genuine first-token timing.
@@ -6861,11 +7467,11 @@ async function describeTurnProgress(
   threadId: string,
   turnId?: string,
 ): Promise<string> {
-  const { toolCallJournal } = await loadPriorTurnToolCallJournal(
-    threadId,
-    turnId,
-  );
-  const completed = toolCallJournal?.completed ?? [];
+  const journalRead = await loadPriorTurnToolCallJournal(threadId, turnId);
+  if (journalRead.status === "unreadable") {
+    return "I could not read the run ledger, so I cannot say which steps completed.";
+  }
+  const completed = journalRead.toolCallJournal?.completed ?? [];
   if (completed.length === 0) return "No steps had completed yet.";
   const names = [...new Set(completed.map((entry) => entry.tool))];
   const shown = names.slice(0, 8).join(", ");
@@ -7534,6 +8140,9 @@ export function resolveAgentRequestReasoningEffort({
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
+  if (options.resolveActionSurface) {
+    assertRequestActionSurfaceIsolation();
+  }
   // Undefined = let each engine pick its own defaultModel at request time.
   const configuredModel = options.model;
 
@@ -7545,7 +8154,7 @@ export function createProductionAgentHandler(
   // the settings UI) show up to the LLM without a process restart. MCP tools
   // are also scope-filtered per request — a user-scope server added by Alice
   // must not appear in Bob's tool list in a shared-process deployment.
-  const getEngineTools = (
+  const getRequestActions = (
     actions: Record<string, ActionEntry> = resolvedActions,
   ) => {
     const filtered: Record<string, ActionEntry> = {};
@@ -7555,8 +8164,10 @@ export function createProductionAgentHandler(
       }
       filtered[name] = entry;
     }
-    return actionsToEngineTools(filtered);
+    return filtered;
   };
+  const getEngineTools = (actions: Record<string, ActionEntry>) =>
+    actionsToEngineTools(getRequestActions(actions));
 
   return defineEventHandler(async (event) => {
     // Diagnostic-only setup-timing instrumentation. Captures wall-clock offsets
@@ -7606,6 +8217,7 @@ export function createProductionAgentHandler(
       effort: requestEffort,
       browserTabId,
       scope,
+      harness: requestHarness,
       trackInRunsTray,
     } = body;
     setupMark("bodyParsed");
@@ -7616,12 +8228,20 @@ export function createProductionAgentHandler(
     // run the loop inline with the background soft-timeout, reusing the
     // pre-claimed runId/turnId — we must NOT re-claim the slot or re-dispatch.
     const backgroundRunMarker =
+      preInjectedBody &&
       body[AGENT_CHAT_BACKGROUND_RUN_FIELD] &&
       typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD] === "object" &&
       typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!.runId === "string"
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // Both fields are internal durable-dispatch artifacts, never client input.
+    // A body marker alone is not proof of worker identity: only the verified
+    // `_process-run` route can install `preInjectedBody` on the event context.
+    if (!isBackgroundWorker) {
+      delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+      delete body.__resolvedActionSurface;
+    }
     // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
     // The worker's runId is available EARLY on the marker (the general `runId`
     // var resolves much later), so capture it now and emit the LAST setup stage
@@ -7683,6 +8303,16 @@ export function createProductionAgentHandler(
       isAgentChatDurableBackgroundEnabled({
         appOptIn: options.durableBackgroundRuns,
       });
+    const mutableBody = body as unknown as Record<string, unknown>;
+    if (!isBackgroundWorker) {
+      delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
+    }
+    if (dispatchToBackground) {
+      const clientPlatform = getRequestContext()?.clientPlatform;
+      if (clientPlatform) {
+        mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] = clientPlatform;
+      }
+    }
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();
@@ -7735,6 +8365,80 @@ export function createProductionAgentHandler(
       }
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
+      }
+    }
+    const requestedHostedHarness = normalizeHostedHarnessRuntime(
+      requestHarness?.runtime,
+    );
+    if (requestHarness !== undefined && !requestedHostedHarness) {
+      setResponseStatus(event, 400);
+      return { error: "Unsupported hosted harness runtime" };
+    }
+    const hostedHarnessPolicy = requestedHostedHarness
+      ? await resolveHostedHarnessPolicy({
+          config: options.hostedHarnessConfig,
+          orgId: getRequestOrgId() ?? null,
+          userEmail: ownerEmail,
+        })
+      : null;
+    if (
+      requestedHostedHarness &&
+      (!hostedHarnessPolicy?.enabled ||
+        !hostedHarnessPolicy.runtimes.includes(requestedHostedHarness))
+    ) {
+      setResponseStatus(event, hostedHarnessPolicy?.configEnabled ? 403 : 404);
+      return {
+        error: hostedHarnessPolicy?.configEnabled
+          ? "Hosted harness is not enabled for this organization"
+          : "Hosted harness is not configured for this app",
+      };
+    }
+    const runContext = ensureRequestRunContext();
+    if (runContext && requestedHostedHarness) {
+      runContext.hostedHarnessRuntime = requestedHostedHarness;
+    }
+    let availableRequestActions = getRequestActions();
+    if (requestedHostedHarness) {
+      availableRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        filterHostedHarnessToolNames(Object.keys(availableRequestActions)),
+      );
+    }
+    let surfacedRequestActions = availableRequestActions;
+    if (options.resolveActionSurface) {
+      const persistedSurface = isBackgroundWorker
+        ? readPersistedActionSurface(body, "__resolvedActionSurface")
+        : undefined;
+      const surface =
+        persistedSurface !== undefined
+          ? persistedSurface
+          : await options.resolveActionSurface({
+              event,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              threadId,
+              mode: requestMode,
+              internalContinuation: Boolean(internalContinuation),
+              availableActionNames: Object.keys(availableRequestActions),
+            });
+      surfacedRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        surface.allowedActionNames,
+      );
+      if (requestedHostedHarness) {
+        surfacedRequestActions = filterActionsByAllowedNames(
+          surfacedRequestActions,
+          filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
+        );
+      }
+      const allowedNames = Object.keys(surfacedRequestActions);
+      const runCtx = ensureRequestRunContext();
+      if (runCtx) runCtx.allowedActionNames = allowedNames;
+      if (!isBackgroundWorker) {
+        body.__resolvedActionSurface = {
+          orgId: getRequestOrgId() ?? null,
+          allowedActionNames: allowedNames,
+        };
       }
     }
     // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
@@ -7809,55 +8513,49 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: attachment upload + persistence finished.
     workerStep("attach_done");
 
-    // When a per-request engine override is specified, resolve the API key
-    // for that provider instead of the global active engine's provider.
-    // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
-    workerStep("apikey_start");
-    let userApiKey: string | undefined;
-    if (requestEngine) {
-      const provider = engineToProvider(requestEngine);
-      userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      const envVar = PROVIDER_TO_ENV[provider];
-      if (
-        !userApiKey &&
-        envVar &&
-        canUseDeployCredentialFallbackForRequest(envVar)
-      ) {
-        // Read-only env fallback for the requested provider.
-        userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
-      }
-    } else {
-      userApiKey = await getOwnerActiveApiKey(ownerEmail);
-    }
-    // DIAGNOSTIC-ONLY: API-key resolution finished.
-    workerStep("apikey_done");
-
+    // Resolve the key for the engine this request will actually select — the
+    // per-request override when there is one, otherwise the plugin's own
+    // engine — instead of the global active engine's provider.
     // `options.apiKey` is the value the template constructed the plugin with
     // (often wired from a deployment env var). Honor it as host-provided
-    // read-only configuration after scoped keys when deploy fallback is safe.
-    const hostApiKey = canUseDeployCredentialFallbackForRequest(
-      "ANTHROPIC_API_KEY",
-    )
-      ? (options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"))
-      : undefined;
-    const effectiveApiKey = userApiKey ?? hostApiKey;
+    // read-only configuration after scoped keys.
+    // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
+    workerStep("apikey_start");
+    const engineOption = requestEngine ?? options.engine;
+    const { apiKey: effectiveApiKey, apiKeyEnvVar: effectiveApiKeyEnvVar } =
+      await resolveOwnerEngineApiKey({
+        engineOption,
+        ownerEmail,
+        anthropicFallback:
+          options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
+      });
+    // DIAGNOSTIC-ONLY: API-key resolution finished.
+    workerStep("apikey_done");
 
     // Resolve engine — per-request engine override takes priority
     // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
     // settings reads inside resolveEngine).
     workerStep("engine_start");
+    const credentialIdentity = {
+      userEmail: ownerEmail,
+      orgId: getRequestOrgId(),
+    };
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
-        engineOption: requestEngine ?? options.engine,
+        engineOption,
         apiKey: effectiveApiKey,
+        apiKeyEnvVar: effectiveApiKeyEnvVar,
         model: configuredModel,
         appId: options.appId,
+        credentialIdentity,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
+        apiKeyEnvVar: effectiveApiKeyEnvVar,
         appId: options.appId,
+        credentialIdentity,
       });
     }
     // DIAGNOSTIC-ONLY: engine resolution finished.
@@ -7944,6 +8642,7 @@ export function createProductionAgentHandler(
     if (
       !(await isResolvedEngineUsableForRequest(engine, {
         apiKey: effectiveApiKey,
+        credentialIdentity,
       }))
     ) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -8026,7 +8725,7 @@ export function createProductionAgentHandler(
       (async (): Promise<string> => {
         const screenStart = Date.now();
         try {
-          const viewScreenAction = resolvedActions["view-screen"];
+          const viewScreenAction = surfacedRequestActions["view-screen"];
           if (viewScreenAction) {
             const result = await viewScreenAction.run(
               {},
@@ -8111,7 +8810,7 @@ export function createProductionAgentHandler(
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
           return (
-            `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+            `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
             `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
           );
@@ -8128,7 +8827,9 @@ export function createProductionAgentHandler(
     const filesContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         let filesContext = "";
-        if (options.skipFilesContext) return filesContext;
+        if (options.skipFilesContext || requestedHostedHarness) {
+          return filesContext;
+        }
         if (history.length === 0) {
           try {
             const {
@@ -8335,13 +9036,15 @@ export function createProductionAgentHandler(
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
     const requestActions =
       requestMode === "plan"
-        ? createPlanModeActionRegistry(resolvedActions)
-        : resolvedActions;
+        ? createPlanModeActionRegistry(surfacedRequestActions)
+        : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = filterInitialEngineTools(
-      availableRequestTools,
-      options.initialToolNames,
-    );
+    const initialRequestTools = options.resolveActionSurface
+      ? availableRequestTools
+      : filterInitialEngineTools(
+          availableRequestTools,
+          options.initialToolNames,
+        );
     const requestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({
@@ -8412,6 +9115,16 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
+    const requestedApprovedToolCalls =
+      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
+        ? body.approvedToolCalls
+            .filter((key: unknown): key is string => typeof key === "string")
+            .slice(0, 200)
+        : undefined;
+    const exactApprovedToolCall = findApprovedStructuredToolCall(
+      structuredHistory,
+      requestedApprovedToolCalls,
+    );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
       isFirstRequest: history.length === 0,
       systemPrompt: requestSystemPrompt,
@@ -8471,6 +9184,45 @@ export function createProductionAgentHandler(
         : typeof requestTurnId === "string" && requestTurnId.trim()
           ? requestTurnId.trim()
           : runId;
+    const approvalStoreBinding = (
+      binding: AgentApprovalBinding,
+    ): AgentToolApprovalBinding => {
+      if (!ownerEmail) {
+        throw new Error(
+          "Cannot create or consume an approval without an authenticated owner",
+        );
+      }
+      return {
+        ownerEmail,
+        orgId: getRequestOrgId() ?? null,
+        threadId: effectiveThreadId,
+        turnId: effectiveTurnId,
+        toolName: binding.toolName,
+        callId: binding.callId,
+        approvalKey: binding.approvalKey,
+      };
+    };
+    const approvalHooks = {
+      onApprovalRequired: async (binding: AgentApprovalBinding) => {
+        await createAgentToolApproval(approvalStoreBinding(binding));
+      },
+      consumeApproval: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return consumeAgentToolApproval(approvalStoreBinding(binding));
+      },
+    };
+    const exactApprovedToolEntry = exactApprovedToolCall
+      ? requestActions[exactApprovedToolCall.name]
+      : undefined;
+    const approvedToolCallsForExecution =
+      exactApprovedToolCall && exactApprovedToolEntry?.needsApproval
+        ? [
+            toolCallCacheKey(
+              exactApprovedToolCall.name,
+              exactApprovedToolCall.input,
+            ),
+          ]
+        : undefined;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))
@@ -8531,6 +9283,36 @@ export function createProductionAgentHandler(
         }
       } catch {
         // Keep the body-derived messages — never drop the run.
+      }
+    }
+    // A foreground turn on an existing thread that arrives with NO history is
+    // amnesia, not a new conversation — the client trims history against a size
+    // budget and one tool-heavy turn could zero it out, which reads downstream
+    // as an ordinary first message. Recover what was said from the stored
+    // thread. Runs only on the foreground path, before `onRunPrepared` persists
+    // this turn, so the recovered window cannot contain the current message.
+    if (
+      !isBackgroundWorker &&
+      !internalContinuation &&
+      threadId &&
+      historyMessages.length === 0
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { recoverThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const recovered = recoverThreadHistoryForRequest(
+          (await getThread(threadId))?.threadData,
+        );
+        if (recovered.length > 0) messages.unshift(...recovered);
+      } catch (err) {
+        // Never drop the run over this — but never let it pass for "the thread
+        // had nothing to recover" either. That silence is the same failure this
+        // block exists to fix, one layer down.
+        console.warn(
+          `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
+          err,
+        );
       }
     }
     setupMark("depsThread");
@@ -8852,7 +9634,9 @@ export function createProductionAgentHandler(
       options.onRunComplete || trackedProgressRunId
         ? async (run: ActiveRun) => {
             try {
-              await options.onRunComplete?.(run, threadId);
+              await runCompletionCallbackWithDatabaseRetry(() =>
+                options.onRunComplete?.(run, threadId),
+              );
             } catch (err) {
               await completeTrackedProgressRun(run, err);
               throw err;
@@ -9139,7 +9923,11 @@ export function createProductionAgentHandler(
                 const profilePrompt =
                   `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
                   (profile.description ? `${profile.description}\n\n` : "") +
-                  `${profile.instructions}\n</custom-agent-profile>`;
+                  `${profile.instructions}` +
+                  (profile.workspace?.resources.length
+                    ? `\n\nAgent pack resources (read these with the resources tools when relevant):\n${profile.workspace.resources.map((resource) => `- ${resource.path}${resource.name ? ` (${resource.name})` : ""}`).join("\n")}`
+                    : "") +
+                  `\n</custom-agent-profile>`;
 
                 let responseText = "";
                 const subUsage = await runAgentLoop({
@@ -9356,15 +10144,13 @@ export function createProductionAgentHandler(
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),
           // Human-in-the-loop approval grants for this turn (sanitized — the
-          // request is untrusted; accept only a bounded list of string keys).
-          ...(Array.isArray(body.approvedToolCalls) &&
-          body.approvedToolCalls.length
-            ? {
-                approvedToolCalls: body.approvedToolCalls
-                  .filter((k: unknown): k is string => typeof k === "string")
-                  .slice(0, 200),
-              }
+          // request is untrusted; only the exact structured call is passed to
+          // the loop, where the durable grant is consumed atomically.
+          ...(approvedToolCallsForExecution
+            ? { approvedToolCalls: approvedToolCallsForExecution }
             : {}),
+          onApprovalRequired: approvalHooks.onApprovalRequired,
+          consumeApproval: approvalHooks.consumeApproval,
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -9391,6 +10177,33 @@ export function createProductionAgentHandler(
 
         let instrumented = false;
         try {
+          if (
+            exactApprovedToolCall &&
+            approvedToolCallsForExecution &&
+            requestActions[exactApprovedToolCall.name]
+          ) {
+            send({
+              type: "activity",
+              label: `Running approved ${exactApprovedToolCall.name} action`,
+              tool: exactApprovedToolCall.name,
+            });
+            await executeAgentToolCall({
+              actions: requestActions,
+              name: exactApprovedToolCall.name,
+              input: exactApprovedToolCall.input,
+              callId: exactApprovedToolCall.callId,
+              signal: agentLoopOpts.signal,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              threadId: effectiveThreadId,
+              turnId: effectiveTurnId,
+              approvedToolCalls: approvedToolCallsForExecution,
+              onApprovalRequired: approvalHooks.onApprovalRequired,
+              consumeApproval: approvalHooks.consumeApproval,
+              send,
+            });
+            return;
+          }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =
               await import("../observability/traces.js");

@@ -1,17 +1,17 @@
 ---
 title: "Apps"
-description: "Starten Sie mit einem funktionierenden SaaS-Produkt und machen Sie es zu Ihrem – Agent inklusive."
+description: "Starten Sie mit einem vollständigen SaaS-Produkt – UI, Datenbank, Authentifizierung und Agent sind bereits fertig."
 ---
 
 # Apps
 
-Möchten Sie Ihr eigenes KI-gestütztes Analysetool liefern? Mail-Client? Formularersteller? Wählen Sie eine Beispiel-App und Sie haben in wenigen Minuten ein funktionierendes SaaS – Agent, Datenbank, Authentifizierung und Bereitstellungspipeline sind bereits verkabelt.
+Agent-Native-Apps gibt es in zwei Formen: Vorlagen mit vollständiger Browser-UI und Automation-First-Apps ohne Browser-UI – zum Beispiel ein Slack-Bot, ein nächtlicher Report oder ein Webhook-Responder. Dieses Dokument behandelt Vorlagen; die andere Form finden Sie unter [Automation-First Apps](/docs/pure-agent-apps).
 
-Die meisten Starter-Vorlagen geben Ihnen ein leeres Gerüst und eine lange TODO-Liste. Agent-Native macht das anders. Jede Beispiel-App ist ein **komplettes Produkt auf SaaS-Niveau** – bereits am ersten Tag lauffähig, bereits lieferbar und ganz Ihnen überlassen, individuell anzupassen, zu branden und bereitzustellen. Betrachten Sie sie als klonbare SaaS, nicht als Starter-Kits: Sie forken ein fertiges Produkt und starren nicht auf die Standardversion.
+Eine Vorlage ist ein vollständiges SaaS-Produkt: UI, Datenbank, Authentifizierung und Agent sind bereits fertig gebaut und miteinander verbunden. Wählen Sie eine aus, branden Sie sie und stellen Sie sie als Ihr eigenes Produkt bereit, statt mit einem leeren Gerüst zu beginnen. Dieses Modell nennt man klonbare SaaS: Sie starten von einem fertigen Produkt, nicht von einem Gerüst.
 
 ## Beispiel-Apps {#catalog}
 
-Jede davon ist eine echte App, die Sie heute verwenden können, und die Startrampe für Ihre eigene Version davon.
+Jede App ist ein vollständiges Produkt, das Sie heute ausführen und zu Ihrer eigenen anpassen können.
 
 | App                                       | Was es ist                                                                                                                                                 |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -29,9 +29,9 @@ Jede davon ist eine echte App, die Sie heute verwenden können, und die Startram
 | [**Plan**](/docs/template-plan)           | Visuelle Pläne und PR-Zusammenfassungen mit Diagrammen, Wireframes und Anmerkungen.                                                                        |
 | [**Dispatch**](/docs/template-dispatch)   | Die Workspace-Steuerungsebene: gemeinsame Geheimnisse, wiederverwendbare Integrationen, Slack/Telegram, geplante Jobs.                                     |
 
-Sie möchten keine Domain-App? Verwenden Sie [Chat](/docs/template-chat), wenn Sie eine einfache App wünschen, mit der Benutzer sofort sprechen können und die mit actions, nativen Ergebnissen und Seiten wachsen kann. Verwenden Sie [Automation-First Apps](/docs/pure-agent-apps) nur, wenn der Workflow noch keine Browser-UI braucht.
+Wenn keine davon zu Ihrer Domain passt, beginnen Sie mit [Chat](/docs/template-chat) und erweitern Sie es mit actions, nativen Ergebnissen und Seiten. Verwenden Sie [Automation-First Apps](/docs/pure-agent-apps), wenn Ihr Workflow keine Browser-UI braucht.
 
-Sehen Sie sich den vollständigen Katalog unter [Apps](/apps) an oder springen Sie direkt zu einem – [Dispatch](/docs/template-dispatch) ist beispielsweise ein großartiger Ausgangspunkt, wenn Sie eine App im Workspace-Stil wünschen.
+Jede App hat eigene Dokumente zu Architektur, actions und Anpassung. Gehostete Live-Versionen finden Sie unter [agent-native.com/apps](/apps), oder beginnen Sie mit [Dispatch](/docs/template-dispatch) für eine App im Workspace-Stil.
 
 ## Community-Templates {#community-templates}
 
@@ -161,20 +161,20 @@ Demo.
 
 ## Was Sie im Lieferumfang enthalten {#what-you-get}
 
-Jede Beispiel-App wird mit den Teilen geliefert, deren Erstellung normalerweise Monate dauert:
+Jede Beispiel-App enthält:
 
-- **Ein funktionierender Agent** – bereits mit der App verbunden, bereits in der Lage, actions auf Ihre Daten zu übertragen, bereits kontextbewusst darüber, was Sie gerade sehen. Informationen zur Funktionsweise finden Sie unter [Messaging the agent](/docs/messaging).
-- **Auth** – Anmeldung, Sitzungen, Organisationen, mandantenfähige Isolation. Bereits erledigt.
-- **Eine Datenbank** – für jede Beispiel-App stehen Schema, Abfragen und Migrationen bereit. Bringen Sie Ihre eigene SQL-Datenbank (Postgres, SQLite, Turso, D1) mit – das Framework passt sich an.
-- **Ein Echtzeit-UI** – der Bildschirm bleibt mit den Aktionen des Agenten synchronisiert. Klicken Sie im Chat auf „E-Mail entwerfen“. Der Entwurf erscheint sofort in Ihrem Posteingang.
-- **Bereitstellungsbereit** – Push an Netlify, Vercel, Cloudflare, AWS oder an einen anderen Ort, an dem Node ausgeführt wird. Keine Lieferantenbindung.
-- **Branding-Hooks** – Name, Farben, Logo und Text können einfach geändert werden.
+- **Ein funktionierender Agent** – mit der App verbunden, kann actions auf Ihren Daten ausführen und weiß, was Sie sich gerade ansehen. Siehe [Messaging the agent](/docs/messaging).
+- **Auth** – Anmeldung, Sitzungen, Organisationen und mandantenfähige Isolation.
+- **Eine Datenbank** – Schema, Abfragen und Migrationen, einsatzbereit. Bringen Sie Ihre eigene SQL-Datenbank mit (Postgres, SQLite, Turso, D1); das Framework passt sich an.
+- **Ein Echtzeit-UI** – der Bildschirm bleibt mit dem Agenten synchronisiert. Wenn Sie im Chat zum Beispiel eine E-Mail entwerfen, aktualisiert sich der Posteingang sofort.
+- **Bereitstellungsbereit** – Bereitstellung auf Netlify, Vercel, Cloudflare, AWS oder jedem anderen Host, auf dem Node läuft.
+- **Branding-Hooks** – Name, Farben, Logo und Text ändern.
 
-Dies ist keine theoretische Behauptung. Der Autor des Frameworks führt seinen tatsächlichen Posteingang in der Mail-App, seinen tatsächlichen Kalender in der Calendar-App und seine tatsächlichen Analysen in der Analytics-App aus. Diese Apps sind Software für den täglichen Einsatz.
+Der Maintainer des Frameworks nutzt für seine eigene E-Mail, seinen Kalender und seine Analysen die Mail-, Calendar- und Analytics-App.
 
 ## Was Sie tun {#what-you-do}
 
-Der Weg von „Ich möchte mein eigenes SaaS“ zu „Ich habe mein eigenes SaaS“ ist kurz:
+Vier Schritte führen Sie von der Vorlage zur bereitgestellten App:
 
 <Diagram id="doc-block-1y7a55" title="Mit einer funktionierenden App starten" summary={"Wählen Sie ein fertiges Produkt aus, versehen Sie es mit einem Branding, entwickeln Sie es in einfachem Englisch weiter und versenden Sie es an Ihre eigene Domain."}>
 
@@ -224,21 +224,21 @@ Der Weg von „Ich möchte mein eigenes SaaS“ zu „Ich habe mein eigenes SaaS
 
 </Diagram>
 
-1. **Wählen Sie eine Beispiel-App.** Verwenden Sie die CLI-Auswahl oder durchsuchen Sie die Dokumente und wählen Sie eine aus, mit der Sie beginnen möchten.
+1. **Wählen Sie eine App.** Verwenden Sie die CLI-Auswahl oder durchsuchen Sie die Dokumente.
 2. **Marken Sie es.** Ändern Sie den Namen, die Farben, das Logo und den Text. Die meisten Beispiel-Apps stellen dies in einer einzigen Konfigurationsdatei bereit.
 3. **Passen Sie es an.** Nehmen Sie Quelländerungen in Ihrem Repository und Entwicklungsworkflow vor. Ein Agent kann helfen, wenn seinem Frame bewusst Workspace- und Schreibwerkzeuge gewährt wurden; andernfalls bedient der eingebettete Agent die App über Actions, Daten und konfigurierte Integrationen.
-4. **Versenden Sie es.** Führen Sie den Bereitstellungsbefehl aus. Sie haben jetzt Ihr eigenes Produktions-SaaS in Ihrer eigenen Domain.
+4. **Versenden Sie es.** Führen Sie den Bereitstellungsbefehl aus. Sie haben jetzt eine Produktions-App in Ihrer eigenen Domain.
 
-Die Schritte 2–4 dauern normalerweise Tage, nicht Monate. Schritt 3 bleibt offen, weil Sie die App weiterentwickeln können. Der eingebettete Agent bedient weiterhin das bereitgestellte Produkt und kann bei Quelländerungen helfen, wenn Codezugriff ausdrücklich aktiviert ist.
+Die Schritte 2–4 dauern normalerweise ein paar Tage. Schritt 3 hat keinen festen Endpunkt – die App gehört Ihnen und lässt sich weiterentwickeln, während der eingebettete Agent weiterhin verfügbar bleibt, um das bereitgestellte Produkt zu bedienen, und bei Quelländerungen helfen kann, wenn Codezugriff ausdrücklich aktiviert ist.
 
 ## Warum das praktisch ist {#why}
 
-Ein traditionelles Fork-the-Codebase-Modell bricht im großen Maßstab zusammen: Jeder Benutzer, der seinen eigenen Posteingang verwaltet, klingt wie ein Wartungsalbtraum. Zwei Rahmenentscheidungen machen es möglich:
+Eine separate Codebase pro Benutzer skaliert nicht – einen Fork der App für jeden Benutzer zu pflegen wird irgendwann unhaltbar. Zwei Framework-Entscheidungen vermeiden das:
 
 1. **Die App hält den Framework-Vertrag ein.** Ihre Quelle besitzt das Domänenverhalten, während Core Actions, SQL, Zustand und Synchronisierung konsistent hält, wenn sich die App entwickelt.
 2. **Anpassung pro Benutzer ohne Code pro Benutzer.** Skills, Speicher, Anweisungen, verbundene MCP-Server und Subagenten befinden sich alle in SQL. Jeder Benutzer erhält seine eigene Anpassungsebene; Die gemeinsame Codebasis hostet sie alle gleichzeitig.
 
-Das Ergebnis: Flexibilität auf Claude-Codeebene für jeden Benutzer, mit normaler SaaS-Bereitstellungsökonomie.
+Das Ergebnis: Anpassung pro Benutzer ohne Bereitstellung pro Benutzer.
 
 <Diagram id="doc-block-tslhp4" title="Warum Anpassungen pro Benutzer skalieren" summary={"Zwei Ideen sorgen dafür, dass das Start-from-a-working-app-Modell praktisch bleibt: Die App hält den Framework-Vertrag ein und die benutzerspezifische Anpassung erfolgt in SQL – nicht im benutzerspezifischen Code."}>
 
@@ -285,11 +285,11 @@ Das Ergebnis: Flexibilität auf Claude-Codeebene für jeden Benutzer, mit normal
 
 ## Möchten Sie nicht anpassen? {#hosted}
 
-Das musst du nicht. Jede Beispiel-App ist auch als gehostete App auf `agent-native.com` – `mail.agent-native.com`, `calendar.agent-native.com` usw. verfügbar. Nutzen Sie die gehostete Version kostenlos oder kostenpflichtig; erstellen Sie eine eigene App aus der Vorlage, wenn Sie etwas ändern möchten, das die gehostete Version nicht offenlegt.
+Jede Beispiel-App ist auch als gehostetes Produkt auf `agent-native.com` verfügbar – `mail.agent-native.com`, `calendar.agent-native.com` usw. Nutzen Sie die gehostete Version kostenlos oder kostenpflichtig; erstellen Sie eine eigene App aus einer Vorlage, wenn Sie etwas ändern möchten, das die gehostete Version nicht offenlegt.
 
 ## Probieren Sie es mit einer Fertigkeit aus {#try-with-a-skill}
 
-Nicht bereit für den Gerüstbau? Sie können einem Codierungsagenten, den Sie bereits verwenden, agentennative Superkräfte mit einem einzigen Befehl hinzufügen – keine App erforderlich. Siehe [Skills Guide](/docs/skills-guide#app-backed-skills).
+Sie können einem Coding-Agenten, den Sie bereits verwenden, agentennative Funktionen hinzufügen, ohne eine App aufzusetzen. Siehe [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Darauf aufbauen
 
@@ -301,15 +301,15 @@ Nicht bereit für den Gerüstbau? Sie können einem Codierungsagenten, den Sie b
 
 ### Für Entwickler {#dev-details}
 
-Wenn Sie jetzt ein Gerüst erstellen, lautet der CLI-Befehl:
+Um eine neue App aufzusetzen:
 
 ```bash
 npx @agent-native/core@latest create my-platform
 ```
 
-Sie erhalten eine Mehrfachauswahl-Auswahl. Wählen Sie eine App (eigenständig) oder mehrere (Arbeitsbereich – Apps teilen sich Authentifizierung, Marke, Agentenkonfiguration und Datenbank). Jede ausgewählte App wird mit jeder benötigten Datei in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer App-UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
+Die CLI fragt zuerst **Wie möchten Sie beginnen?** Wählen Sie **Chat** für einen minimalen Workspace mit Chat und Dispatch oder **First-party template(s)** für die Mehrfachauswahl. Community und Headless sind die eigenständigen Einstiege. Workspace-Apps teilen Authentifizierung, Marke, Agentenkonfiguration und Datenbank; jede App wird mit allen benötigten Dateien in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer App-UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
 
-Geben Sie `.env` (hauptsächlich `ANTHROPIC_API_KEY` und `DATABASE_URL`), `pnpm install`, `pnpm dev` ein und es funktioniert. Kein „TODO: Login implementieren“, keine Platzhalterrouten.
+Füllen Sie `.env` aus (`ANTHROPIC_API_KEY` und `DATABASE_URL`), und führen Sie dann `pnpm install` und `pnpm dev` aus. Es gibt kein Login zu implementieren und keine Platzhalterrouten.
 
 Ziele bereitstellen: jeder Nitro-kompatible Host (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) und jede Drizzle-kompatible SQL-Datenbank (SQLite, Postgres, Turso, D1, Supabase, Neon). Für Arbeitsbereiche erstellt `npx @agent-native/core@latest deploy` jede App auf einmal und versendet sie hinter einem einzigen Ursprung. Siehe [Deployment](/docs/deployment).
 

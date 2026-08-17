@@ -69,6 +69,7 @@ export default defineAction({
   // natural-language question and Analytics forms the query.
   http: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async (args) => {
     const result = await queryFirstPartyAnalytics(args.sql, resolveScope(), {
       cache: true,

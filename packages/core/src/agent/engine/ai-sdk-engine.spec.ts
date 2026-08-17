@@ -84,7 +84,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
   });
 
-  it("defaults to adaptive thinking at medium effort for a reasoning-capable Claude model", async () => {
+  it("defaults to adaptive thinking at high effort for an effort-capable Claude model", async () => {
     const { streamText } = mockAiSdk();
     mockAnthropicProvider();
 
@@ -100,7 +100,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
       type: "adaptive",
     });
     expect(call.providerOptions.anthropic.outputConfig).toEqual({
-      effort: "medium",
+      effort: "high",
     });
   });
 
@@ -122,7 +122,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions.anthropic.thinking).toEqual({
       type: "enabled",
-      budgetTokens: 4_096,
+      budgetTokens: 8_000,
     });
     expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
   });
@@ -285,7 +285,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("defaults to medium reasoning when no reasoningEffort is set for Google", async () => {
+  it("defaults to high effort when no reasoningEffort is set for Google", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -301,7 +301,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
 
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions?.google?.thinkingConfig).toEqual({
-      thinkingLevel: "medium",
+      thinkingLevel: "high",
     });
   });
 });
@@ -518,6 +518,15 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(engine.preserveCustomModels).toBe(true);
   });
 
+  it("keeps arbitrary local Ollama model ids", async () => {
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("ollama", {
+      allowEnvFallback: false,
+    });
+
+    expect(engine.preserveCustomModels).toBe(true);
+  });
+
   // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
   // rejects `reasoning_effort` together with function tools on the legacy
   // Chat Completions surface — "Function tools with reasoning_effort are not
@@ -695,13 +704,20 @@ describe("AISDKEngine streamed tool-input reconciliation", () => {
     vi.unstubAllEnvs();
   });
 
-  async function runToolInputStream(parts: unknown[]) {
-    const streamText = vi.fn().mockReturnValue({
-      fullStream: (async function* () {
-        for (const part of parts) yield part;
-        yield { type: "finish", finishReason: "tool-calls", usage: {} };
-      })(),
-    });
+  async function runToolInputStream(parts: unknown[], stepContent?: unknown[]) {
+    const streamText = vi
+      .fn()
+      .mockImplementation(
+        (options: { onStepFinish?: (step: unknown) => void }) => {
+          if (stepContent) options.onStepFinish?.({ content: stepContent });
+          return {
+            fullStream: (async function* () {
+              for (const part of parts) yield part;
+              yield { type: "finish", finishReason: "tool-calls", usage: {} };
+            })(),
+          };
+        },
+      );
     vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
     mockOpenAIProvider();
 
@@ -779,6 +795,57 @@ describe("AISDKEngine streamed tool-input reconciliation", () => {
 
     expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
     expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+
+  it("recovers complete streamed arguments when the SDK terminal input is empty", async () => {
+    const input = {
+      id: "ext-1",
+      operation: "edit",
+      payloadJson: "{}",
+    };
+    const events = await runToolInputStream(
+      [
+        {
+          type: "tool-input-start",
+          id: "call_1",
+          toolName: "update-extension",
+        },
+        {
+          type: "tool-input-delta",
+          id: "call_1",
+          delta: JSON.stringify(input),
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call_1",
+          toolName: "update-extension",
+          input: {},
+        },
+      ],
+      [
+        {
+          type: "tool-call",
+          toolCallId: "call_1",
+          toolName: "update-extension",
+          input: {},
+        },
+      ],
+    );
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "call_1",
+      name: "update-extension",
+      input,
+    });
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "call_1",
+        name: "update-extension",
+        input,
+      },
+    ]);
   });
 });
 

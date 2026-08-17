@@ -183,6 +183,17 @@ export function useAgentEngineConfigured(
     let requestSeq = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryAttempt = 0;
+    const scheduleRetry = (delay: number) => {
+      retryTimer = setTimeout(() => {
+        if (document.hidden) {
+          // Tab is backgrounded — keep the same backoff instead of hitting
+          // the network; the visibilitychange listener below recovers fast.
+          scheduleRetry(delay);
+          return;
+        }
+        void check();
+      }, delay);
+    };
     const check = async (options?: { missingFallback?: boolean }) => {
       const seq = ++requestSeq;
       if (retryTimer !== undefined) {
@@ -201,9 +212,7 @@ export function useAgentEngineConfigured(
       // back short of a reload.
       const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
       retryAttempt += 1;
-      retryTimer = setTimeout(() => {
-        void check();
-      }, delay);
+      scheduleRetry(delay);
     };
     const onConfiguredChanged = () => {
       void check();
@@ -216,6 +225,13 @@ export function useAgentEngineConfigured(
       }
       void check({ missingFallback: true });
     };
+    const onVisibilityChange = () => {
+      if (!document.hidden && retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+        void check();
+      }
+    };
 
     void check();
     window.addEventListener(
@@ -225,9 +241,11 @@ export function useAgentEngineConfigured(
     // A stale failed stream can arrive after a reconnect succeeds. Re-check the
     // current status before pinning the composer in setup.
     window.addEventListener("agent-chat:missing-api-key", onMissing);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener(
         "agent-engine:configured-changed",
         onConfiguredChanged,

@@ -16,6 +16,7 @@ export default defineAction({
     return queueAutomationRunNow({
       userEmail: ctx.userEmail,
       orgId: ctx.orgId,
+      appId: ctx.appId,
       scope,
       name,
     });

@@ -59,6 +59,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
   },
   {
+    name: "get-hosted-harness-config",
+    specifier:
+      "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
+  },
+  {
+    name: "set-hosted-harness-enabled",
+    specifier:
+      "@agent-native/core/hosted-harness/actions/set-hosted-harness-enabled",
+  },
+  {
     name: "share-resource",
     specifier: "@agent-native/core/sharing/actions/share-resource",
   },
@@ -77,6 +87,26 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "upload-image",
     specifier: "@agent-native/core/file-upload/actions/upload-image",
+  },
+  {
+    name: "list-workspace-user-groups",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",
+  },
+  {
+    name: "upsert-workspace-user-group",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/upsert-workspace-user-group",
+  },
+  {
+    name: "bulk-update-workspace-user-groups",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/bulk-update-workspace-user-groups",
+  },
+  {
+    name: "delete-workspace-user-group",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/delete-workspace-user-group",
   },
   {
     name: "context-manifest-get",
@@ -108,6 +138,18 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "set-localization-preference",
     specifier:
       "@agent-native/core/localization/actions/set-localization-preference",
+  },
+  {
+    name: "get-usage-alerts",
+    specifier: "@agent-native/core/usage/actions/get-usage-alerts",
+  },
+  {
+    name: "manage-usage-alert",
+    specifier: "@agent-native/core/usage/actions/manage-usage-alert",
+  },
+  {
+    name: "get-usage-metrics",
+    specifier: "@agent-native/core/usage/actions/get-usage-metrics",
   },
   {
     name: "create-resource-version",

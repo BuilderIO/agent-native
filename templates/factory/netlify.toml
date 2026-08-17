@@ -1,5 +1,5 @@
 [build]
-command = "NITRO_PRESET=netlify pnpm --filter factory build"
+command = "export DATABASE_URL=\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\" && pnpm install && DATABASE_URL=\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" NITRO_PRESET=netlify pnpm --filter factory build && if [ \"${CONTEXT:-}\" = \"production\" ]; then DATABASE_URL=\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" pnpm --filter factory migrate:production; fi"
 publish = "dist"
 functions = ".netlify/functions-internal"
 
@@ -8,3 +8,6 @@ GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+
+[context.production.environment]
+AGENT_NATIVE_HOSTED_HARNESS = "true"

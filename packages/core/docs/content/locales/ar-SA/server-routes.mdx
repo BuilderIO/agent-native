@@ -51,7 +51,7 @@ description: "مسارات خادم Nitro المستندة إلى الملفات
 
 - العمليات التي تحتاجها واجهة المستخدم والوكيل معًا
 - قراءة بيانات التطبيق أو كتابتها
-- نقاط نهاية على شكل HTTP (استخدم خيار `http` في [Actions](/docs/actions))
+- نقاط نهاية على شكل HTTP (استخدم خيار `http` في [Actions](/docs/actions-overview))
 - أي شيء يجب أن يكون أداة للوكيل، أو أداة MCP، أو أمر CLI
 - واجهات برمجة تطبيقات قياسية لطلبات/استجابات JSON
 
@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -188,7 +193,7 @@ export default createH3SSRHandler(
 
 ## ما هي الخطوة التالية {#whats-next}
 
-- [**Actions**](/docs/actions): السطح المفضّل لعمليات التطبيق؛ لا تلجأ إلى مسار إلا عندما لا يناسب
-- [**الإضافات**](/docs/server-plugins): إضافات بدء التشغيل التي تعمل قبل خدمة المسارات
+- [**Actions**](/docs/actions-overview): السطح المفضّل لعمليات التطبيق؛ لا تلجأ إلى مسار إلا عندما لا يناسب
+- [**الإضافات**](/docs/server-plugins): إضافات بدء التشغيل وسلوك تهيئتها
 - [**البرمجيات الوسيطة**](/docs/server-middleware): حراس المصادقة التي تحمي جميع المسارات بما في ذلك `/api/*`
 - [**الأمان**](/docs/security#access-guards): `accessFilter`/`assertAccess` والنموذج الكامل لتحديد نطاق البيانات

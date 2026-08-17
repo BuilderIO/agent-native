@@ -1,45 +1,30 @@
 ---
 title: "Getting Started"
-description: "Create a Chat app and connect an AI engine so your agent can respond."
+description: "Create a Chat app and configure an agent, then extend it with an action and a page."
 ---
 
 # Getting Started
 
-Agent-Native is for agentic applications: apps where the AI agent and the UI
-share the same [actions](/docs/actions), SQL data, and application state. Start
-with chat so users can talk to the agent immediately, then add the app surfaces
-your workflow earns. New to the concept rather than the code? Read
-[What Is Agent-Native?](/docs/what-is-agent-native) first — this page is the
-hands-on build path.
-
-The quickest way in is the **Chat template**: a minimal app that gives you a
-working AI chat interface, durable threads, auth, and an `actions/` directory
-ready to extend. This guide is split into four short pages so you can stop at
-any point with a working app.
+Agent-Native apps give the agent and the UI the same [actions](/docs/actions-overview),
+SQL data, and application state. This path starts with Chat, which already
+creates the framework tables it needs and stores chat history in local SQLite by
+default. Add your own tables only when your app needs to persist domain data.
 
 <Steps>
 
-### Create a chat app and connect AI
+### Create a chat app and configure an agent
 
 Scaffold the Chat template, install dependencies, start the dev server, and
-connect an AI engine. You'll have a working agent chat in under five minutes.
+configure an agent. You'll have a working chat app to extend.
 **You are here.**
 
 ### Add an action
 
-Define your first typed action — a text analyzer — and register a React
-renderer so the result appears as a bar chart directly inside the chat
-transcript.
-
-### Persist data in SQL
-
-Wire up a database plugin, define a schema, and add read/write actions so the
-agent can save and recall results across conversations.
+Define a typed text analyzer and render its result as a chart in the chat.
 
 ### Add a page
 
-Build a React route that lists saved analyses, then extend the sidebar so users
-and the agent can navigate to it.
+Build a React route that calls the same action outside the transcript.
 
 </Steps>
 
@@ -56,96 +41,29 @@ pnpm install
 pnpm dev
 ```
 
-This gives you durable chat threads, auth, live sync, an `actions/` directory,
-standard `view-screen` and `navigate` actions, and a small React app you can
-extend.
+The app opens at `http://localhost:8080`. If you see the login screen, sign up
+with a made-up login. Local development does not require email verification.
 
-The dev server starts and opens `http://localhost:8080` in your browser. You may
-notice a few startup log lines like `NitroViteError: Vite environment "nitro" is
-unavailable`. These are a normal race condition during the initial boot and
-resolve on their own. The app is ready once **VITE ready** displays in the
-terminal output.
+The Chat template includes durable chat threads, auth, live sync, an
+`actions/` directory, and the standard `view-screen` and `navigate` actions.
 
-When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made-up login to satisfy the login screen. For local development, no email verification is actually required.
+### Choose a different starting point
 
-<Callout tone="info">
+If Chat is not the right starting point, run `create` without `--template` and
+choose another option in the CLI. See [Creating Templates](/docs/creating-templates)
+for the other paths.
 
-**Want to attach a real debugger?** Run `agent-native dev --inspect` (or
-`--inspect-brk[=<port>]`) instead of `pnpm dev` to attach the Node inspector
-to the dev server, on port `9229` by default. Override the dev runner with
-the `NITRO_DEV_RUNNER` env var if your setup needs a different one.
+## 2. Configure an agent {#connect-ai}
 
-</Callout>
+The Chat template opens directly to the chat surface. If the agent is not ready
+to respond, open **Settings > Manage agent** or use **Cmd/Ctrl+K > Manage agent**
+to configure a model and provider.
 
-### If you want a different type of app
+Once the agent responds, continue with [Add an Action](/docs/getting-started-actions).
 
-This guide uses the Chat template because it is the shortest path
-to an agentic application: the agent can act on day one, and you have a real app
-surface to grow from. However, if you want to create a different kind of app, run `create` with no flags:
+## Related docs
 
-```bash
-npx @agent-native/core@latest create my-app
-```
-
-The CLI first asks **How do you want to start?** with three choices: **Chat**
-(what this guide uses), **Full template(s)**, or **Headless**. Only picking
-**Full template(s)** takes you to the domain-template multi-select (Mail,
-Calendar, Forms, Analytics, Plan, and more) — Chat and Headless each scaffold a
-single standalone app directly, with no further picker.
-
-## 2. Connect an AI engine {#connect-ai}
-
-The agent chat can't respond until you connect an AI engine. After you're logged in, click the **Connect AI** button and pick one of two paths:
-
-| Path                   | Steps                                                                                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Connect Builder**    | Click **Connect Builder.io** (free tier available), choose the Builder Space, then click **Authorize**. No keys to manage yourself.        |
-| **Bring your own key** | Enter your Anthropic or OpenAI API key in the Setup panel. Get an Anthropic key at [console.anthropic.com](https://console.anthropic.com). |
-
-Alternatively, create a `.env` file in the `my-app/` directory (the same
-directory that contains `package.json`) before running `pnpm dev`:
-
-```bash
-echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
-```
-
-Restart the dev server. Once an AI engine is connected, the Setup panel
-hides itself and the agent is ready to chat.
-
-<Callout tone="warning">
-
-**Blank screen?** Create a `.env` file in your `my-app/` directory with
-`ANTHROPIC_API_KEY=sk-ant-...`, then restart `pnpm dev`. The in-app Setup
-panel only appears once the app has loaded, so a missing key that prevents
-the app from rendering needs to be fixed via the environment variable rather than
-the UI.
-
-</Callout>
-
-## What's next {#next}
-
-Your app is running and the agent can respond. Continue the series to build it out:
-
-<Cards>
-
-### [Add an Action](/docs/getting-started-actions)
-
-Define your first typed action and render its result as a chart directly inside
-the chat transcript.
-
-### [Persist Data in SQL](/docs/getting-started-database)
-
-Save action results to a database so the agent can reference them across
-conversations.
-
-### [Add a Page](/docs/getting-started-pages)
-
-Build a React route that displays your saved data and wire it into the sidebar.
-
-</Cards>
-
-Or jump to a specific topic:
-
-- **[What Is Agent-Native?](/docs/what-is-agent-native)**: the vision and case for building this way.
-- **[Chat Template](/docs/template-chat)**: the minimal chat-first app you just created.
-- **[FAQ](/docs/faq)**: quick answers on cost, hosting, models, and templates.
+- [What Is Agent-Native?](/docs/what-is-agent-native): the architecture behind this path.
+- [Chat Template](/docs/template-chat): what the starter app includes.
+- [Database](/docs/database): add app-owned tables when your app needs domain data.
+- [FAQ](/docs/faq): answers about models, hosting, and templates.

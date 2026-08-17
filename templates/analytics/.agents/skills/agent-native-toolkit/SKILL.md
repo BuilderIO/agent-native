@@ -56,6 +56,11 @@ The repeated app shell has two distinct navigation surfaces:
   labeled as local, preview, or analyze. For original/generated review, stack
   the source above the result by default and use side-by-side only for short,
   highly scannable content.
+- Deterministic implementation does not make an AI-shaped experience
+  deterministic. If the user expects research, analysis, generation,
+  recommendation, synthesis, visible progress, or steering, route the button
+  to the AgentSidebar and let the agent call focused actions. Keep revisions in
+  the same thread instead of adding a second freeform prompt box.
 - Standalone apps with `AgentSidebar` must resolve one assistant-ui runtime
   context. Match direct assistant-ui pins to the installed core/toolkit peer
   graph, use Vite dedupe/aliases when linked dependencies can split contexts,
@@ -177,6 +182,11 @@ in the moment of agent use.
   five-item sidebar preview and a footer row with New chat followed by an
   ellipsis disclosure up to fifteen. Apps inject routing, labels, and domain
   actions.
+- **Data grid kit**: provider-agnostic spreadsheet mechanics belong in
+  `@agent-native/toolkit/data-grid`. Apps provide rows, typed columns, editor
+  slots, selection and width state, persistence callbacks, and product-level
+  row/body slots. Keep database models, access checks, grouping, drag/drop,
+  and domain actions in the app adapter.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home

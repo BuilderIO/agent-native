@@ -1,11 +1,8 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowRight,
-  IconMessagePlus,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconArrowRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,65 +15,95 @@ import type {
   FactoryCanvasNode,
 } from "./FactoryCanvas";
 
-export type FactoryComment = {
-  id: string;
-  targetType: string;
-  targetId?: string | null;
-  body: string;
-  createdAt: string;
-  ownerEmail: string;
-};
-
 interface FactoryInspectorProps {
   graph: FactoryCanvasGraph;
   selectedNode?: FactoryCanvasNode;
   selectedEdge?: FactoryCanvasEdge;
-  comments: FactoryComment[];
+  factoryId?: string;
   dirty: boolean;
   saving: boolean;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onSave: () => void;
-  onAddComment: (
-    targetType: "canvas" | "node" | "edge",
-    targetId?: string,
-    body?: string,
-  ) => void;
   onAddNode: () => void;
   onDeleteNode: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
+}
+
+interface WorkspaceAgentOption {
+  id: string;
+  name: string;
+}
+
+interface WorkspaceAppOption {
+  id: string;
+  name: string;
+  description?: string;
+  status?: "ready" | "pending";
+}
+
+interface AgentTargetOption {
+  id: string;
+  label: string;
+  type: "agent" | "app";
 }
 
 export function FactoryInspector({
   graph,
   selectedNode,
   selectedEdge,
-  comments,
+  factoryId,
   dirty,
   saving,
   onGraphChange,
   onSave,
-  onAddComment,
   onAddNode,
   onDeleteNode,
   onConnect,
 }: FactoryInspectorProps) {
   const t = useT();
-  const [commentDraft, setCommentDraft] = useState("");
+  const [searchParams] = useSearchParams();
   const [connectTarget, setConnectTarget] = useState("");
-  const targetType = selectedNode ? "node" : selectedEdge ? "edge" : "canvas";
-  const targetId = selectedNode?.id ?? selectedEdge?.id;
-  const targetComments = useMemo(
-    () =>
-      comments.filter(
-        (comment) =>
-          comment.targetType === targetType &&
-          (targetType === "canvas" || comment.targetId === targetId),
-      ),
-    [comments, targetId, targetType],
+  const agentsQuery = useActionQuery<WorkspaceAgentOption[]>(
+    "list-workspace-resources",
+    { kind: "agent" },
   );
+  const appsQuery = useActionQuery<WorkspaceAppOption[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false },
+  );
+  const agentTargets: AgentTargetOption[] = [
+    ...(agentsQuery.data ?? []).map((agent) => ({
+      id: agent.id,
+      label: agent.name,
+      type: "agent" as const,
+    })),
+    ...(appsQuery.data ?? [])
+      .filter((app) => app.id !== "dispatch" && app.status !== "pending")
+      .map((app) => ({
+        id: app.id,
+        label: app.name,
+        type: "app" as const,
+      })),
+  ];
   const outgoingTargets = graph.nodes.filter(
     (node) => node.id !== selectedNode?.id,
   );
+  const auditHref = useMemo(() => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "audit");
+    next.delete("node");
+    next.delete("edge");
+    if (factoryId) next.set("factoryId", factoryId);
+    return `/factory?${next.toString()}`;
+  }, [factoryId, searchParams]);
+  const reviewHref = useMemo(() => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "inbox");
+    next.delete("node");
+    next.delete("edge");
+    if (factoryId) next.set("factoryId", factoryId);
+    return `/factory?${next.toString()}`;
+  }, [factoryId, searchParams]);
 
   function updateNode(patch: Partial<FactoryCanvasNode>) {
     if (!selectedNode) return;
@@ -98,31 +125,46 @@ export function FactoryInspector({
     });
   }
 
-  function submitComment() {
-    const body = commentDraft.trim();
-    if (!body) return;
-    onAddComment(targetType, targetId, body);
-    setCommentDraft("");
+  function selectedTargetValue() {
+    if (!selectedNode?.agentTargetType || !selectedNode.agentTargetId) {
+      return selectedNode?.agent ? "custom" : "";
+    }
+    return `${selectedNode.agentTargetType}:${selectedNode.agentTargetId}`;
+  }
+
+  function updateAgentTarget(value: string) {
+    if (!selectedNode) return;
+    if (value === "") {
+      updateNode({
+        agent: undefined,
+        agentTargetType: undefined,
+        agentTargetId: undefined,
+      });
+      return;
+    }
+    if (value === "custom") {
+      updateNode({
+        agentTargetType: undefined,
+        agentTargetId: undefined,
+      });
+      return;
+    }
+    const [type, ...idParts] = value.split(":");
+    const id = idParts.join(":");
+    if ((type !== "agent" && type !== "app") || !id) return;
+    const target = agentTargets.find(
+      (option) => option.type === type && option.id === id,
+    );
+    if (!target) return;
+    updateNode({
+      agent: target.label,
+      agentTargetType: target.type,
+      agentTargetId: target.id,
+    });
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-l bg-background">
-      <div className="flex items-start justify-between gap-3 border-b px-4 py-4">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-            {t("factoryInspector.title")}
-          </p>
-          <h2 className="mt-1 truncate text-base font-semibold">
-            {selectedNode?.label ?? selectedEdge?.label ?? graph.name}
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {selectedNode?.description ??
-              selectedEdge?.condition ??
-              graph.description}
-          </p>
-        </div>
-      </div>
-
+    <aside className="flex min-h-0 flex-col rounded-xl bg-card shadow-sm">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         {!selectedNode && !selectedEdge ? (
           <CanvasInspector
@@ -166,7 +208,7 @@ export function FactoryInspector({
                       .value as FactoryCanvasNode["provider"],
                   })
                 }
-                className="h-9 rounded-md border bg-background px-3 text-sm"
+                className="h-9 rounded-md border bg-card px-3 text-sm"
               >
                 <option value="factory">Factory</option>
                 <option value="slack">Slack</option>
@@ -178,17 +220,61 @@ export function FactoryInspector({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="factory-node-agent">
+              <Label htmlFor="factory-node-agent-target">
                 {t("factoryInspector.agentOwner")}
               </Label>
-              <Input
-                id="factory-node-agent"
-                value={selectedNode.agent ?? ""}
-                onChange={(event) => updateNode({ agent: event.target.value })}
-                placeholder={t("factoryInspector.optional")}
-              />
+              <select
+                id="factory-node-agent-target"
+                value={selectedTargetValue()}
+                onChange={(event) => updateAgentTarget(event.target.value)}
+                className="h-9 rounded-md border bg-card px-3 text-sm"
+              >
+                <option value="">{t("factoryInspector.noTarget")}</option>
+                <option value="custom">
+                  {selectedNode.agent &&
+                  !selectedNode.agentTargetType &&
+                  !selectedNode.agentTargetId
+                    ? `${t("factoryInspector.customTarget")}: ${selectedNode.agent}`
+                    : t("factoryInspector.customTarget")}
+                </option>
+                {agentTargets.some((target) => target.type === "agent") ? (
+                  <optgroup label={t("factoryInspector.reusableAgents")}>
+                    {agentTargets
+                      .filter((target) => target.type === "agent")
+                      .map((target) => (
+                        <option
+                          key={`${target.type}:${target.id}`}
+                          value={`${target.type}:${target.id}`}
+                        >
+                          {target.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+                {agentTargets.some((target) => target.type === "app") ? (
+                  <optgroup label={t("factoryInspector.agenticApps")}>
+                    {agentTargets
+                      .filter((target) => target.type === "app")
+                      .map((target) => (
+                        <option
+                          key={`${target.type}:${target.id}`}
+                          value={`${target.type}:${target.id}`}
+                        >
+                          {target.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {selectedNode.agentTargetType === "app"
+                  ? t("factoryInspector.appTargetHint")
+                  : selectedNode.agentTargetType === "agent"
+                    ? t("factoryInspector.agentTargetHint")
+                    : t("factoryInspector.customTargetHint")}
+              </p>
             </div>
-            <div className="rounded-lg border bg-muted/25 p-3">
+            <div className="rounded-lg bg-muted/25 p-3 shadow-sm">
               <p className="text-xs font-medium">
                 {t("factoryInspector.connectStep")}
               </p>
@@ -200,7 +286,7 @@ export function FactoryInspector({
                   aria-label={t("factoryInspector.targetStep")}
                   value={connectTarget}
                   onChange={(event) => setConnectTarget(event.target.value)}
-                  className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
+                  className="h-9 min-w-0 flex-1 rounded-md border bg-card px-3 text-sm"
                 >
                   <option value="">{t("factoryInspector.chooseTarget")}</option>
                   {outgoingTargets.map((node) => (
@@ -263,70 +349,54 @@ export function FactoryInspector({
           </>
         )}
 
-        <div className="border-t pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium">
-              {targetType === "canvas"
-                ? t("factoryInspector.factoryComments")
-                : t("factoryInspector.selectionComments")}
-            </p>
-            <span className="text-xs text-muted-foreground">
-              v{graph.version}
-            </span>
-          </div>
-          <div className="mt-3 space-y-3">
-            {targetComments.length === 0 ? (
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t("factoryInspector.commentEmpty")}
-              </p>
-            ) : (
-              targetComments.map((comment) => (
-                <div key={comment.id} className="rounded-lg border p-3">
-                  <p className="text-sm leading-5">{comment.body}</p>
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    {comment.ownerEmail} ·{" "}
-                    {formatCommentDate(comment.createdAt)}
-                  </p>
-                </div>
-              ))
-            )}
-            <Textarea
-              value={commentDraft}
-              onChange={(event) => setCommentDraft(event.target.value)}
-              placeholder={t("factoryInspector.leaveComment")}
-              rows={3}
-            />
+        <section className="rounded-lg bg-muted/20 px-3 py-3 shadow-sm">
+          <p className="text-xs font-medium">{t("factoryRoute.auditTitle")}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("factoryRoute.auditDescription")}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button
+              asChild
               type="button"
-              variant="outline"
-              className="w-full"
-              disabled={!commentDraft.trim()}
-              onClick={submitComment}
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs"
             >
-              <IconMessagePlus className="size-4" />
-              {t("factoryInspector.addComment")}
+              <a href={auditHref} aria-label={t("factoryRoute.auditTitle")}>
+                Activity
+                <IconArrowRight className="size-3.5" />
+              </a>
+            </Button>
+            <Button
+              asChild
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs"
+            >
+              <a href={reviewHref} aria-label={t("factoryRoute.inboxTitle")}>
+                Review
+                <IconArrowRight className="size-3.5" />
+              </a>
             </Button>
           </div>
-        </div>
+        </section>
       </div>
 
-      <div className="border-t bg-muted/15 p-4">
-        <Button
-          type="button"
-          className="w-full"
-          disabled={!dirty || saving}
-          onClick={onSave}
-        >
-          {saving
-            ? t("factoryInspector.savingGraph")
-            : dirty
-              ? t("factoryInspector.saveGraph")
-              : t("factoryInspector.savedGraph")}
-        </Button>
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          {t("factoryInspector.saveNote")}
-        </p>
-      </div>
+      {(dirty || saving) && (
+        <div className="bg-muted/15 p-4">
+          <Button
+            type="button"
+            className="w-full"
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving
+              ? t("factoryInspector.savingGraph")
+              : t("factoryInspector.saveGraph")}
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
@@ -379,10 +449,4 @@ function CanvasInspector({
       </Button>
     </>
   );
-}
-
-function formatCommentDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], { month: "short", day: "numeric" });
 }

@@ -8,7 +8,7 @@ import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconPencil,
   IconTemplate,
-  IconPalette,
+  IconComponents,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -28,7 +28,7 @@ const navItems = [
   { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
   { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
   {
-    icon: IconPalette,
+    icon: IconComponents,
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },

@@ -265,6 +265,41 @@ const messages = {
     linkExpired: "Lien expiré",
     linkExpiredMessage:
       "Le créateur a fixé une expiration sur ce lien de partage.",
+    privateClip: "Clip privé",
+    privateClipMessage:
+      "Ce clip est privé. Demandez l’accès et le propriétaire sera prévenu.",
+    privateClipSignedOutMessage:
+      "Ce clip est privé. Connectez-vous ou saisissez votre adresse e-mail pour demander l’accès.",
+    requestAccess: "Demander l’accès",
+    requestAccessDialogTitle: "Demander l’accès",
+    requestAccessDialogDescription:
+      "Choisissez comment le propriétaire doit vous identifier pour partager ce clip.",
+    requestAccessSignIn: "Se connecter ou s’inscrire",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Adresse e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Après l’octroi de l’accès, connectez-vous avec cette adresse pour voir le clip.",
+    requestAccessWithEmail: "Demander par e-mail",
+    requestAccessEmailRequired: "Saisissez une adresse e-mail valide.",
+    requestingAccess: "Demande d’accès...",
+    accessRequested: "Accès demandé",
+    accessRequestSent: "Le propriétaire du clip a été prévenu.",
+    accessRequestSentWithEmail:
+      "Le propriétaire a été invité à partager ce clip avec {{email}}.",
+    accessRequestFailed: "Impossible de demander l’accès. Veuillez réessayer.",
+    accessApprovalTitle: "Accès accordé",
+    accessApprovalAlreadyTitle: "Accès déjà accordé",
+    accessApprovalMessage: "{{email}} peut maintenant voir ce clip.",
+    accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce clip.",
+    accessApprovalErrorTitle: "Impossible d’accorder l’accès",
+    accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",
+    accessApprovalSignInTitle: "Connectez-vous pour autoriser l’accès",
+    accessApprovalSignInMessage:
+      "Connectez-vous en tant que propriétaire ou administrateur du clip pour approuver cette demande.",
+    accessApprovalOpenClip: "Ouvrir le clip",
+    accessApprovalSignIn: "Se connecter",
+    accessApprovalLoading: "Accès en cours...",
     clipUnavailable: "Extrait indisponible",
     clipUnavailableMessage:
       "Cet enregistrement n'est pas public ou le lien n'est pas valide. S'il s'agit de votre clip, connectez-vous pour vérifier l'accès.",
@@ -520,8 +555,13 @@ const messages = {
     },
     roles: {
       viewer: "Téléspectateur",
+      commenter: "Commentateur",
       editor: "Éditeur",
       admin: "Administrateur",
+    },
+    recordingCommenter: {
+      label: "Commentateur",
+      description: "Peut voir, commenter et réagir",
     },
   },
   quickAsk: {
@@ -694,12 +734,12 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Builder.io est le chemin de stockage principal pour les téléversements Clips. S3 est disponible si vous devez utiliser votre propre bucket.",
     checkingBuilder: "Vérification de Builder.io",
     builderConnected: "Builder.io connecté",
-    connectBuilder: "Utiliser Builder.io (gratuit)",
+    connectBuilder: "Utiliser Builder.io",
     builderConnectedFor: "Utilisation de Builder.io pour {{orgName}}.",
     builderConnectedGeneric:
       "Les nouveaux clips utilisent le fournisseur Builder.io connecté.",
     builderIncludes:
-      "Inclut le stockage objet, les téléversements et la transcription gérée pour les nouveaux clips.",
+      "Le niveau gratuit de Builder.io inclut le stockage objet, les téléversements et la transcription gérée pour les nouveaux clips.",
     s3Title: "Stockage compatible S3",
     secondary: "Secondaire",
     active: "Actif",
@@ -726,8 +766,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Le nom du bucket doit contenir 3–63 lettres minuscules, chiffres ou tirets",
     s3RegionInvalid: 'Doit être une région valide (ex. us-east-1) ou "auto"',
     apiSetup: "Configuration IA",
-    apiSetupDescription:
-      "Connectez l’IA avec les crédits gratuits Builder.io ou vos propres clés LLM.",
+    apiSetupDescription: "Choisissez comment Clips se connecte à l’IA.",
     builderEasySetup: "Crédits gratuits Builder.io",
     builderAiAvailable:
       "Les crédits IA inclus et la transcription gérée sont disponibles pour Clips.",
@@ -735,8 +774,13 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Utilisez d’abord Builder.io pour les crédits IA inclus, le stockage objet, les téléversements et la transcription gérée.",
     providerKeyTitle: "Utiliser votre propre clé fournisseur",
     providerKeyDescription:
-      "Ajoutez des clés Anthropic, OpenAI, Gemini, Groq ou OpenRouter pour une utilisation facturée par fournisseur.",
+      "Choisissez Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere ou Ollama pour une utilisation facturée par fournisseur.",
     providerKeysSet: "{{count}} définies",
+    providerActionTitle: "Fournisseur d’IA",
+    providerActionDescription:
+      "Builder.io inclut un niveau gratuit, ou utilisez vos propres clés.",
+    providerManage: "Gérer",
+    providerCustomKeys: "Clés personnalisées",
     checkingProviderKeys: "Vérification des clés fournisseur…",
     keySet: "Définie",
     keyCleared: "Identifiants de stockage effacés",
@@ -989,6 +1033,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     includeTranscriptDescription:
       "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
     transcriptUnavailable: "La transcription n’est pas encore prête.",
+    agentLinkDescription:
+      "Ce lien temporaire permet aux agents de lire ces notes de réunion sans les rendre publiques. Il expire après deux heures.",
     transcript: "Transcription",
     copyTranscript: "Copier la transcription",
     transcriptCopied: "Transcription copiée",
@@ -1015,8 +1061,13 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Arrêter l’enregistrement",
     elapsed: "Temps écoulé",
-    cancel: "Annuler l’enregistrement",
-    cancelShortcut: "Annuler (⌥⇧C)",
+    cancel: "Supprimer l’enregistrement",
+    cancelShortcut: "Supprimer (⌥⇧C)",
+    discardConfirmTitle: "Supprimer cet enregistrement ?",
+    discardConfirmDescription:
+      "Cette action est irréversible. Votre enregistrement en cours sera définitivement supprimé.",
+    resume: "Reprendre",
+    discardRecording: "Supprimer l’enregistrement",
   },
   countdownOverlay: {
     startsIn: "L’enregistrement commence dans {{count}}",
@@ -1107,6 +1158,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     searchNextMatch: "Résultat suivant",
     searchClose: "Fermer la recherche",
   },
+  bulletLink: {
+    jumpToTranscript: "Aller à {{time}} dans la transcription",
+    noMatchingMoment: "Aucun moment correspondant trouvé",
+  },
   editorLayout: {
     trimmed: "Découpé",
     trimFailed: "Échec du découpage",
@@ -1175,7 +1230,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Aucune réponse de Builder après 5 minutes. Vérifiez la fenêtre contextuelle et réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    connectBuilder: "Utiliser Builder.io (gratuit)",
+    connectBuilder: "Utiliser Builder.io",
     free: "Gratuit",
     configureS3: "configurer un stockage compatible S3",
     whyPrompt: "Pourquoi vois-je ceci ?",
@@ -1568,10 +1623,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
     connectGoogleCalendar: "Connect Google Calendar (Localisé)",
-    googleMayShowWarning: "Vérifier l’accès Google",
-    googleNotVerifiedTitle: "Vérifiez l’application avant de vous connecter",
-    googleWarningBeforeAdvanced:
-      "Vérifiez que le nom de l’application et l’accès à Calendar demandé correspondent au déploiement Clips auquel vous faites confiance. Si Google affiche un avertissement d’application non vérifiée ou si l’identité vous semble inconnue, arrêtez-vous et contactez l’administrateur de votre espace de travail.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localisé)",
     getDesktopApp: "Get desktop app (Localisé)",
@@ -1580,13 +1631,30 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     calendarConnected: "Calendar connected (Localisé)",
     calendarDisconnected: "Calendar disconnected (Localisé)",
     calendarSettings: "Calendar settings (Localisé)",
+    calendarAccountsButton: "Calendriers",
+    connectedAccounts: "Comptes connectés",
+    calendarConnectedLabel: "Connecté",
+    calendarNeedsReconnectLabel: "Reconnexion requise",
+    calendarDisconnectedLabel: "Déconnecté",
+    calendarStatusUnavailable: "État indisponible",
+    reconnectCalendar: "Reconnecter le calendrier",
+    addAnotherCalendarAccount: "Ajouter un autre compte",
+    connectCalendar: "Connecter le calendrier",
+    disconnectCalendarAccount: "Déconnecter un compte",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (Localisé)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Localisé)",
     title: "Meetings (Localisé)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Localisé)",
-    searchPlaceholder: "Search meetings... (Localisé)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Localisé)",
+    agendaTab: "Agenda (Localisé)",
+    pastTab: "Past (Localisé)",
+    now: "Now (Localisé)",
+    noPastMeetings: "No past meetings yet (Localisé)",
+    loadOlder: "Load older (Localisé)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (Localisé)",
     clearSearch: "Clear search (Localisé)",
     noMeetingsYet: "No meetings yet (Localisé)",
     noMeetingsDescription:

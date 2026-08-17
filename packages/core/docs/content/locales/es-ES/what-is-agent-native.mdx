@@ -18,7 +18,7 @@ Imagina un trabajador en segundo plano, una bandeja de entrada, un calendario, u
 - **O simplemente pregunta.** Escribe "responde al correo de Sara diciendo que llegaré a las 3" en el agente. Abre el hilo correcto, redacta la respuesta y te la muestra para tu aprobación — exactamente como si lo hubieras hecho a mano.
 - **Ver lo que ve.** Abre un correo, y el agente sabe cuál es. Selecciona un gráfico, y el agente sabe qué gráfico es. Resalta un párrafo y pulsa Cmd+I, y el agente actúa solo sobre ese párrafo.
 - **Observarlo trabajar.** A medida que el agente hace cosas — abre vistas, edita borradores, ejecuta informes — la interfaz se actualiza en tiempo real. Puedes detenerlo, redirigirlo o tomar el control con el ratón en cualquier momento.
-- **Dirigirlo como a un compañero de equipo.** Da retroalimentación, encola otra tarea, edita sus instrucciones, audita lo que hizo ayer. Recuerda, y mejora en tus flujos de trabajo con el tiempo.
+- **Dirigirlo como a un compañero de equipo.** Da retroalimentación, encola otra tarea, edita sus instrucciones y audita lo que hizo ayer.
 
 Esa es la experiencia para la que está diseñado agent-native. Ahora veamos por qué la mayoría de los productos no llegan ahí.
 
@@ -332,7 +332,7 @@ La visión: menos traspasos, una persona haciendo el trabajo de un equipo peque�
 Las aplicaciones agent-native siguen un modelo de comenzar desde una aplicación que ya funciona. Empiezas desde una **plantilla** — Calendar, Content, Slides, Analytics, Mail, Clips, Design, Forms, Dispatch — y la haces tuya. Cada una es un producto SaaS completo y funcional, no un andamiaje en blanco:
 
 1. Elige una plantilla en [agent-native.com/templates](/templates)
-2. Úsala inmediatamente como aplicación alojada (p. ej. mail.agent-native.com)
+2. Muchas plantillas propias están disponibles como aplicaciones alojadas (p. ej. mail.agent-native.com)
 3. Crea tu propia aplicación a partir de la plantilla cuando quieras personalizar — "conecta nuestra cuenta de Stripe," "añade un gráfico de cohortes"
 4. Personaliza el código fuente en tu propio repositorio y flujo de trabajo de desarrollo
 5. Despliega tu aplicación en tu propio dominio — o quédate en agent-native.com
@@ -393,7 +393,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 <AgentSidebar />;
 ```
 
-Una acción, muchas superficies: el agente la llama como herramienta, la interfaz la llama como una mutación con tipos seguros, el [chat nativo](/docs/native-chat-ui) puede renderizar resultados explícitos de widgets, los agentes externos llegan a ella a través de [A2A](/docs/a2a-protocol), y los hosts MCP la llaman a través del [servidor MCP](/docs/mcp-protocol) de la aplicación, opcionalmente con recursos de interfaz de usuario de MCP Apps y OAuth MCP remoto estándar gestionado por el framework. Consulta [Acciones](/docs/actions) para la referencia completa.
+Una acción, muchas superficies: el agente la llama como herramienta, la interfaz la llama como una mutación con tipos seguros, el [chat nativo](/docs/native-chat-ui) puede renderizar resultados explícitos de widgets, los agentes externos llegan a ella a través de [A2A](/docs/a2a-protocol), y los hosts MCP la llaman a través del [servidor MCP](/docs/mcp-protocol) de la aplicación, opcionalmente con recursos de interfaz de usuario de MCP Apps y OAuth MCP remoto estándar gestionado por el framework. Consulta [Acciones](/docs/actions-overview) para la referencia completa.
 
 ## Qué sigue {#whats-next}
 

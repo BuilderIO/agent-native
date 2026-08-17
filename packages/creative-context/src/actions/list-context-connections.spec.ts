@@ -17,7 +17,7 @@ describe("creative context connection paths", () => {
         `/_agent-native/connections/oauth/${provider}/start`,
       );
       expect(url.searchParams.get("appId")).toBe(appId);
-      expect(url.searchParams.get("return")).toBe("/agent#library");
+      expect(url.searchParams.get("return")).toBe("/settings/library");
     },
   );
 });

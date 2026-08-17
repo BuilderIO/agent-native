@@ -1,27 +1,20 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { normalizeWorkspaceAppId } from "@agent-native/core/shared";
 import {
   IconArrowUpRight,
   IconCircleCheck,
-  IconCopy,
-  IconExternalLink,
-  IconFileText,
+  IconPlus,
   IconPlugConnected,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
-import { Alert, AlertDescription } from "./ui/alert";
-import { Badge } from "./ui/badge";
+import { AppIcon } from "./app-icon";
+import { AppListRow } from "./app-list-row";
+import { AppOpenActions } from "./app-open-actions";
+import { AppRowSettings } from "./app-row-settings";
 import { Button } from "./ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "./ui/card";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +36,8 @@ export interface CuratedWorkspaceTemplate {
   description?: string | null;
   source?: string | null;
   sourceDescription?: string | null;
+  icon?: string | null;
+  color?: string | null;
   integrationSetup?: string | null;
   setupNote?: string | null;
   installed?: boolean | null;
@@ -69,6 +64,7 @@ export interface WorkspaceTemplateLabels {
   remixError: string;
   appIdRequired: string;
   source: string;
+  openApp: string;
   viewLiveApp: string;
 }
 
@@ -78,12 +74,13 @@ const DEFAULT_LABELS: WorkspaceTemplateLabels = {
   cancel: "Cancel",
   integrationSetup: "Integration setup",
   installed: "Installed",
-  remix: "Create from template",
+  remix: "Add app",
   remixing: "Creating app…",
   remixSuccess: "Template app creation started.",
-  remixError: "Could not create an app from this template",
+  remixError: "Could not add this app",
   appIdRequired: "App ID is required.",
   source: "Source",
+  openApp: "Open app",
   viewLiveApp: "View the live app",
 };
 
@@ -92,21 +89,11 @@ export interface WorkspaceTemplateCardProps {
   defaultAppId?: string;
   labels?: Partial<WorkspaceTemplateLabels>;
   className?: string;
+  catalog?: boolean;
   onRemixSuccess?: (
     result: unknown,
     template: CuratedWorkspaceTemplate,
   ) => void;
-}
-
-function slugifyAppId(value: string): string {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "new-app"
-  );
 }
 
 function templateIdFor(template: CuratedWorkspaceTemplate): string {
@@ -117,9 +104,10 @@ function defaultAppIdFor(
   template: CuratedWorkspaceTemplate,
   defaultAppId?: string,
 ): string {
-  if (defaultAppId) return slugifyAppId(defaultAppId);
-  const sourceId = slugifyAppId(template.appId || template.name);
-  return `${sourceId}-remix`;
+  if (defaultAppId) return normalizeWorkspaceAppId(defaultAppId) || "new-app";
+  const sourceId =
+    normalizeWorkspaceAppId(template.appId || template.name) || "new-app";
+  return `${sourceId}-app`;
 }
 
 function stringifyError(error: unknown): string {
@@ -139,6 +127,7 @@ export function WorkspaceTemplateCard({
   defaultAppId,
   labels: labelOverrides,
   className,
+  catalog = false,
   onRemixSuccess,
 }: WorkspaceTemplateCardProps) {
   const labels = useMemo(() => mergeLabels(labelOverrides), [labelOverrides]);
@@ -176,88 +165,72 @@ export function WorkspaceTemplateCard({
   }, [defaultAppId, open, template]);
 
   function submitRemix() {
-    const trimmedAppId = appId.trim();
-    if (!trimmedAppId) {
+    const normalizedAppId = normalizeWorkspaceAppId(appId);
+    if (!normalizedAppId) {
       toast.error(labels.appIdRequired);
       return;
     }
+    setAppId(normalizedAppId);
 
     remix.mutate({
       templateId: templateIdFor(template),
-      appId: trimmedAppId,
+      appId: normalizedAppId,
     });
   }
 
   return (
-    <Card
-      className={cn(
-        "flex h-full flex-col bg-card/40 shadow-none transition-[background-color] hover:bg-accent/15",
-        className,
-      )}
-    >
-      <CardHeader className="gap-2 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
-              <IconFileText size={16} />
-            </span>
-            <div className="min-w-0">
-              <CardTitle className="truncate text-sm font-semibold">
-                {template.name}
-              </CardTitle>
-              {template.source || template.sourceDescription ? (
-                <CardDescription className="mt-1 truncate text-xs">
-                  <span className="font-medium text-foreground/70">
-                    {labels.source}:
-                  </span>{" "}
-                  {template.sourceDescription || template.source}
-                </CardDescription>
-              ) : null}
-            </div>
-          </div>
+    <AppListRow className={cn("items-center", className)}>
+      <AppIcon
+        id={template.id || template.templateId || template.name}
+        name={template.name}
+        icon={template.icon || undefined}
+        color={template.color || undefined}
+        size="sm"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate text-sm font-semibold text-foreground">
+            {template.name}
+          </h3>
           {isInstalled ? (
-            <Badge
-              variant="outline"
-              className="shrink-0 gap-1 border-primary/30 bg-primary/5 text-primary"
-            >
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-primary">
               <IconCircleCheck size={13} />
               {labels.installed}
-            </Badge>
+            </span>
           ) : null}
         </div>
-      </CardHeader>
-
-      <CardContent className="flex flex-1 flex-col gap-3 p-4 pt-0">
         {template.description ? (
-          <p className="line-clamp-3 text-[13px] leading-5 text-muted-foreground">
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {template.description}
           </p>
         ) : null}
-
-        {setupNote ? (
-          <Alert className="border-border/60 bg-muted/25 px-3 py-2 [&>svg]:left-3 [&>svg]:top-2.5">
-            <IconPlugConnected size={15} />
-            <AlertDescription className="text-xs leading-5">
-              <span className="font-medium text-foreground/80">
-                {labels.integrationSetup}:
-              </span>{" "}
-              {setupNote}
-            </AlertDescription>
-          </Alert>
-        ) : null}
-      </CardContent>
-
-      <CardFooter className="flex flex-wrap justify-between gap-2 p-4 pt-0">
-        {liveUrl ? (
-          <Button variant="link" size="sm" className="h-8 px-0" asChild>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {catalog ? (
+          <>
+            {liveUrl ? (
+              <AppOpenActions
+                name={template.name}
+                href={liveUrl}
+                rel="noreferrer"
+                labels={{ openApp: labels.openApp }}
+                showNewTabOption
+              />
+            ) : null}
+            <AppRowSettings
+              name={template.name}
+              addAppLabel={labels.remix}
+              onAddApp={() => setOpen(true)}
+            />
+          </>
+        ) : liveUrl ? (
+          <Button variant="ghost" size="sm" className="shrink-0" asChild>
             <a href={liveUrl} target="_blank" rel="noreferrer">
               {labels.viewLiveApp}
-              <IconExternalLink />
+              <IconArrowUpRight />
             </a>
           </Button>
-        ) : (
-          <span />
-        )}
+        ) : null}
 
         <Dialog
           open={open}
@@ -265,12 +238,14 @@ export function WorkspaceTemplateCard({
             if (!remix.isPending) setOpen(nextOpen);
           }}
         >
-          <DialogTrigger asChild>
-            <Button type="button" size="sm">
-              <IconCopy />
-              {labels.remix}
-            </Button>
-          </DialogTrigger>
+          {!catalog ? (
+            <DialogTrigger asChild>
+              <Button type="button" variant="outline" size="sm">
+                <IconPlus />
+                {labels.remix}
+              </Button>
+            </DialogTrigger>
+          ) : null}
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>{template.name}</DialogTitle>
@@ -294,9 +269,21 @@ export function WorkspaceTemplateCard({
                   value={appId}
                   autoComplete="off"
                   onChange={(event) => setAppId(event.target.value)}
+                  onBlur={() => setAppId(normalizeWorkspaceAppId(appId))}
                   disabled={remix.isPending}
                 />
               </div>
+              {setupNote ? (
+                <div className="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  <IconPlugConnected className="mt-0.5 shrink-0" size={15} />
+                  <span>
+                    <span className="font-medium text-foreground">
+                      {labels.integrationSetup}:
+                    </span>{" "}
+                    {setupNote}
+                  </span>
+                </div>
+              ) : null}
               <DialogFooter>
                 <Button
                   type="button"
@@ -314,8 +301,8 @@ export function WorkspaceTemplateCard({
             </form>
           </DialogContent>
         </Dialog>
-      </CardFooter>
-    </Card>
+      </div>
+    </AppListRow>
   );
 }
 
@@ -326,6 +313,8 @@ export interface WorkspaceTemplatesSectionProps {
   labels?: Partial<WorkspaceTemplateLabels>;
   className?: string;
   cardClassName?: string;
+  listClassName?: string;
+  catalog?: boolean;
   onRemixSuccess?: (
     result: unknown,
     template: CuratedWorkspaceTemplate,
@@ -345,6 +334,8 @@ export function WorkspaceTemplatesSection({
   labels,
   className,
   cardClassName,
+  listClassName,
+  catalog = false,
   onRemixSuccess,
 }: WorkspaceTemplatesSectionProps) {
   const templates = getTemplateItems(result);
@@ -354,13 +345,14 @@ export function WorkspaceTemplatesSection({
   return (
     <section className={cn("flex flex-col gap-3", className)}>
       {title ? <div className="text-sm font-semibold">{title}</div> : null}
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className={cn("overflow-hidden rounded-2xl bg-card", listClassName)}>
         {templates.map((template) => (
           <WorkspaceTemplateCard
             key={templateIdFor(template)}
             template={template}
             defaultAppId={defaultAppId}
             labels={labels}
+            catalog={catalog}
             className={cardClassName}
             onRemixSuccess={onRemixSuccess}
           />

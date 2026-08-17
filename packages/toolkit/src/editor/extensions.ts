@@ -50,6 +50,56 @@ import type { Doc as YDoc } from "yjs";
 import { createCodeBlockNode } from "./CodeBlockNode.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 
+interface YSyncBindingWithInitialRender {
+  beforeTransactionSelection: unknown | null;
+  _forceRerender: () => void;
+}
+
+const CollaborationWithSafeInitialSelection = Collaboration.extend({
+  addProseMirrorPlugins() {
+    const plugins = this.parent?.() ?? [];
+
+    for (const plugin of plugins) {
+      const originalView = plugin.spec.view;
+      if (!originalView) continue;
+
+      plugin.spec.view = (view) => {
+        const pluginState = plugin.getState(view.state) as
+          | { binding?: YSyncBindingWithInitialRender }
+          | undefined;
+        const binding = pluginState?.binding;
+        if (!binding || typeof binding._forceRerender !== "function") {
+          return originalView(view);
+        }
+
+        const originalForceRerender = binding._forceRerender.bind(binding);
+        binding._forceRerender = () => {
+          const previousSelection = binding.beforeTransactionSelection;
+          // y-prosemirror recreates its initial TextSelection at the same
+          // absolute position after replacing the whole document. That
+          // position can land inside a zero-child block. Let the replacement
+          // transaction map its existing selection instead; ProseMirror then
+          // chooses a valid nearby selection without warning.
+          binding.beforeTransactionSelection ??= view.state.selection;
+          try {
+            originalForceRerender();
+          } finally {
+            binding.beforeTransactionSelection = previousSelection;
+          }
+        };
+
+        try {
+          return originalView(view);
+        } finally {
+          binding._forceRerender = originalForceRerender;
+        }
+      };
+    }
+
+    return plugins;
+  },
+});
+
 /**
  * Markdown dialect the editor parses/serializes.
  *
@@ -385,7 +435,9 @@ export function createSharedEditorExtensions({
   // saved representation (onChange serializes it); the Y.Doc is transient live
   // state only. Appended last so it binds over the configured schema above.
   if (ydoc) {
-    exts.push(Collaboration.configure({ document: ydoc }));
+    exts.push(
+      CollaborationWithSafeInitialSelection.configure({ document: ydoc }),
+    );
     // Live multi-user cursors. Only mounted alongside a Y.Doc so the standalone
     // controlled editor (today's plan/content behavior) is untouched.
     if (awareness) {

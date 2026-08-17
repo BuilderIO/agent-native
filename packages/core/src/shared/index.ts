@@ -21,8 +21,31 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export {
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
+} from "./document-title.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
+export {
+  AGENT_NATIVE_DOCS_ORIGIN,
+  docsUrl,
+  type DocsUrlOptions,
+} from "./docs-url.js";
+export {
+  buildRuntimeConfigPrompt,
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+  parseRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+  type RuntimeConfigEnvironment,
+  type RuntimeConfigIssue,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigIssueSeverity,
+  type RuntimeConfigPhase,
+  type RuntimeConfigReport,
+  type RuntimeConfigRequirements,
+} from "./runtime-config.js";
 export {
   llmConnectionTrackingProperties,
   normalizeLlmConnection,
@@ -34,6 +57,7 @@ export {
   assertValidWorkspaceAppId,
   getWorkspaceAppIdValidationError,
   isValidWorkspaceAppIdFormat,
+  normalizeWorkspaceAppId,
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -55,6 +79,23 @@ export {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
+export {
+  buildChatFirstAppCreationPrompt,
+  titleFromChatFirstAppPrompt,
+  type ChatFirstAppCreationPromptInput,
+  type ChatFirstAppCreationResource,
+  type ChatFirstAppCreationVaultAccessMode,
+} from "./chat-first-app-creation.js";
+export {
+  NATIVE_AUTH_COPY,
+  resolveNativeAuthCopy,
+  type NativeAuthCopy,
+} from "./auth-copy.js";
+export {
+  createPollEngine,
+  type PollEngineOptions,
+  type PollEngineHandle,
+} from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,

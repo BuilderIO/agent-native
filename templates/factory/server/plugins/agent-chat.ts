@@ -1,4 +1,5 @@
 import { getOrgContext } from "@agent-native/core/org";
+import "@agent-native/dispatch/server";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
@@ -18,29 +19,42 @@ const INITIAL_TOOL_NAMES = [
   "get-triage-item",
   "poll-slack-channel",
   "get-slack-feedback-context",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
   "poll-github-sources",
   "poll-sentry-errors",
   "evaluate-triage-item",
   "start-builder-for-item",
   "govern-agent-native-pull-request",
   "babysit-pull-request",
+  "babysit-agent-native-pull-request",
   "approve-factory-item",
   "list-triage-rules",
   "get-triage-config",
   "navigate",
+  "list-workspace-apps",
+  "list-workspace-resources",
+  "create-workspace-resource",
+  "update-workspace-resource",
+  "import-agent",
+  "import-agent-pack",
+  "list-agent-pack",
+  "start-workspace-app-creation",
 ];
 
 const options = {
   appId: "factory",
+  backgroundMcpTools: "all",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   leanPrompt: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are the Factory agent.
 
-Factory is a visual factory builder. It observes Slack feedback, GitHub issues,
-Sentry errors, and pull-request evidence, renders the current factory graph, and
-executes only the explicit automation prompts that are stored in the organization.
+Factory is a visual factory builder. It observes source evidence, renders the
+current factory graph, and executes only the explicit automation prompts that
+are stored in the organization.
 Use the Factory actions as the source of truth. When a user asks to
 create or change a factory, first inspect the current graph, then propose a complete
 versioned graph through save-factory-graph with source=ai and a concise changeSummary.
@@ -48,6 +62,14 @@ Never hide a graph change in prose: the visual map and the saved graph must agre
 The graph is currently a reviewable blueprint, not the runtime router: automation
 markdown resources are the runtime prompts, while enabled triage rules are evaluated
 in parallel against the same evidence. Do not claim that an edge changes execution.
+Workspace integrations and credentials are shared agent capabilities, configured in
+Dispatch or the shared app settings. Factory never asks for, copies, or stores
+provider keys per factory. Start with provider-api-catalog to discover the
+workspace's connected provider APIs, use provider-api-docs when an endpoint is
+unclear, and use provider-api-request with the shared credentials. The normalized
+poll-slack-channel, poll-github-sources, and poll-sentry-errors actions are legacy
+observer adapters for the default triage queue, not a list of Factory integrations
+or a limit on what agents can use.
 For rule or guard changes, use the triage rule actions and preserve
 normalizeTriagePolicyGuards; do not encode policy in graph JSON.
 Use add-factory-comment for durable comments attached to the selected node or edge.
@@ -70,7 +92,9 @@ BuilderIO author, a clear bug, passing CI, and handled review feedback. Auto-mer
 also requires a verified Factory Builder run. When a user says to do a review-gated
 item now, use the explicit approval action, which records the approver and applies
 the rule's configured executor policy. Keep Slack replies concise and link to the
-Factory item when a review is needed.`,
+Factory item when a review is needed. The scheduled builder-io-bot PR babysitter
+posts its exact feedback-fix request through GitHub, persists a 20-minute quiet
+window, and never approves or merges.`,
 } satisfies AgentChatPluginOptions;
 
 export default createAgentChatPlugin(options);

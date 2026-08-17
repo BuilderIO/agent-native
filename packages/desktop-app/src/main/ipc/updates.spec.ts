@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronState = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -19,6 +19,8 @@ const electronState = vi.hoisted(() => {
       getVersion: vi.fn(() => "1.0.0"),
       whenReady: vi.fn(() => new Promise<void>(() => {})),
       on: vi.fn(),
+      relaunch: vi.fn(),
+      exit: vi.fn(),
     },
     browserWindow: {
       getAllWindows: vi.fn(() => []),
@@ -69,12 +71,18 @@ let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(async () => {
     vi.clearAllMocks();
+    electronState.app.isPackaged = true;
     electronState.ipcMain.handlers.clear();
     updaterState.handlers.clear();
     updaterState.checkForUpdates.mockReset();
     updaterState.downloadUpdate.mockReset();
+    updaterState.quitAndInstall.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
     ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
@@ -177,5 +185,84 @@ describe("desktop updates", () => {
 
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
     expect(refreshApplicationMenu).not.toHaveBeenCalled();
+  });
+
+  it("closes native helpers before handing an update to Squirrel", async () => {
+    const prepareForUpdate = vi.fn(async () => undefined);
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
+
+    expect(prepareForUpdate).toHaveBeenCalledOnce();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
+  });
+
+  it("keeps a downloaded update retryable after an asynchronous install error", async () => {
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    updaterState.handlers.get("error")?.(new Error("installer failed"));
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+    });
+    await installHandler?.();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps un-packaged development updates explicitly unsupported", async () => {
+    electronState.app.isPackaged = false;
+    vi.stubGlobal("__AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__", "dev");
+    vi.resetModules();
+    const updates = await import("./updates.js");
+
+    updates.registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+
+    expect(updates.getCurrentUpdateStatus()).toEqual({
+      state: "unsupported",
+      reason: "Auto-update is unavailable for local development builds",
+    });
+    expect(updaterState.setFeedURL).not.toHaveBeenCalled();
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+
+    await expect(updates.checkForAppUpdates()).resolves.toEqual({
+      state: "unsupported",
+      reason: "Auto-update is unavailable for local development builds",
+    });
+    expect(updaterState.setFeedURL).not.toHaveBeenCalled();
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    expect(installHandler).toBeDefined();
+    installHandler?.();
+    expect(electronState.app.relaunch).not.toHaveBeenCalled();
+    expect(electronState.app.exit).not.toHaveBeenCalled();
   });
 });

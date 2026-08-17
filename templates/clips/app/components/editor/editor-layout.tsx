@@ -72,6 +72,7 @@ import { RewindExtensionDialog } from "./rewind-extension-dialog";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
+import { getTimelineTotalWidth } from "./timeline-geometry";
 import { TranscriptEditor } from "./transcript-editor";
 import { TrimHandles } from "./trim-handles";
 import { Waveform } from "./waveform";
@@ -249,30 +250,22 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return () => ro.disconnect();
   }, []);
 
-  const baseTrackWidth = useMemo(() => {
-    if (durationMs <= 0 || viewportWidth <= 0) return viewportWidth;
-    const durationSec = durationMs / 1000;
-    // Scale timeline track width proportionally with duration so long videos scale & scroll (bounded to safe max allocation)
-    const durationScaledPx = Math.min(8192, Math.round(durationSec * 14));
-    return Math.max(viewportWidth, durationScaledPx);
-  }, [durationMs, viewportWidth]);
+  const totalWidth = useMemo(
+    () => getTimelineTotalWidth(viewportWidth, zoom),
+    [viewportWidth, zoom],
+  );
 
-  const totalWidth = useMemo(() => {
-    return Math.max(
-      baseTrackWidth,
-      Math.floor(baseTrackWidth * Math.max(1, zoom)),
-    );
-  }, [baseTrackWidth, zoom]);
+  const clampedScrollLeft = Math.min(
+    scrollLeft,
+    Math.max(0, totalWidth - viewportWidth),
+  );
 
   const calculateAnchoredScrollLeft = useCallback(
     (
       nextZoom: number,
       anchor?: { anchorRatio?: number; viewportX?: number },
     ) => {
-      const nextTotalWidth = Math.max(
-        baseTrackWidth,
-        Math.floor(baseTrackWidth * Math.max(1, nextZoom)),
-      );
+      const nextTotalWidth = getTimelineTotalWidth(viewportWidth, nextZoom);
       const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
       const anchorMs = selectionRange
         ? (selectionRange.startMs + selectionRange.endMs) / 2
@@ -292,7 +285,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       const anchorX = anchorRatio * nextTotalWidth;
       return Math.max(0, Math.min(maxScrollLeft, anchorX - viewportX));
     },
-    [baseTrackWidth, durationMs, playheadMs, selectionRange, viewportWidth],
+    [durationMs, playheadMs, selectionRange, viewportWidth],
   );
 
   const setAnchoredZoom = useCallback(
@@ -333,10 +326,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       sourceScrollLeft: number,
       viewportX: number,
     ) => {
-      const sourceTotalWidth = Math.max(
-        baseTrackWidth,
-        Math.floor(baseTrackWidth * Math.max(1, sourceZoom)),
-      );
+      const sourceTotalWidth = getTimelineTotalWidth(viewportWidth, sourceZoom);
       return Math.max(
         0,
         Math.min(
@@ -405,7 +395,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       el.removeEventListener("gesturechange", handleGestureChange);
       el.removeEventListener("gestureend", handleGestureEnd);
     };
-  }, [baseTrackWidth, scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
+  }, [scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
 
   // Sync the <video> to play state.
   useEffect(() => {
@@ -830,7 +820,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 splitPoints={splitPoints}
                 activityRanges={transcriptSegments}
                 onSeek={seek}
-                scrollLeft={scrollLeft}
+                scrollLeft={clampedScrollLeft}
                 onScroll={(s) => setScrollLeft(s)}
               />
               <div
@@ -841,7 +831,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   className="relative h-full"
                   style={{
                     width: totalWidth,
-                    transform: `translateX(${-scrollLeft}px)`,
+                    transform: `translateX(${-clampedScrollLeft}px)`,
                   }}
                 >
                   {durationMs > 0 && (
@@ -864,7 +854,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             >
               <div
                 style={{
-                  transform: `translateX(${-scrollLeft}px)`,
+                  transform: `translateX(${-clampedScrollLeft}px)`,
                   width: totalWidth,
                 }}
               >
@@ -917,6 +907,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         durationMs={durationMs}
         currentThumbnailUrl={recording.thumbnailUrl}
         currentAnimatedUrl={recording.animatedThumbnailUrl}
+        currentThumbnail={edits.thumbnail}
       />
       <StitchManager
         open={stitchOpen}

@@ -5,7 +5,7 @@ description: "A camada de servidor Nitro em um aplicativo nativo do agente: para
 
 # Servidor
 
-O diretório `server/` é a camada de infraestrutura de um aplicativo nativo do agente. Ele cuida de tarefas de inicialização, autenticação e das superfícies HTTP que as actions não cobrem. A maior parte do comportamento do produto pertence a [Actions](/docs/actions). O servidor é o que torna essas actions disponíveis.
+O diretório `server/` é a camada de infraestrutura de um aplicativo nativo do agente. Ele cuida de tarefas de inicialização, autenticação e das superfícies HTTP que as actions não cobrem. A maior parte do comportamento do produto pertence a [Actions](/docs/actions-overview). O servidor é o que torna essas actions disponíveis.
 
 <Diagram id="doc-block-server-overview-1" title="Como as requisições fluem pelo servidor" summary="Os chamadores chegam ao servidor Nitro, que trata a maioria das requisições por meio de Actions. Middleware e Rotas cobrem os casos que as Actions não conseguem. Os dois caminhos podem consultar o banco de dados.">
 
@@ -198,7 +198,7 @@ Estes são os diretórios e arquivos dentro de `server/` que todo aplicativo nat
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **[Banco de dados](/docs/server-database)** | Definição de esquema com os auxiliares `table()`, `getDb` e os padrões de tabelas ownable                     |
 | **[Middleware](/docs/server-middleware)**   | Guardas de autenticação em `server/middleware/` e por que rodam ali em vez de num plugin                      |
-| **[Plugins](/docs/server-plugins)**         | Os três plugins de inicialização que todo aplicativo inclui: migrações de BD, auth e agent-chat               |
+| **[Plugins](/docs/server-plugins)**         | Plugins de inicialização para auth e agent-chat, além de migrações de BD opcionais do app                     |
 | **[Rotas](/docs/server-routes)**            | Rotas baseadas em arquivo, o catch-all de SSR e como restringir rotas personalizadas ao usuário da requisição |
 
 ## Nitro {#nitro}
@@ -206,7 +206,7 @@ Estes são os diretórios e arquivos dentro de `server/` que todo aplicativo nat
 [Nitro](https://nitro.build) é o conjunto de ferramentas de servidor que sustenta a camada HTTP nativa do agente. A maior parte do que você configura em `server/` é Nitro: rotas baseadas em arquivo, plugins de inicialização e middleware.
 
 - **Roteamento baseado em arquivo**: o nome do arquivo mapeia diretamente para um método HTTP e um caminho de URL, sem necessidade de registro. `server/routes/api/health.get.ts` se torna `GET /api/health` automaticamente. Consulte [Rotas](/docs/server-routes) para mais detalhes.
-- **Plugins**: código que roda uma única vez na inicialização do servidor, antes de qualquer requisição ser atendida. As migrações de banco de dados, a configuração de auth e a montagem do agent-chat acontecem todas em `server/plugins/`. Consulte [Plugins](/docs/server-plugins) para mais detalhes.
+- **Plugins**: código registrado na inicialização do servidor e carregado uma vez. Os helpers do framework inicializam auth e agent-chat; migrações opcionais do app podem ainda estar em execução quando a primeira requisição chegar. Consulte [Plugins](/docs/server-plugins) para mais detalhes.
 - **Middleware**: código que roda em toda requisição recebida antes de ela chegar a uma rota. A guarda de autenticação fica em `server/middleware/`. Consulte [Middleware](/docs/server-middleware) para mais detalhes.
 
 O Nitro também é agnóstico quanto à implantação. O mesmo aplicativo é implantado em Node.js, Cloudflare Workers, Netlify, Vercel e outros runtimes sem nenhuma alteração de código. Basta definir um preset. Consulte [Implantação](/docs/deployment).
@@ -223,11 +223,11 @@ A arquitetura do Agent Native é diferente. Sempre que pensar em um novo recurso
 - Ferramentas chamáveis por MCP e A2A.
 - Comandos CLI para desenvolvimento.
 
-Use rotas `/api/*` personalizadas apenas quando precisar de um protocolo em forma de rota ou de comportamento binário/streaming. Para mais detalhes, consulte [Actions](/docs/actions).
+Use rotas `/api/*` personalizadas apenas quando precisar de um protocolo em forma de rota ou de comportamento binário/streaming. Para mais detalhes, consulte [Actions](/docs/actions-overview).
 
 ## O que vem a seguir {#whats-next}
 
-- [**Actions**](/docs/actions): a superfície de operação padrão. Recorra a uma rota personalizada apenas quando ela não se encaixar.
+- [**Actions**](/docs/actions-overview): a superfície de operação padrão. Recorra a uma rota personalizada apenas quando ela não se encaixar.
 - [**Banco de dados**](/docs/server-database): o padrão `getDb()`/esquema que rotas personalizadas e actions importam
 - [**Middleware**](/docs/server-middleware): guardas de autenticação e o diretório `server/middleware/`
 - [**Plugins**](/docs/server-plugins): plugins de inicialização para migrações, auth e o agente

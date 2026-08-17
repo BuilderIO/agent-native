@@ -37,20 +37,21 @@ export function ContextXRayPanel({
       onPin={onPin}
       onEvict={onEvict}
       onRestore={onRestore}
-      titleLabel={t("contextXray.panelTitle", {
+      translate={t}
+      titleLabel={t("agentChat.contextXray.panelTitle", {
         defaultValue: "Context X-Ray",
       })}
-      systemOrderedLabel={t("contextXray.systemOrdered", {
+      systemOrderedLabel={t("agentChat.contextXray.systemOrdered", {
         defaultValue: "System · ordered, not evictable",
       })}
       governanceLabels={{
-        required: t("contextXray.governance.required", {
+        required: t("agentChat.contextXray.governance.required", {
           defaultValue: "Required",
         }),
-        inherited: t("contextXray.governance.inherited", {
+        inherited: t("agentChat.contextXray.governance.inherited", {
           defaultValue: "Inherited",
         }),
-        user: t("contextXray.governance.user", {
+        user: t("agentChat.contextXray.governance.user", {
           defaultValue: "Your context",
         }),
       }}

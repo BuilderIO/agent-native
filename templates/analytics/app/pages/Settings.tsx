@@ -13,19 +13,13 @@ import {
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
 import { IconBell } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
@@ -136,7 +130,10 @@ export default function Settings() {
       }
     />
   );
-  const agentSettingsTabs = useAgentSettingsTabs({ agentAdditionalContent });
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalContent,
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
 
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [
@@ -214,22 +211,13 @@ export default function Settings() {
           </SettingsGroup>
 
           {replayStorageStatus.data?.configured ? (
-            <Card
+            <SettingsGroup
               id="replay-storage"
-              className="bg-card border-border/50 scroll-mt-16"
+              title={t("sessions.storageSetupTitle")}
+              description={t("sessions.storageSetupDescription")}
             >
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("sessions.storageSetupTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("sessions.storageSetupDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ReplayStorageHint embedded />
-              </CardContent>
-            </Card>
+              <ReplayStorageHint embedded />
+            </SettingsGroup>
           ) : null}
         </div>
       }
