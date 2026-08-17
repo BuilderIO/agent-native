@@ -749,6 +749,11 @@ interface ElectronAPI {
     ): Promise<
       import("../../shared/ipc-channels.js").DesktopIdentityAuthResult
     >;
+    requestMagicLink(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityMagicLinkRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityMagicLinkResult
+    >;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
   };
