@@ -14,6 +14,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -3577,7 +3578,7 @@ function isHttpsRequest(event: H3Event): boolean {
     const req: any = (event as any).req ?? event.node?.req;
     const url: string | undefined = req?.url;
     if (typeof url === "string" && url.startsWith("https://")) return true;
-    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    const appUrl = getAppConfig().app.url ?? "";
     if (appUrl.startsWith("https://")) return true;
   } catch {
     // ignore

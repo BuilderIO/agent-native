@@ -37,6 +37,7 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
   putState,
@@ -290,9 +291,8 @@ export async function resolveAgentEngineStatus<
     };
   }
 
-  const envEntry = process.env.AGENT_ENGINE
-    ? lookupEntry(process.env.AGENT_ENGINE)
-    : undefined;
+  const configuredEngine = getAppConfig().agent.engine;
+  const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
   if (envEntry) {
     if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
       return { configured: false, openAiBaseUrlConfigured };

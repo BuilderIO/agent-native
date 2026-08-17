@@ -1031,8 +1031,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Stop recording",
     elapsed: "Elapsed time",
-    cancel: "Cancel recording",
-    cancelShortcut: "Cancel (⌥⇧C)",
+    cancel: "Discard recording",
+    cancelShortcut: "Discard (⌥⇧C)",
+    discardConfirmTitle: "Discard this recording?",
+    discardConfirmDescription:
+      "This can't be undone. Your recording so far will be permanently deleted.",
+    resume: "Resume",
+    discardRecording: "Discard recording",
   },
   countdownOverlay: {
     startsIn: "Recording starts in {{count}}",

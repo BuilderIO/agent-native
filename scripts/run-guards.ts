@@ -47,6 +47,8 @@ const guards = [
   "guard:one-sign-in",
   "guard:no-secret-literals",
   "guard:additive-migrations",
+  "guard:config-docs",
+  "guard:no-legacy-config",
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
