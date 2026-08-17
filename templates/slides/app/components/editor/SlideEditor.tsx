@@ -1507,6 +1507,23 @@ export default function SlideEditor({
   }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  /**
+   * Latest marquee rect, mirrored outside React state. `pointerup`'s hit
+   * test reads this instead of the `marquee` state value: the drag-tracking
+   * effect below binds its window listeners once per drag (not once per
+   * pointermove), so a closure over state would see whatever rect was
+   * current when the listeners were bound, not the latest one.
+   */
+  const marqueeRectRef = useRef<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  /** True only across the span of one marquee drag; toggled on start/end so
+   *  the drag-tracking effect binds its window listeners once per drag
+   *  instead of re-binding on every pointermove. */
+  const [isMarqueeDragging, setIsMarqueeDragging] = useState(false);
   /** Set right before placing a text box so the click event that follows the
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
@@ -4529,7 +4546,9 @@ export default function SlideEditor({
       marqueeOriginRef.current = { x: e.clientX, y: e.clientY };
       marqueeAdditiveRef.current = e.shiftKey || e.metaKey || e.ctrlKey;
       marqueePrevSelectionRef.current = new Set(multiSelection);
-      setMarquee({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+      marqueeRectRef.current = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+      setMarquee(marqueeRectRef.current);
+      setIsMarqueeDragging(true);
 
       // Clear single-select feedback when starting a marquee on whitespace
       // (non-additive). Additive marquee preserves the existing selection.
@@ -4562,7 +4581,7 @@ export default function SlideEditor({
   // Window-level pointermove / pointerup so the drag still tracks if the
   // pointer leaves the slide.
   useEffect(() => {
-    if (!marquee) return;
+    if (!isMarqueeDragging) return;
     const onMove = (e: PointerEvent) => {
       const origin = marqueeOriginRef.current;
       if (!origin) return;
@@ -4570,13 +4589,17 @@ export default function SlideEditor({
       const y = Math.min(origin.y, e.clientY);
       const w = Math.abs(e.clientX - origin.x);
       const h = Math.abs(e.clientY - origin.y);
-      setMarquee({ x, y, w, h });
+      marqueeRectRef.current = { x, y, w, h };
+      setMarquee(marqueeRectRef.current);
     };
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
       const origin = marqueeOriginRef.current;
-      const current = marquee;
+      onMove(e);
+      const current = marqueeRectRef.current;
       marqueeOriginRef.current = null;
+      marqueeRectRef.current = null;
       setMarquee(null);
+      setIsMarqueeDragging(false);
       if (!origin || !current) return;
 
       const slideContent = getSlideContent();
@@ -4615,13 +4638,21 @@ export default function SlideEditor({
 
       applyMultiSelection(hits);
     };
+    const onCancel = () => {
+      marqueeOriginRef.current = null;
+      marqueeRectRef.current = null;
+      setMarquee(null);
+      setIsMarqueeDragging(false);
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
-  }, [marquee, getSlideContent, applyMultiSelection]);
+  }, [isMarqueeDragging, getSlideContent, applyMultiSelection]);
 
   /** Send the current selection to the agent chat composer */
   const sendSelectionToAgent = useCallback(() => {
@@ -4935,7 +4966,9 @@ export default function SlideEditor({
         table
           ? {
               rowCount: table.rows.length,
-              colCount: tableCell ? tableCell.parentElement?.childElementCount ?? 0 : 0,
+              colCount: tableCell
+                ? (tableCell.parentElement?.childElementCount ?? 0)
+                : 0,
             }
           : null,
       );
