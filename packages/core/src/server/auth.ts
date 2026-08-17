@@ -3881,6 +3881,7 @@ async function mountBetterAuthRoutes(
           message: entry.error.message,
           code: entry.error.code,
         });
+        setResponseStatus(event, 400);
         return { error: entry.error.message, ...entry.error };
       }
       // Make the exchange itself establish the app session. Older clients
@@ -3960,6 +3961,7 @@ async function mountBetterAuthRoutes(
       }
       return oauthDesktopExchangePage(
         "Sign-in complete. You can return to the app.",
+        !isElectronRequest(event),
       );
     }),
   );

@@ -1099,12 +1099,15 @@ describe("DesktopIdentityBroker", () => {
       on: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     };
+    let closedListener: (() => void) | undefined;
     const identityWindow = {
       webContents,
       loadURL: vi.fn(async () => {}),
       isDestroyed: vi.fn(() => false),
       close: vi.fn(),
-      on: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
     };
     const broker = new DesktopIdentityBroker({
       identitySession: {
@@ -1318,12 +1321,15 @@ describe("DesktopIdentityBroker", () => {
       on: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     };
+    let closedListener: (() => void) | undefined;
     const identityWindow = {
       webContents,
       loadURL: vi.fn(async () => {}),
       isDestroyed: vi.fn(() => false),
       close: vi.fn(),
-      on: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
     };
     const broker = new DesktopIdentityBroker({
       identitySession: {
@@ -1351,6 +1357,9 @@ describe("DesktopIdentityBroker", () => {
       `https://accounts.google.com/o/oauth2/v2/auth?state=${state}&verifier=magic-link-verifier`,
     );
 
+    await vi.waitFor(() => expect(identityFetch).toHaveBeenCalledTimes(1));
+    closedListener?.();
+
     await expect(signIn).resolves.toBe(true);
     expect(identityFetch).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -1364,6 +1373,70 @@ describe("DesktopIdentityBroker", () => {
         name: "an_session_dispatch",
         value: "desktop-session",
       }),
+    );
+  });
+
+  it("surfaces a stored desktop exchange error before session adoption", async () => {
+    const authority = authorityFixture();
+    const identityFetch = vi.fn<() => Promise<Response>>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "The sign-in link could not be verified.",
+          code: "callback_error",
+        }),
+        { status: 400 },
+      ),
+    );
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation: vi.fn(() => true),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1] as (event: { preventDefault: () => void }, url: string) => void;
+    const state = `${Buffer.from(JSON.stringify({ f: "desktop-flow" })).toString("base64url")}.signature`;
+    navigationHandler(
+      { preventDefault: vi.fn() },
+      `https://dispatch.agent-native.com/_agent-native/auth/magic-link/desktop-callback?flow_id=desktop-flow&verifier=magic-link-verifier&state=${state}`,
+    );
+
+    await expect(signIn).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      "[desktop-identity] desktop OAuth exchange failed",
+      expect.objectContaining({
+        reason: expect.stringContaining("callback_error"),
+      }),
+    );
+    expect(identityFetch).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow&verifier=magic-link-verifier",
+      ),
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 

@@ -948,11 +948,13 @@ export function oauthErrorPage(message: string): Response {
 
 export function oauthDesktopExchangePage(
   message = "Returning to the app...",
+  closeWindow = true,
 ): Response {
   const safe = escapeHtml(message);
-  return htmlResponse(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p><script>window.close()</script></body></html>`,
-  );
+  const closeScript = closeWindow ? "<script>window.close()</script>" : "";
+  // guard:allow-raw-color - standalone callback page intentionally uses fixed dark colors.
+  const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p></body></html>`;
+  return htmlResponse(page.replace("</body>", `${closeScript}</body>`));
 }
 
 // ─── Internal ────────────────────────────────────────────────────────────────

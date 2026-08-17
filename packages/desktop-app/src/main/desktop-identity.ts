@@ -1735,6 +1735,7 @@ export class DesktopIdentityBroker {
       }
 
       let payload: {
+        code?: unknown;
         email?: unknown;
         error?: unknown;
         pending?: unknown;
@@ -1745,10 +1746,18 @@ export class DesktopIdentityBroker {
       } catch {
         throw new Error("The desktop sign-in exchange returned invalid data.");
       }
+      const exchangeError =
+        typeof payload.error === "string" && payload.error.trim()
+          ? payload.error.trim()
+          : null;
+      const exchangeCode =
+        typeof payload.code === "string" && payload.code.trim()
+          ? ` (${payload.code.trim()})`
+          : "";
       if (!response.ok) {
         throw new Error(
-          typeof payload.error === "string" && payload.error.trim()
-            ? payload.error.trim()
+          exchangeError
+            ? `${exchangeError}${exchangeCode}`
             : "The desktop sign-in exchange failed.",
         );
       }
@@ -1770,6 +1779,11 @@ export class DesktopIdentityBroker {
           });
         }
         return;
+      }
+      if (exchangeError) {
+        throw new Error(
+          `The desktop sign-in exchange returned an error${exchangeCode}: ${exchangeError}`,
+        );
       }
       if (payload.pending !== true) {
         throw new Error("The desktop sign-in exchange returned no session.");
@@ -2070,7 +2084,13 @@ export class DesktopIdentityBroker {
       identityWindow.webContents.on("render-process-gone", () =>
         finish(false, "failed"),
       );
-      identityWindow.on("closed", () => finish(false, "sign-in-required"));
+      identityWindow.on("closed", () => {
+        // The hosted desktop callback page closes itself after it has claimed
+        // the browser session. Keep the broker alive until its one-time
+        // exchange poll copies that session into the target app.
+        if (desktopExchangeStarted && !completionStarted) return;
+        finish(false, "sign-in-required");
+      });
 
       timer = setTimeout(
         () => finish(false, "sign-in-required"),
