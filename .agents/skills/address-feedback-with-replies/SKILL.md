@@ -32,16 +32,18 @@ in scope. Keep the code change and the external reply equally evidence-based.
 
 ## Decision Gate
 
-Apply the shared `address-feedback` Fix-altitude gate before reacting, editing
-code, or posting a reply. It applies to the whole sweep, not only the newest
-thread. This workflow adds one Slack-specific timing rule: once a report is
-classified as a concrete bug or missing evidence, add `👀` immediately, before
-investigation or delegation.
+Apply the shared `address-feedback` **Choose the fix altitude** gate before
+reacting, editing code, or posting a reply. It applies to the whole sweep, not
+only the newest thread, and decides whether the smallest owning seam, a shared
+contract, discovery/registry, or build/deploy diagnosis is appropriate. It
+also prevents one subjective report from becoming a global instruction.
 
-Use the shared skill's classification for subjective/product, policy,
-informational, bot-forward, status-only, and non-repo-owned items; those do not
-get a reaction, reply, or code change unless the user explicitly assigns a
-concrete repo action.
+Once a report is classified as a concrete bug or missing evidence, add `👀`
+immediately, before investigation or delegation. This is the first external
+action for that thread. Use the shared skill's classification for
+subjective/product, policy, informational, bot-forward, status-only, and
+non-repo-owned items; leave those without a reaction, reply, or code change
+unless the user explicitly assigns a concrete repo action.
 
 Every actionable thread must end in exactly one external state: **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and

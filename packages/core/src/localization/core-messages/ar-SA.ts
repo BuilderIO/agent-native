@@ -362,6 +362,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
+  "message.threadNotFound":
+    "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
   "message.sentAt": "أُرسلت في {{time}}",

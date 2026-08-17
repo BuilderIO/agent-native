@@ -29,8 +29,11 @@ export default defineAction({
       resolveScope(),
     );
     if (!analysis) {
-      throw new Error(
-        `Analysis revision "${args.revisionId}" was not found for analysis "${args.analysisId}".`,
+      throw Object.assign(
+        new Error(
+          `Analysis revision "${args.revisionId}" was not found for analysis "${args.analysisId}".`,
+        ),
+        { statusCode: 404 },
       );
     }
     return {
