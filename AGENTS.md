@@ -44,6 +44,10 @@ contract.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
+- Worktrees are valid PR sources. When the user authorizes shipping or opening
+  or updating a PR from a worktree, use that worktree's current branch and cwd
+  for the commit, push, and PR operation; do not copy changes into the shared
+  checkout.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - On every response, consider whether the chat title still matches the work.
