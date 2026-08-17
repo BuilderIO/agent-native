@@ -1597,7 +1597,6 @@ const messages = {
     transcriptPending: "Transcript pending (مترجم)",
     notesPending: "Notes pending (مترجم)",
     pastRecordings: "Past recordings (مترجم)",
-    loadOlder: "تحميل الأقدم",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
@@ -1625,7 +1624,13 @@ const messages = {
     title: "Meetings (مترجم)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
-    searchPlaceholder: "Search meetings... (مترجم)",
+    searchPlaceholder: "Search meetings, attendees, and transcripts... (مترجم)",
+    agendaTab: "Agenda (مترجم)",
+    pastTab: "Past (مترجم)",
+    now: "Now (مترجم)",
+    noPastMeetings: "No past meetings yet (مترجم)",
+    loadOlder: "Load older (مترجم)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:
