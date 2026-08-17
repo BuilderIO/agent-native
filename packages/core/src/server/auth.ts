@@ -2183,6 +2183,208 @@ const DESKTOP_MAGIC_LINK_LANDING_PATH =
 const BETTER_AUTH_MAGIC_LINK_VERIFY_PATH =
   "/_agent-native/auth/ba/magic-link/verify";
 
+type MagicLinkVerificationRecord = {
+  expiresAt?: unknown;
+  value?: unknown;
+};
+
+type BetterAuthMagicLinkAdapter = {
+  findVerificationValue?: (
+    identifier: string,
+  ) => Promise<MagicLinkVerificationRecord | null>;
+};
+
+type BetterAuthWithMagicLinkContext = {
+  $context?: Promise<{
+    internalAdapter?: BetterAuthMagicLinkAdapter;
+  }>;
+};
+
+function magicLinkDigest(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function magicLinkStoredIdentifier(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("base64url");
+}
+
+function redactMagicLinkUrl(value: string, baseURL?: string): string {
+  try {
+    const url = new URL(value, baseURL);
+    for (const key of ["token", "flow_id", "verifier", "state"]) {
+      if (url.searchParams.has(key)) url.searchParams.set(key, "[redacted]");
+    }
+    for (const key of [
+      "callbackURL",
+      "newUserCallbackURL",
+      "errorCallbackURL",
+    ]) {
+      const callback = url.searchParams.get(key);
+      if (!callback) continue;
+      try {
+        const callbackURL = new URL(callback, url.origin);
+        for (const nestedKey of ["flow_id", "verifier", "state"]) {
+          if (callbackURL.searchParams.has(nestedKey)) {
+            callbackURL.searchParams.set(nestedKey, "[redacted]");
+          }
+        }
+        url.searchParams.set(key, callbackURL.toString());
+      } catch {
+        url.searchParams.set(key, "[invalid]");
+      }
+    }
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
+function magicLinkRequestDetails(
+  event: H3Event,
+  values: Record<string, unknown>,
+  verificationURL?: URL,
+): Record<string, unknown> {
+  const token = typeof values.token === "string" ? values.token.trim() : "";
+  const callbackValue =
+    typeof values.callbackURL === "string" ? values.callbackURL : "";
+  let callback: URL | undefined;
+  try {
+    callback = callbackValue
+      ? new URL(callbackValue, getOrigin(event))
+      : undefined;
+  } catch {
+    callback = undefined;
+  }
+  return {
+    requestMethod: getMethod(event),
+    requestUrl: redactMagicLinkUrl(
+      event.node?.req?.url ?? event.path ?? "",
+      getOrigin(event),
+    ),
+    verificationUrl: verificationURL
+      ? redactMagicLinkUrl(verificationURL.toString(), getOrigin(event))
+      : undefined,
+    verificationMethod: verificationURL ? "GET" : undefined,
+    tokenPresent: Boolean(token),
+    tokenLength: token.length || undefined,
+    tokenDigest: token ? magicLinkDigest(token) : undefined,
+    expectedStoredIdentifierPrefix: token
+      ? magicLinkStoredIdentifier(token).slice(0, 16)
+      : undefined,
+    callbackURLPresent: Boolean(callbackValue),
+    callbackPath: callback?.pathname,
+    hasFlowId: Boolean(callback?.searchParams.get("flow_id")),
+    hasVerifier: Boolean(callback?.searchParams.get("verifier")),
+    hasState: Boolean(callback?.searchParams.get("state") || values.state),
+  };
+}
+
+async function inspectMagicLinkVerification(
+  auth: BetterAuthWithMagicLinkContext,
+  token: string,
+): Promise<Record<string, unknown>> {
+  const storedIdentifier = magicLinkStoredIdentifier(token);
+  try {
+    const context = await auth.$context;
+    const findVerificationValue =
+      context?.internalAdapter?.findVerificationValue;
+    if (typeof findVerificationValue !== "function") {
+      return {
+        lookup: "adapter-unavailable",
+        lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      };
+    }
+    const record = await findVerificationValue(storedIdentifier);
+    if (!record) {
+      return {
+        lookup: "absent",
+        lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      };
+    }
+    const expiresAt = new Date(String(record.expiresAt ?? ""));
+    const expiryState = Number.isFinite(expiresAt.getTime())
+      ? expiresAt.getTime() <= Date.now()
+        ? "expired"
+        : "valid"
+      : "invalid-expiry";
+    return {
+      lookup: "present",
+      lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      expiryState,
+      expiresAt: Number.isFinite(expiresAt.getTime())
+        ? expiresAt.toISOString()
+        : undefined,
+      valuePresent: "value" in record,
+    };
+  } catch (error) {
+    return {
+      lookup: "lookup-error",
+      lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      errorType: error instanceof Error ? error.constructor.name : "unknown",
+    };
+  }
+}
+
+function logMagicLinkDebug(
+  event: H3Event,
+  phase: string,
+  details: Record<string, unknown> = {},
+): void {
+  console.info("[agent-native][magic-link]", {
+    phase,
+    app: getOAuthStateAppId(),
+    agentNativeDesktop: /AgentNativeDesktop/i.test(
+      getHeader(event, "user-agent") || "",
+    ),
+    ...details,
+  });
+}
+
+function magicLinkResponseError(
+  response: Response,
+  baseURL: string,
+): string | undefined {
+  const location = response.headers.get("location");
+  if (!location) return undefined;
+  try {
+    return new URL(location, baseURL).searchParams.get("error") || undefined;
+    // coercion-ok: a malformed redirect cannot contain a diagnostic error code.
+  } catch {
+    return undefined;
+  }
+}
+
+function logMagicLinkVerificationResponse(
+  event: H3Event,
+  source: string,
+  response: Response,
+  preConsume: Record<string, unknown> | undefined,
+): void {
+  const error = magicLinkResponseError(response, getOrigin(event));
+  const invalidToken = error === "INVALID_TOKEN";
+  logMagicLinkDebug(event, "verify-response", {
+    source,
+    responseStatus: response.status,
+    responseLocation: redactMagicLinkUrl(
+      response.headers.get("location") || "",
+      getOrigin(event),
+    ),
+    producer: invalidToken ? "better-auth.magic-link.verify" : undefined,
+    reason: invalidToken ? "consumeVerificationValue returned null" : undefined,
+    preConsume,
+    classification: invalidToken
+      ? preConsume?.lookup === "present" && preConsume.expiryState === "valid"
+        ? "valid-row-before-consume"
+        : preConsume?.lookup === "present" &&
+            preConsume.expiryState === "expired"
+          ? "expired-row"
+          : preConsume?.lookup === "absent"
+            ? "row-absent-before-consume"
+            : "unresolved"
+      : undefined,
+  });
+}
+
 function desktopMagicLinkVerificationUrl(
   event: H3Event,
   values: Record<string, unknown>,
@@ -3986,21 +4188,61 @@ async function mountBetterAuthRoutes(
       if (getMethod(event) === "POST") {
         const body = await readBody<Record<string, unknown>>(event);
         const verificationURL = desktopMagicLinkVerificationUrl(event, body);
+        const requestDetails = magicLinkRequestDetails(
+          event,
+          body,
+          verificationURL,
+        );
         if (!verificationURL) {
+          logMagicLinkDebug(event, "verify-rejected-before-better-auth", {
+            source: "desktop-landing",
+            ...requestDetails,
+            reason: "invalid-desktop-verification-url",
+          });
           setResponseStatus(event, 400);
           return { error: "Invalid desktop magic-link" };
         }
+        const token = typeof body.token === "string" ? body.token.trim() : "";
+        const preConsume = await inspectMagicLinkVerification(
+          auth as unknown as BetterAuthWithMagicLinkContext,
+          token,
+        );
+        logMagicLinkDebug(event, "verify-request", {
+          source: "desktop-landing",
+          ...requestDetails,
+          preConsume,
+        });
         // Verify inside the same request that received the explicit user
         // confirmation. A browser redirect would create a second network
         // hop where link scanners, redirect handling, or a fresh serverless
         // request could consume or lose the one-time token before the
         // desktop callback sees the Better Auth session cookie.
-        return auth.handler(
-          new Request(verificationURL, {
-            method: "GET",
-            headers: event.headers,
-          }),
-        );
+        try {
+          const response = await auth.handler(
+            new Request(verificationURL, {
+              method: "GET",
+              headers: event.headers,
+            }),
+          );
+          if (response instanceof Response) {
+            logMagicLinkVerificationResponse(
+              event,
+              "desktop-landing",
+              response,
+              preConsume,
+            );
+          }
+          return response;
+        } catch (error) {
+          logMagicLinkDebug(event, "verify-exception", {
+            source: "desktop-landing",
+            ...requestDetails,
+            preConsume,
+            errorType:
+              error instanceof Error ? error.constructor.name : "unknown",
+          });
+          throw error;
+        }
       }
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
@@ -4059,6 +4301,19 @@ async function mountBetterAuthRoutes(
         setDesktopExchangeError(flowId, {
           message: AUTH_MAGIC_LINK_FALLBACK,
           code: code || "callback_error",
+        });
+        logMagicLinkDebug(event, "callback-error", {
+          source: "desktop-callback",
+          flow: oauthDebugFlowId(flowId),
+          callbackError: code || "callback_error",
+          producer:
+            code === "INVALID_TOKEN"
+              ? "better-auth.magic-link.verify"
+              : "desktop-callback",
+          reason:
+            code === "INVALID_TOKEN"
+              ? "upstream-verifier-reported-invalid-token"
+              : "callback-carried-error",
         });
         logGoogleOAuthDebug(event, "magic-link-callback-error", {
           flowId,
@@ -4154,11 +4409,39 @@ async function mountBetterAuthRoutes(
         getMethod(event) === "POST";
       const isMagicLinkRequest =
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
+      const isMagicLinkVerification =
+        reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      let magicLinkPreConsume: Record<string, unknown> | undefined;
+
+      if (isMagicLinkVerification) {
+        const verificationURL = new URL(authRequest.url);
+        const values = Object.fromEntries(
+          verificationURL.searchParams.entries(),
+        );
+        const requestDetails = magicLinkRequestDetails(
+          event,
+          values,
+          verificationURL,
+        );
+        const token =
+          typeof values.token === "string" ? values.token.trim() : "";
+        magicLinkPreConsume = token
+          ? await inspectMagicLinkVerification(
+              auth as unknown as BetterAuthWithMagicLinkContext,
+              token,
+            )
+          : undefined;
+        logMagicLinkDebug(event, "verify-request", {
+          source: "better-auth-catch-all",
+          ...requestDetails,
+          preConsume: magicLinkPreConsume,
+        });
+      }
 
       // Better Auth is also reachable directly, outside the legacy login
       // wrapper. Check its password endpoints before handing the request to
@@ -4269,11 +4552,33 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      let response = await auth.handler(requestForAuth);
+      let response: Response;
+      try {
+        response = await auth.handler(requestForAuth);
+      } catch (error) {
+        if (isMagicLinkVerification) {
+          logMagicLinkDebug(event, "verify-exception", {
+            source: "better-auth-catch-all",
+            errorType:
+              error instanceof Error ? error.constructor.name : "unknown",
+            preConsume: magicLinkPreConsume,
+          });
+        }
+        throw error;
+      }
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+
+      if (isMagicLinkVerification && isResponse) {
+        logMagicLinkVerificationResponse(
+          event,
+          "better-auth-catch-all",
+          response,
+          magicLinkPreConsume,
+        );
+      }
 
       if (isResponse && (response as Response).status >= 400) {
         // The direct Better Auth surface is also reachable from the browser,
