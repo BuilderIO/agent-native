@@ -96,6 +96,18 @@ function extractDesktopOAuthFlowId(navigationUrl: string): string | null {
   }
 }
 
+function extractDesktopOAuthVerifier(navigationUrl: string): string | null {
+  try {
+    const verifier = new URL(navigationUrl).searchParams
+      .get("verifier")
+      ?.trim();
+    return verifier || null;
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
 export type DesktopWorkspaceLogoutPath =
   | typeof DESKTOP_LOGOUT_PATH
   | typeof DESKTOP_LOGOUT_ALL_PATH;
@@ -1693,6 +1705,7 @@ export class DesktopIdentityBroker {
   private async pollDesktopOAuthExchange(
     authorityApp: DesktopIdentityApp,
     flowId: string,
+    verifier: string | null,
     generation: number,
     signal: AbortSignal,
   ): Promise<void> {
@@ -1700,6 +1713,7 @@ export class DesktopIdentityBroker {
       Date.now() + (this.options.timeoutMs ?? DEFAULT_CEREMONY_TIMEOUT_MS);
     const exchangeUrl = new URL(DESKTOP_EXCHANGE_PATH, authorityApp.origin);
     exchangeUrl.searchParams.set("flow_id", flowId);
+    if (verifier) exchangeUrl.searchParams.set("verifier", verifier);
 
     while (Date.now() < deadline) {
       this.assertCeremonyActive(generation, signal);
@@ -1954,10 +1968,12 @@ export class DesktopIdentityBroker {
         if (desktopExchangeStarted || !authorityApp) return;
         const flowId = extractDesktopOAuthFlowId(navigationUrl);
         if (!flowId) return;
+        const verifier = extractDesktopOAuthVerifier(navigationUrl);
         desktopExchangeStarted = true;
         void this.pollDesktopOAuthExchange(
           authorityApp,
           flowId,
+          verifier,
           generation,
           ceremonyAbort.signal,
         ).then(
