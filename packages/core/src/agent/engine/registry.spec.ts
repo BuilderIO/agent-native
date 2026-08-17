@@ -1334,6 +1334,37 @@ describe("AgentEngine registry", () => {
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
       ).resolves.toBe(true);
     });
+
+    // The SYNCHRONOUS twin is what the engine-status endpoint calls, and the
+    // composer gates on its answer. Reading only `requiredEnvVars` reports a
+    // Builder engine running on the injected pair as unconfigured, so an explicit
+    // `AGENT_ENGINE=builder` deployment refuses to start a chat the request path
+    // would have run.
+    it("reports the builder engine as usable on the gateway pair in the sync check", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      expect(isStoredEngineUsable({ engine: "builder" }, entry)).toBe(true);
+    });
+
+    it("does not report the builder engine usable on half a gateway pair", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      delete process.env.BUILDER_GATEWAY_SPACE_ID;
+
+      const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      expect(isStoredEngineUsable({ engine: "builder" }, entry)).toBe(false);
+    });
   });
 
   // These request-resolution tests reload the credential and settings module

@@ -78,6 +78,36 @@ import {
   resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
 
+/**
+ * The deploy-lane predicate treats any of these as "preview/hosted workspace",
+ * which turns the visitor path off, so they are cleared around visitor
+ * assertions and restored for the owner assertions that follow.
+ */
+const FUSION_RUNTIME_FLAGS = [
+  "FUSION_ENVIRONMENT",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+] as const;
+
+function clearFusionRuntimeFlags(): Record<string, string | undefined> {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    previous[key] = process.env[key];
+    delete process.env[key];
+  }
+  return previous;
+}
+
+function restoreFusionRuntimeFlags(
+  previous: Record<string, string | undefined>,
+): void {
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    const value = previous[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
 type Handler = (event: ReturnType<typeof fakeEvent>) => Promise<unknown>;
 
 const ACTIONS = {
@@ -722,6 +752,11 @@ describe("realtime voice session route", () => {
     resolveSecret.mockResolvedValue(null);
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
+    // runtime, so an inherited flag would take the owner path and let the visitor
+    // assertions below pass against the wrong branch. Restored in the `finally`
+    // so the owner pass that follows still runs in the inherited runtime.
+    const fusionFlags = clearFusionRuntimeFlags();
     try {
       const visitorEvent = sessionEvent();
       await expect(
@@ -733,6 +768,7 @@ describe("realtime voice session route", () => {
       expect(visitorEvent.statusCode).toBe(409);
     } finally {
       delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
     }
 
     const ownerEvent = sessionEvent();
@@ -826,6 +862,11 @@ describe("realtime voice session route", () => {
     const { handlers } = mount();
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
+    // runtime, so an inherited flag would take the owner path and let the visitor
+    // assertions below pass against the wrong branch. Restored in the `finally`
+    // so the owner pass that follows still runs in the inherited runtime.
+    const fusionFlags = clearFusionRuntimeFlags();
     try {
       const visitorEvent = sessionEvent();
       await expect(
@@ -834,6 +875,7 @@ describe("realtime voice session route", () => {
       expect(visitorEvent.statusCode).toBe(402);
     } finally {
       delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
     }
 
     const ownerEvent = sessionEvent();

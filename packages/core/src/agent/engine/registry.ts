@@ -947,10 +947,19 @@ export function isStoredEngineUsable(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  return entry.requiredEnvVars.every(
-    (v) =>
-      canUseDeployCredentialFallbackForRequest(v) &&
-      !!readDeployCredentialEnv(v),
+  // Every credential set, not just `requiredEnvVars`. Reading only the latter
+  // reports a Builder engine running on the injected gateway pair as
+  // unconfigured, which the engine-status endpoint surfaces as "no provider" and
+  // the composer refuses to start on — while the request path, which does read
+  // the alternates, runs the same engine perfectly well.
+  const sets = envCredentialSetsForEntry(entry);
+  if (sets.length === 0) return true;
+  return sets.some((set) =>
+    set.envVars.every(
+      (v) =>
+        canUseDeployCredentialFallbackForRequest(v) &&
+        !!readDeployCredentialEnv(v),
+    ),
   );
 }
 
