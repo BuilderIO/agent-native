@@ -319,7 +319,8 @@ function SortableSlideThumb({
                   borderColor:
                     humanPresenceUsers.length > 0
                       ? humanPresenceUsers[0].color + "66"
-                      : "rgba(255,255,255,0.06)",
+                      : // guard:allow-raw-color — thumbnail border sits on an arbitrary-colored slide render, not app chrome
+                        "rgba(255,255,255,0.06)",
                   aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
                   contentVisibility: "auto",
                 }}
@@ -331,7 +332,9 @@ function SortableSlideThumb({
                   onOverflowChange={onOverflowChange}
                 />
                 {slide.skipped && (
+                  // guard:allow-raw-color — dims an arbitrary-colored slide render, not app chrome; must stay black regardless of theme
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+                    {/* guard:allow-raw-color — icon sits on the black scrim above, not app chrome */}
                     <IconEyeOff className="size-6 text-white/80" />
                   </div>
                 )}
@@ -383,7 +386,7 @@ function SortableSlideThumb({
           <ContextMenuItem
             disabled={!canDelete}
             onSelect={() => onDeleteSlide?.(slide.id)}
-            className="text-red-400 focus:text-red-400"
+            className="text-destructive focus:text-destructive"
           >
             {t("editorSidebar.deleteSlide")}
           </ContextMenuItem>

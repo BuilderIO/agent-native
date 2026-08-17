@@ -56,6 +56,14 @@ export default function PresenterView({
   const [elapsed, setElapsed] = useState(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
 
+  // `initialIndex` only seeds the first render. Without this, reusing the
+  // presenter route after a deep-link change or skip-state update leaves
+  // `index` pointing at the previous (or now out-of-range) slide until the
+  // next broadcast-channel `state` message arrives.
+  useEffect(() => {
+    setIndex(initialIndex);
+  }, [initialIndex]);
+
   useEffect(() => {
     const channel = openPresentChannel(deckId);
     channelRef.current = channel;

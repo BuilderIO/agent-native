@@ -260,12 +260,31 @@ export default function PresentationView({
 
   const isShared = deckId.startsWith("__shared__/");
 
+  // `safeSlides` excludes skipped slides, so its index isn't the deck index
+  // DeckEditor's `?slide=N` param expects. Map back to the raw position so
+  // exiting/opening Presenter lands on the same slide it's currently showing.
+  const visibleRawIndices = useMemo(() => {
+    const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
+    const rawIndices: number[] = [];
+    rawSlides.forEach((slide, i) => {
+      if (!slide?.skipped) rawIndices.push(i);
+    });
+    return rawIndices;
+  }, [slides]);
+  const toRawIndex = useCallback(
+    (filteredIndex: number) =>
+      visibleRawIndices[filteredIndex] ?? filteredIndex,
+    [visibleRawIndices],
+  );
+
   // Exit handlers read these instead of closing over `currentIndex`/`deckId`/
   // `isShared` so the mount-only fullscreenchange listener still lands on the
   // right deck and slide even if this component is reused for a different
   // deck without remounting (e.g. an agent-driven navigation).
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
+  const visibleRawIndicesRef = useRef(visibleRawIndices);
+  visibleRawIndicesRef.current = visibleRawIndices;
   const deckIdRef = useRef(deckId);
   deckIdRef.current = deckId;
   const isSharedRef = useRef(isShared);
@@ -380,7 +399,10 @@ export default function PresentationView({
       const token = deckId.replace("__shared__/", "");
       navigate(`/share/${token}`);
     } else {
-      navigate(`/deck/${deckId}?slide=${currentIndexRef.current + 1}`);
+      const rawIndex =
+        visibleRawIndicesRef.current[currentIndexRef.current] ??
+        currentIndexRef.current;
+      navigate(`/deck/${deckId}?slide=${rawIndex + 1}`);
     }
   }, [navigate, deckId, isShared]);
 
@@ -426,13 +448,13 @@ export default function PresentationView({
   const openPresenterWindow = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
-    url.searchParams.set("slide", String(currentIndex + 1));
+    url.searchParams.set("slide", String(toRawIndex(currentIndex) + 1));
     window.open(
       url.toString(),
       `slides-presenter-${deckId}`,
       "width=1200,height=760",
     );
-  }, [currentIndex, deckId]);
+  }, [currentIndex, deckId, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -501,9 +523,10 @@ export default function PresentationView({
           const token = deckIdRef.current.replace("__shared__/", "");
           navigate(`/share/${token}`);
         } else {
-          navigate(
-            `/deck/${deckIdRef.current}?slide=${currentIndexRef.current + 1}`,
-          );
+          const rawIndex =
+            visibleRawIndicesRef.current[currentIndexRef.current] ??
+            currentIndexRef.current;
+          navigate(`/deck/${deckIdRef.current}?slide=${rawIndex + 1}`);
         }
       }
     };

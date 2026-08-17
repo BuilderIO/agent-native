@@ -333,11 +333,13 @@ function normalizeActionDeck(value: unknown): Deck | null {
   const slides = Array.isArray(deck.slides)
     ? deck.slides.map((slide) => {
         if (!slide || typeof slide !== "object") return slide;
-        const cleanedSlide = { ...(slide as Record<string, unknown>) };
+        const cleanedSlide = {
+          ...(slide as unknown as Record<string, unknown>),
+        };
         for (const field of GET_DECK_ONLY_SLIDE_FIELDS) {
           delete cleanedSlide[field];
         }
-        return cleanedSlide as Slide;
+        return cleanedSlide as unknown as Slide;
       })
     : [];
 
