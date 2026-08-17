@@ -528,7 +528,7 @@ const messages = {
     copy: "Copy",
     paste: "Paste",
     skipSlide: "Skip slide",
-    unskipSlide: "Don't skip slide",
+    unskipSlide: "Unskip slide",
   },
   presentation: {
     loadFailed: "Could not load this presentation.",
