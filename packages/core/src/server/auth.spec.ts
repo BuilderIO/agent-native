@@ -445,10 +445,15 @@ describe("server/auth", () => {
         (call: any[]) =>
           call[0] === "/_agent-native/auth/magic-link/desktop-callback",
       )?.[1];
+      const landingHandler = app.use.mock.calls.find(
+        (call: any[]) =>
+          call[0] === "/_agent-native/auth/magic-link/desktop-landing",
+      )?.[1];
       const exchangeHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
       )?.[1];
       expect(callbackHandler).toBeTypeOf("function");
+      expect(landingHandler).toBeTypeOf("function");
       expect(exchangeHandler).toBeTypeOf("function");
 
       const magicLinkHandler = app.use.mock.calls.find(
@@ -465,6 +470,40 @@ describe("server/auth", () => {
         flowId: expect.any(String),
         verifier: expect.any(String),
       });
+
+      const desktopCallbackURL =
+        `/_agent-native/auth/magic-link/desktop-callback?flow_id=${flowResponse.flowId}` +
+        `&verifier=${flowResponse.verifier}`;
+      const landingResponse = await landingHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-landing",
+          query: {
+            token: "magic-link-token",
+            callbackURL: encodeURIComponent(desktopCallbackURL),
+          },
+        }),
+      );
+      expect(landingResponse).toBeInstanceOf(Response);
+      expect((landingResponse as Response).status).toBe(200);
+      const landingHtml = await (landingResponse as Response).text();
+      expect(landingHtml).toContain("Continue signing in");
+      expect(landingHtml).toContain(
+        "/_agent-native/auth/ba/magic-link/verify?token=magic-link-token",
+      );
+      const landingAction = landingHtml.match(/action="([^"]+)"/)?.[1];
+      expect(landingAction).toBeTruthy();
+      const verificationURL = new URL(landingAction!.replace(/&amp;/g, "&"));
+      expect(verificationURL.searchParams.get("token")).toBe(
+        "magic-link-token",
+      );
+      const callbackURL = new URL(
+        verificationURL.searchParams.get("callbackURL")!,
+        "http://localhost",
+      );
+      expect(callbackURL.searchParams.get("flow_id")).toBe(flowResponse.flowId);
+      expect(callbackURL.searchParams.get("verifier")).toBe(
+        flowResponse.verifier,
+      );
 
       const wrongVerifier = `${flowResponse.verifier.slice(0, -1)}x`;
       const wrongVerifierResponse = await callbackHandler(
@@ -592,9 +631,40 @@ describe("server/auth", () => {
       });
       await expect(exchangeHandler(exchangeErrorEvent)).resolves.toMatchObject({
         error: expect.any(String),
-        code: "callback_error",
+        code: "callback_session_missing",
       });
       expect(exchangeErrorEvent.res.status).toBe(400);
+
+      const invalidTokenFlowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: invalidTokenFlowResponse.flowId,
+            verifier: invalidTokenFlowResponse.verifier,
+            error: "INVALID_TOKEN",
+          },
+        }),
+      );
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: {
+              flow_id: invalidTokenFlowResponse.flowId,
+              verifier: invalidTokenFlowResponse.verifier,
+            },
+          }),
+        ),
+      ).resolves.toMatchObject({
+        error: expect.any(String),
+        code: "INVALID_TOKEN",
+      });
     });
 
     it("sets first-run onboarding only for an authenticated callback", async () => {
