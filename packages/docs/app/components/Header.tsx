@@ -7,7 +7,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
-import ThemeToggle, { useDocsTheme } from "./ThemeToggle";
+import { useDocsTheme } from "./ThemeToggle";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -334,9 +334,6 @@ export default function Header() {
               <DocsLanguagePicker />
               <DocsLanguageSuggestion />
             </div>
-            <div className="hidden lg:block">
-              <ThemeToggle />
-            </div>
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
@@ -373,7 +370,6 @@ export default function Header() {
                 placeholder={t("header.searchPlaceholder")}
               />
               <DocsLanguagePicker />
-              <ThemeToggle />
             </div>
             <NavLink
               data-an-prefetch="viewport"
