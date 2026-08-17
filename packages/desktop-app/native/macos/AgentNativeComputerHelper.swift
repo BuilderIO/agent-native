@@ -6,7 +6,148 @@ private struct HelperFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+private final class PhantomCursorView: NSView {
+    var showsClickPulse = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+
+        let hotspot = NSBezierPath(ovalIn: NSRect(x: 0, y: 24, width: 13, height: 13))
+        NSColor(calibratedRed: 0.35, green: 0.42, blue: 1.0, alpha: 0.2).setFill()
+        hotspot.fill()
+
+        if showsClickPulse {
+            let pulse = NSBezierPath(ovalIn: NSRect(x: -2, y: 22, width: 17, height: 17))
+            NSColor(calibratedRed: 0.35, green: 0.42, blue: 1.0, alpha: 0.7).setStroke()
+            pulse.lineWidth = 1.5
+            pulse.stroke()
+        }
+
+        let pointer = NSBezierPath()
+        pointer.move(to: NSPoint(x: 3, y: 35))
+        pointer.line(to: NSPoint(x: 3, y: 7))
+        pointer.line(to: NSPoint(x: 11, y: 15))
+        pointer.line(to: NSPoint(x: 16, y: 4))
+        pointer.line(to: NSPoint(x: 20, y: 6))
+        pointer.line(to: NSPoint(x: 14, y: 17))
+        pointer.line(to: NSPoint(x: 27, y: 17))
+        pointer.close()
+
+        NSColor.white.setFill()
+        pointer.fill()
+        NSColor(calibratedWhite: 0.05, alpha: 0.82).setStroke()
+        pointer.lineWidth = 1.3
+        pointer.stroke()
+    }
+}
+
+private final class PhantomCursorOverlay {
+    private let visibleDuration: TimeInterval = 1.8
+    private let fadeDuration: TimeInterval = 0.42
+    private var panel: NSPanel?
+    private var fadeTimer: Timer?
+    private var removeTimer: Timer?
+
+    func show(at quartzPoint: CGPoint, click: Bool) {
+        onMain { [self] in
+            guard let origin = appKitOrigin(for: quartzPoint) else { return }
+            removeTimers()
+
+            let view: PhantomCursorView
+            if let existingView = panel?.contentView as? PhantomCursorView {
+                view = existingView
+            } else {
+                view = PhantomCursorView(frame: NSRect(x: 0, y: 0, width: 32, height: 40))
+                let nextPanel = NSPanel(
+                    contentRect: view.frame,
+                    styleMask: [.borderless, .nonactivatingPanel],
+                    backing: .buffered,
+                    defer: false
+                )
+                nextPanel.isOpaque = false
+                nextPanel.backgroundColor = .clear
+                nextPanel.hasShadow = false
+                nextPanel.ignoresMouseEvents = true
+                nextPanel.hidesOnDeactivate = false
+                nextPanel.level = .floating
+                nextPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+                nextPanel.contentView = view
+                panel = nextPanel
+            }
+
+            view.showsClickPulse = click
+            panel?.alphaValue = 1
+            panel?.setFrameOrigin(origin)
+            panel?.orderFrontRegardless()
+
+            fadeTimer = Timer.scheduledTimer(withTimeInterval: visibleDuration, repeats: false) { [weak self] _ in
+                self?.fade()
+            }
+        }
+    }
+
+    func hide() {
+        onMain { [self] in
+            removeTimers()
+            panel?.orderOut(nil)
+            panel = nil
+        }
+    }
+
+    private func fade() {
+        guard let panel else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = fadeDuration
+            panel.animator().alphaValue = 0
+        }
+        removeTimer = Timer.scheduledTimer(withTimeInterval: fadeDuration, repeats: false) { [weak self] _ in
+            self?.hide()
+        }
+    }
+
+    private func removeTimers() {
+        fadeTimer?.invalidate()
+        fadeTimer = nil
+        removeTimer?.invalidate()
+        removeTimer = nil
+    }
+
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.sync(execute: work)
+        }
+    }
+
+    private func appKitOrigin(for quartzPoint: CGPoint) -> NSPoint? {
+        for screen in NSScreen.screens {
+            guard
+                let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+            else { continue }
+            let displayFrame = CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
+            guard displayFrame.contains(quartzPoint) else { continue }
+            return NSPoint(
+                x: screen.frame.minX + quartzPoint.x - displayFrame.minX - 3,
+                y: screen.frame.maxY - (quartzPoint.y - displayFrame.minY) - 35
+            )
+        }
+
+        guard let screen = NSScreen.main else { return nil }
+        return NSPoint(
+            x: screen.frame.minX + quartzPoint.x - 3,
+            y: screen.frame.maxY - quartzPoint.y - 35
+        )
+    }
+}
+
 private final class ComputerHelper {
+    private let cursorOverlay = PhantomCursorOverlay()
     private var snapshotId: String?
     private var targets: [String: AXUIElement] = [:]
     private var snapshotBundleId: String?
@@ -14,6 +155,10 @@ private final class ComputerHelper {
     private var nodeCount = 0
     private let maxNodes = 500
     private let maxDepth = 8
+
+    func close() {
+        cursorOverlay.hide()
+    }
 
     func handle(_ request: [String: Any]) throws -> Any? {
         guard let command = request["command"] as? String else {
@@ -33,6 +178,7 @@ private final class ComputerHelper {
             return nil
         case "releaseAll":
             releaseAllInputs()
+            cursorOverlay.hide()
             return nil
         default:
             throw HelperFailure(description: "Unsupported command.")
@@ -131,6 +277,13 @@ private final class ComputerHelper {
         }
         guard isElementEnabled(element) else {
             throw HelperFailure(description: "Semantic target is no longer enabled.")
+        }
+
+        if let rect = rect(of: element) {
+            cursorOverlay.show(
+                at: CGPoint(x: rect.midX, y: rect.midY),
+                click: kind == "input.click"
+            )
         }
 
         switch kind {
@@ -359,26 +512,35 @@ private func keyCode(_ name: String) -> CGKeyCode? {
 }
 
 private let helper = ComputerHelper()
-while let line = readLine() {
-    autoreleasepool {
-        var response: [String: Any] = ["ok": false]
-        do {
-            guard let data = line.data(using: .utf8),
-                  let request = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let id = request["id"] as? NSNumber else {
-                throw HelperFailure(description: "Invalid request envelope.")
+let application = NSApplication.shared
+application.setActivationPolicy(.prohibited)
+DispatchQueue.global(qos: .userInitiated).async {
+    while let line = readLine() {
+        autoreleasepool {
+            var response: [String: Any] = ["ok": false]
+            do {
+                guard let data = line.data(using: .utf8),
+                      let request = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = request["id"] as? NSNumber else {
+                    throw HelperFailure(description: "Invalid request envelope.")
+                }
+                response["id"] = id
+                let result = try helper.handle(request)
+                response["ok"] = true
+                if let result { response["result"] = result }
+            } catch {
+                response["error"] = String(describing: error)
             }
-            response["id"] = id
-            let result = try helper.handle(request)
-            response["ok"] = true
-            if let result { response["result"] = result }
-        } catch {
-            response["error"] = String(describing: error)
-        }
-        if let data = try? JSONSerialization.data(withJSONObject: response),
-           let output = String(data: data, encoding: .utf8) {
-            print(output)
-            fflush(stdout)
+            if let data = try? JSONSerialization.data(withJSONObject: response),
+               let output = String(data: data, encoding: .utf8) {
+                print(output)
+                fflush(stdout)
+            }
         }
     }
+    DispatchQueue.main.async {
+        helper.close()
+        application.terminate(nil)
+    }
 }
+application.run()

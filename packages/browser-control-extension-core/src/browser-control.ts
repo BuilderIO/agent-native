@@ -9,6 +9,7 @@ import {
   sendDebuggerCommand,
   type DebuggerSource,
 } from "./chrome-debugger";
+import { cursorOverlayExpression, hideCursorOverlay } from "./cursor-overlay";
 import { assertUrlAllowed, ProtocolValidationError } from "./policy";
 import type {
   BrowserCommand,
@@ -25,6 +26,7 @@ type TaskSession = {
   tabId: number;
   allowedOrigins: Set<string>;
   observation?: BrowserObservation;
+  lastCursor?: { x: number; y: number };
 };
 
 type StoredTaskSession = Omit<TaskSession, "allowedOrigins"> & {
@@ -1207,6 +1209,57 @@ export class BrowserControlService {
     });
   }
 
+  private async showCursor(
+    session: TaskSession,
+    point: { x: number; y: number },
+    click: boolean,
+    expectedGeneration?: number,
+  ): Promise<void> {
+    try {
+      await this.sendCommand(
+        session.taskId,
+        expectedGeneration,
+        session.tabId,
+        "Runtime.evaluate",
+        {
+          expression: cursorOverlayExpression({
+            type: "show",
+            x: point.x,
+            y: point.y,
+            ...(click ? { click: true } : {}),
+          }),
+          awaitPromise: false,
+          returnByValue: true,
+        },
+      );
+    } catch (error) {
+      if (
+        this.isTaskCancellation(error) ||
+        (error instanceof Error && isDebuggerNotAttachedError(error.message))
+      ) {
+        return;
+      }
+      console.warn("[browser-control] phantom cursor could not be shown", {
+        tabId: session.tabId,
+        error,
+      });
+    }
+  }
+
+  private async hideCursor(tabId: number): Promise<void> {
+    try {
+      await hideCursorOverlay(source(tabId));
+    } catch (error) {
+      if (error instanceof Error && isDebuggerNotAttachedError(error.message)) {
+        return;
+      }
+      console.warn("[browser-control] phantom cursor cleanup failed", {
+        tabId,
+        error,
+      });
+    }
+  }
+
   private scheduleLateAttachTeardown(
     pending: PendingAttach,
   ): Promise<Error | undefined> | undefined {
@@ -1263,6 +1316,9 @@ export class BrowserControlService {
   ): Promise<Error | undefined> {
     let releaseError: Error | undefined;
     await this.drainPendingInputOperations(tabId);
+    // Cursor cleanup must never hold the input-release or debugger-detach gate.
+    // The page marker also owns a hard removal timer for the crash/stall case.
+    void this.hideCursor(tabId);
     const pressedKeys = this.pressedKeys.get(tabId)?.values() ?? [];
     try {
       await releaseInjectedInput(tabId, pressedKeys);
@@ -1476,6 +1532,8 @@ export class BrowserControlService {
       );
       const point = centerOfBox(box);
       await this.revalidate(taskId, expectedGeneration);
+      await this.showCursor(session, point, true, expectedGeneration);
+      session.lastCursor = point;
       await this.sendCommand(
         taskId,
         expectedGeneration,
@@ -1506,6 +1564,33 @@ export class BrowserControlService {
     }
   }
 
+  private async targetPoint(
+    taskId: string,
+    expectedGeneration: number | undefined,
+    session: TaskSession,
+    backendNodeId: number,
+  ): Promise<{ x: number; y: number } | undefined> {
+    try {
+      const box = await this.sendCommand<BoxModelResult>(
+        taskId,
+        expectedGeneration,
+        session.tabId,
+        "DOM.getBoxModel",
+        { backendNodeId },
+      );
+      return centerOfBox(box);
+    } catch (error) {
+      if (!this.isTaskCancellation(error)) {
+        console.warn("[browser-control] phantom cursor target unavailable", {
+          tabId: session.tabId,
+          backendNodeId,
+          error,
+        });
+      }
+      return undefined;
+    }
+  }
+
   private async type(
     taskId: string,
     target: { observationId: string; backendNodeId: number },
@@ -1516,6 +1601,16 @@ export class BrowserControlService {
     const session = await this.revalidate(taskId, expectedGeneration);
     await this.assertFreshTarget(session, target, taskId, expectedGeneration);
     try {
+      const point = await this.targetPoint(
+        taskId,
+        expectedGeneration,
+        session,
+        target.backendNodeId,
+      );
+      if (point) {
+        await this.showCursor(session, point, false, expectedGeneration);
+        session.lastCursor = point;
+      }
       await this.sendCommand(
         taskId,
         expectedGeneration,
@@ -1614,6 +1709,14 @@ export class BrowserControlService {
   ): Promise<unknown> {
     const session = await this.revalidate(taskId, expectedGeneration);
     try {
+      if (session.lastCursor) {
+        await this.showCursor(
+          session,
+          session.lastCursor,
+          false,
+          expectedGeneration,
+        );
+      }
       const data = KEY_DATA[key];
       const params = {
         key: data.key,
@@ -1650,6 +1753,8 @@ export class BrowserControlService {
     const session = await this.revalidate(taskId, expectedGeneration);
     try {
       const url = assertUrlAllowed(rawUrl, session.allowedOrigins);
+      await this.hideCursor(session.tabId);
+      session.lastCursor = undefined;
       const result = await this.sendCommand<Record<string, unknown>>(
         taskId,
         expectedGeneration,
@@ -1764,6 +1869,9 @@ export class BrowserControlService {
   ): Promise<unknown> {
     const session = await this.revalidate(taskId, expectedGeneration);
     try {
+      const point = { x, y };
+      await this.showCursor(session, point, false, expectedGeneration);
+      session.lastCursor = point;
       await this.sendCommand(
         taskId,
         expectedGeneration,
