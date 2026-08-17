@@ -2183,9 +2183,58 @@ const DESKTOP_MAGIC_LINK_LANDING_PATH =
 const BETTER_AUTH_MAGIC_LINK_VERIFY_PATH =
   "/_agent-native/auth/ba/magic-link/verify";
 
-function desktopMagicLinkLandingPage(verificationUrl: string): Response {
-  const safeVerificationUrl = escapeHtmlAttr(verificationUrl);
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent Native desktop app.</p><form method="get" action="${safeVerificationUrl}"><button type="submit">Continue</button></form></main></body></html>`;
+function desktopMagicLinkVerificationUrl(
+  event: H3Event,
+  values: Record<string, unknown>,
+): URL | undefined {
+  const value = (key: string): string =>
+    typeof values[key] === "string" ? values[key] : "";
+  const token = value("token").trim();
+  const callbackURL = value("callbackURL");
+  if (!token || !callbackURL) return undefined;
+
+  try {
+    const callback = new URL(callbackURL, getOrigin(event));
+    if (
+      callback.origin !== new URL(getOrigin(event)).origin ||
+      !callback.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_PATH) ||
+      !normalizeDesktopFlowId(callback.searchParams.get("flow_id")) ||
+      !normalizeDesktopFlowVerifier(callback.searchParams.get("verifier"))
+    ) {
+      return undefined;
+    }
+
+    const verificationURL = new URL(
+      getAppUrl(event, BETTER_AUTH_MAGIC_LINK_VERIFY_PATH),
+    );
+    verificationURL.searchParams.set("token", token);
+    for (const key of [
+      "callbackURL",
+      "newUserCallbackURL",
+      "errorCallbackURL",
+    ]) {
+      const queryValue = value(key);
+      if (queryValue) verificationURL.searchParams.set(key, queryValue);
+    }
+    return verificationURL;
+    // coercion-ok: malformed user-supplied callback data is rejected as absent.
+  } catch {
+    return undefined;
+  }
+}
+
+function desktopMagicLinkLandingPage(
+  actionUrl: string,
+  fields: Record<string, string>,
+): Response {
+  const safeActionUrl = escapeHtmlAttr(actionUrl);
+  const hiddenInputs = Object.entries(fields)
+    .map(
+      ([name, value]) =>
+        `<input type="hidden" name="${escapeHtmlAttr(name)}" value="${escapeHtmlAttr(value)}">`,
+    )
+    .join("");
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
   return new Response(html, {
     status: 200,
     headers: {
@@ -3934,51 +3983,48 @@ async function mountBetterAuthRoutes(
   app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
     defineEventHandler((event) => {
+      if (getMethod(event) === "POST") {
+        return readBody<Record<string, unknown>>(event).then((body) => {
+          const verificationURL = desktopMagicLinkVerificationUrl(event, body);
+          if (!verificationURL) {
+            setResponseStatus(event, 400);
+            return { error: "Invalid desktop magic-link" };
+          }
+          return new Response(null, {
+            status: 303,
+            headers: {
+              "cache-control": "no-store",
+              location: verificationURL.toString(),
+              "referrer-policy": "no-referrer",
+            },
+          });
+        });
+      }
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
       const query = getQuery(event);
-      const token = typeof query.token === "string" ? query.token.trim() : "";
-      const callbackURL =
-        typeof query.callbackURL === "string" ? query.callbackURL : "";
-      if (!token || !callbackURL) {
+      const verificationURL = desktopMagicLinkVerificationUrl(event, query);
+      if (!verificationURL) {
         setResponseStatus(event, 400);
         return { error: "Invalid desktop magic-link" };
       }
-
-      let callback: URL;
-      try {
-        callback = new URL(callbackURL, getOrigin(event));
-      } catch {
-        setResponseStatus(event, 400);
-        return { error: "Invalid desktop magic-link" };
-      }
-      if (
-        callback.origin !== new URL(getOrigin(event)).origin ||
-        !callback.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_PATH) ||
-        !normalizeDesktopFlowId(callback.searchParams.get("flow_id")) ||
-        !normalizeDesktopFlowVerifier(callback.searchParams.get("verifier"))
-      ) {
-        setResponseStatus(event, 400);
-        return { error: "Invalid desktop magic-link" };
-      }
-
-      const verificationURL = new URL(getOrigin(event));
-      verificationURL.pathname =
-        getAppBasePath() + BETTER_AUTH_MAGIC_LINK_VERIFY_PATH;
-      verificationURL.searchParams.set("token", token);
+      const fields: Record<string, string> = {};
       for (const key of [
+        "token",
         "callbackURL",
         "newUserCallbackURL",
         "errorCallbackURL",
       ]) {
-        const value = query[key];
-        if (typeof value === "string" && value) {
-          verificationURL.searchParams.set(key, value);
+        if (typeof query[key] === "string" && query[key]) {
+          fields[key] = query[key];
         }
       }
-      return desktopMagicLinkLandingPage(verificationURL.toString());
+      return desktopMagicLinkLandingPage(
+        getAppUrl(event, DESKTOP_MAGIC_LINK_LANDING_PATH),
+        fields,
+      );
     }),
   );
 

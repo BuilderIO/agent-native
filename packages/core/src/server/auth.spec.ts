@@ -487,12 +487,29 @@ describe("server/auth", () => {
       expect((landingResponse as Response).status).toBe(200);
       const landingHtml = await (landingResponse as Response).text();
       expect(landingHtml).toContain("Continue signing in");
-      expect(landingHtml).toContain(
-        "/_agent-native/auth/ba/magic-link/verify?token=magic-link-token",
-      );
+      expect(landingHtml).toContain('method="post"');
       const landingAction = landingHtml.match(/action="([^"]+)"/)?.[1];
       expect(landingAction).toBeTruthy();
-      const verificationURL = new URL(landingAction!.replace(/&amp;/g, "&"));
+      expect(landingAction).toContain(
+        "/_agent-native/auth/magic-link/desktop-landing",
+      );
+      expect(landingAction).not.toContain("magic-link-token");
+      expect(landingAction).not.toContain("/magic-link/verify");
+      expect(landingHtml).toContain('name="token" value="magic-link-token"');
+      const postResponse = await landingHandler(
+        createFormPostEvent("/_agent-native/auth/magic-link/desktop-landing", {
+          token: "magic-link-token",
+          callbackURL: desktopCallbackURL,
+        }),
+      );
+      expect(postResponse).toBeInstanceOf(Response);
+      expect((postResponse as Response).status).toBe(303);
+      const verificationURL = new URL(
+        (postResponse as Response).headers.get("location")!,
+      );
+      expect(verificationURL.pathname).toBe(
+        "/_agent-native/auth/ba/magic-link/verify",
+      );
       expect(verificationURL.searchParams.get("token")).toBe(
         "magic-link-token",
       );
@@ -6130,6 +6147,26 @@ function createJsonPostEvent(
       ...headers,
     },
     body: JSON.stringify(body),
+  });
+  const requestHeaders = Object.fromEntries(request.headers.entries());
+  const event = createMockEvent({ path, headers: requestHeaders });
+  event.url = new URL(`${origin}${path}`);
+  event.req = request;
+  event.headers = request.headers;
+  event.node.req.method = "POST";
+  event.node.req.headers = requestHeaders;
+  return event;
+}
+
+function createFormPostEvent(
+  path: string,
+  body: Record<string, string>,
+  origin = "http://localhost",
+): any {
+  const request = new Request(`${origin}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body),
   });
   const requestHeaders = Object.fromEntries(request.headers.entries());
   const event = createMockEvent({ path, headers: requestHeaders });
