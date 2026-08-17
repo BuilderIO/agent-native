@@ -409,9 +409,21 @@ describe("server/auth", () => {
         user: { id: "user_1", email: "owner@example.com" },
         session: { token: "magic-session-token" },
       }));
+      const betterAuthHandler = vi.fn(async (request: Request) => {
+        const verificationURL = new URL(request.url);
+        return new Response(null, {
+          status: 302,
+          headers: {
+            "cache-control": "no-store",
+            location: verificationURL.searchParams.get("callbackURL")!,
+            "set-cookie":
+              "better-auth.session_token=magic-session-token; Path=/; HttpOnly",
+          },
+        });
+      });
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
-          handler: vi.fn(async () => new Response("{}")),
+          handler: betterAuthHandler,
           api: {
             getSession,
             signInEmail: vi.fn(),
@@ -503,10 +515,16 @@ describe("server/auth", () => {
         }),
       );
       expect(postResponse).toBeInstanceOf(Response);
-      expect((postResponse as Response).status).toBe(303);
-      const verificationURL = new URL(
-        (postResponse as Response).headers.get("location")!,
+      expect((postResponse as Response).status).toBe(302);
+      expect((postResponse as Response).headers.get("location")).toContain(
+        `flow_id=${flowResponse.flowId}`,
       );
+      expect((postResponse as Response).headers.get("set-cookie")).toContain(
+        "better-auth.session_token=magic-session-token",
+      );
+      const verificationRequest = betterAuthHandler.mock.calls[0]?.[0];
+      expect(verificationRequest).toBeInstanceOf(Request);
+      const verificationURL = new URL(verificationRequest!.url);
       expect(verificationURL.pathname).toBe(
         "/_agent-native/auth/ba/magic-link/verify",
       );
