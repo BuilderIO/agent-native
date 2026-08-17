@@ -5,7 +5,7 @@ description: "Os ganchos de action que app/ usa para ler, gravar e permanecer si
 
 # Dados e sincronização
 
-A principal forma de ler e gravar dados do aplicativo a partir do cliente é através dos ganchos de [action](/docs/actions). Ao incorporar solicitações em actions, tanto seu cliente quanto o agente podem interagir com seu aplicativo da mesma maneira.
+A principal forma de ler e gravar dados do aplicativo a partir do cliente é através dos ganchos de [action](/docs/actions-overview). Ao incorporar solicitações em actions, tanto seu cliente quanto o agente podem interagir com seu aplicativo da mesma maneira.
 
 No exemplo abaixo, um ticket é atribuído ao usuário atual manualmente através de um dropdown, e depois através do agente de chat. Tanto a UI quanto o agente acessam a mesma action.
 
@@ -428,7 +428,7 @@ Para CRUD normal, prefira `useActionQuery()` e `useActionMutation()`. Actions de
 
 - [**Visão geral**](/docs/client-overview) — o layout de diretórios `app/` e `public/` onde os ganchos desta página vivem
 - [**Chat do Agent**](/docs/client-agent-chat) — enviando prompts e preparando contexto para o agente
-- [**Actions**](/docs/actions) — a superfície `defineAction` por trás de cada gancho desta página
+- [**Actions**](/docs/actions-overview) — a superfície `defineAction` por trás de cada gancho desta página
 - [**Avançado**](/docs/client-advanced) — acesso direto a `application_state`
 - [**Sincronização interna**](/docs/client-sync-internals) — sincronizando um `useQuery` bruto com `useChangeVersion`
 - [**Sincronização em tempo real**](/docs/key-concepts#polling-sync) — como `useDbSync` mantém a UI atualizada

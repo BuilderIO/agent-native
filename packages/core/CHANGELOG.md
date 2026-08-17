@@ -1,5 +1,412 @@
 # @agent-native/core
 
+## 0.159.2
+
+### Patch Changes
+
+- 7acc86e: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- 7acc86e: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 7acc86e: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 7acc86e: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- 7acc86e: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- 7acc86e: Format the Portal reference table in the shared core documentation.
+- 7acc86e: Redact nested callback parameters in desktop magic-link diagnostics.
+- 7acc86e: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.159.1
+
+### Patch Changes
+
+- 4f686cd: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 4f686cd: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 4f686cd: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- 4f686cd: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- 4f686cd: Format the Portal reference table in the shared core documentation.
+- 4f686cd: Redact nested callback parameters in desktop magic-link diagnostics.
+- 4f686cd: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.159.0
+
+### Minor Changes
+
+- d003981: Add `defineAppConfig()` and `getAppConfig()` — one zod schema under `src/app-config/` that owns server-side configuration, so a value can be set in typed app code instead of only through an environment variable. Environment variables become declared `.meta({ env })` aliases into a schema field, parsed and validated in one place rather than at each call site, and resolve below explicit app configuration. A field can declare several aliases in precedence order, which is how one concept with many historical spellings collapses to a single declared ladder.
+
+  Five domains are declared so far, replacing roughly thirty hand-rolled `process.env` reads:
+  - **`privateBlob`** — `provider` selects which registered provider is active, replacing the implicit "first one whose `isConfigured()` returns true in module import order" rule (still the fallback when unset), and throwing when the named provider is not registered. `publicUploadFallback` replaces a setter and an environment variable whose precedence was decided by statement order inside `putPrivateBlob`. `setPrivateBlobPublicUploadFallbackEnabled` is deprecated but keeps working, now with a stated position in the ladder.
+  - **`app`** — `id`, `workspaceId`, `name`, `packageName`, and `template` replace nine fallback chains across agent chat, SSO, credential scoping, onboarding, the CLI, data programs, durable background dispatch, and workspace OAuth. They stay separate fields on purpose: `vault_grants` rows are written with the workspace-assigned id, so credential scoping keeps preferring it, and `name` is a display name rather than an identifier. None has a default, so an app with no configured identity is still denied a credential grant lookup instead of resolving one scoped to an app literally named `app`.
+  - **`agent`** — `engine`, `model`, `mode`, `preferBringYourOwnKey`, `runSoftTimeoutMs`, `completedRunRetentionMs`, `erroredRunRetentionMs`. `resolveEngine`'s documented resolution order is unchanged and `createAgentChatPlugin({ model })` keeps working; the explicit option stays a function parameter above the declared field.
+  - **`a2a`** and **`integrations`** — `allowUnsignedInternal` and `allowUnverifiedWebhooks`, the latter replacing three byte-identical copies of the same check in the telegram, whatsapp, and email webhook adapters.
+  - **`workspace`** — `gatewayUrl` and `oauthOrigin`. Together with `app.url` these retire the `VITE_` mirrors of the URL keys: the prefix only ever answered "how does this value reach the browser", so the value is now one declared field and delivery goes through `window.__AGENT_NATIVE_CONFIG__` alongside the existing Sentry, PostHog, and realtime scripts.
+
+  Two self-dispatch bugs are fixed along the way. `integrations/webhook-handler.ts` and `integrations/a2a-continuation-processor.ts` each carried their own copy of "resolve my own base URL"; both omitted `DEPLOY_PRIME_URL`, so a Netlify deploy preview dispatched background work to production, and the continuation copy silently fell back to `http://localhost:${PORT}` in production, where the request never arrives and the work is dropped with no error. Both now delegate to `resolveSelfDispatchBaseUrl`.
+
+  A new guard keeps the surface from growing back: `pnpm guard:no-legacy-config` fails when a line this branch adds reads `process.env` in `packages/core/src` outside the four resolvers, or calls a deprecated entry point. Opt out per line with `// config-ok: <reason>`.
+
+  Declared configuration now generates its own documentation: `pnpm sync:config-docs` writes the field table into `docs/environment-variables.md`, and `pnpm guard:config-docs` fails when it is stale.
+
+  Malformed values in migrated keys now fail at startup naming the key, instead of silently reading as `false` or falling back to a default. This affects `AGENT_ENGINE_PREFER_BYO_KEY`, `A2A_ALLOW_UNSIGNED_INTERNAL`, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`, and the three agent run timeout/retention keys.
+
+## 0.158.10
+
+### Patch Changes
+
+- c3a0f94: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.158.9
+
+### Patch Changes
+
+- f411be6: Rotate persisted Better Auth JWKS keys safely after an auth-secret change.
+
+## 0.158.8
+
+### Patch Changes
+
+- 38e3471: Redact nested callback parameters in desktop magic-link diagnostics.
+
+## 0.158.7
+
+### Patch Changes
+
+- d0de8bc: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+
+## 0.158.6
+
+### Patch Changes
+
+- e76df66: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- e76df66: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- e76df66: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- e76df66: Format the Portal reference table in the shared core documentation.
+
+## 0.158.5
+
+### Patch Changes
+
+- 4d2e3a2: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 4d2e3a2: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 4d2e3a2: Format the Portal reference table in the shared core documentation.
+
+## 0.158.4
+
+### Patch Changes
+
+- 2b618ab: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 2b618ab: Format the Portal reference table in the shared core documentation.
+
+## 0.158.3
+
+### Patch Changes
+
+- 8a9743f: Format the Portal reference table in the shared core documentation.
+
+## 0.158.2
+
+### Patch Changes
+
+- c91e4ba: Format the Portal reference table in the shared core documentation.
+
+## 0.158.1
+
+### Patch Changes
+
+- 223cf26: Format the Portal reference table in the shared core documentation.
+
+## 0.158.0
+
+### Minor Changes
+
+- 1267aec: Add approved background-tab creation to the remote Chrome browser control action surface.
+
+## 0.157.28
+
+### Patch Changes
+
+- 3850b75: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
+- 3850b75: Serve the authenticated Desktop completion page on Dispatch, the identity authority, after its ordinary sign-in flow.
+- 3850b75: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- 3850b75: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
+- 3850b75: Hide the Agent-Native SSO option on canonical hosted login pages while preserving explicit self-hosted opt-in.
+- 3850b75: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
+
+## 0.157.27
+
+### Patch Changes
+
+- bc5f350: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
+- bc5f350: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- bc5f350: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
+- bc5f350: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
+
+## 0.157.26
+
+### Patch Changes
+
+- abfb925: Serve the authenticated Desktop completion page on Dispatch, the identity authority, after its ordinary sign-in flow.
+
+## 0.157.25
+
+### Patch Changes
+
+- 6e56b98: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
+- 6e56b98: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- 6e56b98: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
+- 6e56b98: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
+
+## 0.157.24
+
+### Patch Changes
+
+- 6bdf1f7: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
+- 6bdf1f7: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- 6bdf1f7: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
+- 6bdf1f7: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
+
+## 0.157.23
+
+### Patch Changes
+
+- febb983: Keep packaged Desktop SSO on canonical client origins, read partitioned identity cookies without URL-filtered Chromium lookups, and prevent a child app session from replacing the verified Dispatch authority.
+- febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- febb983: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
+
+## 0.157.22
+
+### Patch Changes
+
+- 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+- 802f708: Add redacted target-side diagnostics for workspace embed-session ticket consumption so missing, expired, replayed, mismatched, and successful exchanges can be distinguished in production logs.
+
+## 0.157.21
+
+### Patch Changes
+
+- 904b67c: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+
+## 0.157.20
+
+### Patch Changes
+
+- d525c66: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
+
+## 0.157.19
+
+### Patch Changes
+
+- 8d34d57: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
+
+## 0.157.18
+
+### Patch Changes
+
+- 907dfa3: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+- 907dfa3: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
+- 907dfa3: Return Google sign-in callbacks to native mobile clients using signed flow intent, even when the callback browser user-agent is not mobile, and hide the Agent Native SSO control in embedded auth views.
+- 907dfa3: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
+
+## 0.157.17
+
+### Patch Changes
+
+- 9e73795: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+- 9e73795: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
+- 9e73795: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
+
+## 0.157.16
+
+### Patch Changes
+
+- 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+- 1b7d8c2: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
+
+## 0.157.15
+
+### Patch Changes
+
+- fa0f828: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
+- fa0f828: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
+
+## 0.157.14
+
+### Patch Changes
+
+- 4d8c36c: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
+
+## 0.157.13
+
+### Patch Changes
+
+- 7dc2c91: Allow framework-managed feature-flag bearer routes to reach their own verifier before the cookie auth guard.
+- 7dc2c91: Create the Portal remote-device table during release migrations before serverless requests run.
+
+## 0.157.12
+
+### Patch Changes
+
+- bdbe6a1: Keep Portal device authentication working when a proxy supplies or strips the Authorization header.
+
+## 0.157.11
+
+### Patch Changes
+
+- 5e19db2: Treat Netlify function runtimes as serverless when configuring database pools so abandoned transactions are reaped.
+
+## 0.157.10
+
+### Patch Changes
+
+- 81fb79e: Keep the user's own messages in agent chat history when a tool-heavy turn is large. The request history was priced against one 64,000-char budget spent newest-first, so a single read-heavy assistant turn could evict every earlier thing the user asked for — in one measured production thread the model saw none of the user's previous nine asks and re-derived the same answer each turn. Tool payloads and user messages now draw on separate budgets, and an oversized recent turn no longer drops the cheaper messages behind it.
+- 81fb79e: Allow the Clips ffmpeg runtime in Netlify function size checks while preserving frame extraction and video seekability.
+- 81fb79e: Allow desktop hosts to provide a chat-first default app order while preserving user-pinned and manually reordered layouts.
+- 81fb79e: Stop `get-extension` from re-fetching source the agent already holds. Identical `contentQuery` excerpts are now deduplicated per run the same way whole-body reads already were — one production turn spent 48 of its 110 extension reads re-sending spans it had just been given. The large-body hint also now says when a single `forceContent` read costs less context than repeated excerpts.
+- 81fb79e: Hide app-owned chat sidebars when Electron or Dispatch provides the host chat.
+- 81fb79e: Add a boolean-first hosted tools-only harness configuration for production apps, with Claude Code, Codex, Pi, and OpenCode runtime choices and no repository or code-editing access.
+- 81fb79e: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- 81fb79e: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- 81fb79e: Attribute client analytics, action calls, and agent runs with a canonical `client_platform` value for web, Electron, and mobile surfaces.
+- 81fb79e: Name the case where an Observational Memory cursor cannot apply to the window it is given. The cursor is a position in whichever message array observed it, and the live agent loop's array counts each tool result separately while the store-derived one folds those into their tool-call parts — so a cursor from the longer basis leaves the thread permanently unable to observe anything, reported identically to "nothing new". It now says so instead.
+- 81fb79e: Keep post-turn Observational Memory compaction alive on serverless hosts. The pass is issued after the turn's `done` event and has to finish a streaming model call before it writes, so on a host that freezes the isolate once the response settles the unregistered promise was simply killed and the thread never accrued the memory that would have spared the next turn. It now registers with the request's `waitUntil` when the platform provides one; long-lived hosts keep the existing fire-and-forget behavior.
+- 81fb79e: Add Portal handoffs for resumable code-agent runs: snapshot local changes to a remote branch, prepare an isolated worktree on a paired computer, and load that computer's local environment without transferring secrets.
+- 81fb79e: Read a line's `a:headEnd`/`a:tailEnd` decorations when importing a PPTX. A connector that terminates in a round dot at both ends — 11 of the 18 connectors on one real SlidesMania deck — imported as a bare rule, because the parser stopped at the stroke's colour and width. Ends of every type are now recorded on the element, including the ones a renderer cannot draw, so a skipped end stays distinguishable from a line the source drew bare.
+- 81fb79e: Keep a PPTX picture's own frame geometry when importing, so a portrait cropped to an `ellipse` or freeform frame renders inside that shape instead of as the hard square its bounding box happens to be.
+- 81fb79e: Preserve embedded chat transcript restoration when React StrictMode replays effects.
+- 81fb79e: Create framework chat, agent-run, harness-session, and usage-alert tables in release migrations so production request functions do not fail on missing schema. Upgrade Better Auth to the newest mature 1.6.x release for the Drizzle adapter stack-overflow fix.
+- 81fb79e: Recover conversation history on the server when a foreground turn arrives without any. The client trims history against a size budget, so a single tool-heavy turn could reduce it to nothing — and downstream that is indistinguishable from the first message of a new thread. An existing thread now falls back to a bounded, text-only window of what was said, so the agent stops re-deriving answers it already gave. A new contract test covers the client-trim → wire → engine-messages seam, where unit tests on both halves passed while the conversation went missing between them.
+- 81fb79e: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
+- 81fb79e: Keep app chat context chips current and prevent hover chrome from flashing during app switches.
+- 81fb79e: Allow chat-first surface tabs to expose the shared new-tab affordance used by desktop terminal tabs.
+- Updated dependencies [81fb79e]
+  - @agent-native/toolkit@0.16.3
+
+## 0.157.9
+
+### Patch Changes
+
+- 43fa797: Keep the user's own messages in agent chat history when a tool-heavy turn is large. The request history was priced against one 64,000-char budget spent newest-first, so a single read-heavy assistant turn could evict every earlier thing the user asked for — in one measured production thread the model saw none of the user's previous nine asks and re-derived the same answer each turn. Tool payloads and user messages now draw on separate budgets, and an oversized recent turn no longer drops the cheaper messages behind it.
+- 43fa797: Allow the Clips ffmpeg runtime in Netlify function size checks while preserving frame extraction and video seekability.
+- 43fa797: Stop `get-extension` from re-fetching source the agent already holds. Identical `contentQuery` excerpts are now deduplicated per run the same way whole-body reads already were — one production turn spent 48 of its 110 extension reads re-sending spans it had just been given. The large-body hint also now says when a single `forceContent` read costs less context than repeated excerpts.
+- 43fa797: Hide app-owned chat sidebars when Electron or Dispatch provides the host chat.
+- 43fa797: Add a boolean-first hosted tools-only harness configuration for production apps, with Claude Code, Codex, Pi, and OpenCode runtime choices and no repository or code-editing access.
+- 43fa797: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- 43fa797: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- 43fa797: Name the case where an Observational Memory cursor cannot apply to the window it is given. The cursor is a position in whichever message array observed it, and the live agent loop's array counts each tool result separately while the store-derived one folds those into their tool-call parts — so a cursor from the longer basis leaves the thread permanently unable to observe anything, reported identically to "nothing new". It now says so instead.
+- 43fa797: Keep post-turn Observational Memory compaction alive on serverless hosts. The pass is issued after the turn's `done` event and has to finish a streaming model call before it writes, so on a host that freezes the isolate once the response settles the unregistered promise was simply killed and the thread never accrued the memory that would have spared the next turn. It now registers with the request's `waitUntil` when the platform provides one; long-lived hosts keep the existing fire-and-forget behavior.
+- 43fa797: Preserve embedded chat transcript restoration when React StrictMode replays effects.
+- 43fa797: Keep streamed assistant prefixes visible when a resumable turn continues with
+  only the response suffix.
+- 43fa797: Create framework chat, agent-run, harness-session, and usage-alert tables in release migrations so production request functions do not fail on missing schema. Upgrade Better Auth to the newest mature 1.6.x release for the Drizzle adapter stack-overflow fix.
+- 43fa797: Recover conversation history on the server when a foreground turn arrives without any. The client trims history against a size budget, so a single tool-heavy turn could reduce it to nothing — and downstream that is indistinguishable from the first message of a new thread. An existing thread now falls back to a bounded, text-only window of what was said, so the agent stops re-deriving answers it already gave. A new contract test covers the client-trim → wire → engine-messages seam, where unit tests on both halves passed while the conversation went missing between them.
+- 43fa797: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
+- 43fa797: Keep app chat context chips current and prevent hover chrome from flashing during app switches.
+- Updated dependencies [43fa797]
+  - @agent-native/toolkit@0.16.2
+
+## 0.157.8
+
+### Patch Changes
+
+- cb0b70c: Serialize durable sync-event retention prunes across Postgres workers.
+
+## 0.157.7
+
+### Patch Changes
+
+- fb18771: Keep the user's own messages in agent chat history when a tool-heavy turn is large. The request history was priced against one 64,000-char budget spent newest-first, so a single read-heavy assistant turn could evict every earlier thing the user asked for — in one measured production thread the model saw none of the user's previous nine asks and re-derived the same answer each turn. Tool payloads and user messages now draw on separate budgets, and an oversized recent turn no longer drops the cheaper messages behind it.
+- fb18771: Allow the Clips ffmpeg runtime in Netlify function size checks while preserving frame extraction and video seekability.
+- fb18771: Stop `get-extension` from re-fetching source the agent already holds. Identical `contentQuery` excerpts are now deduplicated per run the same way whole-body reads already were — one production turn spent 48 of its 110 extension reads re-sending spans it had just been given. The large-body hint also now says when a single `forceContent` read costs less context than repeated excerpts.
+- fb18771: Hide app-owned chat sidebars when Electron or Dispatch provides the host chat.
+- fb18771: Add a boolean-first hosted tools-only harness configuration for production apps, with Claude Code, Codex, Pi, and OpenCode runtime choices and no repository or code-editing access.
+- fb18771: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- fb18771: Name the case where an Observational Memory cursor cannot apply to the window it is given. The cursor is a position in whichever message array observed it, and the live agent loop's array counts each tool result separately while the store-derived one folds those into their tool-call parts — so a cursor from the longer basis leaves the thread permanently unable to observe anything, reported identically to "nothing new". It now says so instead.
+- fb18771: Keep post-turn Observational Memory compaction alive on serverless hosts. The pass is issued after the turn's `done` event and has to finish a streaming model call before it writes, so on a host that freezes the isolate once the response settles the unregistered promise was simply killed and the thread never accrued the memory that would have spared the next turn. It now registers with the request's `waitUntil` when the platform provides one; long-lived hosts keep the existing fire-and-forget behavior.
+- fb18771: Recover conversation history on the server when a foreground turn arrives without any. The client trims history against a size budget, so a single tool-heavy turn could reduce it to nothing — and downstream that is indistinguishable from the first message of a new thread. An existing thread now falls back to a bounded, text-only window of what was said, so the agent stops re-deriving answers it already gave. A new contract test covers the client-trim → wire → engine-messages seam, where unit tests on both halves passed while the conversation went missing between them.
+- fb18771: Keep app chat context chips current and prevent hover chrome from flashing during app switches.
+- Updated dependencies [fb18771]
+  - @agent-native/toolkit@0.16.1
+
+## 0.157.6
+
+### Patch Changes
+
+- c6988f8: Allow the Clips ffmpeg runtime in Netlify function size checks while preserving frame extraction and video seekability.
+
+## 0.157.5
+
+### Patch Changes
+
+- 19581b5: Publish the Actions docs section (Overview, Defining Actions, Access & Authorization, Run Context, Other Surfaces, Advanced & Legacy) in place of the old monolithic actions page, and translate it into all ten supported locales.
+
+## 0.157.4
+
+### Patch Changes
+
+- 9e21e1b: Collapse embedded app navigation while the per-app chat rail is open.
+- 9e21e1b: Support app-scoped chat sidebars with a shared persisted open state and iframe-safe resizing.
+- 9e21e1b: Hide the create-app control when the chat-first sidebar is collapsed.
+- 9e21e1b: Keep ambient composer context chips isolated to the active app chat surface.
+  Surface embedded app session state to trusted hosts so signed-out app chats can
+  point users to the sign-in control in the app pane.
+- 9e21e1b: Redirect tokenized legacy magic-link URLs to Better Auth's verification endpoint.
+- 9e21e1b: Make account name editing compact and disable Save changes until the name differs from the saved value.
+- 9e21e1b: Recover chat surfaces with an inaccessible saved thread by opening a fresh thread before the first message is sent.
+- 9e21e1b: Remove the run-local option from shared signup and sign-in pages.
+- 9e21e1b: Chat no longer flashes and yanks the scroll while an answer streams. Two causes,
+  both in how streamed markdown was rendered:
+  - The finished message was rendered as one whole-document ReactMarkdown while
+    the streaming message was rendered as memoized per-block pieces. The instant
+    streaming stopped, the element tree changed shape, so React unmounted the
+    message and rebuilt it: code blocks re-highlighted, images refetched, and the
+    height collapsed for a frame — the "jumps especially at the end" report. The
+    block split now drives both phases, so nothing is rebuilt when a turn ends.
+  - The in-progress tail rendered through a different component than completed
+    blocks. A trailing newline promotes the tail to a completed block and the next
+    character pulls it back, so on every line break that paragraph's DOM was
+    destroyed and recreated — the "div rapidly being inserted and removed as text
+    streams" report. The tail now renders through the same component, so the
+    promotion reuses the DOM.
+
+  The message list was keyed on a digest of every message's part structure, so
+  the whole transcript unmounted and remounted each time a tool call started or a
+  placeholder tool id was rewritten to its server id — a flash and a lost scroll
+  position in the middle of an answer. That key guarded assistant-ui's stale
+  tap-resource render errors, which the error boundary around the list already
+  catches, clears and retries. `assistant-ui-part-churn.spec.tsx` drives part
+  append, mutation, id rename and splice through both the repository-import and
+  the streaming-adapter paths and records that no such error occurs, so the key is
+  gone and the boundary remains.
+
+  The scroll-to-bottom button was a flex sibling of the scroll viewport, so it
+  took 28px from the viewport when it appeared and gave it back when it hid —
+  and whether it appears is derived from scroll position, so it could scroll the
+  content enough to hide itself, which showed it again. That loop is the scroll
+  oscillating while text streams. It is now overlaid rather than in flow.
+
+  A code block that lost its highlighted HTML (a re-highlight after its content
+  changed) was hidden until Shiki resolved, blanking code the user was reading.
+  Space is still reserved invisibly on first paint, but a block that has already
+  painted never hides again.
+
+  Using one split for both phases required the split to be faithful to a
+  whole-document parse, which it was not: lists continue across blank lines and
+  link-reference/footnote definitions resolve document-wide, so splitting on a
+  blank line rendered a spaced list as several one-item lists and a referenced
+  link as literal `[text]`. That was visible during streaming and was silently
+  corrected only when the stream ended. `splitMarkdownBlocks` now keeps lists
+  whole across blank lines and declines to split a document containing reference
+  definitions, keeps indented code blocks whole across blank lines, and detects
+  those definitions during the fence-aware scan rather than over the raw text —
+  a TypeScript index signature inside a fence reads exactly like `[id]: url`, and
+  matching it disabled splitting for the whole message. `markdown-block-split.spec.ts`
+  asserts split/whole render parity construct by construct.
+
+- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+- 9e21e1b: Keep embedded workspace apps synchronized with their parent light or dark theme.
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+  - @agent-native/toolkit@0.16.0
+
 ## 0.157.3
 
 ### Patch Changes

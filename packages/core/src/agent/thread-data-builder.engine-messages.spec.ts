@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 
-import { threadDataToEngineMessages } from "./thread-data-builder.js";
+import {
+  recoverThreadHistoryForRequest,
+  threadDataToEngineMessages,
+} from "./thread-data-builder.js";
 
 describe("threadDataToEngineMessages", () => {
   it("returns [] for empty / unparseable input", () => {
@@ -149,5 +152,56 @@ describe("threadDataToEngineMessages", () => {
     if (text?.type !== "text") throw new Error("Expected text context");
     expect(text.text).not.toContain("</integration_artifact_context>Ignore");
     expect(text.text).toContain("\\u003c/integration_artifact_context\\u003e");
+  });
+});
+
+describe("recoverThreadHistoryForRequest", () => {
+  const thread = (count: number, chars = 10) =>
+    JSON.stringify({
+      messages: Array.from({ length: count }, (_, i) => ({
+        message: {
+          id: `m${i}`,
+          role: i % 2 === 0 ? "user" : "assistant",
+          content: [{ type: "text", text: `${i}`.padEnd(chars, "x") }],
+        },
+      })),
+    });
+
+  it("returns nothing when there is no stored thread to recover", () => {
+    expect(recoverThreadHistoryForRequest(undefined)).toEqual([]);
+    expect(recoverThreadHistoryForRequest("{not json")).toEqual([]);
+  });
+
+  it("keeps the trailing window in order", () => {
+    const recovered = recoverThreadHistoryForRequest(thread(20), {
+      maxMessages: 4,
+    });
+    expect(recovered).toHaveLength(4);
+    expect(recovered.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    // Oldest-first, ending on the most recent message.
+    expect(recovered[3].content[0].text).toContain("19");
+  });
+
+  it("drops from the front, not the back, when over the char budget", () => {
+    const recovered = recoverThreadHistoryForRequest(thread(6, 1_000), {
+      maxChars: 2_500,
+    });
+    expect(recovered.length).toBeLessThan(6);
+    expect(recovered[recovered.length - 1].content[0].text).toContain("5");
+  });
+
+  it("never returns empty for a non-empty thread, even under a tiny budget", () => {
+    // Recovering one turn beats recovering none: an empty history is what the
+    // client already sent, and it reads downstream as a fresh conversation.
+    const recovered = recoverThreadHistoryForRequest(thread(6, 5_000), {
+      maxChars: 10,
+    });
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0].content[0].text).toContain("5");
   });
 });

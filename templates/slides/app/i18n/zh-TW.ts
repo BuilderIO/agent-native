@@ -285,6 +285,7 @@ const messages = {
     creatingLink: "正在建立連結...",
     createShareLink: "建立共用連結",
     copyLink: "複製連結",
+    copied: "已複製",
     openSharedLink: "開啟共用連結",
     anyoneWithLink: "擁有此連結的任何人都可以檢視此簡報。",
   },

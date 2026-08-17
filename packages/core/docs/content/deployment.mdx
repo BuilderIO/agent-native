@@ -557,7 +557,7 @@ Three things to keep in mind:
 
 - **Turning caching off does not make SSR personalized.** Cookies are still stripped before render and SSR loaders still see the anonymous branch. Per-user data must still be resolved client-side. This variable controls cache _duration_ only.
 - **It is deployment-wide, not per-route, by design.** A per-route or per-request cache override is how one visitor's payload ends up in another visitor's shared CDN entry, so the framework does not offer one — `guard:ssr-cache-shell` enforces it.
-- **For mutation-fresh data, prefer actions over disabling the cache.** App data belongs in [actions](/docs/actions), read from the client with `useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling; none of that goes through the SSR shell cache. Keep SSR loaders rendering the public shell, and reach for this variable only when you genuinely want loader data fresher.
+- **For mutation-fresh data, prefer actions over disabling the cache.** App data belongs in [actions](/docs/actions-overview), read from the client with `useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling; none of that goes through the SSR shell cache. Keep SSR loaders rendering the public shell, and reach for this variable only when you genuinely want loader data fresher.
 
 ## Environment Variables {#environment-variables}
 

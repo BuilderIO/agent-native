@@ -290,6 +290,7 @@ const messages = {
     creatingLink: "正在创建链接...",
     createShareLink: "创建共享链接",
     copyLink: "复制链接",
+    copied: "已复制",
     openSharedLink: "打开共享链接",
     anyoneWithLink: "拥有此链接的任何人都可以查看此演示文稿。",
   },

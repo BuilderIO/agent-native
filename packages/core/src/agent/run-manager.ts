@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -589,11 +590,8 @@ export function resolveRunSoftTimeoutMs(
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return clampHosted(Math.max(0, overrideMs));
   }
-  const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
-  }
+  const configured = getAppConfig().agent.runSoftTimeoutMs;
+  if (configured !== undefined) return clampHosted(configured);
   // A background-function run uses the full background budget by default; the
   // foreground default (40s) is unchanged.
   if (background) {
@@ -605,21 +603,17 @@ export function resolveRunSoftTimeoutMs(
 }
 
 export function resolveCompletedRunRetentionMs(): number {
-  const envValue = process.env.AGENT_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_COMPLETED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.completedRunRetentionMs ??
+    DEFAULT_COMPLETED_RUN_RETENTION_MS
+  );
 }
 
 export function resolveErroredRunRetentionMs(): number {
-  const envValue = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_ERRORED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.erroredRunRetentionMs ??
+    DEFAULT_ERRORED_RUN_RETENTION_MS
+  );
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {

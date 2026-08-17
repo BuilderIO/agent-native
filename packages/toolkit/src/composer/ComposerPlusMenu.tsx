@@ -11,6 +11,8 @@ import {
   IconLoader2,
   IconArrowLeft,
   IconX,
+  IconHelpCircle,
+  IconTerminal2,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -22,6 +24,7 @@ import React, {
 import { createPortal } from "react-dom";
 
 import { Popover, PopoverTrigger, PopoverContent } from "../ui/popover.js";
+import { Switch } from "../ui/switch.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import {
@@ -31,6 +34,12 @@ import {
 } from "./asset-picker-url.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { ComposerMode } from "./types.js";
+
+export interface ComposerTerminalModeControl {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  onNewTerminal?: () => void;
+}
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
@@ -45,9 +54,11 @@ interface ComposerPlusMenuProps {
    * Automation, and MCP Server. Extension is included only when
    * `extensionTools` is true. "upload-only": clicking + opens the file picker
    * directly — no popover, no other modes. Use for prompt popovers where the
-   * only thing to attach is a file.
+   * only thing to attach is a file. "terminal": one new-terminal action plus
+   * the Terminal mode switch.
    */
-  mode?: "full" | "upload-only";
+  mode?: "full" | "upload-only" | "terminal";
+  terminalModeControl?: ComposerTerminalModeControl;
 }
 
 type View = "menu" | "skill-upload";
@@ -196,6 +207,39 @@ function formatAttachmentError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function MenuItemHelp({
+  label,
+  description,
+}: {
+  label: string;
+  description?: string;
+}) {
+  const normalizedDescription = description?.trim();
+  if (!normalizedDescription) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="img"
+          tabIndex={0}
+          aria-label={`${label}: ${normalizedDescription}`}
+          onClick={(event) => event.stopPropagation()}
+          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <IconHelpCircle
+            aria-hidden="true"
+            className="size-3"
+            strokeWidth={1.8}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-xs">
+        {normalizedDescription}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function UploadOnlyAttachButton({
   onAttachmentError,
 }: Pick<ComposerPlusMenuProps, "onAttachmentError">) {
@@ -260,9 +304,15 @@ export function ComposerPlusMenu({
   onAttachmentError,
   extensionTools = false,
   mode = "full",
+  terminalModeControl,
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
     return <UploadOnlyAttachButton onAttachmentError={onAttachmentError} />;
+  }
+  if (mode === "terminal" && terminalModeControl) {
+    return (
+      <ComposerPlusMenuTerminal terminalModeControl={terminalModeControl} />
+    );
   }
   return (
     <ComposerPlusMenuFull
@@ -270,6 +320,73 @@ export function ComposerPlusMenu({
       onAttachmentError={onAttachmentError}
       extensionTools={extensionTools}
     />
+  );
+}
+
+function ComposerPlusMenuTerminal({
+  terminalModeControl,
+}: Pick<ComposerPlusMenuProps, "terminalModeControl">) {
+  const [open, setOpen] = useState(false);
+
+  if (!terminalModeControl) return null;
+
+  const handlePrimaryAction = () => {
+    if (!terminalModeControl.enabled) {
+      terminalModeControl.onChange(true);
+      setOpen(false);
+      return;
+    }
+    terminalModeControl.onNewTerminal?.();
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            aria-label="Terminal options" /* i18n-ignore -- portable toolkit label */
+            title="Terminal options" /* i18n-ignore -- portable toolkit label */
+          >
+            <IconPlus className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={8}
+          className="w-56 border-input bg-muted p-1 text-foreground"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-[12px] font-medium text-foreground hover:bg-accent/60"
+            onClick={handlePrimaryAction}
+          >
+            <IconTerminal2
+              size={14}
+              className="shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <span>
+              {terminalModeControl.enabled ? "New terminal" : "Start terminal"}
+            </span>
+          </button>
+          <div className="my-1 border-t border-border/70" />
+          <div className="flex items-center justify-between gap-3 px-2.5 py-2">
+            <span className="text-[12px] font-medium text-foreground">
+              {"Terminal mode" /* i18n-ignore -- portable toolkit label */}
+            </span>
+            <Switch
+              checked={terminalModeControl.enabled}
+              onCheckedChange={terminalModeControl.onChange}
+              aria-label="Terminal mode" /* i18n-ignore -- portable toolkit label */
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 
@@ -597,7 +714,7 @@ function ComposerPlusMenuFull({
           align="start"
           sideOffset={8}
           className={cn(
-            "p-0 rounded-lg",
+            "rounded-lg border-input bg-muted p-0 text-foreground",
             view === "skill-upload"
               ? "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto"
               : "w-[260px]",
@@ -612,7 +729,11 @@ function ComposerPlusMenuFull({
                 return (
                   <div
                     key={item.label}
-                    className={cn("relative", isSkill && "group/skill")}
+                    className={cn(
+                      "relative flex items-center hover:bg-accent/50",
+                      isSkill && "group/skill",
+                      isSkill && skillFlyoutOpen && "bg-accent/50",
+                    )}
                     onMouseEnter={(e) => {
                       if (isSkill) {
                         openSkillFlyout(e.currentTarget);
@@ -640,88 +761,107 @@ function ComposerPlusMenuFull({
                       type="button"
                       onClick={item.action}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50",
-                        isSkill && skillFlyoutOpen && "bg-accent/50",
+                        "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start",
                       )}
                     >
                       <span className="text-muted-foreground">{item.icon}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-medium text-foreground">
+                      <span className="flex min-w-0 items-center gap-0.5">
+                        <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                           {item.label}
-                        </div>
-                        <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                          {item.desc}
-                        </div>
-                      </div>
-                      {isSkill && (
-                        <span className="ms-auto text-muted-foreground/60">
-                          ›
                         </span>
-                      )}
+                        <MenuItemHelp
+                          label={item.label}
+                          description={item.desc}
+                        />
+                      </span>
                     </button>
+                    {isSkill && (
+                      <span className="me-3 ms-auto text-muted-foreground/60">
+                        ›
+                      </span>
+                    )}
                     {isSkill && skillFlyoutOpen && (
                       <div
                         role="menu"
                         onMouseEnter={() => openSkillFlyout()}
                         onMouseLeave={scheduleSkillFlyoutClose}
                         className={cn(
-                          "absolute top-0 z-20 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md",
+                          "absolute top-0 z-20 w-[240px] rounded-lg border border-input bg-muted py-1 text-foreground shadow-md",
                           skillFlyoutSide === "right"
                             ? "left-full ml-1"
                             : "right-full mr-1",
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectMode?.("skill");
-                            setSkillFlyoutOpen(false);
-                            setOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
-                        >
-                          <span className="text-muted-foreground">
-                            <IconBulb className="h-3.5 w-3.5" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-[12px] font-medium text-foreground">
-                              {t("agentChat.composer.skill.createNew", {
-                                defaultValue: "Create new skill",
-                              })}
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                              {t("agentChat.composer.skill.createDescription", {
-                                defaultValue:
-                                  "Describe a skill and let the agent draft it",
-                              })}
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSkillFlyoutOpen(false);
-                            skillFileInputRef.current?.click();
-                          }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
-                        >
-                          <span className="text-muted-foreground">
-                            <IconUpload className="h-3.5 w-3.5" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-[12px] font-medium text-foreground">
-                              {t("agentChat.composer.skill.uploadFile", {
-                                defaultValue: "Upload skill file",
-                              })}
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                              {t("agentChat.composer.skill.uploadDescription", {
-                                defaultValue:
-                                  "Import an existing SKILL.md file",
-                              })}
-                            </div>
-                          </div>
-                        </button>
+                        <div className="flex items-center hover:bg-accent/50">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectMode?.("skill");
+                              setSkillFlyoutOpen(false);
+                              setOpen(false);
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start"
+                          >
+                            <span className="text-muted-foreground">
+                              <IconBulb className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex min-w-0 items-center gap-0.5">
+                              <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+                                {t("agentChat.composer.skill.createNew", {
+                                  defaultValue: "Create new skill",
+                                })}
+                              </span>
+                              <MenuItemHelp
+                                label={t("agentChat.composer.skill.createNew", {
+                                  defaultValue: "Create new skill",
+                                })}
+                                description={t(
+                                  "agentChat.composer.skill.createDescription",
+                                  {
+                                    defaultValue:
+                                      "Describe a skill and let the agent draft it",
+                                  },
+                                )}
+                              />
+                            </span>
+                          </button>
+                        </div>
+                        <div className="flex items-center hover:bg-accent/50">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSkillFlyoutOpen(false);
+                              skillFileInputRef.current?.click();
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start"
+                          >
+                            <span className="text-muted-foreground">
+                              <IconUpload className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex min-w-0 items-center gap-0.5">
+                              <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+                                {t("agentChat.composer.skill.uploadFile", {
+                                  defaultValue: "Upload skill file",
+                                })}
+                              </span>
+                              <MenuItemHelp
+                                label={t(
+                                  "agentChat.composer.skill.uploadFile",
+                                  {
+                                    defaultValue: "Upload skill file",
+                                  },
+                                )}
+                                description={t(
+                                  "agentChat.composer.skill.uploadDescription",
+                                  {
+                                    defaultValue:
+                                      "Import an existing SKILL.md file",
+                                  },
+                                )}
+                              />
+                            </span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

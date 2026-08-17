@@ -62,8 +62,72 @@ describe("shouldShowAssistantChatModelSelector", () => {
       encoding: "utf8",
     });
     expect(source).toContain("showModelSelector?: boolean");
+    expect(source).toMatch(
+      /shouldShowAssistantChatModelSelector\(\s+showModelSelector,/,
+    );
+  });
+});
+
+describe("AssistantChat thread restore and composer recovery", () => {
+  it("keeps failed thread restores visible and retryable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("knownAbsentThreadIds");
+    expect(source).toContain('setThreadRestoreError("unavailable")');
+    expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain("retryThreadRestore");
+    expect(source).toContain('t("agentChat.common.retry")');
+  });
+
+  it("replays embedded transcript restoration safely under StrictMode", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const restoreStart = source.indexOf(
+      "// Restore messages from server on mount",
+    );
+    const restoreEnd = source.indexOf(
+      "  useEffect(() => {\n    if (\n      !loadHistoryRepository",
+      restoreStart,
+    );
+    const restoreSource = source.slice(restoreStart, restoreEnd);
+
+    expect(restoreSource).toContain("React StrictMode replays effects");
+    expect(restoreSource).toContain("hasRestoredRef.current = false;");
+  });
+
+  it("persists composer text before the toolkit draft debounce can run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
     expect(source).toContain(
-      "shouldShowAssistantChatModelSelector(\n                                          showModelSelector,",
+      "writeAssistantChatComposerDraft(composerDraftScope, text)",
+    );
+    expect(source).toContain("initialTextKey={composerDraftScope}");
+    expect(source).toContain("draftScope={composerDraftScope}");
+  });
+
+  it("synchronizes app context before a scope-switch paint", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const contextSyncStart = source.indexOf(
+      "useBrowserLayoutEffect(() => {\n    if (!isActiveComposer) return;",
+    );
+    const contextSyncEnd = source.indexOf(
+      "  // Tracks the JSON of the last queue",
+      contextSyncStart,
+    );
+    const contextSync = source.slice(contextSyncStart, contextSyncEnd);
+
+    expect(contextSync).toContain(
+      "applyVisibleItems(getAgentChatContextState());",
+    );
+    expect(contextSync).toContain(
+      "refreshAgentChatContext().then(applyVisibleItems)",
     );
   });
 });
@@ -1360,7 +1424,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 });
 
 describe("missing agent engine setup", () => {
-  it("renders the sidebar setup card and keeps the page popover responsive", () => {
+  it("renders an attached setup card for page and sidebar composers", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -1388,35 +1452,29 @@ describe("missing agent engine setup", () => {
     expect(source).not.toContain("autoScroll={false}");
     expect(source).not.toContain("useNearBottomAutoscroll<HTMLDivElement>");
     expect(source).not.toContain("scrollAnchor");
-    expect(source).toContain("composerContextItems.length > 0");
+    expect(source).toContain("visibleComposerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
-    expect(source).toContain("missingKeySetupOpen");
-    expect(source).toContain("requestMissingKeySetup");
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
     expect(source).toMatch(
       /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
     );
     expect(source).toContain("<BuilderSetupCard");
-    expect(source).toContain("showInlineMissingKeySetup");
     expect(source).toContain('"agentChat.setup.connectPlaceholder"');
-    expect(source).toContain('className="agent-composer-missing-key-trigger"');
-    expect(source).toContain('className="agent-composer-missing-key-cta"');
-    expect(source).toContain("<BuilderSetupContent");
     expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
-    expect(source).toContain("collisionPadding={12}");
-    expect(source).not.toContain("missingKeyBouncePulse");
+    expect(source).toContain("missingKeyBouncePulse");
+    expect(source).toContain(
+      "attached\n                                bouncePulse={missingKeyBouncePulse}",
+    );
+    expect(source).toContain('"agent-composer-area--attached-above"');
+    expect(source).toContain("layout={missingApiKeySetupLayout}");
+    expect(source).toMatch(
+      /disabled=\{\s*isComposerDisabled \|\| showMissingKeySetup\s*\}/,
+    );
     expect(source).not.toContain("data-agent-composer-setup-position");
-    expect(css).toMatch(
-      /\.agent-composer-root--hero\s+\.agent-composer-missing-key-trigger\s*\{[^}]*min-height:\s*7\.5rem;[^}]*justify-content:\s*center;/s,
-    );
-    expect(css).toMatch(
-      /\.agent-composer-missing-key-trigger:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px hsl\(var\(--ring\)\);/s,
-    );
-    expect(css).toMatch(
-      /\.agent-composer-missing-key-cta\s*\{[^}]*background:\s*hsl\(var\(--foreground\)\);[^}]*color:\s*hsl\(var\(--background\)\);/s,
-    );
+    expect(css).toContain(".agent-builder-setup-card--attached");
+    expect(css).toContain(".agent-composer-area--attached-above");
   });
 
   it("keeps a no-provider prompt queued until setup is connected", () => {
@@ -1434,7 +1492,6 @@ describe("missing agent engine setup", () => {
     const submitSource = source.slice(submitStart, submitEnd);
 
     expect(dequeueSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain("requestMissingKeySetup();");
     expect(submitSource).toContain(
       'engineSetupRequired || (isRunning && intent === "queued")',
     );

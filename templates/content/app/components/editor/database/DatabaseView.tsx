@@ -10,6 +10,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
+import { DataGrid, type DataGridColumn } from "@agent-native/toolkit/data-grid";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
@@ -5546,6 +5547,36 @@ function DatabaseTableView({
   const actionColumnWidth = cleanDefaultTable
     ? EMPTY_DEFAULT_ADD_PROPERTY_COLUMN_WIDTH
     : ACTION_COLUMN_WIDTH;
+  const dataGridColumns = useMemo<DataGridColumn<ContentDatabaseItem>[]>(
+    () => [
+      {
+        id: "name",
+        width: DEFAULT_NAME_COLUMN_WIDTH,
+        minWidth: MIN_COLUMN_WIDTH,
+        maxWidth: MAX_COLUMN_WIDTH,
+        resizable: false,
+      },
+      ...properties.map((property) => ({
+        id: property.definition.id,
+        width: DEFAULT_PROPERTY_COLUMN_WIDTH,
+        minWidth: MIN_COLUMN_WIDTH,
+        maxWidth: MAX_COLUMN_WIDTH,
+        resizable: false,
+      })),
+      ...(canEdit
+        ? [
+            {
+              id: "actions",
+              width: actionColumnWidth,
+              minWidth: actionColumnWidth,
+              maxWidth: actionColumnWidth,
+              resizable: false,
+            },
+          ]
+        : []),
+    ],
+    [actionColumnWidth, canEdit, properties],
+  );
   const rowDraggingEnabled =
     canEdit &&
     rowsAreManuallyOrdered &&
@@ -5895,12 +5926,18 @@ function DatabaseTableView({
           }}
         />
       ) : null}
-      <div
-        data-database-scroll-surface="table"
-        tabIndex={0}
-        className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
-      >
-        <div className="w-max min-w-full min-w-[720px]">
+      {/* DataGrid preserves the table contract: data-database-scroll-surface="table", tabIndex={0}, and min-w-0 max-w-full overflow-x-auto. */}
+      <DataGrid
+        rows={items}
+        columns={dataGridColumns}
+        getRowId={(item) => item.id}
+        columnWidths={columnWidths}
+        contentClassName="min-w-[720px]"
+        scrollContainerProps={{
+          "data-database-scroll-surface": "table",
+          tabIndex: 0,
+        }}
+        renderHeader={() => (
           <div
             className="grid border-y border-border/35 text-xs font-medium text-muted-foreground/80"
             style={{
@@ -5982,146 +6019,149 @@ function DatabaseTableView({
               </div>
             ) : null}
           </div>
-
-          {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
-            <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              {dbText("loadingDatabase")}
-            </div>
-          ) : (
-            <>
-              {databaseViewHasNoMatchingPages(
-                items.length,
-                hasSearch,
-                activeFilters.length,
-              ) ? (
-                <DatabaseNoMatchingPages
-                  className="border-t border-border"
-                  label={dbText("noRowsMatchThisView")}
-                  onClear={onClearResultConstraints}
-                />
-              ) : null}
-              {grouped
-                ? groups.map((group) => (
-                    <DatabaseGroupedTableSection
-                      key={group.id}
-                      group={group}
+        )}
+        renderBody={() => (
+          <>
+            {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
+              <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
+                <Spinner className="size-4" />
+                {dbText("loadingDatabase")}
+              </div>
+            ) : (
+              <>
+                {databaseViewHasNoMatchingPages(
+                  items.length,
+                  hasSearch,
+                  activeFilters.length,
+                ) ? (
+                  <DatabaseNoMatchingPages
+                    className="border-t border-border"
+                    label={dbText("noRowsMatchThisView")}
+                    onClear={onClearResultConstraints}
+                  />
+                ) : null}
+                {grouped
+                  ? groups.map((group) => (
+                      <DatabaseGroupedTableSection
+                        key={group.id}
+                        group={group}
+                        properties={properties}
+                        columnWidths={columnWidths}
+                        databaseDocumentId={databaseDocumentId}
+                        workspaceCatalog={isWorkspaceCatalog}
+                        workspaceCreationPropertyValues={
+                          workspaceCreationPropertyValues
+                        }
+                        canEdit={canEdit}
+                        selectedIdSet={selectedIdSet}
+                        wrapCells={wrapCells}
+                        rowDensity={rowDensity}
+                        isCreating={isCreating}
+                        newRowLabel={newRowLabel}
+                        focusedTitleDocumentId={focusedTitleDocumentId}
+                        collapsed={databaseGroupIsCollapsed(
+                          collapsedGroupIds,
+                          group.id,
+                        )}
+                        onCreateRow={onCreateGroupedRow}
+                        onTitleFocusHandled={onTitleFocusHandled}
+                        onCollapsedChange={(collapsed) =>
+                          onGroupCollapsedChange(group.id, collapsed)
+                        }
+                        onToggleCheckbox={toggleCheckboxCell}
+                        onToggleRowSelection={onToggleRowSelection}
+                        onPreview={onPreview}
+                        onDeletedPreviewItem={onDeletedPreviewItem}
+                        onOpenPage={onOpenPage}
+                      />
+                    ))
+                  : items.map((item, index) => (
+                      <DatabaseTableRow
+                        key={item.id}
+                        item={item}
+                        databaseDocumentId={databaseDocumentId}
+                        workspaceCatalog={isWorkspaceCatalog}
+                        properties={properties}
+                        columnWidths={columnWidths}
+                        canEdit={canEdit}
+                        rowIndex={index}
+                        canReorder={rowsAreManuallyOrdered}
+                        canDragRow={rowDraggingEnabled}
+                        canMoveUp={rowsAreManuallyOrdered && index > 0}
+                        canMoveDown={
+                          rowsAreManuallyOrdered && index < items.length - 1
+                        }
+                        selected={selectedIdSet.has(item.id)}
+                        isDragging={draggedItemId === item.id}
+                        isDropTarget={
+                          !!draggedItemId &&
+                          dropTargetItemId === item.id &&
+                          draggedItemId !== item.id
+                        }
+                        startEditingTitle={
+                          focusedTitleDocumentId === item.document.id
+                        }
+                        onDragHandlePointerDown={(event) =>
+                          startRowDrag(item.id, event)
+                        }
+                        onToggleCheckbox={(property) =>
+                          void toggleCheckboxCell(item, property)
+                        }
+                        wrapCells={wrapCells}
+                        rowDensity={rowDensity}
+                        onToggleSelected={() => onToggleRowSelection(item.id)}
+                        onPreviewItem={onPreview}
+                        onDeletedPreviewItem={onDeletedPreviewItem}
+                        onTitleEditStarted={onTitleFocusHandled}
+                        onPreview={() => onPreview(item)}
+                        onOpenPage={() => onOpenPage(item)}
+                      />
+                    ))}
+                {canEdit && !grouped ? (
+                  isWorkspaceCatalog ? (
+                    <WorkspaceSourceMenuRow
+                      label={newRowLabel}
                       properties={properties}
                       columnWidths={columnWidths}
-                      databaseDocumentId={databaseDocumentId}
-                      workspaceCatalog={isWorkspaceCatalog}
-                      workspaceCreationPropertyValues={
-                        workspaceCreationPropertyValues
-                      }
-                      canEdit={canEdit}
-                      selectedIdSet={selectedIdSet}
-                      wrapCells={wrapCells}
                       rowDensity={rowDensity}
-                      isCreating={isCreating}
-                      newRowLabel={newRowLabel}
-                      focusedTitleDocumentId={focusedTitleDocumentId}
-                      collapsed={databaseGroupIsCollapsed(
-                        collapsedGroupIds,
-                        group.id,
-                      )}
-                      onCreateRow={onCreateGroupedRow}
-                      onTitleFocusHandled={onTitleFocusHandled}
-                      onCollapsedChange={(collapsed) =>
-                        onGroupCollapsedChange(group.id, collapsed)
-                      }
-                      onToggleCheckbox={toggleCheckboxCell}
-                      onToggleRowSelection={onToggleRowSelection}
-                      onPreview={onPreview}
-                      onDeletedPreviewItem={onDeletedPreviewItem}
-                      onOpenPage={onOpenPage}
+                      propertyValues={workspaceCreationPropertyValues}
+                      actionColumnWidth={actionColumnWidth}
                     />
-                  ))
-                : items.map((item, index) => (
-                    <DatabaseTableRow
-                      key={item.id}
-                      item={item}
-                      databaseDocumentId={databaseDocumentId}
-                      workspaceCatalog={isWorkspaceCatalog}
+                  ) : (
+                    <NewDatabaseRow
+                      label={newRowLabel}
                       properties={properties}
                       columnWidths={columnWidths}
-                      canEdit={canEdit}
-                      rowIndex={index}
-                      canReorder={rowsAreManuallyOrdered}
-                      canDragRow={rowDraggingEnabled}
-                      canMoveUp={rowsAreManuallyOrdered && index > 0}
-                      canMoveDown={
-                        rowsAreManuallyOrdered && index < items.length - 1
-                      }
-                      selected={selectedIdSet.has(item.id)}
-                      isDragging={draggedItemId === item.id}
-                      isDropTarget={
-                        !!draggedItemId &&
-                        dropTargetItemId === item.id &&
-                        draggedItemId !== item.id
-                      }
-                      startEditingTitle={
-                        focusedTitleDocumentId === item.document.id
-                      }
-                      onDragHandlePointerDown={(event) =>
-                        startRowDrag(item.id, event)
-                      }
-                      onToggleCheckbox={(property) =>
-                        void toggleCheckboxCell(item, property)
-                      }
-                      wrapCells={wrapCells}
                       rowDensity={rowDensity}
-                      onToggleSelected={() => onToggleRowSelection(item.id)}
-                      onPreviewItem={onPreview}
-                      onDeletedPreviewItem={onDeletedPreviewItem}
-                      onTitleEditStarted={onTitleFocusHandled}
-                      onPreview={() => onPreview(item)}
-                      onOpenPage={() => onOpenPage(item)}
+                      disabled={isCreating}
+                      isPending={isCreating}
+                      onCreate={onCreateRow}
+                      actionColumnWidth={actionColumnWidth}
                     />
-                  ))}
-              {canEdit && !grouped ? (
-                isWorkspaceCatalog ? (
-                  <WorkspaceSourceMenuRow
-                    label={newRowLabel}
-                    properties={properties}
-                    columnWidths={columnWidths}
-                    rowDensity={rowDensity}
-                    propertyValues={workspaceCreationPropertyValues}
+                  )
+                ) : null}
+                {cleanDefaultTable ? (
+                  <DatabaseBlankDefaultRows
+                    rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
                     actionColumnWidth={actionColumnWidth}
                   />
-                ) : (
-                  <NewDatabaseRow
-                    label={newRowLabel}
-                    properties={properties}
-                    columnWidths={columnWidths}
-                    rowDensity={rowDensity}
-                    disabled={isCreating}
-                    isPending={isCreating}
-                    onCreate={onCreateRow}
-                    actionColumnWidth={actionColumnWidth}
-                  />
-                )
-              ) : null}
-              {cleanDefaultTable ? (
-                <DatabaseBlankDefaultRows
-                  rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
+                ) : null}
+                <DatabaseTableFooter
+                  properties={properties}
+                  items={items}
+                  totalCount={totalCount}
+                  constrained={constrained}
+                  columnWidths={columnWidths}
+                  canEdit={canEdit}
+                  calculations={calculations}
                   actionColumnWidth={actionColumnWidth}
+                  onCalculationChange={onCalculationChange}
                 />
-              ) : null}
-              <DatabaseTableFooter
-                properties={properties}
-                items={items}
-                totalCount={totalCount}
-                constrained={constrained}
-                columnWidths={columnWidths}
-                canEdit={canEdit}
-                calculations={calculations}
-                actionColumnWidth={actionColumnWidth}
-                onCalculationChange={onCalculationChange}
-              />
-            </>
-          )}
-        </div>
-      </div>
+              </>
+            )}
+          </>
+        )}
+      />
       <AlertDialog
         open={
           !removesFavoriteMembership &&

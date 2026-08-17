@@ -1,11 +1,10 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  useActionMutation,
   useActionQuery,
+  useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
-import { IconLink, IconMail } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -34,7 +33,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface ShareMeetingPopoverProps {
   meetingId: string;
@@ -90,49 +88,16 @@ function ShareMeetingContent({
   const canManage = data?.role === "owner" || data?.role === "admin";
 
   return (
-    <>
-      <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="link" className="gap-1.5">
-            <IconLink size={14} />
-            {t("clipsFinalRaw.link")}
-          </TabsTrigger>
-          <TabsTrigger value="invite" className="gap-1.5">
-            <IconMail size={14} />
-            {t("clipsFinalRaw.invite")}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="link" className="mt-3">
-          <LinkTab
-            meetingId={meetingId}
-            shareUrl={shareUrl}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            shareTranscript={shareTranscript}
-            transcriptReady={transcriptReady}
-          />
-        </TabsContent>
-
-        <TabsContent value="invite" className="mt-3">
-          <SharePeopleTab
-            resourceType="meeting"
-            resourceId={meetingId}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            onError={(err, action) =>
-              toast.error(
-                err instanceof Error
-                  ? err.message
-                  : action === "invite"
-                    ? t("clipsFinalRaw.inviteFailed")
-                    : t("clipsFinalRaw.removePersonFailed"),
-              )
-            }
-          />
-        </TabsContent>
-      </Tabs>
-    </>
+    <div className="min-w-0 px-4 py-3">
+      <LinkTab
+        meetingId={meetingId}
+        shareUrl={shareUrl}
+        sharesQuery={sharesQuery}
+        canManage={canManage}
+        shareTranscript={shareTranscript}
+        transcriptReady={transcriptReady}
+      />
+    </div>
   );
 }
 
@@ -242,6 +207,16 @@ function LinkTab({
 
   return (
     <div className="space-y-3">
+      <CopyField
+        label={
+          isPublic
+            ? t("clipsFinalRaw.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
+        value={shareUrl}
+        disabled={!sharesLoaded}
+      />
+
       <GeneralAccessSelect
         visibility={visibility}
         canManage={canManage}
@@ -277,14 +252,20 @@ function LinkTab({
         />
       </div>
 
-      <CopyField
-        label={
-          isPublic
-            ? t("clipsFinalRaw.shareLink")
-            : t("shareDialog.shareWithHumans")
+      <SharePeopleTab
+        resourceType="meeting"
+        resourceId={meetingId}
+        sharesQuery={sharesQuery}
+        canManage={canManage}
+        onError={(err, action) =>
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : action === "invite"
+                ? t("clipsFinalRaw.inviteFailed")
+                : t("clipsFinalRaw.removePersonFailed"),
+          )
         }
-        value={shareUrl}
-        disabled={!sharesLoaded}
       />
 
       {!isPublic && canManage ? (

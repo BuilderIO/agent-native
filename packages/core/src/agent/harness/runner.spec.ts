@@ -149,6 +149,50 @@ describe("startAgentHarnessRun", () => {
       "stopped",
     );
   });
+
+  it("cleans up and marks the session errored when streaming fails", async () => {
+    const session = fakeSession("native-error", [
+      { type: "error", error: "provider disconnected" },
+    ]);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-error",
+      threadId: "thread-error",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-error" },
+    });
+
+    await expect(
+      capturedRunFn?.(() => {}, new AbortController().signal),
+    ).rejects.toThrow("provider disconnected");
+
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.updateAgentHarnessSession).toHaveBeenCalledWith(
+      "stored-error",
+      expect.objectContaining({ status: "errored", pendingApproval: null }),
+    );
+  });
 });
 
 function fakeAdapter(

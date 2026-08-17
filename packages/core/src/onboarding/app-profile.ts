@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import type { OnboardingCapability, OnboardingAppProfile } from "./types.js";
 
 const LLM_CAPABILITY: OnboardingCapability = {
@@ -395,10 +396,7 @@ function normalizeAppId(value: string | undefined): string {
 
 export function resolveOnboardingAppId(explicit?: string): string {
   return normalizeAppId(
-    explicit ??
-      process.env.AGENT_NATIVE_APP_ID ??
-      process.env.APP_ID ??
-      process.env.npm_package_name,
+    explicit ?? getAppConfig().app.id ?? getAppConfig().app.packageName,
   );
 }
 

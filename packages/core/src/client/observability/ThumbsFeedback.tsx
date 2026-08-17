@@ -1,19 +1,12 @@
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId, useRef } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
-
-const THUMBS_DOWN_CATEGORIES = [
-  { value: "Inaccurate", key: "agentChat.feedback.inaccurate" },
-  { value: "Not helpful", key: "agentChat.feedback.notHelpful" },
-  { value: "Wrong tool", key: "agentChat.feedback.wrongTool" },
-  { value: "Too slow", key: "agentChat.feedback.tooSlow" },
-] as const;
-
-type ThumbsDownCategory = (typeof THUMBS_DOWN_CATEGORIES)[number]["value"];
 
 export interface ThumbsFeedbackProps {
   threadId: string;
@@ -32,30 +25,38 @@ export function ThumbsFeedback({
 }: ThumbsFeedbackProps) {
   const t = useT();
   const [selection, setSelection] = useState<Selection>(null);
-  const [categoryOpen, setCategoryOpen] = useState(false);
-  const [submittedCategory, setSubmittedCategory] = useState<string | null>(
-    null,
-  );
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [textFeedback, setTextFeedback] = useState("");
+  const feedbackInputId = useId();
+  const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
 
   const sendFeedback = useCallback(
     async (
-      feedbackType: "thumbs_up" | "thumbs_down" | "category",
+      feedbackType: "thumbs_up" | "thumbs_down" | "text",
       value?: string,
-    ) => {
+    ): Promise<boolean> => {
       try {
-        await fetch(agentNativePath("/_agent-native/observability/feedback"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            threadId,
-            runId,
-            messageSeq,
-            feedbackType,
-            value: value ?? "",
-          }),
-        });
+        const response = await fetch(
+          agentNativePath("/_agent-native/observability/feedback"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              threadId,
+              runId,
+              messageSeq,
+              feedbackType,
+              value: value ?? "",
+            }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Feedback submission failed (${response.status})`);
+        }
+        return true;
       } catch {
-        // Fire-and-forget; don't block the UI on feedback submission failures
+        // coercion-ok: callers receive false and restore the retryable UI state.
+        return false;
       }
     },
     [threadId, runId, messageSeq],
@@ -64,29 +65,33 @@ export function ThumbsFeedback({
   const handleThumbsUp = useCallback(() => {
     if (selection === "up") return;
     setSelection("up");
-    setCategoryOpen(false);
-    setSubmittedCategory(null);
-    sendFeedback("thumbs_up");
+    setPopoverOpen(false);
+    void sendFeedback("thumbs_up").then((submitted) => {
+      if (!submitted) setSelection(null);
+    });
   }, [selection, sendFeedback]);
 
   const handleThumbsDown = useCallback(() => {
     if (selection === "down") {
-      setCategoryOpen((prev) => !prev);
+      setPopoverOpen((prev) => !prev);
       return;
     }
     setSelection("down");
-    setCategoryOpen(true);
-    sendFeedback("thumbs_down");
+    setPopoverOpen(true);
+    void sendFeedback("thumbs_down").then((submitted) => {
+      if (!submitted) setSelection(null);
+    });
   }, [selection, sendFeedback]);
 
-  const handleCategory = useCallback(
-    (category: ThumbsDownCategory) => {
-      setSubmittedCategory(category);
-      setCategoryOpen(false);
-      sendFeedback("category", category);
-    },
-    [sendFeedback],
-  );
+  const handleTextFeedback = useCallback(() => {
+    const value = textFeedback.trim();
+    if (!value) return;
+    void sendFeedback("text", value).then((submitted) => {
+      if (!submitted) return;
+      setTextFeedback("");
+      setPopoverOpen(false);
+    });
+  }, [sendFeedback, textFeedback]);
 
   return (
     <div className={cn("inline-flex items-center gap-0.5", className)}>
@@ -108,7 +113,7 @@ export function ThumbsFeedback({
         />
       </button>
 
-      <PopoverPrimitive.Root open={categoryOpen} onOpenChange={setCategoryOpen}>
+      <PopoverPrimitive.Root open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
@@ -135,25 +140,65 @@ export function ThumbsFeedback({
             align="start"
             sideOffset={4}
             collisionPadding={8}
-            className="z-[300] overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg outline-none"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              feedbackInputRef.current?.focus();
+            }}
+            className="z-[300] w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none origin-[var(--radix-popover-content-transform-origin)]"
           >
-            <div className="flex flex-col gap-0.5">
-              {THUMBS_DOWN_CATEGORIES.map((category) => (
-                <button
-                  key={category.value}
-                  type="button"
-                  onClick={() => handleCategory(category.value)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-start text-xs",
-                    submittedCategory === category.value
-                      ? "bg-accent text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            <form
+              className="flex flex-col gap-2.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleTextFeedback();
+              }}
+            >
+              <label
+                htmlFor={feedbackInputId}
+                className="text-xs font-medium text-foreground"
+              >
+                {t("agentChat.feedback.whatWentWrong")}
+              </label>
+              <Textarea
+                id={feedbackInputId}
+                ref={feedbackInputRef}
+                autoFocus
+                value={textFeedback}
+                onChange={(event) => setTextFeedback(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    (event.metaKey || event.ctrlKey) &&
+                    event.key === "Enter"
+                  ) {
+                    event.preventDefault();
+                    handleTextFeedback();
+                  }
+                }}
+                placeholder={t("agentChat.feedback.placeholder")}
+                rows={3}
+                maxLength={2000}
+                className="min-h-20 resize-none px-2.5 py-2 text-xs"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-muted-foreground/75">
+                  {t("agentChat.feedback.keyboardHint").replace(
+                    "{{shortcut}}",
+                    typeof navigator !== "undefined" &&
+                      /Mac|iPhone|iPad/.test(navigator.userAgent)
+                      ? "⌘"
+                      : "Ctrl",
                   )}
+                </span>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!textFeedback.trim()}
+                  className="h-7 px-2.5 text-xs"
                 >
-                  {t(category.key)}
-                </button>
-              ))}
-            </div>
+                  {t("agentChat.feedback.submit")}
+                </Button>
+              </div>
+            </form>
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>

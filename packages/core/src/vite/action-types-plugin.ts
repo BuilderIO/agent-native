@@ -59,6 +59,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
   },
   {
+    name: "get-hosted-harness-config",
+    specifier:
+      "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
+  },
+  {
+    name: "set-hosted-harness-enabled",
+    specifier:
+      "@agent-native/core/hosted-harness/actions/set-hosted-harness-enabled",
+  },
+  {
     name: "share-resource",
     specifier: "@agent-native/core/sharing/actions/share-resource",
   },

@@ -147,4 +147,59 @@ describe("RunsTray polling", () => {
     });
     expect(fetchMock.mock.calls.length).toBe(afterMount);
   });
+
+  it("renders a harness run from the shared background-run surface", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "harness-run-1",
+              kind: "harness",
+              source: "agent-harness",
+              sourceLabel: "Agent Harness",
+              title: "Codex harness",
+              status: "needs-approval",
+              goalId: "agent-harness",
+              needsInput: true,
+              needsApproval: true,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-harness" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="1 active run"]'),
+        ).toBeTruthy(),
+      );
+    });
+
+    const trigger = document.querySelector(
+      '[aria-label="1 active run"]',
+    ) as HTMLButtonElement | null;
+    expect(trigger).toBeTruthy();
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("Needs approval");
+    expect(
+      document.querySelector('[aria-label="Stop Codex harness"]'),
+    ).toBeTruthy();
+  });
 });

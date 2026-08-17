@@ -41,8 +41,16 @@ export {
   ROUTE_TRANSITION_INDICATOR_DELAY_MS,
 } from "../RouteTransitionIndicator.js";
 export {
+  applyEmbeddedThemeUpdate,
+  buildEmbeddedThemeUpdate,
+  EMBEDDED_THEME_CHANGE_EVENT,
+  EMBEDDED_THEME_UPDATE_MESSAGE,
   getThemeInitScript,
+  parseEmbeddedThemeUpdate,
   themeInitScript,
+  type EmbeddedThemeUpdate,
+  type NormalizedEmbeddedThemeUpdate,
+  type ResolvedTheme,
   type ThemePreference,
 } from "../theme.js";
 export {

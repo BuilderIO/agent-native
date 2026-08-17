@@ -173,8 +173,11 @@ export async function assertCanManageVault(): Promise<void> {
   }
 
   if (role !== "owner" && role !== "admin") {
-    throw new Error(
-      "Only organization owners and admins can manage the workspace vault.",
+    throw Object.assign(
+      new Error(
+        "Only organization owners and admins can manage the workspace vault.",
+      ),
+      { statusCode: 403 },
     );
   }
 }

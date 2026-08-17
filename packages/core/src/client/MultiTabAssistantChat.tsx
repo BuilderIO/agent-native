@@ -1,5 +1,16 @@
+import {
+  isClaudeCodeAgentId,
+  isLunaModel,
+  resolvePreferredAgentModel,
+} from "@agent-native/toolkit/composer/model-selection";
 import { IconPlus, IconHistory, IconX } from "@tabler/icons-react";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
@@ -17,6 +28,7 @@ import {
   claimAgentChatSubmit,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  filterAgentChatContextItems,
   getAgentChatContextState,
   isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
@@ -70,6 +82,9 @@ import {
 } from "./use-chat-threads.js";
 import { usePollLoop } from "./use-poll-loop.js";
 import { cn } from "./utils.js";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 interface ModelSelection {
   model: string;
@@ -776,6 +791,9 @@ export function MultiTabAssistantChat({
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
+  const contextNamespace = scope
+    ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
+    : undefined;
   const {
     enabled: threadUrlSyncEnabled,
     paramName: threadUrlParamName,
@@ -1038,6 +1056,9 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
+      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+        return;
+      }
       const ref = chatRefs.current.get(threadId);
       if (ref) {
         ref.setComposerContextItem(item, options);
@@ -1053,7 +1074,7 @@ export function MultiTabAssistantChat({
             );
       pendingContextItems.current.set(threadId, next);
     },
-    [],
+    [contextNamespace],
   );
 
   const removeContextInTab = useCallback((threadId: string, key: string) => {
@@ -1102,14 +1123,28 @@ export function MultiTabAssistantChat({
     (model: string, engine: string) => {
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
+      const preferredAgentModel =
+        isClaudeCodeAgentId(props.selectedAgent) && isLunaModel(model)
+          ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+          : undefined;
+      const nextModel = preferredAgentModel?.model ?? model;
+      const nextEngine = preferredAgentModel?.engine ?? engine;
       const existing = threadModelRef.current.get(threadId);
-      const effort = resolveReasoningEffortSelection(model, existing?.effort);
-      const selection = { model, engine, effort };
+      const effort = resolveReasoningEffortSelection(
+        nextModel,
+        existing?.effort,
+      );
+      const selection = { model: nextModel, engine: nextEngine, effort };
       threadModelRef.current.set(threadId, selection);
       persistModelSelection(selection);
       bumpModelSelectionVersion();
     },
-    [bumpModelSelectionVersion, persistModelSelection],
+    [
+      availableModels,
+      bumpModelSelectionVersion,
+      persistModelSelection,
+      props.selectedAgent,
+    ],
   );
 
   const handleEffortChange = useCallback(
@@ -1136,6 +1171,45 @@ export function MultiTabAssistantChat({
       resolveThreadModelSelection,
     ],
   );
+
+  useEffect(() => {
+    const preferredAgentModel = props.selectedAgent
+      ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+      : undefined;
+    if (!preferredAgentModel) return;
+
+    const threadId = activeThreadIdRef.current;
+    const current = threadId
+      ? resolveThreadModelSelection(threadId)
+      : persistedModelSelection;
+    if (
+      current?.model === preferredAgentModel.model &&
+      current.engine === preferredAgentModel.engine
+    ) {
+      return;
+    }
+
+    const selection = {
+      model: preferredAgentModel.model,
+      engine: preferredAgentModel.engine,
+      effort: resolveReasoningEffortSelection(
+        preferredAgentModel.model,
+        current?.effort,
+      ),
+    };
+    if (threadId) {
+      threadModelRef.current.set(threadId, selection);
+      bumpModelSelectionVersion();
+    }
+    persistModelSelection(selection);
+  }, [
+    availableModels,
+    bumpModelSelectionVersion,
+    persistedModelSelection,
+    props.selectedAgent,
+    persistModelSelection,
+    resolveThreadModelSelection,
+  ]);
 
   const refreshEngines = useCallback(() => {
     setModelListLoading(true);
@@ -1266,23 +1340,25 @@ export function MultiTabAssistantChat({
 
   const openTabsKeyRef = useRef(OPEN_TABS_KEY);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const nextScope = scope;
     if (!nextScope) return;
     const type = formatScopeType(nextScope.type);
     const title =
       nextScope.label?.trim() ||
       type.replace(/^./, (character) => character.toUpperCase());
-    const key = nextScope.contextKey || "agent-current-resource-context";
+    const key =
+      nextScope.contextKey?.trim() || "agent-current-resource-context";
     const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
     const existing = getAgentChatContextState().items.find(
       (item) => item.key === key,
     );
     let ownsContextItem = false;
-    if (!existing || existing.context.startsWith(marker)) {
+    if (!existing || existing.context.startsWith("Resource context:")) {
       setAgentChatContextItem({
         key,
         title,
+        ...(contextNamespace ? { contextNamespace } : {}),
         context: [
           marker,
           `The user is currently viewing this ${type}.`,
@@ -1307,7 +1383,13 @@ export function MultiTabAssistantChat({
         removeAgentChatContextItem(key);
       }
     };
-  }, [scope?.contextKey, scope?.id, scope?.label, scope?.type]);
+  }, [
+    contextNamespace,
+    scope?.contextKey,
+    scope?.id,
+    scope?.label,
+    scope?.type,
+  ]);
 
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
@@ -2657,6 +2739,7 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   tabId={tabId}
                   browserTabId={browserTabId}
+                  contextNamespace={contextNamespace}
                   isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={

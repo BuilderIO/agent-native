@@ -81,8 +81,8 @@ export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "admin", label: "Admin" },
 ];
 
-export function copyToClipboard(value: string): void {
-  void writeClipboardText(value);
+export function copyToClipboard(value: string): Promise<boolean> {
+  return writeClipboardText(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,10 +288,7 @@ export function CopyField({
       disabled={disabled}
       copyLabel={t("shareUi.copy")}
       copiedLabel={t("recordRoute.linkCopied")}
-      onCopy={(nextValue) => {
-        copyToClipboard(nextValue);
-        return true;
-      }}
+      onCopy={copyToClipboard}
     />
   );
 }

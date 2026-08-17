@@ -39,6 +39,7 @@ import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
+import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
@@ -77,7 +78,10 @@ import {
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
 import { shouldSuppressSlidesItalicShortcut } from "@/lib/editor-shortcuts";
-import { exportDeckToGoogleSlides } from "@/lib/export-google-slides-client";
+import {
+  exportDeckToGoogleSlides,
+  fetchDeckPptxFromServer,
+} from "@/lib/export-google-slides-client";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
@@ -1290,6 +1294,19 @@ export default function DeckEditor() {
           }));
           if (slides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          // Same routing as Export > PowerPoint: Google imports whichever file
+          // we upload, so an imported deck's shapes survive only if the server
+          // builds it. The server renders the persisted deck, hence the flush.
+          if (canExportPptxFromServer(deck)) {
+            await flushDeckSave(id);
+            return exportDeckToGoogleSlides(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              () =>
+                fetchDeckPptxFromServer(id, t("editorExport.exportPptxError")),
+            );
           }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}

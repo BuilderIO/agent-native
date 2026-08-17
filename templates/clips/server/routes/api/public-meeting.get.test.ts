@@ -94,6 +94,7 @@ function makeMeeting(overrides: Record<string, unknown> = {}) {
     transcriptStatus: "ready",
     summaryMd: "The team agreed on the launch plan.",
     bulletsJson: JSON.stringify([{ text: "Ship on Tuesday" }]),
+    ownerEmail: "owner@example.com",
     recordingId: "recording-1",
     shareTranscript: false,
     trashedAt: null,
@@ -140,7 +141,10 @@ describe("/api/public-meeting route", () => {
   });
 
   it("uses a valid meeting-scoped agent token without requiring a browser session", async () => {
-    const meeting = makeMeeting({ visibility: "private" });
+    const meeting = makeMeeting({
+      visibility: "private",
+      shareTranscript: true,
+    });
     const db = createDbWithSelectResults([[meeting], [], []]);
     mockGetQuery.mockReturnValue({
       id: "meeting-1",
@@ -163,7 +167,7 @@ describe("/api/public-meeting route", () => {
       meeting: { id: "meeting-1", title: "Weekly sync" },
       viewer: null,
     });
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
   });
 
   it("does not treat an invalid agent token as anonymous meeting access", async () => {
@@ -186,9 +190,13 @@ describe("/api/public-meeting route", () => {
     expect(mockGetDb).not.toHaveBeenCalled();
   });
 
-  it("omits the transcript by default", async () => {
+  it("returns a null transcript when no transcript row exists", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: true }),
+    });
     const db = createDbWithSelectResults([
-      [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
+      [{ email: "OWNER@example.com", name: "Owner", isOrganizer: true }],
       [
         {
           id: "item-1",
@@ -197,6 +205,7 @@ describe("/api/public-meeting route", () => {
           completedAt: null,
         },
       ],
+      [],
     ]);
     mockGetDb.mockReturnValue(db);
 
@@ -208,7 +217,7 @@ describe("/api/public-meeting route", () => {
         summaryMd: "The team agreed on the launch plan.",
         bullets: [{ text: "Ship on Tuesday" }],
         participants: [
-          { email: "guest@example.com", name: "Guest", isOrganizer: false },
+          { email: "OWNER@example.com", name: "Owner", isOrganizer: true },
         ],
         actionItems: [
           {
@@ -218,11 +227,14 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
+        // The owner is already a listed participant (case-insensitively),
+        // so their email is already public on this page — safe to include.
+        ownerEmail: "owner@example.com",
+        transcript: null,
       },
       viewer: null,
     });
-    expect("transcript" in (result as any).meeting).toBe(false);
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.select).toHaveBeenCalledTimes(3);
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       {},
       "Cache-Control",
@@ -230,35 +242,46 @@ describe("/api/public-meeting route", () => {
     );
   });
 
-  it("includes a normalized transcript only after the owner opts in", async () => {
+  it("does not expose the owner's email when they aren't a public participant", async () => {
+    const db = createDbWithSelectResults([
+      [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
+      [],
+    ]);
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({
+      meeting: { ownerEmail: null },
+    });
+  });
+
+  it("includes a normalized transcript when shareTranscript is enabled", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
       resource: makeMeeting({ shareTranscript: true }),
     });
-    const db = createDbWithSelectResults([]);
-    db.select = vi
-      .fn()
-      .mockImplementationOnce(() => selectBuilder([]))
-      .mockImplementationOnce(() => selectBuilder([]))
-      .mockImplementationOnce(() =>
-        selectBuilder([
-          {
-            status: "ready",
-            language: "en",
-            fullText: "Hello team. We are ready.",
-            failureReason: null,
-            segmentsJson: JSON.stringify([
-              {
-                startMs: 0,
-                endMs: 1_200,
-                text: "Hello team.",
-                source: "mic",
-              },
-            ]),
-            updatedAt: "2026-07-20T17:31:00.000Z",
-          },
-        ]),
-      );
+    const db = createDbWithSelectResults([
+      [],
+      [],
+      [
+        {
+          status: "ready",
+          language: "en",
+          fullText: "Hello team. We are ready.",
+          failureReason: null,
+          segmentsJson: JSON.stringify([
+            {
+              startMs: 0,
+              endMs: 1_200,
+              text: "Hello team.",
+              source: "mic",
+            },
+          ]),
+          updatedAt: "2026-07-20T17:31:00.000Z",
+        },
+      ],
+    ]);
     mockGetDb.mockReturnValue(db);
 
     const result = await handler({} as any);
@@ -281,6 +304,24 @@ describe("/api/public-meeting route", () => {
       },
     });
     expect(db.select).toHaveBeenCalledTimes(3);
+  });
+
+  it("omits the transcript when shareTranscript is disabled", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: false }),
+    });
+    const db = createDbWithSelectResults([[], []]);
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
+    expect(result).toHaveProperty("meeting");
+    expect(
+      (result as { meeting: Record<string, unknown> }).meeting,
+    ).not.toHaveProperty("transcript");
+    expect(db.select).toHaveBeenCalledTimes(2);
   });
 
   it("passes the signed-in viewer context to meeting access resolution", async () => {

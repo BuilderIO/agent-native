@@ -262,12 +262,38 @@ const messages = {
     privateClipMessage:
       "이 클립은 비공개입니다. 액세스를 요청하면 소유자에게 알림이 전송됩니다.",
     privateClipSignedOutMessage:
-      "이 클립은 비공개입니다. 소유자에게 액세스를 요청하려면 로그인하세요.",
+      "이 클립은 비공개입니다. 로그인하거나 이메일을 입력해 액세스를 요청하세요.",
     requestAccess: "액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "이 클립을 공유할 때 소유자가 나를 확인할 방법을 선택하세요.",
+    requestAccessSignIn: "로그인 또는 가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인해 클립을 볼 수 있습니다.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
     requestingAccess: "액세스 요청 중...",
     accessRequested: "액세스 요청됨",
     accessRequestSent: "클립 소유자에게 알림을 보냈습니다.",
+    accessRequestSentWithEmail:
+      "소유자에게 이 클립을 {{email}} 님과 공유해 달라고 요청했습니다.",
     accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 클립을 볼 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 클립에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 클립 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenClip: "클립 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
     clipUnavailable: "클립을 사용할 수 없음",
     clipUnavailableMessage:
       "이 녹음 파일은 공개되지 않았거나 링크가 유효하지 않습니다. 귀하의 클립인 경우 로그인하여 액세스 권한을 확인하세요.",
@@ -661,13 +687,13 @@ const messages = {
     collapse: "접기",
     changelogMarkdown: `# 변경 로그
 
-Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
+Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd+K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
 
 ## 2026-06-23
 
 ### 추가됨
 
-- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd K)와 설정에 있습니다.`,
+- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -1008,8 +1034,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pauseShortcut: "일시정지 (⌥⇧P)",
     stop: "녹화 중지",
     elapsed: "경과 시간",
-    cancel: "녹화 취소",
-    cancelShortcut: "취소 (⌥⇧C)",
+    cancel: "녹화 삭제",
+    cancelShortcut: "삭제 (⌥⇧C)",
+    discardConfirmTitle: "이 녹화를 삭제할까요?",
+    discardConfirmDescription:
+      "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
+    resume: "재개",
+    discardRecording: "녹화 삭제",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",
@@ -1098,6 +1129,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     searchPrevMatch: "이전 일치 항목",
     searchNextMatch: "다음 일치 항목",
     searchClose: "검색 닫기",
+  },
+  bulletLink: {
+    jumpToTranscript: "기록에서 {{time}}(으)로 이동",
+    noMatchingMoment: "일치하는 순간을 찾을 수 없음",
   },
   editorLayout: {
     trimmed: "잘라냈습니다",
@@ -1207,7 +1242,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     seekTo: "Seek to {{time}} (현지화됨)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (현지화됨)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
     playPauseTooltip: "Play / Pause (Space) (현지화됨)",
     sourceDuration: "({{duration}} src) (현지화됨)",
     previewSpeed: "Preview speed (현지화됨)",
@@ -1582,7 +1617,14 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     title: "Meetings (현지화됨)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
-    searchPlaceholder: "Search meetings... (현지화됨)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (현지화됨)",
+    agendaTab: "Agenda (현지화됨)",
+    pastTab: "Past (현지화됨)",
+    now: "Now (현지화됨)",
+    noPastMeetings: "No past meetings yet (현지화됨)",
+    loadOlder: "Load older (현지화됨)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
     noMeetingsYet: "No meetings yet (현지화됨)",
     noMeetingsDescription:

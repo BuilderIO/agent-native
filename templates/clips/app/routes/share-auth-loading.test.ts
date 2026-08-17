@@ -22,6 +22,11 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("enabled: !!shareId && !sessionLoading");
     expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
     expect(route).toContain("request-recording-access");
+    expect(route).toContain("RequestAccessDialog");
+    expect(route).toContain("requesterEmail");
+    expect(route).toContain("submitGuestAccessRequest");
+    expect(route).toContain("deniedData.accessRequestToken");
+    expect(route).toContain("...(userEmail ? { viewerEmail: userEmail } : {})");
     expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
     expect(route).toContain('IconLock className="h-5 w-5"');
@@ -85,5 +90,8 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("CLIPS_MEETING_AGENT_RESOURCE_KIND");
     expect(meetingRoute).toContain("agentAccessToken");
     expect(meetingRoute).toContain('fetchPublicMeeting(meetingId ?? "", {');
+    expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
+    expect(meetingRoute).toContain("recordingTranscripts");
+    expect(meetingRoute).toContain("transcript: transcript");
   });
 });

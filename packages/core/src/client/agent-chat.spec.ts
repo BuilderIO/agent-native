@@ -67,6 +67,7 @@ const {
   claimAgentChatSubmit,
   clearAgentChatContext,
   drainBufferedAgentChatSubmits,
+  filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
   insertAgentComposerReference,
@@ -858,5 +859,30 @@ describe("formatAgentChatContextItemsForPrompt", () => {
         { key: "b", title: "Cart", context: "2 items" },
       ]),
     ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
+  });
+});
+
+describe("filterAgentChatContextItems", () => {
+  it("keeps unscoped context and only the active surface namespace", () => {
+    const items = [
+      { key: "selection", title: "Selection", context: "A row" },
+      {
+        key: "desktop-app:mail",
+        title: "Mail",
+        context: "Mail context",
+        contextNamespace: "desktop-app:mail",
+      },
+      {
+        key: "desktop-app:calendar",
+        title: "Calendar",
+        context: "Calendar context",
+        contextNamespace: "desktop-app:calendar",
+      },
+    ];
+
+    expect(filterAgentChatContextItems(items, "desktop-app:calendar")).toEqual([
+      items[0],
+      items[2],
+    ]);
   });
 });

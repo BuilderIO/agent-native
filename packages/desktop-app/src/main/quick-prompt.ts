@@ -15,8 +15,9 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import * as AppStore from "./app-store";
 
 const QUICK_PROMPT_SURFACE = "quick-prompt";
-const QUICK_PROMPT_WIDTH = 460;
-const QUICK_PROMPT_HEIGHT = 108;
+const QUICK_PROMPT_COMPACT_SIZE = { width: 460, height: 108 } as const;
+const QUICK_PROMPT_PICKER_SIZE = { width: 760, height: 360 } as const;
+type QuickPromptWindowSize = Readonly<{ width: number; height: number }>;
 
 interface QuickPromptDependencies {
   createCodeAgentRun: (input: unknown) => Promise<CodeAgentCreateRunResult>;
@@ -32,6 +33,14 @@ let quickPromptShortcutError: string | undefined;
 let quickPromptDependencies: QuickPromptDependencies | null = null;
 let quickPromptPreviousFocusedWindow: BrowserWindow | null = null;
 let quickPromptShouldBeVisible = false;
+
+export function isQuickPromptActive(): boolean {
+  return Boolean(
+    quickPromptShouldBeVisible &&
+    quickPromptWindow &&
+    !quickPromptWindow.isDestroyed(),
+  );
+}
 
 function debugQuickPrompt(message: string, details?: unknown): void {
   if (process.env.AGENT_NATIVE_DESKTOP_SHORTCUT_DEBUG !== "1") return;
@@ -62,6 +71,36 @@ function positionQuickPromptWindow(window: BrowserWindow): void {
   window.setPosition(x, y, false);
 }
 
+function resizeQuickPromptWindow(
+  window: BrowserWindow,
+  size: QuickPromptWindowSize,
+): void {
+  const [currentWidth, currentHeight] = window.getSize();
+  if (currentWidth === size.width && currentHeight === size.height) return;
+
+  const [currentX, currentY] = window.getPosition();
+  const centerX = currentX + currentWidth / 2;
+  const centerY = currentY + currentHeight / 2;
+  window.setSize(size.width, size.height, false);
+  window.setPosition(
+    Math.round(centerX - size.width / 2),
+    Math.round(centerY - size.height / 2),
+    false,
+  );
+}
+
+function setQuickPromptWindowChrome(
+  window: BrowserWindow,
+  pickerOpen: boolean,
+): void {
+  if (process.platform !== "darwin") return;
+
+  // The vibrancy material should cover the compact composer, not the larger
+  // transparent bounds needed to keep the shared picker on-screen.
+  window.setVibrancy(pickerOpen ? null : "under-window");
+  window.setHasShadow(!pickerOpen);
+}
+
 function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   const window = quickPromptWindow;
   if (
@@ -78,6 +117,9 @@ function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   quickPromptShouldBeVisible = false;
 
   window.hide();
+  setQuickPromptWindowChrome(window, false);
+  resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
+  window.webContents.send(IPC.QUICK_PROMPT_HIDDEN);
 
   if (!restoreFocus) return;
   if (
@@ -99,12 +141,12 @@ function createQuickPromptWindow(): BrowserWindow {
   }
 
   const window = new BrowserWindow({
-    width: QUICK_PROMPT_WIDTH,
-    height: QUICK_PROMPT_HEIGHT,
-    minWidth: QUICK_PROMPT_WIDTH,
-    minHeight: QUICK_PROMPT_HEIGHT,
-    maxWidth: 1200,
-    maxHeight: 360,
+    width: QUICK_PROMPT_COMPACT_SIZE.width,
+    height: QUICK_PROMPT_COMPACT_SIZE.height,
+    minWidth: QUICK_PROMPT_COMPACT_SIZE.width,
+    minHeight: QUICK_PROMPT_COMPACT_SIZE.height,
+    maxWidth: QUICK_PROMPT_PICKER_SIZE.width,
+    maxHeight: QUICK_PROMPT_PICKER_SIZE.height,
     show: false,
     frame: false,
     transparent: true,
@@ -182,6 +224,8 @@ function showQuickPrompt(): void {
 
   quickPromptPreviousFocusedWindow = BrowserWindow.getFocusedWindow();
   quickPromptShouldBeVisible = true;
+  setQuickPromptWindowChrome(window, false);
+  resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
   positionQuickPromptWindow(window);
   window.show();
   window.focus();
@@ -249,6 +293,9 @@ async function submitQuickPrompt(
   const result = await quickPromptDependencies.createCodeAgentRun({
     prompt: request?.prompt,
     ...(request?.cwd ? { cwd: request.cwd } : {}),
+    ...(request?.engine ? { engine: request.engine } : {}),
+    ...(request?.model ? { model: request.model } : {}),
+    ...(request?.effort ? { effort: request.effort } : {}),
     ...(request?.attachments ? { attachments: request.attachments } : {}),
     metadata: { source: "quick-prompt" },
   });
@@ -278,6 +325,15 @@ export function registerQuickPromptIpc(
     return getQuickPromptSettings();
   });
   ipcMain.on(IPC.QUICK_PROMPT_DISMISS, () => hideQuickPrompt());
+  ipcMain.on(IPC.QUICK_PROMPT_SET_PICKER_OPEN, (_event, value: unknown) => {
+    const window = quickPromptWindow;
+    if (!window || window.isDestroyed() || typeof value !== "boolean") return;
+    setQuickPromptWindowChrome(window, value);
+    resizeQuickPromptWindow(
+      window,
+      value ? QUICK_PROMPT_PICKER_SIZE : QUICK_PROMPT_COMPACT_SIZE,
+    );
+  });
   ipcMain.handle(
     IPC.QUICK_PROMPT_SUBMIT,
     (_event, request: QuickPromptSubmitRequest) => submitQuickPrompt(request),

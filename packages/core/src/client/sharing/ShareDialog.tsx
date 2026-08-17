@@ -9,31 +9,22 @@ import {
 } from "@agent-native/toolkit/design-system";
 import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui";
-import {
   IconCheck,
-  IconCode,
   IconCopy,
-  IconChevronDown,
-  IconLink,
   IconLock,
-  IconMail,
   IconTrash,
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { cn } from "../utils.js";
+import { AgentShareSection } from "./AgentShareSection.js";
 import {
   useShareDialogController,
   type ResourceShare,
   type ShareDialogController,
   type ShareDialogPerson,
-  type ShareDialogTab,
   type ShareVisibility,
 } from "./useShareDialogController.js";
 
@@ -78,18 +69,12 @@ const VIS_ICONS: Record<ShareVisibility, typeof IconLock> = {
   public: IconWorld,
 };
 
-const TAB_ICONS: Record<ShareDialogTab, typeof IconLink> = {
-  link: IconLink,
-  invite: IconMail,
-  embed: IconCode,
-};
-
 /**
  * Framework share dialog. Drop into any template via
  * `<ShareDialog open onClose resourceType resourceId />`. Passing `shareUrl`
  * lights up a Link tab with a copy field; passing `embedUrl` lights up an
- * Embed tab. With neither prop, renders a single Invite + general-access
- * panel (Google-Docs-lite).
+ * Embed tab. People access stays on the primary sharing surface so the same
+ * Google-Docs-style flow works whether or not a link or embed is available.
  */
 export function ShareDialog({
   open,
@@ -146,16 +131,14 @@ export function ShareDialog({
         <div
           role="tablist"
           aria-label={controller.labels.shareOptions}
-          className="mx-5 mt-1 flex gap-1 border-b border-border"
+          className="mx-5 mt-1 flex gap-1 rounded-xl bg-muted/70 p-1"
         >
           {controller.tabs.map((tab) => {
-            const Icon = TAB_ICONS[tab.value];
             return (
               <TabTrigger
                 key={tab.value}
                 active={controller.activeTab === tab.value}
                 onClick={() => controller.setActiveTab(tab.value)}
-                icon={<Icon size={14} strokeWidth={1.75} />}
                 label={tab.label}
               />
             );
@@ -176,6 +159,12 @@ export function ShareDialog({
         {controller.tabsEnabled && controller.activeTab === "embed"
           ? (embedTabContent ?? <DefaultEmbedBody controller={controller} />)
           : null}
+        <AgentShareSection
+          enabled={controller.agentReadable}
+          resourceType={resourceType}
+          resourceId={resourceId}
+          className="mt-4"
+        />
       </div>
     </DesignSystemDialog>
   );
@@ -184,12 +173,10 @@ export function ShareDialog({
 function TabTrigger({
   active,
   onClick,
-  icon,
   label,
 }: {
   active: boolean;
   onClick: () => void;
-  icon: ReactNode;
   label: string;
 }) {
   return (
@@ -199,14 +186,13 @@ function TabTrigger({
       aria-pressed={active}
       onPress={onClick}
       className={cn(
-        "inline-flex !h-auto items-center gap-1.5 !rounded-none border-b-2 !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-transparent active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0 [&_svg]:!size-auto",
+        "min-w-0 flex-1 !rounded-lg !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-background/70 active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0",
         active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground",
+          ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+          : "text-muted-foreground hover:text-foreground",
       )}
     >
-      {icon}
-      {label}
+      <span className="block truncate">{label}</span>
     </ActionButton>
   );
 }
@@ -225,7 +211,7 @@ function LinkTab({
         label={controller.labels.shareLink}
         value={controller.shareUrl!}
         copyLabel={controller.labels.copy}
-        copiedLabel="Copied"
+        copiedLabel={controller.labels.copied}
         onCopy={(value) => controller.copy("share-link", value)}
         className="mb-4"
       />
@@ -248,6 +234,7 @@ function LinkTab({
           </div>
         </div>
       </div>
+      <InviteTab controller={controller} showVisibility={false} />
       {extras}
     </div>
   );
@@ -261,128 +248,8 @@ function InviteTab({
   showVisibility: boolean;
 }) {
   const Icon = VIS_ICONS[controller.visibility.value];
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
-    <div className="space-y-3">
-      <Collapsible
-        open={advancedOpen}
-        onOpenChange={setAdvancedOpen}
-        className="overflow-hidden rounded-md border border-border"
-      >
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          >
-            <span className="truncate">
-              {controller.labels.peopleWithAccess}
-            </span>
-            <IconChevronDown
-              aria-hidden
-              size={16}
-              strokeWidth={1.8}
-              className={cn(
-                "shrink-0 text-muted-foreground transition-transform",
-                advancedOpen && "rotate-180",
-              )}
-            />
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="border-t border-border px-3 py-3">
-          <div className="space-y-4">
-            {controller.canManage ? (
-              <div className="space-y-2">
-                <div className="flex items-stretch gap-2">
-                  <input
-                    type="email"
-                    placeholder={controller.labels.addPeopleByEmail}
-                    value={controller.invite.email}
-                    onChange={(event) =>
-                      controller.invite.setEmail(event.currentTarget.value)
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") controller.invite.submit();
-                    }}
-                    autoComplete="off"
-                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-                  />
-                  <RoleSelect controller={controller} />
-                </div>
-                {controller.invite.showNotifyPeople ? (
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={controller.invite.notifyPeople}
-                        onChange={(event) =>
-                          controller.invite.setNotifyPeople(
-                            event.currentTarget.checked,
-                          )
-                        }
-                        className="h-4 w-4 rounded border-input accent-primary"
-                      />
-                      {controller.labels.notifyPeople}
-                    </label>
-                    {controller.invite.notifyPeople ? (
-                      <ActionButton
-                        type="button"
-                        emphasis="ghost"
-                        aria-expanded={controller.invite.messageOpen}
-                        onPress={() =>
-                          controller.invite.setMessageOpen(
-                            !controller.invite.messageOpen,
-                          )
-                        }
-                        className="!h-auto !rounded-sm !px-1 !py-0.5 text-xs font-medium !text-foreground underline decoration-border underline-offset-2 hover:!bg-accent hover:!text-accent-foreground active:!scale-100"
-                      >
-                        {controller.invite.messageOpen
-                          ? controller.labels.hideMessage
-                          : controller.labels.addMessage}
-                      </ActionButton>
-                    ) : null}
-                  </div>
-                ) : null}
-                {controller.invite.showNotifyPeople &&
-                controller.invite.notifyPeople &&
-                controller.invite.messageOpen ? (
-                  <TextArea
-                    aria-label={controller.labels.addMessage}
-                    placeholder={controller.labels.messagePlaceholder}
-                    value={controller.invite.message}
-                    onChange={(value) => controller.invite.setMessage(value)}
-                    maxLength={500}
-                    rows={3}
-                    className="min-h-20 resize-y text-sm"
-                  />
-                ) : null}
-              </div>
-            ) : null}
-
-            <div>
-              <div className="mb-2 text-sm font-semibold">
-                {controller.labels.peopleWithAccess}
-              </div>
-              <ul className="m-0 flex list-none flex-col gap-1 p-0">
-                {controller.people.map((person) => (
-                  <PersonRow
-                    key={person.key}
-                    person={person}
-                    canManage={controller.canManage}
-                    removeLabel={controller.labels.remove}
-                    onRemove={controller.removeShare}
-                  />
-                ))}
-                {!controller.people.length ? (
-                  <li className="px-1 py-1.5 text-sm text-muted-foreground">
-                    {controller.labels.noAccess}
-                  </li>
-                ) : null}
-              </ul>
-            </div>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-
+    <div className="space-y-4">
       {showVisibility ? (
         <div>
           <div className="mb-2 text-sm font-semibold">
@@ -404,6 +271,96 @@ function InviteTab({
           </div>
         </div>
       ) : null}
+
+      <div className="space-y-4">
+        <div className="text-sm font-semibold">
+          {controller.labels.peopleWithAccess}
+        </div>
+        {controller.canManage ? (
+          <div className="space-y-2">
+            <div className="flex items-stretch gap-2">
+              <input
+                type="email"
+                placeholder={controller.labels.addPeopleByEmail}
+                value={controller.invite.email}
+                onChange={(event) =>
+                  controller.invite.setEmail(event.currentTarget.value)
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") controller.invite.submit();
+                }}
+                autoComplete="off"
+                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+              />
+              <RoleSelect controller={controller} />
+            </div>
+            {controller.invite.showNotifyPeople ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={controller.invite.notifyPeople}
+                    onChange={(event) =>
+                      controller.invite.setNotifyPeople(
+                        event.currentTarget.checked,
+                      )
+                    }
+                    className="h-4 w-4 rounded border-input accent-primary"
+                  />
+                  {controller.labels.notifyPeople}
+                </label>
+                {controller.invite.notifyPeople ? (
+                  <ActionButton
+                    type="button"
+                    emphasis="ghost"
+                    aria-expanded={controller.invite.messageOpen}
+                    onPress={() =>
+                      controller.invite.setMessageOpen(
+                        !controller.invite.messageOpen,
+                      )
+                    }
+                    className="!h-auto !rounded-sm !px-1 !py-0.5 text-xs font-medium !text-foreground underline decoration-border underline-offset-2 hover:!bg-accent hover:!text-accent-foreground active:!scale-100"
+                  >
+                    {controller.invite.messageOpen
+                      ? controller.labels.hideMessage
+                      : controller.labels.addMessage}
+                  </ActionButton>
+                ) : null}
+              </div>
+            ) : null}
+            {controller.invite.showNotifyPeople &&
+            controller.invite.notifyPeople &&
+            controller.invite.messageOpen ? (
+              <TextArea
+                aria-label={controller.labels.addMessage}
+                placeholder={controller.labels.messagePlaceholder}
+                value={controller.invite.message}
+                onChange={(value) => controller.invite.setMessage(value)}
+                maxLength={500}
+                rows={3}
+                className="min-h-20 resize-y text-sm"
+              />
+            ) : null}
+          </div>
+        ) : null}
+
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+          {controller.people.map((person) => (
+            <PersonRow
+              key={person.key}
+              person={person}
+              canManage={controller.canManage}
+              removeLabel={controller.labels.remove}
+              onRemove={controller.removeShare}
+            />
+          ))}
+          {!controller.people.length ? (
+            <li className="px-1 py-1.5 text-sm text-muted-foreground">
+              {controller.labels.noAccess}
+            </li>
+          ) : null}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -468,7 +425,7 @@ function DefaultEmbedBody({
         label={controller.labels.embedUrl}
         value={controller.embedUrl!}
         copyLabel={controller.labels.copy}
-        copiedLabel="Copied"
+        copiedLabel={controller.labels.copied}
         onCopy={(value) => controller.copy("embed-url", value)}
       />
       <CopyField

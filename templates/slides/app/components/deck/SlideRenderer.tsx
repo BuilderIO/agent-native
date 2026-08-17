@@ -528,6 +528,11 @@ function useSlideAutofit(
 
     root.addEventListener("load", scheduleMeasure, true);
     document.fonts?.ready.then(scheduleMeasure).catch(() => {});
+    // An imported deck's webfonts are requested only once its HTML is on
+    // screen, so they can land after `fonts.ready` has already settled. That
+    // reflows text without touching the DOM the observers watch, leaving the
+    // fit transform measured against the fallback font.
+    document.fonts?.addEventListener("loadingdone", scheduleMeasure);
 
     // `rootMargin` measures a thumbnail just before it scrolls in, so the fit
     // transform is already applied by the time it is on screen.
@@ -554,6 +559,7 @@ function useSlideAutofit(
       mutationObserver.disconnect();
       visibilityObserver?.disconnect();
       root.removeEventListener("load", scheduleMeasure, true);
+      document.fonts?.removeEventListener("loadingdone", scheduleMeasure);
     };
   }, [canvasWidth, canvasHeight, fitKey, ref]);
 }
@@ -596,6 +602,186 @@ function AutoFitContent({
   );
 }
 
+/**
+ * Google Fonts families an imported deck may name. Split by what the `css2`
+ * endpoint accepts for each: the first list has a real 100..900 variable
+ * weight axis, the rest only serve discrete weights. Asking for an axis a
+ * family does not have is a 400 for the whole request, so both lists were
+ * checked against the live endpoint rather than guessed from the name.
+ */
+const VARIABLE_AXIS_GOOGLE_FONTS = [
+  "Archivo",
+  "Asap",
+  "Catamaran",
+  "Chivo",
+  "DM Sans",
+  "Epilogue",
+  "Exo 2",
+  "Geist",
+  "Heebo",
+  "Inter",
+  "Jost",
+  "League Spartan",
+  "Lexend",
+  "Libre Franklin",
+  "Montserrat",
+  "Noto Sans",
+  "Noto Serif",
+  "Onest",
+  "Outfit",
+  "Overpass",
+  "Public Sans",
+  "Raleway",
+  "Roboto",
+  "Roboto Condensed",
+  "Roboto Slab",
+  "Urbanist",
+  "Work Sans",
+];
+
+const STATIC_WEIGHT_GOOGLE_FONTS = [
+  "Abril Fatface",
+  "Anton",
+  "Arimo",
+  "Assistant",
+  "Barlow",
+  "Barlow Condensed",
+  "Bebas Neue",
+  "Bodoni Moda",
+  "Bricolage Grotesque",
+  "Cabin",
+  "Caveat",
+  "Cormorant Garamond",
+  "Cousine",
+  "Crimson Text",
+  "Dancing Script",
+  "David Libre",
+  "EB Garamond",
+  "Figtree",
+  "Fira Sans",
+  "Hind",
+  "Homemade Apple",
+  "IBM Plex Sans",
+  "Inconsolata",
+  "Instrument Sans",
+  "Josefin Sans",
+  "Kanit",
+  "Karla",
+  "Lato",
+  "Libre Baskerville",
+  "Lora",
+  "Manrope",
+  "Merriweather",
+  "Mulish",
+  "Nova Square",
+  "Nunito",
+  "Nunito Sans",
+  "Open Sans",
+  "Oswald",
+  "Oxygen",
+  "PT Sans",
+  "PT Serif",
+  "Pacifico",
+  "Playfair Display",
+  "Plus Jakarta Sans",
+  "Poppins",
+  "Prompt",
+  "Quicksand",
+  "Red Hat Display",
+  "Roboto Mono",
+  "Rubik",
+  "Schibsted Grotesk",
+  "Sora",
+  "Source Sans 3",
+  "Space Grotesk",
+  "Syne",
+  "Teko",
+  "Tinos",
+  "Titillium Web",
+  "Ubuntu",
+  "Yanone Kaffeesatz",
+];
+
+/** Families decks still name under a name Google Fonts does not serve. */
+const GOOGLE_FONT_ALIASES: Record<string, string> = {
+  "source sans pro": "source sans 3",
+  bodoni: "bodoni moda",
+};
+
+/**
+ * PPTX stores a weight as part of the typeface name — a Work Sans deck is full
+ * of runs set in `Work Sans Medium` — but a webfont family covers its whole
+ * weight range, so the suffixed name matches nothing and falls back to the
+ * generic sans that made every imported deck look unstyled.
+ */
+const FONT_WEIGHT_SUFFIX =
+  /\s+(?:thin|extra ?light|ultra ?light|light|book|regular|normal|medium|semi ?bold|demi ?bold|bold|extra ?bold|ultra ?bold|black|heavy|italic|oblique)$/i;
+
+const GOOGLE_FONTS = new Map<string, { family: string; href: string }>();
+for (const [families, axis] of [
+  [VARIABLE_AXIS_GOOGLE_FONTS, "ital,wght@0,100..900;1,100..900"],
+  [STATIC_WEIGHT_GOOGLE_FONTS, "ital,wght@0,400;0,700;1,400;1,700"],
+] as const) {
+  for (const family of families) {
+    GOOGLE_FONTS.set(family.toLowerCase(), {
+      family,
+      href: `https://fonts.googleapis.com/css2?family=${family.replace(/ /g, "+")}:${axis}&display=swap`,
+    });
+  }
+}
+
+/** The webfont that should render `name`, or undefined when none can. */
+export function resolveImportedFont(
+  name: string,
+): { family: string; href: string } | undefined {
+  const key = name
+    .replace(/["']/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+  if (!key) return undefined;
+  const lookup = (candidate: string) =>
+    GOOGLE_FONTS.get(GOOGLE_FONT_ALIASES[candidate] ?? candidate);
+  return lookup(key) ?? lookup(key.replace(FONT_WEIGHT_SUFFIX, "").trim());
+}
+
+/**
+ * Point every quoted `font-family` in imported slide HTML at a family we can
+ * actually serve, and collect the stylesheets that serve them. Families we
+ * cannot serve are left exactly as authored so the browser can still match a
+ * locally installed copy.
+ */
+export function prepareImportedFonts(html: string): {
+  html: string;
+  hrefs: string[];
+} {
+  const hrefs = new Set<string>();
+  const rewritten = html.replace(
+    /(font-family:\s*)'([^']*)'/gi,
+    (match, prefix: string, name: string) => {
+      const font = resolveImportedFont(name);
+      if (!font) return match;
+      hrefs.add(font.href);
+      return `${prefix}'${font.family}'`;
+    },
+  );
+  return { html: rewritten, hrefs: [...hrefs] };
+}
+
+const injectedFontHrefs = new Set<string>();
+
+function loadImportedFonts(hrefs: string[]) {
+  if (typeof document === "undefined") return;
+  for (const href of hrefs) {
+    if (injectedFontHrefs.has(href)) continue;
+    injectedFontHrefs.add(href);
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    document.head.appendChild(link);
+  }
+}
+
 /** Renders blank slide HTML content and applies white filter to logo images */
 function BlankSlideContent({ content }: { content: string }) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -607,36 +793,43 @@ function BlankSlideContent({ content }: { content: string }) {
   // literal each render therefore wipes any DOM mutations made on children. That
   // includes the per-block `contentEditable="true"` set by SlideEditor's
   // double-click-to-edit flow, which made inline text editing appear to do nothing.
-  const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml } = useMemo(() => {
-    // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
-    // why (sanitizer HTML-escaping breaks the mermaid parser).
-    const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
+  const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml, fontHrefs } =
+    useMemo(() => {
+      // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
+      // why (sanitizer HTML-escaping breaks the mermaid parser).
+      const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
 
-    // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
-    const processed = sanitizeSlideHtml(
-      contentWithPlaceholders.replace(
-        /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
-        (_match, before, close) => {
-          if (before.includes('style="')) {
-            return (
-              before.replace(
-                'style="',
-                'style="filter:brightness(0) invert(1);',
-              ) + close
-            );
-          }
-          return before + ' style="filter:brightness(0) invert(1);"' + close;
-        },
-      ),
-      { scopeSelector },
-    );
+      // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
+      const sanitized = sanitizeSlideHtml(
+        contentWithPlaceholders.replace(
+          /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
+          (_match, before, close) => {
+            if (before.includes('style="')) {
+              return (
+                before.replace(
+                  'style="',
+                  'style="filter:brightness(0) invert(1);',
+                ) + close
+              );
+            }
+            return before + ' style="filter:brightness(0) invert(1);"' + close;
+          },
+        ),
+        { scopeSelector },
+      );
+      const { html: processed, hrefs } = prepareImportedFonts(sanitized);
 
-    return {
-      mermaidBlocks: blocks,
-      htmlWithPlaceholders: processed,
-      dangerousHtml: { __html: processed },
-    };
-  }, [content]);
+      return {
+        mermaidBlocks: blocks,
+        htmlWithPlaceholders: processed,
+        dangerousHtml: { __html: processed },
+        fontHrefs: hrefs,
+      };
+    }, [content]);
+
+  useEffect(() => {
+    loadImportedFonts(fontHrefs);
+  }, [fontHrefs]);
 
   if (mermaidBlocks.length > 0) {
     return (
@@ -816,7 +1009,8 @@ export function SlideInner({
     </div>
   );
 
-  // Slides with fmd-slide class use inline styles — render as raw HTML to avoid layout conflicts
+  // Slides with fmd-slide markup carry their layout in the raw HTML contract;
+  // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
   const isRawHtml =
     content.includes('class="fmd-slide"') ||

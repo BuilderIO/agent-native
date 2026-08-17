@@ -33,6 +33,10 @@ describe("Dispatch agent chat plugin", () => {
             "start-workspace-app-creation",
           ]),
         },
+        actionRoutePublicPaths: ["/_agent-native/actions/list-workspace-apps"],
+        actionRouteAuth: expect.objectContaining({
+          resolveCaller: expect.any(Function),
+        }),
       }),
     );
   });
