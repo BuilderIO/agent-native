@@ -522,7 +522,12 @@ DispatchQueue.global(qos: .userInitiated).async {
                     throw HelperFailure(description: "Invalid request envelope.")
                 }
                 response["id"] = id
-                let result = try helper.handle(request)
+                // Accessibility and AppKit must stay on the main thread. The
+                // stdin worker remains serialized while the main run loop
+                // owns every helper operation.
+                let result = try DispatchQueue.main.sync {
+                    try helper.handle(request)
+                }
                 response["ok"] = true
                 if let result { response["result"] = result }
             } catch {
