@@ -516,7 +516,10 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
       appsRoot,
       managedAppIds: [...new Set(managedAppIds)],
       appOrder: [...new Set(appOrder)],
-      desktopSsoEnabled: raw.desktopSsoEnabled === true,
+      desktopSsoEnabled:
+        typeof raw.desktopSsoEnabled === "boolean"
+          ? raw.desktopSsoEnabled
+          : defaults.desktopSsoEnabled,
       ...(typeof raw.appModeDefaultsVersion === "number"
         ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
         : {}),

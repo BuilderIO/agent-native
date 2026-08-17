@@ -169,6 +169,9 @@ export function createCodingToolRegistry(
         if (!commandCwd) {
           return "Error: cwd must stay inside the workspace.";
         }
+        if (restrictToCwd && commandReferencesOutsideWorkspace(command, cwd)) {
+          return "Error: command paths must stay inside the workspace.";
+        }
         const requestedTimeoutMs = Number(args.timeoutMs);
         const timeoutMs =
           Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
@@ -631,9 +634,66 @@ function resolveCodingPath(
     : path.resolve(cwd, target);
   if (!options.restrictToCwd) return resolved;
 
-  const relative = path.relative(cwd, resolved);
+  const workspaceRoot = resolveRealPath(cwd);
+  const targetPath = resolveRealPathWithMissingTail(resolved);
+  if (!workspaceRoot || !targetPath) return null;
+
+  const relative = path.relative(workspaceRoot, targetPath);
   if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
   return resolved;
+}
+
+function resolveRealPath(value: string): string | null {
+  try {
+    return fs.realpathSync(value);
+  } catch {
+    // coercion-ok: an unreadable workspace cannot safely authorize a path.
+    return null;
+  }
+}
+
+function resolveRealPathWithMissingTail(value: string): string | null {
+  let candidate = value;
+  const missingTail: string[] = [];
+
+  while (true) {
+    try {
+      fs.lstatSync(candidate);
+      const existingPath = resolveRealPath(candidate);
+      return existingPath ? path.resolve(existingPath, ...missingTail) : null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        // coercion-ok: an unreadable path cannot safely authorize a workspace path.
+        return null;
+      }
+      const parent = path.dirname(candidate);
+      if (parent === candidate) return null;
+      missingTail.unshift(path.basename(candidate));
+      candidate = parent;
+    }
+  }
+}
+
+function commandReferencesOutsideWorkspace(
+  command: string,
+  cwd: string,
+): boolean {
+  if (/(^|[\s"'=:(])\.\.(?:[/\s"';&|<>)]|$)/.test(command)) {
+    return true;
+  }
+
+  const workspaceRoot = resolveRealPath(cwd) ?? path.resolve(cwd);
+  const absolutePathPattern =
+    /(?:^|[\s"'=:(])((?:\/(?!\/)|~(?:\/|$))[^\s"';&|<>)]*)/g;
+  for (const match of command.matchAll(absolutePathPattern)) {
+    const value = match[1];
+    if (!value || value.startsWith("~")) return true;
+    const targetPath = resolveRealPathWithMissingTail(path.resolve(value));
+    if (!targetPath) return true;
+    const relative = path.relative(workspaceRoot, targetPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return true;
+  }
+  return false;
 }
 
 function formatFileReadOutput(

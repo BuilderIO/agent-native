@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
-  Modal,
   Platform,
   Pressable,
   Text,
@@ -12,10 +11,8 @@ import {
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
-import {
-  ModalSafeAreaProvider,
-  SafeAreaView,
-} from "@/components/uniwind-interop";
+import { MobileSheet } from "@/components/MobileSheet";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 import {
   authenticateWithPassword,
@@ -174,274 +171,261 @@ export function NativeSignInSheet({
   };
 
   return (
-    <Modal
+    <MobileSheet
       visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
+      onClose={onClose}
+      motion="sheet"
+      contentClassName="rounded-t-[26px] border border-border bg-card"
+      overlayClassName="bg-black/55"
+      accessibilityLabel="Dismiss sign in"
     >
-      <ModalSafeAreaProvider style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          className="flex-1 justify-end bg-black/55"
-        >
-          <Pressable
-            className="flex-1"
-            onPress={onClose}
-            accessibilityLabel="Dismiss sign in"
-          />
-          <SafeAreaView
-            edges={["bottom"]}
-            className="rounded-t-[26px] border border-border-dark bg-card-dark"
-          >
-            <View className="px-5 pt-3">
-              <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
-              <View className="flex-row items-center justify-between py-4">
-                <View>
-                  <Text className="text-white text-[20px] font-semibold">
-                    Welcome
-                  </Text>
-                  <Text className="mt-1 text-text-muted text-[14px]">
-                    Create an account or sign in
-                  </Text>
-                </View>
-                <Pressable
-                  className="px-1 py-1 active:opacity-75"
-                  onPress={onClose}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close sign in"
-                >
-                  <Text className="text-text-muted text-[15px] font-medium">
-                    Close
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View className="mb-4 flex-row rounded-xl border border-border-dark bg-background-dark p-1">
-                <Pressable
-                  className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-up" ? "bg-gray-charcoal" : ""}`}
-                  onPress={() => selectMode("sign-up")}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: mode === "sign-up" }}
-                >
-                  <Text className="text-text-light text-[13px] font-semibold">
-                    Create account
-                  </Text>
-                </Pressable>
-                <Pressable
-                  className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-in" ? "bg-gray-charcoal" : ""}`}
-                  onPress={() => selectMode("sign-in")}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: mode === "sign-in" }}
-                >
-                  <Text className="text-text-light text-[13px] font-semibold">
-                    Sign in
-                  </Text>
-                </Pressable>
-              </View>
-
-              <Pressable
-                className="mb-3 h-12 flex-row items-center justify-center gap-3 rounded-xl bg-primary active:opacity-75"
-                onPress={() => void submitGoogle()}
-                disabled={submitting || googleSubmitting || magicSubmitting}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  mode === "sign-up"
-                    ? "Sign up with Google"
-                    : "Sign in with Google"
-                }
-              >
-                {googleSubmitting ? (
-                  <ActivityIndicator color={mutedForeground} />
-                ) : (
-                  <>
-                    <GoogleLogo />
-                    <Text className="text-primary-foreground text-[15px] font-semibold">
-                      {mode === "sign-up"
-                        ? "Sign up with Google"
-                        : "Sign in with Google"}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-
-              <View className="mb-3 flex-row items-center gap-3">
-                <View className="h-px flex-1 bg-border-dark" />
-                <Text className="text-text-muted text-[12px]">or</Text>
-                <View className="h-px flex-1 bg-border-dark" />
-              </View>
-
-              <TextInput
-                className="mb-3 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
-                value={email}
-                onChangeText={(value) => {
-                  setEmail(value);
-                  setError(null);
-                }}
-                placeholder="Email"
-                placeholderTextColor={mutedForeground}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                textContentType="emailAddress"
-                autoComplete="email"
-                accessibilityLabel="Email"
-                onSubmitEditing={() =>
-                  void (passwordMode ? submit() : submitMagicLink())
-                }
-                returnKeyType={passwordMode ? "next" : "done"}
-              />
-
-              {passwordMode ? (
-                <>
-                  <TextInput
-                    className="mb-2 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
-                    value={password}
-                    onChangeText={(value) => {
-                      setPassword(value);
-                      setError(null);
-                    }}
-                    placeholder="Password"
-                    placeholderTextColor={mutedForeground}
-                    secureTextEntry
-                    textContentType={
-                      mode === "sign-up" ? "newPassword" : "password"
-                    }
-                    autoComplete={
-                      mode === "sign-up" ? "password-new" : "password"
-                    }
-                    accessibilityLabel="Password"
-                    onSubmitEditing={() => void submit()}
-                    returnKeyType="go"
-                  />
-                  {mode === "sign-up" ? (
-                    <TextInput
-                      className="mb-2 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
-                      value={confirmPassword}
-                      onChangeText={(value) => {
-                        setConfirmPassword(value);
-                        setError(null);
-                      }}
-                      placeholder="Confirm password"
-                      placeholderTextColor={mutedForeground}
-                      secureTextEntry
-                      textContentType="newPassword"
-                      autoComplete="password-new"
-                      accessibilityLabel="Confirm password"
-                      onSubmitEditing={() => void submit()}
-                      returnKeyType="go"
-                    />
-                  ) : null}
-                </>
-              ) : null}
-              {error ? (
-                <Text className="mb-2 text-error-text text-[13px]">
-                  {error}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <SafeAreaView edges={["bottom"]}>
+          <View className="px-5 pt-3">
+            <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
+            <View className="flex-row items-center justify-between py-4">
+              <View>
+                <Text className="text-white text-[20px] font-semibold">
+                  Welcome
                 </Text>
-              ) : null}
-
-              <Pressable
-                className={`mb-2 h-12 items-center justify-center rounded-xl ${
-                  passwordMode
-                    ? email.trim() &&
-                      password &&
-                      (mode === "sign-in" || password === confirmPassword) &&
-                      !submitting
-                      ? "bg-primary active:opacity-75"
-                      : "bg-zinc-800"
-                    : email.trim() && !magicSubmitting
-                      ? "bg-primary active:opacity-75"
-                      : "bg-zinc-800"
-                }`}
-                onPress={() =>
-                  void (passwordMode ? submit() : submitMagicLink())
-                }
-                disabled={
-                  !email.trim() ||
-                  (passwordMode && !password) ||
-                  submitting ||
-                  googleSubmitting ||
-                  magicSubmitting
-                }
-                accessibilityRole="button"
-                accessibilityLabel={
-                  passwordMode
-                    ? mode === "sign-up"
-                      ? "Create account"
-                      : "Sign in"
-                    : "Continue"
-                }
-              >
-                {submitting || magicSubmitting ? (
-                  <ActivityIndicator color={mutedForeground} />
-                ) : (
-                  <Text
-                    className={`text-[15px] font-semibold ${
-                      passwordMode
-                        ? email.trim() &&
-                          password &&
-                          (mode === "sign-in" || password === confirmPassword)
-                          ? "text-primary-foreground"
-                          : "text-zinc-500"
-                        : email.trim()
-                          ? "text-primary-foreground"
-                          : "text-zinc-500"
-                    }`}
-                  >
-                    {passwordMode
-                      ? mode === "sign-up"
-                        ? "Create account"
-                        : "Sign in"
-                      : "Continue"}
-                  </Text>
-                )}
-              </Pressable>
-
-              {mode === "sign-up" ? (
-                <Text className="mb-2 text-center text-text-muted text-[11px] leading-4">
-                  By signing up, you accept our{" "}
-                  <Text
-                    className="text-text-light underline"
-                    onPress={() => openLegalPage(TERMS_URL)}
-                  >
-                    Terms
-                  </Text>{" "}
-                  and{" "}
-                  <Text
-                    className="text-text-light underline"
-                    onPress={() => openLegalPage(PRIVACY_URL)}
-                  >
-                    Privacy Policy
-                  </Text>
-                  .
+                <Text className="mt-1 text-text-muted text-[14px]">
+                  Create an account or sign in
                 </Text>
-              ) : null}
-
+              </View>
               <Pressable
-                className="mb-3 h-9 items-center justify-center active:opacity-75"
-                onPress={() => {
-                  setPasswordMode((current) => !current);
-                  setPassword("");
-                  setConfirmPassword("");
-                  setError(null);
-                }}
+                className="px-1 py-1 active:opacity-75"
+                onPress={onClose}
                 accessibilityRole="button"
-                accessibilityLabel={
-                  passwordMode
-                    ? "Use a sign-in link instead"
-                    : "Use a password instead"
-                }
+                accessibilityLabel="Close sign in"
               >
-                <Text className="text-text-muted text-[13px] font-medium underline">
-                  {passwordMode
-                    ? "Use a sign-in link instead"
-                    : "Use a password instead"}
+                <Text className="text-text-muted text-[15px] font-medium">
+                  Close
                 </Text>
               </Pressable>
             </View>
-          </SafeAreaView>
-        </KeyboardAvoidingView>
-      </ModalSafeAreaProvider>
-    </Modal>
+
+            <View className="mb-4 flex-row rounded-xl border border-border-dark bg-background-dark p-1">
+              <Pressable
+                className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-up" ? "bg-gray-charcoal" : ""}`}
+                onPress={() => selectMode("sign-up")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === "sign-up" }}
+              >
+                <Text className="text-text-light text-[13px] font-semibold">
+                  Create account
+                </Text>
+              </Pressable>
+              <Pressable
+                className={`flex-1 items-center rounded-lg py-2 ${mode === "sign-in" ? "bg-gray-charcoal" : ""}`}
+                onPress={() => selectMode("sign-in")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === "sign-in" }}
+              >
+                <Text className="text-text-light text-[13px] font-semibold">
+                  Sign in
+                </Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              className="mb-3 h-12 flex-row items-center justify-center gap-3 rounded-xl bg-primary active:opacity-75"
+              onPress={() => void submitGoogle()}
+              disabled={submitting || googleSubmitting || magicSubmitting}
+              accessibilityRole="button"
+              accessibilityLabel={
+                mode === "sign-up"
+                  ? "Sign up with Google"
+                  : "Sign in with Google"
+              }
+            >
+              {googleSubmitting ? (
+                <ActivityIndicator color={mutedForeground} />
+              ) : (
+                <>
+                  <GoogleLogo />
+                  <Text className="text-primary-foreground text-[15px] font-semibold">
+                    {mode === "sign-up"
+                      ? "Sign up with Google"
+                      : "Sign in with Google"}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+
+            <View className="mb-3 flex-row items-center gap-3">
+              <View className="h-px flex-1 bg-border-dark" />
+              <Text className="text-text-muted text-[12px]">or</Text>
+              <View className="h-px flex-1 bg-border-dark" />
+            </View>
+
+            <TextInput
+              className="mb-3 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
+              value={email}
+              onChangeText={(value) => {
+                setEmail(value);
+                setError(null);
+              }}
+              placeholder="Email"
+              placeholderTextColor={mutedForeground}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="emailAddress"
+              autoComplete="email"
+              accessibilityLabel="Email"
+              onSubmitEditing={() =>
+                void (passwordMode ? submit() : submitMagicLink())
+              }
+              returnKeyType={passwordMode ? "next" : "done"}
+            />
+
+            {passwordMode ? (
+              <>
+                <TextInput
+                  className="mb-2 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
+                  value={password}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    setError(null);
+                  }}
+                  placeholder="Password"
+                  placeholderTextColor={mutedForeground}
+                  secureTextEntry
+                  textContentType={
+                    mode === "sign-up" ? "newPassword" : "password"
+                  }
+                  autoComplete={
+                    mode === "sign-up" ? "password-new" : "password"
+                  }
+                  accessibilityLabel="Password"
+                  onSubmitEditing={() => void submit()}
+                  returnKeyType="go"
+                />
+                {mode === "sign-up" ? (
+                  <TextInput
+                    className="mb-2 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
+                    value={confirmPassword}
+                    onChangeText={(value) => {
+                      setConfirmPassword(value);
+                      setError(null);
+                    }}
+                    placeholder="Confirm password"
+                    placeholderTextColor={mutedForeground}
+                    secureTextEntry
+                    textContentType="newPassword"
+                    autoComplete="password-new"
+                    accessibilityLabel="Confirm password"
+                    onSubmitEditing={() => void submit()}
+                    returnKeyType="go"
+                  />
+                ) : null}
+              </>
+            ) : null}
+            {error ? (
+              <Text className="mb-2 text-error-text text-[13px]">{error}</Text>
+            ) : null}
+
+            <Pressable
+              className={`mb-2 h-12 items-center justify-center rounded-xl ${
+                passwordMode
+                  ? email.trim() &&
+                    password &&
+                    (mode === "sign-in" || password === confirmPassword) &&
+                    !submitting
+                    ? "bg-primary active:opacity-75"
+                    : "bg-zinc-800"
+                  : email.trim() && !magicSubmitting
+                    ? "bg-primary active:opacity-75"
+                    : "bg-zinc-800"
+              }`}
+              onPress={() => void (passwordMode ? submit() : submitMagicLink())}
+              disabled={
+                !email.trim() ||
+                (passwordMode && !password) ||
+                submitting ||
+                googleSubmitting ||
+                magicSubmitting
+              }
+              accessibilityRole="button"
+              accessibilityLabel={
+                passwordMode
+                  ? mode === "sign-up"
+                    ? "Create account"
+                    : "Sign in"
+                  : "Continue"
+              }
+            >
+              {submitting || magicSubmitting ? (
+                <ActivityIndicator color={mutedForeground} />
+              ) : (
+                <Text
+                  className={`text-[15px] font-semibold ${
+                    passwordMode
+                      ? email.trim() &&
+                        password &&
+                        (mode === "sign-in" || password === confirmPassword)
+                        ? "text-primary-foreground"
+                        : "text-zinc-500"
+                      : email.trim()
+                        ? "text-primary-foreground"
+                        : "text-zinc-500"
+                  }`}
+                >
+                  {passwordMode
+                    ? mode === "sign-up"
+                      ? "Create account"
+                      : "Sign in"
+                    : "Continue"}
+                </Text>
+              )}
+            </Pressable>
+
+            {mode === "sign-up" ? (
+              <Text className="mb-2 text-center text-text-muted text-[11px] leading-4">
+                By signing up, you accept our{" "}
+                <Text
+                  className="text-text-light underline"
+                  onPress={() => openLegalPage(TERMS_URL)}
+                >
+                  Terms
+                </Text>{" "}
+                and{" "}
+                <Text
+                  className="text-text-light underline"
+                  onPress={() => openLegalPage(PRIVACY_URL)}
+                >
+                  Privacy Policy
+                </Text>
+                .
+              </Text>
+            ) : null}
+
+            <Pressable
+              className="mb-3 h-9 items-center justify-center active:opacity-75"
+              onPress={() => {
+                setPasswordMode((current) => !current);
+                setPassword("");
+                setConfirmPassword("");
+                setError(null);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                passwordMode
+                  ? "Use a sign-in link instead"
+                  : "Use a password instead"
+              }
+            >
+              <Text className="text-text-muted text-[13px] font-medium underline">
+                {passwordMode
+                  ? "Use a sign-in link instead"
+                  : "Use a password instead"}
+              </Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </MobileSheet>
   );
 }

@@ -22,7 +22,7 @@ function TargetOption({
   const { foreground } = useMobileThemeColors();
   return (
     <Pressable
-      className="flex-row items-center justify-between border-b border-border-dark px-4 py-3.5 active:bg-white/5"
+      className="flex-row items-center justify-between border-b border-border px-4 py-3.5 active:bg-accent"
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
@@ -30,7 +30,9 @@ function TargetOption({
     >
       <Text
         className={`text-[15px] ${
-          selected ? "font-semibold text-white" : "text-text-light"
+          selected
+            ? "font-semibold text-popover-foreground"
+            : "text-muted-foreground"
         }`}
       >
         {label}
@@ -65,19 +67,19 @@ export function MobileWorkspaceControls({
     <>
       <View className="flex-row items-center gap-2 px-4 pb-2 pt-1">
         <Pressable
-          className="flex-row items-center gap-1.5 rounded-[7px] px-2 py-1.5 active:bg-white/10"
+          className="flex-row items-center gap-1.5 rounded-[7px] px-2 py-1.5 active:bg-accent"
           onPress={() => setMenuOpen(true)}
           accessibilityRole="button"
           accessibilityLabel={`Chat target: ${target === "cloud" ? "Cloud" : "Computer"}`}
         >
-          <Text className="text-text-light text-[13px] font-semibold">
+          <Text className="text-foreground text-[13px] font-semibold">
             {target === "cloud" ? "Cloud" : "Computer"}
           </Text>
           <IconChevronDown color={mutedForeground} size={14} strokeWidth={2} />
         </Pressable>
         {target === "computer" ? (
           <Pressable
-            className="max-w-[180px] flex-row items-center gap-1 rounded-[7px] px-1.5 py-1.5 active:bg-white/10"
+            className="max-w-[180px] flex-row items-center gap-1 rounded-[7px] px-1.5 py-1.5 active:bg-accent"
             onPress={() => setMenuOpen(true)}
             accessibilityRole="button"
             accessibilityLabel={
@@ -86,7 +88,10 @@ export function MobileWorkspaceControls({
                 : "Connect computer"
             }
           >
-            <Text className="text-status-gray text-[13px]" numberOfLines={1}>
+            <Text
+              className="text-muted-foreground text-[13px]"
+              numberOfLines={1}
+            >
               {selectedHost?.name ?? "Connect computer"}
             </Text>
             {hosts.length ? (
@@ -118,14 +123,17 @@ export function MobileWorkspaceControls({
         <TargetOption
           label="Computer"
           selected={target === "computer"}
-          onPress={() => onTargetChange("computer")}
+          onPress={() => {
+            onTargetChange("computer");
+            setMenuOpen(false);
+          }}
         />
         {target === "computer" ? (
           <>
             {hosts.map((host) => (
               <Pressable
                 key={host.id}
-                className="flex-row items-center justify-between border-b border-border-dark px-4 py-3.5 pl-7 active:bg-white/5"
+                className="flex-row items-center justify-between border-b border-border px-4 py-3.5 pl-7 active:bg-accent"
                 onPress={() => {
                   onHostChange(host.id);
                   setMenuOpen(false);
@@ -137,10 +145,10 @@ export function MobileWorkspaceControls({
                 accessibilityLabel={host.name}
               >
                 <View className="flex-1">
-                  <Text className="text-text-light text-[14px]">
+                  <Text className="text-popover-foreground text-[14px]">
                     {host.name}
                   </Text>
-                  <Text className="mt-0.5 text-status-gray text-[12px]">
+                  <Text className="mt-0.5 text-muted-foreground text-[12px]">
                     {host.status === "online" ? "Available" : host.status}
                   </Text>
                 </View>
@@ -150,7 +158,7 @@ export function MobileWorkspaceControls({
               </Pressable>
             ))}
             <Pressable
-              className="items-center px-4 py-3.5 active:bg-white/5"
+              className="items-center px-4 py-3.5 active:bg-accent"
               onPress={() => {
                 setMenuOpen(false);
                 onConnectComputer();
@@ -158,7 +166,7 @@ export function MobileWorkspaceControls({
               accessibilityRole="button"
               accessibilityLabel="Connect a computer"
             >
-              <Text className="text-text-light text-[13px] font-semibold">
+              <Text className="text-popover-foreground text-[13px] font-semibold">
                 {hosts.length ? "Manage computers" : "Connect computer"}
               </Text>
             </Pressable>
