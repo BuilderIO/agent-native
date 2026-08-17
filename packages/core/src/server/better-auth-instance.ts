@@ -1567,7 +1567,34 @@ async function createBetterAuthInstance(
         storeToken: "hashed",
         rateLimit: { window: 60, max: 5 },
         disableSignUp,
-        sendMagicLink: async ({ email, url }) => {
+        sendMagicLink: async ({ email, url, token }) => {
+          let urlPath: string | undefined;
+          let urlQueryKeys: string[] | undefined;
+          try {
+            const parsedURL = new URL(url);
+            urlPath = parsedURL.pathname;
+            urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
+          } catch {
+            // coercion-ok: diagnostics must never make email delivery fail.
+            // Better Auth owns URL construction; keep diagnostics non-fatal.
+          }
+          if (typeof token === "string") {
+            console.info("[agent-native][magic-link]", {
+              phase: "issued",
+              tokenDigest: crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("hex")
+                .slice(0, 16),
+              expectedStoredIdentifierPrefix: crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("base64url")
+                .slice(0, 16),
+              urlPath,
+              urlQueryKeys,
+            });
+          }
           const appBasePath = (
             process.env.VITE_APP_BASE_PATH ||
             process.env.APP_BASE_PATH ||
