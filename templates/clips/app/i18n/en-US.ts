@@ -1031,8 +1031,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Stop recording",
     elapsed: "Elapsed time",
-    cancel: "Cancel recording",
-    cancelShortcut: "Cancel (⌥⇧C)",
+    cancel: "Discard recording",
+    cancelShortcut: "Discard (⌥⇧C)",
+    discardConfirmTitle: "Discard this recording?",
+    discardConfirmDescription:
+      "This can't be undone. Your recording so far will be permanently deleted.",
+    resume: "Resume",
+    discardRecording: "Discard recording",
   },
   countdownOverlay: {
     startsIn: "Recording starts in {{count}}",
@@ -1575,7 +1580,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
-    loadOlder: "Load older",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
@@ -1602,7 +1606,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    agendaTab: "Agenda",
+    pastTab: "Past",
+    now: "Now",
+    noPastMeetings: "No past meetings yet",
+    loadOlder: "Load older",
+    searchFailed: "Couldn't search meetings. Try again in a moment.",
+    searchPlaceholder: "Search meetings, attendees, and transcripts...",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../../agent/production-agent.js";
+import { getAppConfig } from "../../app-config/index.js";
 
 /**
  * Load the sandboxed code-execution tool entries for one action registry:
@@ -61,10 +62,6 @@ export async function loadRunCodeToolEntries(
  * persisted resource scoped to "this app deployment".
  */
 function resolveDataProgramsAppId(): string {
-  return (
-    process.env.AGENT_NATIVE_APP_ID?.trim() ||
-    process.env.APP_ID?.trim() ||
-    process.env.APP_NAME?.trim() ||
-    "app"
-  );
+  const app = getAppConfig().app;
+  return app.id ?? app.name ?? "app";
 }

@@ -33,12 +33,19 @@ export const IPC = {
 
   /** Desktop workspace identity (renderer intent/status only; no secrets) */
   IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SETTINGS_GET: "identity:settings:get",
+  IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
+  IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
   IDENTITY_SIGN_IN: "identity:sign-in",
+  IDENTITY_AUTHENTICATE: "identity:authenticate",
+  IDENTITY_MAGIC_LINK_REQUEST: "identity:magic-link:request",
   IDENTITY_SIGN_OUT: "identity:sign-out",
 
   /** App config management (renderer ↔ main) */
   APPS_LOAD: "apps:load",
+  APPS_LOAD_WORKSPACE: "apps:load-workspace",
   APPS_ADD: "apps:add",
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
@@ -100,6 +107,8 @@ export const IPC = {
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
+  CODE_AGENTS_PORTAL_TRANSFER_RUN: "code-agents:portal-transfer-run",
+  CODE_AGENTS_PORTAL_TRANSFER_ALL: "code-agents:portal-transfer-all",
   CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
@@ -165,6 +174,10 @@ export type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+export interface DesktopIdentitySettings {
+  ssoEnabled: boolean;
+}
+
 export interface ActiveWebviewTarget {
   appId: string;
   webContentsId?: number;
@@ -204,6 +217,37 @@ export interface DesktopAppCreationSettings {
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
+}
+
+export type DesktopIdentityAuthMode = "sign-in" | "sign-up";
+
+export interface DesktopIdentityAuthRequest {
+  mode: DesktopIdentityAuthMode;
+  email: string;
+  password: string;
+}
+
+export interface DesktopIdentityAuthResult {
+  ok: boolean;
+  email?: string;
+  error?: string;
+}
+
+export interface DesktopIdentityMagicLinkRequest {
+  email: string;
+}
+
+export interface DesktopIdentityMagicLinkResult {
+  ok: boolean;
+  email?: string;
+  pending?: boolean;
+  error?: string;
+}
+
+/** Token-free result for the optional signed-in workspace app inventory. */
+export interface DesktopWorkspaceAppListResult {
+  enabled: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
 }
 
 export interface DesktopPrepareLocalCodeChangeRequest {
@@ -609,6 +653,44 @@ export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 }

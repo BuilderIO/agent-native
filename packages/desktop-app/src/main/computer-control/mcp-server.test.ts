@@ -273,6 +273,22 @@ describe("DesktopComputerMcpBridge", () => {
     await respond(attach.id, { tabId: 9, origin: "https://example.com" });
     expect((await attaching).isError).not.toBe(true);
 
+    const opening = harness.client.callTool({
+      name: "browser_open_tab",
+      arguments: { url: "https://example.com/next" },
+    });
+    const openTab = await poll();
+    expect(openTab.command).toMatchObject({
+      type: "open-tab",
+      url: "https://example.com/next",
+    });
+    await respond(openTab.id, {
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+    expect((await opening).isError).not.toBe(true);
+
     const observing = harness.client.callTool({
       name: "browser_observe",
       arguments: {},

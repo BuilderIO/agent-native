@@ -45,14 +45,34 @@ describe("multi-frontier preload API", () => {
       electron.exposed as {
         identity: {
           getStatus(): Promise<unknown>;
+          getSettings(): Promise<unknown>;
+          setSsoEnabled(enabled: boolean): Promise<unknown>;
+          ensureAppSession(appId: string): Promise<unknown>;
+          getAvailability(): Promise<unknown>;
           signIn(): Promise<unknown>;
+          authenticate(request: {
+            mode: "sign-in" | "sign-up";
+            email: string;
+            password: string;
+          }): Promise<unknown>;
+          requestMagicLink(request: { email: string }): Promise<unknown>;
           signOut(): Promise<unknown>;
           onStatusChange(callback: (status: unknown) => void): () => void;
         };
       }
     ).identity;
     await identity.getStatus();
+    await identity.getSettings();
+    await identity.setSsoEnabled(true);
+    await identity.ensureAppSession("calendar");
+    await identity.getAvailability();
     await identity.signIn();
+    await identity.authenticate({
+      mode: "sign-in",
+      email: "owner@example.com",
+      password: "password",
+    });
+    await identity.requestMagicLink({ email: "owner@example.com" });
     await identity.signOut();
     const callback = vi.fn();
     const unsubscribe = identity.onStatusChange(callback);
@@ -61,7 +81,26 @@ describe("multi-frontier preload API", () => {
     unsubscribe();
 
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SETTINGS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(
+      IPC.IDENTITY_SSO_ENABLED_SET,
+      true,
+    );
+    expect(electron.invoke).toHaveBeenCalledWith(
+      IPC.IDENTITY_APP_SESSION_ENSURE,
+      "calendar",
+    );
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AVAILABILITY_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_AUTHENTICATE, {
+      mode: "sign-in",
+      email: "owner@example.com",
+      password: "password",
+    });
+    expect(electron.invoke).toHaveBeenCalledWith(
+      IPC.IDENTITY_MAGIC_LINK_REQUEST,
+      { email: "owner@example.com" },
+    );
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
     expect(callback).toHaveBeenCalledWith("signed-in");
     expect(electron.removeListener).toHaveBeenCalledWith(

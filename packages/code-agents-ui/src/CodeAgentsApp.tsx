@@ -90,6 +90,13 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+  type ChatFirstKeyboardNavigation,
+  type ChatFirstKeyboardShortcut,
+} from "./keyboard-navigation.js";
+import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -106,6 +113,10 @@ import type {
   CodeAgentModelListResult,
   CodeAgentModelOption,
   CodeAgentModelSelection,
+  CodeAgentPortalTransferAllRequest,
+  CodeAgentPortalTransferAllResult,
+  CodeAgentPortalTransferRequest,
+  CodeAgentPortalTransferResult,
   CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
@@ -183,6 +194,12 @@ export interface CodeAgentsHost {
   appendFollowUp: (
     request: CodeAgentFollowUpRequest,
   ) => Promise<CodeAgentFollowUpResult>;
+  transferRun?: (
+    request: CodeAgentPortalTransferRequest,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAll?: (
+    request?: CodeAgentPortalTransferAllRequest,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateRun: (
     request: CodeAgentUpdateRunRequest,
   ) => Promise<CodeAgentUpdateRunResult>;
@@ -339,6 +356,8 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
+  /** Desktop-native shortcuts for app and chat navigation. */
+  keyboardNavigation?: ChatFirstKeyboardNavigation;
   /** Route first-party MCP open_app results through the shared app pane. */
   onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
   /** Lets a host place the shared watch renderer in its side-surface slot. */
@@ -634,9 +653,11 @@ const codeAgentComposerRootStyle = {
 function CodeAgentsChatHistoryHeaderActions({
   hasUnread,
   onMarkAllRead,
+  onTransferAll,
 }: {
   hasUnread: boolean;
   onMarkAllRead: () => void;
+  onTransferAll?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -659,8 +680,23 @@ function CodeAgentsChatHistoryHeaderActions({
           <IconCheck size={14} strokeWidth={1.8} aria-hidden="true" />
           <span>Mark all as read</span>
         </DropdownMenuItem>
+        {onTransferAll ? (
+          <DropdownMenuItem onSelect={onTransferAll}>
+            <IconRoute size={14} strokeWidth={1.8} aria-hidden="true" />
+            <span>Move local chats to Portal</span>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function isPortalCodeAgentRun(run: CodeAgentRun): boolean {
+  const metadata = run.metadata;
+  return Boolean(
+    metadata &&
+    (metadata.executionTarget === "portal" ||
+      (typeof metadata.portal === "object" && metadata.portal !== null)),
   );
 }
 
@@ -690,6 +726,7 @@ export default function CodeAgentsApp({
   terminalMode,
   terminalModeControl,
   chatFirstNavigation,
+  keyboardNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
   onRunsChange,
@@ -869,6 +906,12 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [portalTransferRequest, setPortalTransferRequest] = useState<
+    { kind: "run"; runId: string; title: string } | { kind: "all" } | null
+  >(null);
+  const [portalTransferBusy, setPortalTransferBusy] = useState(false);
+  const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
+  const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -2233,6 +2276,81 @@ export default function CodeAgentsApp({
     [markRunsRead, selectRun],
   );
 
+  useEffect(() => {
+    if (!isActive || !keyboardNavigation) return;
+
+    const handleShortcut = (
+      shortcut: ChatFirstKeyboardShortcut,
+      preventDefault?: () => void,
+    ) => {
+      const isCommand = Boolean(shortcut.metaKey || shortcut.ctrlKey);
+      if (!isCommand || shortcut.altKey) return;
+
+      if (!shortcut.shiftKey) {
+        const appId = getChatFirstNumericAppShortcut(
+          keyboardNavigation.appIds,
+          shortcut.key,
+        );
+        if (!appId) return;
+        preventDefault?.();
+        keyboardNavigation.onSelectApp(appId);
+        return;
+      }
+
+      const isBack =
+        shortcut.code === "BracketLeft" ||
+        shortcut.key === "[" ||
+        shortcut.key === "{";
+      const isForward =
+        shortcut.code === "BracketRight" ||
+        shortcut.key === "]" ||
+        shortcut.key === "}";
+      if (!isBack && !isForward) return;
+
+      const target = resolveChatFirstKeyboardNavigationTarget({
+        appIds: keyboardNavigation.appIds,
+        activeAppId: keyboardNavigation.activeAppId,
+        chatIds: railItems.map((item) => item.id),
+        selectedChatId: selectedRunId,
+        direction: isBack ? -1 : 1,
+      });
+      if (!target) return;
+      preventDefault?.();
+      if (target.kind === "app") {
+        keyboardNavigation.onSelectApp(target.id);
+      } else {
+        handleRailSelect(target.id);
+      }
+    };
+
+    const handleDomKeyDown = (event: KeyboardEvent) => {
+      handleShortcut(
+        {
+          key: event.key,
+          code: event.code,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        () => event.preventDefault(),
+      );
+    };
+
+    window.addEventListener("keydown", handleDomKeyDown);
+    const unsubscribe = keyboardNavigation.subscribe?.(handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleDomKeyDown);
+      unsubscribe?.();
+    };
+  }, [
+    handleRailSelect,
+    isActive,
+    keyboardNavigation,
+    railItems,
+    selectedRunId,
+  ]);
+
   const handleRailOpen = useCallback(
     (id: string) => {
       onChatFirstMainKindChangeRef.current?.("code");
@@ -2255,6 +2373,65 @@ export default function CodeAgentsApp({
     const run = runsRef.current.find((item) => item.id === id);
     if (run) void renameRunRef.current(run, nextTitle);
   }, []);
+
+  const requestPortalTransfer = useCallback(
+    (runId?: string) => {
+      if (runId) {
+        const run = runsRef.current.find((candidate) => candidate.id === runId);
+        if (!run || isPortalCodeAgentRun(run)) return;
+        setPortalTransferRequest({
+          kind: "run",
+          runId,
+          title: getRunTitle(run) ?? "this chat",
+        });
+        return;
+      }
+      if (host.transferAll) setPortalTransferRequest({ kind: "all" });
+    },
+    [host.transferAll],
+  );
+
+  const confirmPortalTransfer = useCallback(async () => {
+    const request = portalTransferRequest;
+    if (!request || portalTransferBusy) return;
+    setPortalTransferBusy(true);
+    try {
+      if (request.kind === "run") {
+        if (!host.transferRun) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferRun({ runId: request.runId });
+        toast(result.ok ? result.message : "Could not move chat to Portal.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 2600,
+        });
+      } else {
+        if (!host.transferAll) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferAll();
+        toast(result.ok ? result.message : "Portal transfer needs attention.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 3200,
+        });
+      }
+      await loadRuns(true);
+    } catch (error) {
+      toast("Portal transfer did not finish.", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3200,
+      });
+    } finally {
+      setPortalTransferBusy(false);
+      setPortalTransferRequest(null);
+    }
+  }, [host, loadRuns, portalTransferBusy, portalTransferRequest]);
 
   const handleRailAdditionalRowActions = useCallback(
     (item: ChatHistoryItem, closeMenu: () => void) => (
@@ -2302,9 +2479,26 @@ export default function CodeAgentsApp({
               : "Watch and message session"}
           </span>
         </button>
+        {host.transferRun &&
+        runsRef.current.some(
+          (run) => run.id === item.id && !isPortalCodeAgentRun(run),
+        ) ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              requestPortalTransfer(item.id);
+            }}
+          >
+            <IconRoute size={13} strokeWidth={1.8} />
+            <span>Move to Portal</span>
+          </button>
+        ) : null}
       </>
     ),
-    [],
+    [host.transferRun, requestPortalTransfer],
   );
 
   const showingSelectedRunDetail =
@@ -2361,6 +2555,9 @@ export default function CodeAgentsApp({
               <CodeAgentsChatHistoryHeaderActions
                 hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
                 onMarkAllRead={markAllRunsRead}
+                onTransferAll={
+                  host.transferAll ? () => requestPortalTransfer() : undefined
+                }
               />
             }
             loading={loading}
@@ -2653,20 +2850,44 @@ export default function CodeAgentsApp({
                             />
                             {(projects.length > 0 ||
                               canChooseProjectFolder) && (
-                              <ProjectFolderPicker
-                                variant="bar"
-                                projects={projects}
-                                selectedPath={selectedProjectPath}
-                                executionTarget={newRunExecutionTarget}
-                                showExecutionTarget={supportsExecutionTarget}
-                                loading={loadingProjects}
-                                canChoose={canChooseProjectFolder}
-                                onSelect={selectProjectFolder}
-                                onChoose={chooseProjectFolder}
-                                onExecutionTargetChange={
-                                  setNewRunExecutionTarget
-                                }
-                              />
+                              <RemoteWaitlistPopover
+                                open={cloudWaitlistOpen}
+                                onOpenChange={(open) => {
+                                  if (
+                                    !open &&
+                                    cloudWaitlistOpeningRef.current
+                                  ) {
+                                    cloudWaitlistOpeningRef.current = false;
+                                    return;
+                                  }
+                                  setCloudWaitlistOpen(open);
+                                }}
+                                submit={host.submitRemoteWaitlist}
+                              >
+                                <ProjectFolderPicker
+                                  variant="bar"
+                                  projects={projects}
+                                  selectedPath={selectedProjectPath}
+                                  executionTarget={newRunExecutionTarget}
+                                  showExecutionTarget={supportsExecutionTarget}
+                                  loading={loadingProjects}
+                                  canChoose={canChooseProjectFolder}
+                                  onSelect={selectProjectFolder}
+                                  onChoose={chooseProjectFolder}
+                                  onCloudSelect={() => {
+                                    cloudWaitlistOpeningRef.current = true;
+                                    globalThis.setTimeout(() => {
+                                      setCloudWaitlistOpen(true);
+                                      globalThis.setTimeout(() => {
+                                        cloudWaitlistOpeningRef.current = false;
+                                      }, 0);
+                                    }, 0);
+                                  }}
+                                  onExecutionTargetChange={
+                                    setNewRunExecutionTarget
+                                  }
+                                />
+                              </RemoteWaitlistPopover>
                             )}
                             {overviewFooterSlot ? (
                               <div className="code-agents-overview-footer">
@@ -2684,6 +2905,47 @@ export default function CodeAgentsApp({
           </>
         )}
       </main>
+      <Dialog
+        open={Boolean(portalTransferRequest)}
+        onOpenChange={(open) => {
+          if (!open && !portalTransferBusy) setPortalTransferRequest(null);
+        }}
+      >
+        <DialogContent aria-describedby="portal-transfer-description">
+          <DialogTitle>
+            {portalTransferRequest?.kind === "all"
+              ? "Move local chats to Portal?"
+              : "Move chat to Portal?"}
+          </DialogTitle>
+          <DialogDescription id="portal-transfer-description">
+            {portalTransferRequest?.kind === "all"
+              ? "Each local or worktree chat will move its code and full text context to the paired computer."
+              : `Move ${portalTransferRequest?.title ?? "this chat"} with its code and full text context to the paired computer.`}
+          </DialogDescription>
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setPortalTransferRequest(null)}
+              disabled={portalTransferBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              onClick={() => void confirmPortalTransfer()}
+              disabled={portalTransferBusy}
+            >
+              {portalTransferBusy
+                ? "Moving..."
+                : portalTransferRequest?.kind === "all"
+                  ? "Move all"
+                  : "Move to Portal"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ComputerAccessDialog
         open={computerSetupOpen}
         onOpenChange={setComputerSetupOpen}
@@ -2983,6 +3245,7 @@ function ProjectFolderPicker({
   canChoose,
   onSelect,
   onChoose,
+  onCloudSelect,
   onExecutionTargetChange,
 }: {
   variant?: "rail" | "bar";
@@ -2994,6 +3257,7 @@ function ProjectFolderPicker({
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onCloudSelect?: () => void;
   onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
@@ -3047,9 +3311,13 @@ function ProjectFolderPicker({
         {showExecutionTarget && onExecutionTargetChange ? (
           <Select
             value={executionTarget}
-            onValueChange={(value) =>
-              onExecutionTargetChange(value as CodeAgentExecutionTarget)
-            }
+            onValueChange={(value) => {
+              if (value === "cloud") {
+                onCloudSelect?.();
+                return;
+              }
+              onExecutionTargetChange(value as CodeAgentExecutionTarget);
+            }}
           >
             <SelectTrigger
               className="code-agents-project-select code-agents-execution-target-select"
@@ -3084,6 +3352,15 @@ function ProjectFolderPicker({
                   <span className="code-agents-project-select__item">
                     <IconCloud size={14} strokeWidth={1.8} />
                     <span>Portal</span>
+                  </span>
+                </SelectItem>
+                <SelectItem
+                  value="cloud"
+                  description="Run in the cloud - join the waitlist"
+                >
+                  <span className="code-agents-project-select__item">
+                    <IconCloud size={14} strokeWidth={1.8} />
+                    <span>Cloud</span>
                   </span>
                 </SelectItem>
               </SelectGroup>

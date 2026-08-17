@@ -1,5 +1,5 @@
 import {
-  resolveBuilderAuthHeader,
+  resolveBuilderGatewayAuth,
   getBuilderProxyOrigin,
 } from "../server/credential-provider.js";
 
@@ -43,8 +43,8 @@ function describeError(err: unknown): string {
 export async function transcribeWithBuilder(
   opts: BuilderTranscribeOptions,
 ): Promise<BuilderTranscribeResult> {
-  const authHeader = await resolveBuilderAuthHeader();
-  if (!authHeader) {
+  const auth = await resolveBuilderGatewayAuth();
+  if (!auth) {
     throw new Error(
       "Builder private key not configured. Connect your Builder.io account (free tier available) in Settings.",
     );
@@ -81,8 +81,12 @@ export async function transcribeWithBuilder(
     res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: authHeader,
+        Authorization: auth.authorization,
         "Content-Type": "application/octet-stream",
+        // A gateway token without a space id is rejected before any route
+        // policy is consulted, so the space id travels with every call.
+        ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+        ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
       },
       body,
       signal: controller.signal,

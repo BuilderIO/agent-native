@@ -32,24 +32,16 @@ in scope. Keep the code change and the external reply equally evidence-based.
 
 ## Decision Gate
 
-Use this gate before reacting, editing code, or posting a reply. It applies to
-the whole sweep, not only the newest thread.
+Apply the shared `address-feedback` Fix-altitude gate before reacting, editing
+code, or posting a reply. It applies to the whole sweep, not only the newest
+thread. This workflow adds one Slack-specific timing rule: once a report is
+classified as a concrete bug or missing evidence, add `👀` immediately, before
+investigation or delegation.
 
-1. **Concrete bug** - the report names an observable bad behavior or regression.
-   Add `👀`, investigate it, and keep working until the repo-owned fix is
-   implemented and verified. Do not reply with a diagnosis while leaving the
-   fix undone if the code can be changed safely.
-2. **Missing evidence** - after exhausting the thread, replies, linked files,
-   run IDs, app state, history, and source, a safe fix still cannot be chosen.
-   Add `👀` and ask one specific question naming the exact missing surface,
-   reproduction, or input needed to fix and verify it.
-3. **Subjective/product request** - a preference, feature idea, design opinion,
-   or future product direction without a concrete broken behavior. Do nothing:
-   no `👀`, no reply, and no code change.
-4. **Policy, informational, bot-forward, status-only, or non-repo-owned item**
-   - do nothing unless the user explicitly assigns a concrete repo action and
-   the available evidence identifies one. An existing answer from the owning
-   team is not a reason to add a reaction or repeat it.
+Use the shared skill's classification for subjective/product, policy,
+informational, bot-forward, status-only, and non-repo-owned items; those do not
+get a reaction, reply, or code change unless the user explicitly assigns a
+concrete repo action.
 
 Every actionable thread must end in exactly one external state: **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
@@ -61,21 +53,24 @@ post it.
 
 1. Build a per-thread checklist with the symptom, expected behavior, evidence,
    owner, and disposition: bug, UX suggestion, unclear, policy, or out of
-   scope.
-2. Treat a concrete defect with an observable bad behavior as actionable. Pure
-   subjective/product ideas, policy questions, informational posts, bot
-   forwards, and status-only updates are out of scope for this workflow: do not
-   add `👀` and do not reply to them.
-3. Add `👀` only to actionable feedback that did not already have it.
-4. Parallelize independent investigations and narrow fixes with disjoint write
+   scope. Use the shared `address-feedback` categorization and Fix-altitude
+   gate when choosing the disposition and owning seam.
+2. The reaction is the first external action after classification. Add `👀` to
+   each concrete bug or clarification-needed thread immediately, one thread at
+   a time as it enters scope. Do not batch reactions until after investigation,
+   implementation, testing, or the final Slack pass. If the reaction fails,
+   stop and retry or report the concrete Slack permission/API blocker before
+   continuing the investigation. Do not react to subjective/product, policy,
+   informational, bot-forward, status-only, or non-repo-owned items.
+3. Parallelize independent investigations and narrow fixes with disjoint write
    sets. For every actionable repo-owned bug, keep working toward a verified
    fix. If the available evidence cannot support a safe fix, ask one concrete
    question for the missing reproduction or input; do not settle for a vague
    unresolved status.
-5. Verify each fix with the smallest relevant test, typecheck, action read-back,
+4. Verify each fix with the smallest relevant test, typecheck, action read-back,
    or browser path. Keep source-tested, built, installed, deployed, and live
    observations separate.
-6. Before posting, prepare one short status for every in-scope feedback item
+5. Before posting, prepare one short status for every in-scope feedback item
    or thread that was addressed - not only the newest report:
    - **Fixed** - what changed and what verification proves it.
    - **Clarification needed** - one concrete question that unblocks the next
@@ -95,11 +90,11 @@ post it.
    session IDs, tool names, database/history details, and internal ownership
    boundaries from the posted reply. Those belong in the investigation, not in
    the reporter's thread.
-7. When the user explicitly asks to reply, post directly in each requested
+6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the
    reply landed.
-8. If the user says earlier replies were too technical, harsh, or incomplete,
+7. If the user says earlier replies were too technical, harsh, or incomplete,
    search for every reply authored in this sweep and edit the bad replies in
    place. Do not fix only the newest example or leave the other addressed
    threads with the old wording.

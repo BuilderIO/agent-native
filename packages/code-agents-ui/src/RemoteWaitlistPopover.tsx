@@ -11,7 +11,7 @@ const REMOTE_WAITLIST_URL =
   "https://agent-native.com/_agent-native/builder/branch-waitlist";
 
 const DEFAULT_JOINED_MESSAGE =
-  "You're on the waitlist. We'll email you when remote access opens.";
+  "You're on the waitlist. We'll email you when Cloud access opens.";
 
 async function submitRemoteWaitlist(
   request: CodeAgentRemoteWaitlistRequest,
@@ -141,11 +141,10 @@ function RemoteWaitlistContent({
     <div className="code-agents-remote-waitlist">
       <div>
         <h3 className="code-agents-remote-waitlist__title">
-          Join the waitlist
+          Join the Cloud waitlist
         </h3>
         <p className="code-agents-remote-waitlist__body">
-          Rapidly generate agent-native apps in the cloud. Join the waitlist for
-          early access.
+          Run coding sessions in the cloud. Join the waitlist for early access.
         </p>
       </div>
 

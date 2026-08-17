@@ -332,6 +332,28 @@ describe("WorkspaceAppKeepAlive", () => {
     ).toBe("");
   });
 
+  it("does not expose a child login page when the workspace SSO exchange fails", async () => {
+    clientState.workspaceSsoEnabled = true;
+    clientState.workspaceSsoMutateAsync.mockRejectedValue(
+      new Error("Workspace SSO is temporarily unavailable"),
+    );
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(
+      container
+        .querySelector("[data-chat-first-app-error]")
+        ?.getAttribute("data-chat-first-app-error"),
+    ).toBe("Workspace SSO is temporarily unavailable");
+  });
+
   it("evicts the oldest inactive app after reaching the keep-alive limit", async () => {
     await act(async () => {
       root.render(<WorkspaceAppKeepAlive activeAppId="mail" />);

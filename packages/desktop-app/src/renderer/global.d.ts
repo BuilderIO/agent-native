@@ -24,6 +24,10 @@ type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+type DesktopIdentitySettings = {
+  ssoEnabled: boolean;
+};
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -385,6 +389,44 @@ type CodeAgentFollowUpResult = {
   error?: string;
 };
 
+type CodeAgentPortalTransferRequest = {
+  runId: string;
+  portalHostId?: string;
+};
+
+type CodeAgentPortalTransferItem = {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentPortalTransferResult = {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentPortalTransferAllRequest = {
+  portalHostId?: string;
+};
+
+type CodeAgentPortalTransferAllResult = {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
+  message: string;
+  error?: string;
+};
+
 type CodeAgentUpdateRunRequest = {
   goalId?: string;
   runId: string;
@@ -715,9 +757,11 @@ interface ElectronAPI {
     onKeydown(
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): () => void;
     loadBindings(): Promise<DesktopShortcutSettings>;
@@ -733,7 +777,21 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    getSettings(): Promise<DesktopIdentitySettings>;
+    setSsoEnabled(enabled: boolean): Promise<boolean>;
+    ensureAppSession(appId: string): Promise<boolean>;
+    getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
+    authenticate(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityAuthRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityAuthResult
+    >;
+    requestMagicLink(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityMagicLinkRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityMagicLinkResult
+    >;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
   };
@@ -797,6 +855,12 @@ interface ElectronAPI {
     appendFollowUp(
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult>;
+    transferRun(
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult>;
+    transferAll(
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult>;
     updateRun(
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult>;
@@ -889,6 +953,9 @@ interface ElectronAPI {
 
   appConfig: {
     load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    loadWorkspace?(): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    >;
     add(
       app: import("@agent-native/shared-app-config").AppConfig,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;

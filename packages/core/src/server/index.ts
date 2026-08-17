@@ -1,4 +1,12 @@
 export {
+  defineAppConfig,
+  getAppConfig,
+  resetAppConfigForTests,
+  appConfigSchema,
+  type AppConfig,
+  type AppConfigInput,
+} from "../app-config/index.js";
+export {
   createServer,
   type CreateServerOptions,
   type EnvKeyConfig,
@@ -63,6 +71,7 @@ export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
+  registerAuthPublicPaths,
   getSession,
   COOKIE_NAME,
   addSession,
@@ -89,6 +98,7 @@ export {
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
+export { hasGoogleAuthIdentity } from "./better-auth-instance.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,
@@ -197,7 +207,10 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
-export { createFeatureFlagsPlugin } from "../feature-flags/plugin.js";
+export {
+  createFeatureFlagA2AActionRouteAuth,
+  createFeatureFlagsPlugin,
+} from "../feature-flags/server.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -532,6 +545,12 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
+  // Gateway lane, for the metered surfaces a deployed site can call without an
+  // identity — image and video generation, realtime transcription. Falls
+  // through to the identity credential first, so a consumer moves lane by
+  // swapping the resolver and changing nothing else.
+  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayCredentialsDetailed,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,

@@ -259,6 +259,92 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("falls back to the authenticated workspace action for hosted gateways", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "atlas",
+              name: "Atlas",
+              path: "/atlas",
+              url: "https://agent-workspace.builder.io/atlas",
+            },
+          ]),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://agent-workspace.builder.io/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          accept: "application/json",
+          Authorization: expect.stringMatching(/^Bearer /),
+        }),
+      }),
+    );
+    expect(apps.map((app) => app.id)).toEqual(["atlas"]);
+    expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
+  });
+
+  it("keeps the exact request org in hosted registry tokens", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-exact" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const authorization = fetchMock.mock.calls[1]?.[1]?.headers
+      ?.Authorization as string;
+    const tokenPayload = JSON.parse(
+      Buffer.from(
+        authorization.slice("Bearer ".length).split(".")[1]!,
+        "base64url",
+      ).toString(),
+    ) as { org_id?: string };
+    expect(tokenPayload.org_id).toBe("org-exact");
+  });
+
+  it("falls back to local discovery when the gateway URL is malformed", async () => {
+    stubManifest();
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
   it("filters workspace apps by audience", async () => {
     stubNoPendingContext();
     vi.stubEnv(
@@ -418,31 +504,43 @@ describe("listWorkspaceApps", () => {
         }),
       },
     });
-    expect(mocks.getDbExec).toHaveBeenCalled();
   });
 
-  it("blocks non-admin workspace members from updating app display metadata", async () => {
+  it("lets workspace members update app display metadata", async () => {
     mocks.state.orgRole = "member";
     stubNoPendingContext();
-    stubManifest([{ id: "todo", name: "Todo", path: "/todo" }]);
+    stubManifest([
+      {
+        id: "todo",
+        name: "Todo",
+        description: "Original description",
+        path: "/todo",
+      },
+    ]);
 
-    await expect(
-      runWithRequestContext(
-        { userEmail: "dev@example.test", orgId: "org-123" },
-        () =>
-          updateWorkspaceAppMetadata({
-            appId: "todo",
-            name: "Todo Board",
-          }),
-      ),
-    ).rejects.toMatchObject({
-      message:
-        "Only organization owners and admins can update app creation settings.",
-      statusCode: 403,
+    const updated = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        updateWorkspaceAppMetadata({
+          appId: "todo",
+          name: "Todo Board",
+          description: "Tracks team work.",
+        }),
+    );
+
+    expect(updated).toMatchObject({
+      name: "Todo Board",
+      description: "Tracks team work.",
     });
-    expect(
-      mocks.settings.get("workspace-app-metadata:org:org-123"),
-    ).toBeUndefined();
+    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toEqual({
+      apps: {
+        todo: expect.objectContaining({
+          name: "Todo Board",
+          description: "Tracks team work.",
+          updatedBy: "dev@example.test",
+        }),
+      },
+    });
   });
 
   it("generates a concise seed description from an app prompt", () => {

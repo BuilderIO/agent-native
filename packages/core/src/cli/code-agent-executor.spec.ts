@@ -1582,6 +1582,7 @@ describe("buildCodeAgentSystemPrompt", () => {
 
   it("includes nested AGENTS.md precedence note in every prompt", () => {
     const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain("only project checkout for this run");
     expect(prompt).toContain(
       "More deeply nested AGENTS.md files take precedence",
     );

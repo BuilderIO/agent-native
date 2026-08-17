@@ -532,6 +532,90 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  // A truncated stream is a continuation boundary on every lane. Identity-lane
+  // deployments got that from the message text; a Builder-credits deployment
+  // replaces the message with one visitor line, so the code has to carry it.
+  it("folds a truncated gateway stream by its code, not its sentence", () => {
+    for (const error of [
+      "Builder gateway stream ended without a stop event",
+      "AI features aren't available on this site right now.",
+    ]) {
+      const message = buildAssistantMessage(
+        [
+          { seq: 0, event: { type: "text", text: "partial answer" } },
+          {
+            seq: 1,
+            event: {
+              type: "error",
+              error,
+              errorCode: "builder_gateway_stream_ended",
+            },
+          },
+        ],
+        "run-stream-ended",
+        { suppressInternalContinuation: true, turnId: "turn-stream-ended" },
+      );
+
+      expect(message?.content).toEqual([
+        { type: "text", text: "partial answer" },
+      ]);
+      expect(message?.metadata).toMatchObject({
+        custom: { continued: true },
+      });
+    }
+  });
+
+  // `providerRetryable` is the ENGINE's "another attempt may succeed", which is
+  // not the same claim as "this run stopped at an internal boundary". Reading it
+  // here would drop a provider throttle from the persisted turn and record the
+  // turn as continued when nothing continues it.
+  it("ignores the engine's retry verdict when deciding continuation boundaries", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "too_many_concurrent_requests",
+            providerRetryable: true,
+          },
+        },
+      ],
+      "run-throttled",
+      { suppressInternalContinuation: true, turnId: "turn-throttled" },
+    );
+
+    // `too_many_concurrent_requests` is in this builder's own code list, so the
+    // fold is expected — what must not happen is the error being dropped
+    // because of `providerRetryable`. Re-run with a code it does not list.
+    expect(message?.metadata).toMatchObject({ custom: { continued: true } });
+
+    const unlisted = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "upstream_unavailable",
+            providerRetryable: true,
+          },
+        },
+      ],
+      "run-unlisted-throttle",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-unlisted-throttle",
+      },
+    );
+
+    expect(unlisted?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(unlisted?.metadata.custom).not.toHaveProperty("continued");
+  });
+
   it("persists partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },

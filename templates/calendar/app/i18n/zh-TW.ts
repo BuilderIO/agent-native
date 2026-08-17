@@ -624,6 +624,7 @@ const messages = {
     },
   },
   calendarView: {
+    addWorkingLocation: "新增工作地點",
     addTitleBeforeCreate: "建立事件前請新增標題",
     calendarSettingsLoading: "行事曆設定仍在載入。請稍後再試。",
     day: "日",
@@ -651,6 +652,11 @@ const messages = {
     updatingEvent: "正在更新事件...",
     updatingRecurringEvent: "正在更新重複事件...",
     week: "週",
+    timezoneSwitchTitle: "使用瀏覽器時區？",
+    timezoneSwitchDescription:
+      "行事曆固定使用 {{savedTimezone}}，但瀏覽器使用 {{browserTimezone}}。要切換行事曆時區嗎？",
+    timezoneSwitchKeep: "保留 {{timezone}}",
+    timezoneSwitchSwitch: "切換到 {{timezone}}",
   },
   eventForm: {
     addAttachment: "新增附件",

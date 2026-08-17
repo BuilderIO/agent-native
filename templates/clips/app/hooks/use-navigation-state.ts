@@ -30,6 +30,7 @@ export interface NavigationState {
   search?: string;
   path?: string;
   meetingId?: string;
+  meetingsTab?: "agenda" | "past";
   dictationId?: string;
 }
 
@@ -60,6 +61,9 @@ interface NavigateCommand extends Partial<NavigationState> {
  *   /embed/:shareId             -> embed
  *   /notifications              -> notifications
  *   /settings[/*]               -> settings
+ *   /meetings                   -> meetings (meetingsTab: agenda)
+ *   /meetings?tab=past          -> meetings (meetingsTab: past)
+ *   /meetings/:meetingId        -> meeting
  */
 export function stateFromLocation(
   pathname: string,
@@ -110,7 +114,13 @@ export function stateFromLocation(
     if (meetingMatch[1]) {
       return { view: "meeting", meetingId: meetingMatch[1] };
     }
-    return { view: "meetings" };
+    // ?tab= is absent on the default Agenda tab, so report it explicitly
+    // rather than leaving the agent to infer which list the user is looking at.
+    return {
+      view: "meetings",
+      meetingsTab: params.get("tab") === "past" ? "past" : "agenda",
+      ...(searchTerm ? { search: searchTerm } : {}),
+    };
   }
 
   // /dictate (optionally /dictate/:dictationId in the future)
@@ -185,7 +195,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "settings":
       return "/settings";
     case "meetings":
-      return "/meetings";
+      return cmd.meetingsTab === "past" ? "/meetings?tab=past" : "/meetings";
     case "meeting":
       return cmd.meetingId ? `/meetings/${cmd.meetingId}` : "/meetings";
     case "dictate":

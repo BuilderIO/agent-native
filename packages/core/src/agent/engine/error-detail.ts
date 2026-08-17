@@ -68,6 +68,41 @@ export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
+/**
+ * The single context-window-overflow classifier, shared by the layer that reads
+ * a provider's raw reply and the layer that decides to trim and retry.
+ *
+ * It lives here, beside the transport classifier, because the Builder gateway
+ * reports an overflow as an ordinary 400 `invalid_request_error` whose prose is
+ * the only carrier — and on a Builder-credits deployment that prose is replaced
+ * by one visitor line before any agent-level predicate sees it. The engine
+ * therefore runs this against the RAW reply and hands the verdict on as a
+ * structural field; `isContextTooLongError` (production-agent) keeps calling it
+ * for every other engine, which still delivers its own message intact.
+ */
+export function isContextOverflowMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("input_too_long") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("reduce the length") ||
+    // Gemini phrasing
+    msg.includes("input token count exceeds") ||
+    msg.includes("request too large")
+  );
+}
+
+/** The overflow codes a provider or gateway may report instead of prose. */
+export function isContextOverflowCode(code: string | undefined): boolean {
+  const normalized = (code ?? "").toLowerCase();
+  return (
+    normalized.includes("context_length") ||
+    normalized.includes("input_too_long")
+  );
+}
+
 /** Classification fields an AI SDK provider failure carries. */
 export interface ProviderErrorClassification {
   errorCode?: string;

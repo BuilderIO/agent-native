@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { ForbiddenError } from "../sharing/access.js";
 import {
@@ -434,7 +435,7 @@ async function detectUsageEngineName(): Promise<string | null> {
     // The metrics action can still render USD estimates when engine settings
     // are unavailable; the underlying usage rows remain authoritative.
   }
-  return process.env.AGENT_ENGINE ?? null;
+  return getAppConfig().agent.engine ?? null;
 }
 
 export async function listAppUsageMetrics(

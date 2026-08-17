@@ -2,8 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
-  where: null as unknown,
+  // The action now issues two `.where()` calls per run — the meetings query
+  // and, when persisted rows come back, a second batched participants fetch —
+  // so both must be captured rather than one overwriting the other.
+  whereCalls: [] as unknown[],
   limit: null as number | null,
+  offset: null as number | null,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -24,6 +28,11 @@ vi.mock("drizzle-orm", () => ({
   desc: (column: unknown) => ({ kind: "desc", column }),
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
   gte: (column: unknown, value: unknown) => ({ kind: "gte", column, value }),
+  inArray: (column: unknown, values: unknown) => ({
+    kind: "in-array",
+    column,
+    values,
+  }),
   isNotNull: (column: unknown) => ({ kind: "is-not-null", column }),
   isNull: (column: unknown) => ({ kind: "is-null", column }),
   lt: (column: unknown, value: unknown) => ({ kind: "lt", column, value }),
@@ -54,8 +63,15 @@ vi.mock("../server/db/index.js", () => {
     calendarEventId: "meetings.calendarEventId",
     source: "meetings.source",
   };
+  const meetingParticipants = {
+    id: "meetingParticipants.id",
+    meetingId: "meetingParticipants.meetingId",
+    email: "meetingParticipants.email",
+    name: "meetingParticipants.name",
+  };
   const schema = {
     meetings,
+    meetingParticipants,
     meetingShares: "meetingShares",
     calendarAccounts: {},
     calendarAccountShares: {},
@@ -66,7 +82,7 @@ vi.mock("../server/db/index.js", () => {
       const builder: Record<string, (...args: any[]) => any> = {};
       builder.from = vi.fn(() => builder);
       builder.where = vi.fn((condition: unknown) => {
-        state.where = condition;
+        state.whereCalls.push(condition);
         return builder;
       });
       builder.orderBy = vi.fn(() => builder);
@@ -74,7 +90,16 @@ vi.mock("../server/db/index.js", () => {
         state.limit = value;
         return builder;
       });
-      builder.offset = vi.fn(async () => state.rows);
+      builder.offset = vi.fn(async (value: number) => {
+        state.offset = value;
+        return state.rows;
+      });
+      // The participants batch fetch is `await db.select()...where(...)` with
+      // no further chaining, so `builder` itself must be thenable — it
+      // resolves to no participants here since these tests don't exercise
+      // that path; `.offset()` above (a real async function) still governs
+      // the meetings query's own resolution.
+      builder.then = (resolve: (value: unknown[]) => void) => resolve([]);
       return builder;
     }),
   };
@@ -118,8 +143,9 @@ const meeting = (id: string) => ({
 describe("list-meetings history", () => {
   beforeEach(() => {
     state.rows = [];
-    state.where = null;
+    state.whereCalls = [];
     state.limit = null;
+    state.offset = null;
   });
 
   it("accepts content-aware history queries without recordedOnly", () => {
@@ -151,23 +177,34 @@ describe("list-meetings history", () => {
     expect(result.meetings).toHaveLength(1);
     expect(result.hasMore).toBe(true);
     expect(state.limit).toBe(2);
-    expect(state.where).toMatchObject({ kind: "and" });
-    expect(
-      (state.where as { conditions: Array<{ kind?: string }> }).conditions,
-    ).toContainEqual(expect.objectContaining({ kind: "or" }));
+    const meetingsWhere = state.whereCalls[0] as {
+      kind?: string;
+      conditions?: Array<{ kind?: string }>;
+    };
+    expect(meetingsWhere).toMatchObject({ kind: "and" });
+    expect(meetingsWhere.conditions).toContainEqual(
+      expect.objectContaining({ kind: "or" }),
+    );
   });
 
-  it("keeps the persisted-history sentinel beyond the first 500 rows", async () => {
+  // Regression: an earlier fix kept "Load older" reachable past 500 rows by
+  // growing the fetch-from-zero window (`offset + limit + 1`), which still
+  // hard-caps at 500 total rows no matter how large `offset` gets — offset
+  // 500 would ask for the same first-500-row window and always come back
+  // empty. Real per-page DB offset has no such ceiling: the LIMIT stays
+  // bounded to this page's size regardless of how deep `offset` reaches.
+  it("paginates for real in SQL, so history is reachable arbitrarily far past 500 rows", async () => {
     const parsed = action.schema.parse({
       view: "past",
       hasContent: true,
       includeLiveCalendar: false,
       limit: 50,
-      offset: 450,
+      offset: 4500,
     });
 
     await action.run(parsed);
 
-    expect(state.limit).toBe(501);
+    expect(state.limit).toBe(51);
+    expect(state.offset).toBe(4500);
   });
 });

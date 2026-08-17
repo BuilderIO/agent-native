@@ -63,6 +63,9 @@ import {
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferItem,
+  type CodeAgentPortalTransferResult,
   type CodeAgentPromptAttachment,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunResult,
@@ -96,6 +99,7 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
+  type DesktopWorkspaceAppListResult,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
   type DesktopContentFileDeleteRequest,
@@ -112,6 +116,8 @@ import {
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
+  type DesktopIdentitySettings,
+  type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -122,7 +128,6 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
-  net,
   Notification,
   screen,
   session,
@@ -145,6 +150,10 @@ import {
   withFileLockSync,
   writeJsonFileAtomically,
 } from "../../../core/src/cli/atomic-json-file.js";
+import {
+  createPortalTransferContext,
+  portalTransferContinuationPrompt,
+} from "../../../core/src/cli/portal-transfer.js";
 import {
   createPortalHandoff,
   type PortalHandoff,
@@ -222,6 +231,7 @@ import {
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
 } from "./desktop-startup.js";
+import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -255,6 +265,7 @@ import {
 } from "./sentry";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
+import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
@@ -268,9 +279,6 @@ initializeDesktopStartup({
   logError: console.error,
   logWarning: console.warn,
 });
-
-const IS_DESKTOP_SSO_CANARY =
-  app.isPackaged && isDesktopSsoCanaryVersion(app.getVersion());
 
 const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
   lockWaitMs: 50,
@@ -301,6 +309,10 @@ process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
 
 const IS_DEV = !app.isPackaged;
 
+function isDesktopSsoEnabled(): boolean {
+  return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
+}
+
 if (IS_DEV) {
   // Keep local electron-vite runs out of the packaged app's Chromium profile.
   // Sharing the same userData directory lets dev and prod processes fight over
@@ -330,11 +342,10 @@ if (IS_DEV) {
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
 // Open Agent Native" screen whose deep link can't fire.
-app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
-if (IS_DESKTOP_SSO_CANARY) {
-  app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktopSsoCanary/${app.getVersion()}`;
-}
-
+const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
+  ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
+  : "";
+app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
@@ -353,9 +364,52 @@ let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
 let desktopIdentityBroker: DesktopIdentityBroker | null = null;
+let desktopWorkspaceApps: AppConfig[] = [];
+let desktopWorkspaceAppsGeneration = 0;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
+
+type DesktopNavigationShortcutInput = {
+  type: string;
+  key: string;
+  code?: string;
+  meta?: boolean;
+  control?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+};
+
+function forwardDesktopNavigationShortcut(
+  event: { preventDefault(): void },
+  input: DesktopNavigationShortcutInput,
+): boolean {
+  if (!(input.meta || input.control) || input.type !== "keyDown") return false;
+
+  const key = input.key.toLowerCase();
+  const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
+  const isBracketLeft =
+    input.code === "BracketLeft" || key === "[" || key === "{";
+  const isBracketRight =
+    input.code === "BracketRight" || key === "]" || key === "}";
+  const isBracketShortcut =
+    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
+  if (!isNumericShortcut && !isBracketShortcut) return false;
+
+  event.preventDefault();
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
+  win.webContents.send("shortcut:keydown", {
+    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
+    code: input.code,
+    shiftKey: Boolean(input.shift),
+    altKey: Boolean(input.alt),
+    ctrlKey: Boolean(input.control),
+    metaKey: Boolean(input.meta),
+  });
+  return true;
+}
+
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "ANTHROPIC_API_KEY",
@@ -600,11 +654,31 @@ function withCodeAgentApps(apps: AppConfig[]): AppConfig[] {
 
 function loadAppsForAuthContext(): AppConfig[] {
   try {
-    return withCodeAgentApps(AppStore.loadApps());
+    const localApps = AppStore.loadApps();
+    const localIds = new Set(localApps.map((appConfig) => appConfig.id));
+    return withCodeAgentApps([
+      ...localApps,
+      ...desktopWorkspaceApps.filter(
+        (appConfig) => !localIds.has(appConfig.id),
+      ),
+    ]);
   } catch (err) {
     console.error("[main] failed to load apps for auth context:", err);
     return withCodeAgentApps([]);
   }
+}
+
+function clearDesktopWorkspaceApps(): void {
+  desktopWorkspaceAppsGeneration += 1;
+  desktopWorkspaceApps = [];
+}
+
+function cacheDesktopWorkspaceApps(
+  result: DesktopWorkspaceAppListResult,
+  generation: number,
+): void {
+  if (generation !== desktopWorkspaceAppsGeneration) return;
+  desktopWorkspaceApps = result.enabled ? result.apps : [];
 }
 
 function findAppForSourceUrl(sourceUrl: string | undefined): AppConfig | null {
@@ -692,23 +766,33 @@ function resolveDesktopIdentityApp(
   const primaryCookieName = getCookieNameForApp(appId);
   const appSlug = primaryCookieName.replace(/^an_session_/, "");
   const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  const betterAuthCookieNames = [
+    `${betterAuthPrefix}.session_token`,
+    `__Secure-${betterAuthPrefix}.session_token`,
+    `${betterAuthPrefix}.session_data`,
+    `__Secure-${betterAuthPrefix}.session_data`,
+  ];
+  const cookieNames = [
+    primaryCookieName,
+    ...(primaryCookieName === "an_session" ? [] : ["an_session"]),
+    ...betterAuthCookieNames,
+  ];
   return {
     id: appId,
     origin,
     session: session.fromPartition(`persist:app-${appId}`),
-    cookieNames:
-      primaryCookieName === "an_session"
-        ? [primaryCookieName]
-        : [primaryCookieName, "an_session"],
+    cookieNames,
     cookieNamesToClear: [
-      primaryCookieName,
-      "an_session",
-      `${betterAuthPrefix}.session_token`,
-      `__Secure-${betterAuthPrefix}.session_token`,
-      "an.session_token",
-      "__Secure-an.session_token",
+      ...new Set([
+        ...cookieNames,
+        "an.session_token",
+        "__Secure-an.session_token",
+        "an.session_data",
+        "__Secure-an.session_data",
+      ]),
     ],
     identityAuthority: appId === "dispatch",
+    workspaceSso: isCanonical || configured?.workspaceSso === true,
   };
 }
 
@@ -740,52 +824,8 @@ function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
 
 async function isDesktopIdentityAvailable(
   authorityApp: DesktopIdentityApp,
-  identitySession: Electron.Session,
 ): Promise<boolean> {
-  return fetchDesktopIdentityAvailability(authorityApp, identitySession);
-}
-
-function resolveDesktopIdentityLoginRedirect(
-  requestUrl: string,
-  identitySession: Electron.Session,
-): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    const request = net.request({
-      url: requestUrl,
-      session: identitySession,
-      redirect: "manual",
-    });
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (redirectUrl: string | null) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      resolve(redirectUrl);
-    };
-    const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      reject(error);
-    };
-
-    request.on("redirect", (_statusCode, _method, redirectUrl) => {
-      finish(redirectUrl);
-      request.abort();
-    });
-    request.on("response", (response) => {
-      response.on("data", () => {});
-      response.on("end", () => finish(null));
-      response.on("error", fail);
-    });
-    request.on("error", fail);
-    timer = setTimeout(() => {
-      request.abort();
-      fail(new Error("Identity redirect preflight timed out"));
-    }, 15_000);
-    request.end();
-  });
+  return fetchDesktopIdentityAvailability(authorityApp, authorityApp.session);
 }
 
 function getOAuthInjectionTarget(
@@ -1242,29 +1282,196 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   if (!isShellIdentityIpc(event)) {
     return "idle" satisfies DesktopIdentityStatus;
   }
-  await desktopIdentityBroker?.refreshStatus(
-    resolveDesktopIdentityApp("dispatch"),
-  );
-  return desktopIdentityBroker?.getStatus() ?? "idle";
+  if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
+  const broker = ensureDesktopIdentityBroker();
+  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  return broker?.getStatus() ?? "idle";
+});
+
+ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
+  if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) return false;
+  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  return broker.isAvailable();
+});
+
+ipcMain.handle(IPC.IDENTITY_SETTINGS_GET, (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return { ssoEnabled: false } satisfies DesktopIdentitySettings;
+  }
+  return {
+    ssoEnabled: isDesktopSsoEnabled(),
+  } satisfies DesktopIdentitySettings;
+});
+
+ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
+  if (!isShellIdentityIpc(event) || typeof enabled !== "boolean") return false;
+  AppStore.saveDesktopAppPreferences({ desktopSsoEnabled: enabled });
+
+  if (!enabled) {
+    const broker = desktopIdentityBroker;
+    desktopIdentityBroker = null;
+    broker?.setStatusForSetting("idle");
+    mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "idle");
+    refreshApplicationMenu();
+    return true;
+  }
+
+  const broker = ensureDesktopIdentityBroker();
+  if (broker) {
+    await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    mainWindow?.webContents.send(
+      IPC.IDENTITY_STATUS_CHANGED,
+      broker.getStatus(),
+    );
+  }
+  return true;
+});
+
+ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
+  if (
+    !isShellIdentityIpc(event) ||
+    !isDesktopSsoEnabled() ||
+    typeof appId !== "string" ||
+    !appId.trim()
+  ) {
+    return false;
+  }
+  const broker = ensureDesktopIdentityBroker();
+  return broker?.ensureAppSession(appId.trim()) ?? false;
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  const status = desktopIdentityBroker.getStatus();
+  if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) return false;
+  const status = broker.getStatus();
   if (status !== "sign-in-required" && status !== "failed") return false;
   const identityApp =
     resolveDesktopIdentityApp(activeAppId) ??
     resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
-  return desktopIdentityBroker.signIn(identityApp.id);
+  return broker.signIn(identityApp.id);
+});
+
+ipcMain.handle(IPC.IDENTITY_AUTHENTICATE, async (event, request) => {
+  if (!isShellIdentityIpc(event)) {
+    return { ok: false, error: "The desktop identity surface is unavailable." };
+  }
+  if (!isDesktopSsoEnabled()) {
+    return { ok: false, error: "Desktop workspace sign-in is turned off." };
+  }
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) {
+    return { ok: false, error: "Desktop workspace sign-in is unavailable." };
+  }
+  if (!request || typeof request !== "object") {
+    return { ok: false, error: "Enter your email and password to continue." };
+  }
+  const input = request as {
+    mode?: unknown;
+    email?: unknown;
+    password?: unknown;
+  };
+  if (
+    (input.mode !== "sign-in" && input.mode !== "sign-up") ||
+    typeof input.email !== "string" ||
+    typeof input.password !== "string"
+  ) {
+    return { ok: false, error: "Enter your email and password to continue." };
+  }
+  return broker.authenticateWithPassword({
+    mode: input.mode,
+    email: input.email,
+    password: input.password,
+  });
+});
+
+ipcMain.handle(IPC.IDENTITY_MAGIC_LINK_REQUEST, async (event, request) => {
+  if (!isShellIdentityIpc(event)) {
+    return {
+      ok: false,
+      error: "The desktop identity surface is unavailable.",
+    };
+  }
+  if (!isDesktopSsoEnabled()) {
+    return { ok: false, error: "Desktop workspace sign-in is turned off." };
+  }
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) {
+    return { ok: false, error: "Desktop workspace sign-in is unavailable." };
+  }
+  if (
+    !request ||
+    typeof request !== "object" ||
+    typeof (request as DesktopIdentityMagicLinkRequest).email !== "string"
+  ) {
+    return { ok: false, error: "Enter your email to continue." };
+  }
+  return broker.requestMagicLink({
+    email: (request as DesktopIdentityMagicLinkRequest).email,
+  });
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  if (desktopIdentityBroker.getStatus() === "idle") return false;
-  await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
-  return true;
+  if (!isShellIdentityIpc(event)) return false;
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker || broker.getStatus() === "idle") return false;
+  return broker.signOut(listDesktopIdentityCleanupApps());
 });
+
+function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
+  if (!isDesktopSsoEnabled()) return null;
+  if (desktopIdentityBroker) return desktopIdentityBroker;
+
+  desktopIdentityBroker = new DesktopIdentityBroker({
+    identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+    isAvailable: isDesktopIdentityAvailable,
+    // Parent Google and magic-link verification runs in the system browser;
+    // this persistent partition receives only the one-time exchange result.
+    resolveApp: resolveDesktopIdentityApp,
+    listApps: () => listDesktopIdentityApps(),
+    openExternal: (url) => openExternalUrl(url),
+    createWindow: (options) => new BrowserWindow(options),
+    parentWindow: () => mainWindow,
+    handleWindowOpen: (contents, url) =>
+      handleWindowOpenForContents(contents, url),
+    handleOAuthNavigation: (url, contents) =>
+      openOAuthFromWebviewNavigation(url, contents),
+    reloadApp: (identityApp) =>
+      reloadWebviewsForTarget({
+        appId: identityApp.id,
+        origin: identityApp.origin,
+        session: identityApp.session,
+      }),
+    clearLocalBroker: async () => {
+      await fs.promises
+        .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
+          force: true,
+        })
+        .catch(() => {});
+    },
+    onStatus: (status: DesktopIdentityStatus) => {
+      if (appIsQuitting) return;
+      if (status === "idle" || status === "sign-in-required") {
+        clearDesktopWorkspaceApps();
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+          mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
+        } catch (error) {
+          console.warn(
+            "[desktop-identity] status update skipped during window shutdown:",
+            error instanceof Error ? error.message : "unknown error",
+          );
+        }
+      }
+      refreshApplicationMenu();
+    },
+  });
+  return desktopIdentityBroker;
+}
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2484,6 +2691,425 @@ async function appendPortalCodeAgentFollowUp(input: {
     eventFile,
     message: firstStringValue(result.message) ?? "Follow-up sent to Portal.",
   };
+}
+
+const PORTAL_TRANSFER_RUNNER_STOP_TIMEOUT_MS = 5_000;
+
+async function transferCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentPortalTransferResult> {
+  const payload = isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  if (!runId) {
+    return {
+      ok: false,
+      runId: "",
+      message: "Select a chat first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+
+  const selected = await selectPortalHost(payload);
+  if ("error" in selected) {
+    return {
+      ok: false,
+      runId,
+      message: "Could not move the chat to Portal.",
+      error: selected.error,
+    };
+  }
+  return transferCodeAgentRunToPortal(runId, selected);
+}
+
+async function transferAllCodeAgentRuns(
+  input?: unknown,
+): Promise<CodeAgentPortalTransferAllResult> {
+  const transferred: CodeAgentPortalTransferItem[] = [];
+  const skipped: CodeAgentPortalTransferItem[] = [];
+  const failed: CodeAgentPortalTransferItem[] = [];
+  const selected = await selectPortalHost(input);
+  if ("error" in selected) {
+    return {
+      ok: false,
+      transferred,
+      skipped,
+      failed,
+      message: "Could not move local chats to Portal.",
+      error: selected.error,
+    };
+  }
+
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    const title = getRecordString(record, "title");
+    const item = {
+      runId,
+      ...(title ? { title } : {}),
+    };
+    if (isPortalCodeAgentRunRecord(record)) {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "Already running on Portal.",
+      });
+      continue;
+    }
+    const goal = getCodeAgentGoal(getRecordString(record, "goalId"));
+    if (!goal || goal.surfaceKind !== "native") {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "This session does not run as a native coding chat.",
+      });
+      continue;
+    }
+    if (
+      getRecordString(record, "status") === "needs-approval" ||
+      record.needsApproval === true
+    ) {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "Waiting for a local approval. Resolve it before moving it.",
+      });
+      continue;
+    }
+
+    const result = await transferCodeAgentRunToPortal(runId, selected);
+    const transferItem: CodeAgentPortalTransferItem = {
+      ...item,
+      ok: result.ok,
+      ...(result.eventCount !== undefined
+        ? { eventCount: result.eventCount }
+        : {}),
+      message: result.message,
+      ...(result.error ? { error: result.error } : {}),
+    };
+    if (result.ok) transferred.push(transferItem);
+    else failed.push(transferItem);
+  }
+
+  const counts = [
+    `${transferred.length} moved`,
+    `${skipped.length} skipped`,
+    `${failed.length} failed`,
+  ].join(", ");
+  return {
+    ok: failed.length === 0,
+    host: { id: selected.host.id, label: selected.host.label },
+    transferred,
+    skipped,
+    failed,
+    message:
+      transferred.length > 0
+        ? `Portal transfer: ${counts}.`
+        : `No local chats moved. ${counts}.`,
+    ...(failed.length > 0
+      ? { error: failed.map((item) => item.error ?? item.message).join(" ") }
+      : {}),
+  };
+}
+
+async function transferCodeAgentRunToPortal(
+  runId: string,
+  selected: { relayUrl: string; host: PortalRemoteHost },
+): Promise<CodeAgentPortalTransferResult> {
+  const record = readCodeAgentRunRecord(runId);
+  if (!record) {
+    return {
+      ok: false,
+      runId,
+      message: "The selected chat no longer exists.",
+      error: `No run record exists for ${runId}.`,
+    };
+  }
+  if (isPortalCodeAgentRunRecord(record)) {
+    return {
+      ok: false,
+      runId,
+      message: "This chat is already running on Portal.",
+      error: "The chat already has a Portal execution residence.",
+    };
+  }
+  if (
+    getRecordString(record, "status") === "needs-approval" ||
+    record.needsApproval === true
+  ) {
+    return {
+      ok: false,
+      runId,
+      message: "Resolve the local approval before moving this chat.",
+      error: "Pending approvals cannot be moved safely between computers.",
+    };
+  }
+
+  const goal = getCodeAgentGoal(getRecordString(record, "goalId"));
+  if (!goal || goal.surfaceKind !== "native") {
+    return {
+      ok: false,
+      runId,
+      message: "This session cannot be moved as a native coding chat.",
+      error: "Portal transfer requires a native code-agent goal.",
+    };
+  }
+  const sourceCwd = getRecordString(record, "cwd");
+  if (!sourceCwd || !fs.existsSync(sourceCwd)) {
+    return {
+      ok: false,
+      runId,
+      message: "The local coding folder is no longer available.",
+      error: sourceCwd
+        ? `Portal source folder does not exist: ${sourceCwd}`
+        : "The run has no source folder.",
+    };
+  }
+
+  const metadata = isObject(record.metadata) ? record.metadata : {};
+  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
+  const recordedWorktreePath = firstStringValue(worktree?.path);
+  if (recordedWorktreePath && !fs.existsSync(recordedWorktreePath)) {
+    return {
+      ok: false,
+      runId,
+      message: "This chat's worktree is no longer available.",
+      error: `Portal cannot move a missing worktree: ${recordedWorktreePath}`,
+    };
+  }
+
+  if (
+    activeCodeAgentProcesses.has(runId) ||
+    startingCodeAgentRuns.has(runId) ||
+    isActiveDesktopCodeAgentRun(record)
+  ) {
+    const activePid = activeCodeAgentProcesses.get(runId)?.pid;
+    const stopped = await controlCodeAgentRun({
+      goalId: goal.id,
+      runId,
+      command: "stop",
+    });
+    if (!stopped.ok) {
+      return {
+        ok: false,
+        runId,
+        message: "The local runner could not be stopped for Portal.",
+        error: stopped.error ?? stopped.message,
+      };
+    }
+    try {
+      await waitForPortalRunnerStop(runId, activePid);
+    } catch (error) {
+      return {
+        ok: false,
+        runId,
+        message:
+          "The local runner is still stopping. Portal did not start a duplicate.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  const transcript = readAllCodeAgentTranscript({ runId });
+  if (transcript.status !== "ok") {
+    return {
+      ok: false,
+      runId,
+      message: "The chat transcript could not be read for Portal.",
+      error: transcript.error ?? "Transcript is unavailable.",
+    };
+  }
+
+  let transferContext;
+  try {
+    transferContext = createPortalTransferContext({
+      sourceRunId: runId,
+      sourceStatus: getRecordString(record, "status"),
+      sourcePhase: getRecordString(record, "phase"),
+      events: transcript.events,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal could not package the full chat context.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  let handoff: PortalHandoff;
+  try {
+    handoff = await createPortalHandoff({ sourcePath: sourceCwd });
+  } catch (error) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal could not snapshot the local code.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const prompt = portalTransferContinuationPrompt({
+    hostLabel: selected.host.label,
+    handoffId: handoff.handoffId,
+    eventCount: transferContext.events.length,
+  });
+  const sourceKind = firstStringValue(metadata.kind);
+  const remote = await portalRelayRequest(
+    selected.relayUrl,
+    "POST",
+    "/_agent-native/integrations/remote/enqueue",
+    {
+      operation: "code-agent.run.create",
+      payload: {
+        hostId: selected.host.id,
+        runId,
+        prompt,
+        title: getRecordString(record, "title") ?? "Transferred coding chat",
+        goalId: goal.id,
+        permissionMode: readCodeAgentPermissionMode(record),
+        engine: firstStringValue(metadata.engine, record.engine),
+        model: firstStringValue(metadata.model, record.model),
+        effort: firstStringValue(metadata.effort, record.effort),
+        metadata: {
+          source: "desktop-portal-transfer",
+          executionTarget: "portal",
+          portal: handoff,
+          ...(sourceKind ? { kind: sourceKind } : {}),
+          portalTransfer: transferContext,
+        },
+      },
+    },
+  );
+  if (remote.ok === false) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal code was pushed but the chat was not queued remotely.",
+      error: remote.error ?? "The Portal relay rejected the transfer.",
+    };
+  }
+  const commandId = firstStringValue(remote.commandId, remote.requestId);
+  if (!commandId) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal code was pushed but the relay returned no command id.",
+      error: "Invalid Portal relay response.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const permissionMode = readCodeAgentPermissionMode(record);
+  const executionResidence = {
+    schemaVersion: 1,
+    kind: "portal",
+    state: "queued",
+    hostId: selected.host.id,
+    hostLabel: selected.host.label,
+    handoffId: handoff.handoffId,
+    sourceBranch: handoff.sourceBranch,
+    sourceCommit: handoff.commit,
+    portalBranch: handoff.branch,
+    envPolicy: handoff.envPolicy,
+  };
+  const portalMetadata: Record<string, unknown> = {
+    ...metadata,
+    cwd: sourceCwd,
+    executionTarget: "portal",
+    portal: handoff,
+    executionResidence,
+    remote: {
+      commandId,
+      remoteRunId: runId,
+      deviceId: selected.host.id,
+      relayUrl: selected.relayUrl,
+    },
+    source: "desktop-portal-transfer",
+    queued: true,
+    queuedAt: now,
+    ...(metadata.initialPrompt !== undefined
+      ? { initialPrompt: metadata.initialPrompt }
+      : {}),
+    permissionMode,
+    portalTransfer: {
+      schemaVersion: 1,
+      sourceRunId: runId,
+      sourceStatus: getRecordString(record, "status"),
+      sourcePhase: getRecordString(record, "phase"),
+      eventCount: transferContext.events.length,
+      transferredAt: now,
+    },
+  };
+  touchCodeAgentRunRecord(runId, {
+    status: "queued",
+    phase: "portal-queued",
+    needsApproval: false,
+    subtitle: `Portal queued on ${selected.host.label}`,
+    progress: { label: "Portal queued", completed: 0, total: 1, percent: 0 },
+    details: [
+      { label: "Goal", value: goal.slashCommand },
+      { label: "Workspace", value: `Portal · ${selected.host.label}` },
+      {
+        label: "Snapshot",
+        value: `${handoff.branch} @ ${handoff.commit.slice(0, 12)}`,
+      },
+      {
+        label: "Context",
+        value: `Imported ${transferContext.events.length} transcript events`,
+      },
+      { label: "Environment", value: "Loaded locally on paired computer" },
+      ...(permissionMode ? [{ label: "Mode", value: permissionMode }] : []),
+    ],
+    metadata: portalMetadata,
+  });
+  appendCodeAgentStatusEvent(
+    runId,
+    `Portal handoff queued on ${selected.host.label}.`,
+    {
+      source: "desktop-portal-transfer",
+      commandId,
+      handoffId: handoff.handoffId,
+      eventCount: transferContext.events.length,
+      executionResidence,
+    },
+  );
+
+  return {
+    ok: true,
+    runId,
+    run: readDesktopCodeAgentRun(runId) ?? undefined,
+    host: { id: selected.host.id, label: selected.host.label },
+    eventCount: transferContext.events.length,
+    message: `Moved ${getRecordString(record, "title") ?? "chat"} to Portal on ${selected.host.label}.`,
+  };
+}
+
+async function waitForPortalRunnerStop(
+  runId: string,
+  pid?: number,
+): Promise<void> {
+  const deadline = Date.now() + PORTAL_TRANSFER_RUNNER_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const inFlight = isCodeAgentRunnerInFlight(
+      runId,
+      activeCodeAgentProcesses,
+      startingCodeAgentRuns,
+    );
+    const processAlive = pid ? isProcessAlive(pid) : false;
+    if (!inFlight && !processAlive) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Local runner for ${runId} did not stop within 5 seconds.`);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw error;
+  }
 }
 
 function isPortalCodeAgentRunRecord(record: Record<string, unknown>): boolean {
@@ -4018,9 +4644,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     desktopCapturer,
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
   });
-  const browserBridge = new BrowserControlLoopbackBridge();
-  const browserHost = await browserBridge.start();
-  desktopBrowserControlBridge = browserBridge;
+  let browserBridge: BrowserControlLoopbackBridge | undefined;
   const hostEntryPath = app.isPackaged
     ? path.join(
         process.resourcesPath,
@@ -4030,6 +4654,9 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     : path.resolve(__dirname, "browser-control-host.js");
   const extensionPath = getBundledChromeExtensionPath();
   try {
+    browserBridge = new BrowserControlLoopbackBridge();
+    const browserHost = await browserBridge.start();
+    desktopBrowserControlBridge = browserBridge;
     browserNativeHostManifestPath = installBrowserNativeHost({
       ...browserHost,
       executablePath: process.execPath,
@@ -4040,14 +4667,21 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       ),
     }).manifestPath;
   } catch (error) {
-    await browserBridge.close();
+    try {
+      await browserBridge?.close();
+    } catch (closeError) {
+      console.warn(
+        "[browser-control] failed to close the unavailable Chrome bridge:",
+        closeError instanceof Error ? closeError.message : "unknown error",
+      );
+    }
+    browserBridge = undefined;
     desktopBrowserControlBridge = null;
-    broker.close();
+    browserNativeHostManifestPath = null;
     console.warn(
       "[browser-control] Chrome native host installation failed:",
       error instanceof Error ? error.message : "unknown error",
     );
-    return;
   }
   const bridge = new DesktopComputerMcpBridge({
     broker,
@@ -4066,7 +4700,14 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     await bridge.start();
     desktopComputerMcpBridge = bridge;
   } catch (error) {
-    await browserBridge.close();
+    try {
+      await browserBridge?.close();
+    } catch (closeError) {
+      console.warn(
+        "[browser-control] failed to close the unavailable Chrome bridge:",
+        closeError instanceof Error ? closeError.message : "unknown error",
+      );
+    }
     desktopBrowserControlBridge = null;
     broker.close();
     console.warn(
@@ -4341,6 +4982,7 @@ async function spawnCodeAgentRunner(
       resourcesPath: process.resourcesPath,
       electronPath: process.execPath,
       repoRoot,
+      cwd,
       environment: process.env,
     },
     "run",
@@ -4400,7 +5042,7 @@ async function spawnCodeAgentRunner(
         runnerState: "running",
         runnerPid: child.pid,
         runnerCommand,
-        runnerCwd: repoRoot,
+        runnerCwd: invocation.cwd,
         runnerStartedAt,
       },
     });
@@ -4550,6 +5192,7 @@ function spawnCodeAgentApprovalRunner(
       resourcesPath: process.resourcesPath,
       electronPath: process.execPath,
       repoRoot,
+      cwd,
       environment: process.env,
     },
     subcommand,
@@ -4593,6 +5236,7 @@ function spawnCodeAgentApprovalRunner(
       metadata: {
         approvalRunnerPid: child.pid,
         approvalRunnerCommand: runnerCommand,
+        approvalRunnerCwd: invocation.cwd,
         approvalRunnerStartedAt: runnerStartedAt,
       },
     });
@@ -9596,6 +10240,8 @@ registerCodeAgentsIpc({
     codeAgentTranscriptSubscriptions.set(subscriptionId, subscription),
   sendCodeAgentTranscriptSubscriptionBatch,
   appendCodeAgentFollowUp,
+  transferCodeAgentRun,
+  transferAllCodeAgentRuns,
   updateCodeAgentRun,
   retryCodeAgentRun,
   rerunCodeAgentRun,
@@ -9845,6 +10491,30 @@ registerAppsIpc({
   createDesktopAppFromPrompt,
   prepareDesktopAppForLocalCodeChange,
   showDesktopAppContextMenu,
+  loadWorkspaceApps: () => {
+    const generation = ++desktopWorkspaceAppsGeneration;
+    const dispatch = DESKTOP_DEFAULT_APPS.find(
+      (appConfig) => appConfig.id === "dispatch",
+    );
+    const dispatchOrigin = dispatch ? getAppOrigin(dispatch) : null;
+    if (!dispatchOrigin) {
+      const result = {
+        enabled: false,
+        apps: [],
+      } satisfies DesktopWorkspaceAppListResult;
+      cacheDesktopWorkspaceApps(result, generation);
+      return Promise.resolve(result);
+    }
+    const dispatchApp = resolveDesktopIdentityApp("dispatch");
+    return loadDesktopWorkspaceApps({
+      identitySession:
+        dispatchApp?.session ?? session.fromPartition("persist:app-dispatch"),
+      dispatchOrigin,
+    }).then((result) => {
+      cacheDesktopWorkspaceApps(result, generation);
+      return result;
+    });
+  },
 });
 
 registerDesktopChatIpc();
@@ -11005,7 +11675,7 @@ async function handleBlockedScreenCapture() {
 
 function configurePermissionHandlers(
   sess: Electron.Session,
-  targetAppId: string | null,
+  getTargetAppId: () => string | null,
 ) {
   if (permissionConfiguredSessions.has(sess)) return;
   permissionConfiguredSessions.add(sess);
@@ -11016,7 +11686,7 @@ function configurePermissionHandlers(
         isAllowedWebviewPermission(permission) &&
         isTrustedPermissionRequest(
           contents,
-          targetAppId,
+          getTargetAppId(),
           requestingOrigin,
           details,
         )
@@ -11028,12 +11698,17 @@ function configurePermissionHandlers(
     (contents, permission, callback, details) => {
       callback(
         isAllowedWebviewPermission(permission) &&
-          isTrustedPermissionRequest(contents, targetAppId, undefined, details),
+          isTrustedPermissionRequest(
+            contents,
+            getTargetAppId(),
+            undefined,
+            details,
+          ),
       );
     },
   );
 
-  if (targetAppId === "clips") {
+  if (getTargetAppId() === "clips") {
     console.info("[display-capture] registering clips display media handler", {
       platform: process.platform,
       osRelease: os.release(),
@@ -11057,47 +11732,11 @@ function configurePermissionHandlers(
 }
 
 app.whenReady().then(async () => {
-  if (IS_DESKTOP_SSO_CANARY) {
-    desktopIdentityBroker = new DesktopIdentityBroker({
-      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
-      isAvailable: isDesktopIdentityAvailable,
-      resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
-      resolveApp: resolveDesktopIdentityApp,
-      listApps: () => listDesktopIdentityApps(),
-      createWindow: (options) => new BrowserWindow(options),
-      parentWindow: () => mainWindow,
-      handleWindowOpen: (contents, url) =>
-        handleWindowOpenForContents(contents, url),
-      handleOAuthNavigation: (url, contents) =>
-        openOAuthFromWebviewNavigation(url, contents),
-      reloadApp: (identityApp) =>
-        reloadWebviewsForTarget({
-          appId: identityApp.id,
-          origin: identityApp.origin,
-          session: identityApp.session,
-        }),
-      clearLocalBroker: async () => {
-        await fs.promises
-          .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
-            force: true,
-          })
-          .catch(() => {});
-      },
-      onStatus: (status: DesktopIdentityStatus) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
-        }
-        refreshApplicationMenu();
-      },
-    });
-    const shouldContinueStartup = await runDesktopStartupStep({
-      start: () =>
-        desktopIdentityBroker!.refreshStatus(
-          resolveDesktopIdentityApp("dispatch"),
-        ),
-      isShuttingDown: () => appIsQuitting,
-    });
-    if (!shouldContinueStartup) return;
+  if (isDesktopSsoEnabled()) {
+    // Create the optional broker without blocking startup. The first eligible
+    // app asks it to refresh status, which keeps a slow identity authority
+    // from delaying the shell before the user opens an app.
+    ensureDesktopIdentityBroker();
   }
 
   const shouldContinueStartup = await runDesktopStartupStep({
@@ -11116,13 +11755,20 @@ app.whenReady().then(async () => {
   // webRequest handlers must be attached to each partitioned session, not
   // just session.defaultSession.
   const configuredSessions = new WeakSet<Electron.Session>();
+  const sessionTargetAppIds = new WeakMap<Electron.Session, string | null>();
   function configureWebviewSession(
     sess: Electron.Session,
     targetAppId: string | null,
   ) {
+    if (targetAppId) {
+      sessionTargetAppIds.set(sess, targetAppId);
+    } else if (!sessionTargetAppIds.has(sess)) {
+      sessionTargetAppIds.set(sess, null);
+    }
+    const getTargetAppId = () => sessionTargetAppIds.get(sess) ?? null;
     if (configuredSessions.has(sess)) return;
     configuredSessions.add(sess);
-    configurePermissionHandlers(sess, targetAppId);
+    configurePermissionHandlers(sess, getTargetAppId);
 
     if (IS_DEV) {
       sess.webRequest.onHeadersReceived((details, callback) => {
@@ -11134,6 +11780,20 @@ app.whenReady().then(async () => {
             ],
           },
         });
+      });
+    }
+
+    if (isDesktopSsoEnabled()) {
+      sess.cookies.on("changed", (_event, cookie, _cause, removed) => {
+        if (!isDesktopSsoEnabled()) return;
+        if (removed) return;
+        const appId = getTargetAppId();
+        if (!appId) return;
+        const identityApp = resolveDesktopIdentityApp(appId);
+        if (!identityApp || !identityApp.cookieNames.includes(cookie.name)) {
+          return;
+        }
+        void desktopIdentityBroker?.adoptAppSession(identityApp.id);
       });
     }
 
@@ -11151,9 +11811,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details, callback) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11196,8 +11855,9 @@ app.whenReady().then(async () => {
           callback({});
           return;
         }
+        const resolvedAppId = getTargetAppId();
         const app =
-          (targetAppId && apps.find((a) => a.id === targetAppId)) ||
+          (resolvedAppId && apps.find((a) => a.id === resolvedAppId)) ||
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
@@ -11221,9 +11881,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11253,9 +11912,8 @@ app.whenReady().then(async () => {
         ],
       },
       (details) => {
-        const identityApp = targetAppId
-          ? resolveDesktopIdentityApp(targetAppId)
-          : null;
+        const appId = getTargetAppId();
+        const identityApp = appId ? resolveDesktopIdentityApp(appId) : null;
         const logoutPath = identityApp
           ? desktopWorkspaceLogoutPath(details.url, identityApp)
           : null;
@@ -11332,6 +11990,9 @@ app.whenReady().then(async () => {
 
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
+    wc.on("before-input-event", (event, input) => {
+      forwardDesktopNavigationShortcut(event, input);
+    });
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
@@ -11339,14 +12000,27 @@ app.whenReady().then(async () => {
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
       if (!id) return;
-      desktopWebviewAppIds.set(wc, id);
-      // This is deliberately gated inside the broker. A signed-out or
-      // unavailable broker never turns an ordinary app load into SSO.
+      const appId = id;
+      configureWebviewSession(wc.session, appId);
+      desktopWebviewAppIds.set(wc, appId);
+      if (isDesktopSsoEnabled() && resolveDesktopIdentityApp(appId)) {
+        void wc
+          .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
+          .catch(() => {});
+      }
+      // Ordinary navigation only synchronizes an app after the identity
+      // authority is already signed in. Adoption is reserved for an explicit
+      // cookie transition so a persisted stale app session cannot switch the
+      // workspace account merely by being opened.
       const broker = desktopIdentityBroker;
       if (broker) {
-        void broker.ensureAppSession(id).catch(() => undefined);
+        void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };
+    wc.on("dom-ready", syncLoadedApp);
+    wc.on("did-navigate", syncLoadedApp);
+    wc.on("did-navigate-in-page", syncLoadedApp);
+    wc.on("did-stop-loading", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
     // Capture renderer console messages to the log file so they survive
@@ -11379,6 +12053,7 @@ app.whenReady().then(async () => {
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
+    if (forwardDesktopNavigationShortcut(_event, input)) return;
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();

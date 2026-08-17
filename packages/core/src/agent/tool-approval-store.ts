@@ -4,6 +4,7 @@ import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
@@ -23,11 +24,18 @@ async function ensureAgentToolApprovalTable(): Promise<void> {
           "idx_agent_tool_approvals_binding",
           AGENT_TOOL_APPROVAL_INDEX_SQL,
         );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_logical",
+          AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+        );
         return;
       }
       const client = getDbExec();
       await retryOnDdlRace(() => client.execute(createSql));
       await retryOnDdlRace(() => client.execute(AGENT_TOOL_APPROVAL_INDEX_SQL));
+      await retryOnDdlRace(() =>
+        client.execute(AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL),
+      );
     })().catch((error) => {
       initPromise = undefined;
       throw error;
@@ -95,9 +103,11 @@ export async function createAgentToolApproval(
 }
 
 /**
- * Atomically consume the server-created approval for one exact tool call.
- * Client history and approval keys are only lookup input; the pending row is
- * the authorization boundary and cannot be manufactured by the client.
+ * Atomically consume the server-created approval for one logical tool call.
+ * The model's call id is transport metadata and can change when Dispatch
+ * reconstructs a paused turn, so it is deliberately not part of authorization.
+ * The pending row remains the boundary: client history and approval keys alone
+ * cannot manufacture a grant.
  */
 export async function consumeAgentToolApproval(
   binding: AgentToolApprovalBinding,
@@ -112,8 +122,8 @@ export async function consumeAgentToolApproval(
         WHERE owner_email = ?
           AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
+          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
           AND tool_name = ?
-          AND call_id = ?
           AND approval_key_hash = ?
           AND status = 'pending'
           AND expires_at > ?
@@ -129,8 +139,9 @@ export async function consumeAgentToolApproval(
       binding.orgId ?? null,
       binding.threadId ?? null,
       binding.threadId ?? null,
+      binding.turnId ?? null,
+      binding.turnId ?? null,
       binding.toolName,
-      binding.callId,
       hashAgentToolApprovalKey(binding.approvalKey),
       now,
     ],

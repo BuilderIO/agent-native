@@ -654,13 +654,13 @@ const messages = {
     collapse: "收起",
     changelogMarkdown: `# 更新日志
 
-Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd K -> “最新变化”）或设置中打开。
+Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd+K -> “最新变化”）或设置中打开。
 
 ## 2026-06-23
 
 ### 新增
 
-- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd K）和设置。`,
+- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
@@ -991,8 +991,13 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     pauseShortcut: "暂停 (⌥⇧P)",
     stop: "停止录制",
     elapsed: "已用时间",
-    cancel: "取消录制",
-    cancelShortcut: "取消 (⌥⇧C)",
+    cancel: "丢弃录制",
+    cancelShortcut: "丢弃 (⌥⇧C)",
+    discardConfirmTitle: "要丢弃此录制吗?",
+    discardConfirmDescription:
+      "此操作无法撤销,到目前为止的录制内容将被永久删除。",
+    resume: "继续",
+    discardRecording: "丢弃录制",
   },
   countdownOverlay: {
     startsIn: "录制将在 {{count}} 后开始",
@@ -1189,7 +1194,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     seekTo: "Seek to {{time}} (已本地化)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (已本地化)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (已本地化)",
     playPauseTooltip: "Play / Pause (Space) (已本地化)",
     sourceDuration: "({{duration}} src) (已本地化)",
     previewSpeed: "Preview speed (已本地化)",
@@ -1533,7 +1538,6 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptPending: "Transcript pending (已本地化)",
     notesPending: "Notes pending (已本地化)",
     pastRecordings: "Past recordings (已本地化)",
-    loadOlder: "加载更早的",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",
@@ -1561,7 +1565,14 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     title: "Meetings (已本地化)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (已本地化)",
-    searchPlaceholder: "Search meetings... (已本地化)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (已本地化)",
+    agendaTab: "Agenda (已本地化)",
+    pastTab: "Past (已本地化)",
+    now: "Now (已本地化)",
+    noPastMeetings: "No past meetings yet (已本地化)",
+    loadOlder: "Load older (已本地化)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (已本地化)",
     clearSearch: "Clear search (已本地化)",
     noMeetingsYet: "No meetings yet (已本地化)",
     noMeetingsDescription:

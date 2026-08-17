@@ -33,6 +33,25 @@ describe("desktop app mode defaults", () => {
     expect(apps.some((app) => app.id === "chat")).toBe(false);
     expect(apps.every((app) => app.mode === "prod")).toBe(true);
     expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
+    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(true);
+  });
+
+  it("preserves an explicit persisted workspace sign-in choice", () => {
+    fs.writeFileSync(
+      path.join(electronState.userData, "desktop-app-preferences.json"),
+      JSON.stringify({ desktopSsoEnabled: false }),
+    );
+
+    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(false);
+  });
+
+  it("uses the default for an existing preferences file without a choice", () => {
+    fs.writeFileSync(
+      path.join(electronState.userData, "desktop-app-preferences.json"),
+      JSON.stringify({ appModeDefaultsVersion: 1 }),
+    );
+
+    expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(true);
   });
 
   it("removes the generic chat starter from an existing desktop config", () => {

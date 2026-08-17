@@ -709,13 +709,13 @@ const messages = {
     collapse: "Einklappen",
     changelogMarkdown: `# Änderungsprotokoll
 
-Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd K -> "Neuigkeiten") oder über die Einstellungen öffnen.
+Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
 
 ## 2026-06-23
 
 ### Hinzugefügt
 
-- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd K) und in den Einstellungen verfügbar.`,
+- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -1069,8 +1069,13 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Aufnahme stoppen",
     elapsed: "Verstrichene Zeit",
-    cancel: "Aufnahme abbrechen",
-    cancelShortcut: "Abbrechen (⌥⇧C)",
+    cancel: "Aufnahme verwerfen",
+    cancelShortcut: "Verwerfen (⌥⇧C)",
+    discardConfirmTitle: "Diese Aufnahme verwerfen?",
+    discardConfirmDescription:
+      "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
+    resume: "Fortsetzen",
+    discardRecording: "Aufnahme verwerfen",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",
@@ -1273,7 +1278,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     seekTo: "Seek to {{time}} (Lokalisiert)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (Lokalisiert)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",
     playPauseTooltip: "Play / Pause (Space) (Lokalisiert)",
     sourceDuration: "({{duration}} src) (Lokalisiert)",
     previewSpeed: "Preview speed (Lokalisiert)",
@@ -1623,7 +1628,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     transcriptPending: "Transcript pending (Lokalisiert)",
     notesPending: "Notes pending (Lokalisiert)",
     pastRecordings: "Past recordings (Lokalisiert)",
-    loadOlder: "Ältere laden",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
@@ -1651,7 +1655,15 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     title: "Meetings (Lokalisiert)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
-    searchPlaceholder: "Search meetings... (Lokalisiert)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Lokalisiert)",
+    agendaTab: "Agenda (Lokalisiert)",
+    pastTab: "Past (Lokalisiert)",
+    now: "Now (Lokalisiert)",
+    noPastMeetings: "No past meetings yet (Lokalisiert)",
+    loadOlder: "Load older (Lokalisiert)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (Lokalisiert)",
     clearSearch: "Clear search (Lokalisiert)",
     noMeetingsYet: "No meetings yet (Lokalisiert)",
     noMeetingsDescription:

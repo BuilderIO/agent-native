@@ -63,6 +63,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   parts: ChatContentPart[];
   createdAt: number;
+  /** Replayed remote runs can provide their completed work duration directly. */
+  workDurationMs?: number;
 }
 
 export interface ChatTurnState {

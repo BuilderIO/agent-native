@@ -23,6 +23,10 @@ import {
   type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentPortalTransferAllRequest,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferRequest,
+  type CodeAgentPortalTransferResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
@@ -52,7 +56,12 @@ import {
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppRuntimeStatus,
+  type DesktopIdentityAuthRequest,
+  type DesktopIdentityAuthResult,
+  type DesktopIdentityMagicLinkRequest,
+  type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
+  type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrepareLocalCodeChangeRequest,
@@ -155,18 +164,22 @@ const electronAPI = {
     onKeydown: (
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): (() => void) => {
       const handler = (
         _: Electron.IpcRendererEvent,
         info: {
           key: string;
+          code?: string;
           shiftKey: boolean;
           altKey?: boolean;
           ctrlKey?: boolean;
+          metaKey?: boolean;
         },
       ) => cb(info);
       ipcRenderer.on("shortcut:keydown", handler);
@@ -198,6 +211,9 @@ const electronAPI = {
   /** App config management */
   appConfig: {
     load: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
+    loadWorkspace: (): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    > => ipcRenderer.invoke(IPC.APPS_LOAD_WORKSPACE),
     add: (app: AppConfig): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_ADD, app),
     remove: (id: string): Promise<AppConfig[]> =>
@@ -249,7 +265,23 @@ const electronAPI = {
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
       ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    getSettings: (): Promise<DesktopIdentitySettings> =>
+      ipcRenderer.invoke(IPC.IDENTITY_SETTINGS_GET),
+    setSsoEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_SSO_ENABLED_SET, enabled),
+    ensureAppSession: (appId: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
+    getAvailability: (): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
+    authenticate: (
+      request: DesktopIdentityAuthRequest,
+    ): Promise<DesktopIdentityAuthResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_AUTHENTICATE, request),
+    requestMagicLink: (
+      request: DesktopIdentityMagicLinkRequest,
+    ): Promise<DesktopIdentityMagicLinkResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_MAGIC_LINK_REQUEST, request),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (
       cb: (status: DesktopIdentityStatus) => void,
@@ -402,6 +434,14 @@ const electronAPI = {
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
+    transferRun: (
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN, request),
+    transferAll: (
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL, request),
     updateRun: (
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult> =>

@@ -17,6 +17,7 @@ import {
   dispatchControlPlaneUrlParams,
   dispatchControlPlaneTitle,
   filterDesktopApps,
+  mergeDesktopAppLists,
   isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
   orderDesktopApps,
@@ -241,7 +242,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
-  it("keeps the chat-first rail collapse control beside settings", () => {
+  it("keeps the chat-first rail collapse control at the bottom of the rail", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
@@ -258,6 +259,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
+    expect(hubSource).toContain("data-chat-first-rail-collapse");
     expect(hubSource).toContain("setChatFirstRailCollapsed(true)");
     expect(hubSource).not.toContain(
       '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
@@ -277,6 +279,10 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
+    expect(shellCss).toContain("height: 100%;");
+    expect(shellCss).toContain("min-height: 0;");
+    expect(shellCss).toContain("z-index: 1;");
+    expect(shellCss).toContain("[data-chat-first-rail-collapse]");
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
@@ -312,6 +318,19 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ]);
     expect(filterDesktopApps(ordered, "plan").map((app) => app.id)).toEqual([
       "charlie",
+    ]);
+  });
+
+  it("keeps local apps first while adding each workspace app once", () => {
+    const merged = mergeDesktopAppLists(
+      [{ id: "mail" }, { id: "personal-notes" }],
+      [{ id: "team-ops" }, { id: "mail" }],
+    );
+
+    expect(merged.map((app) => app.id)).toEqual([
+      "mail",
+      "personal-notes",
+      "team-ops",
     ]);
   });
 

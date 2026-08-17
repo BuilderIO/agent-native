@@ -700,13 +700,13 @@ const messages = {
     collapse: "Replier",
     changelogMarkdown: `# Journal des modifications
 
-Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd K -> "Nouveautés") ou depuis les paramètres.
+Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd+K -> "Nouveautés") ou depuis les paramètres.
 
 ## 2026-06-23
 
 ### Ajouté
 
-- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd K) et dans les paramètres.`,
+- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd+K) et dans les paramètres.`,
     playback: "Lecture",
     defaultPlaybackSpeed: "Vitesse de lecture par défaut",
     playbackDescription:
@@ -1061,8 +1061,13 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Arrêter l’enregistrement",
     elapsed: "Temps écoulé",
-    cancel: "Annuler l’enregistrement",
-    cancelShortcut: "Annuler (⌥⇧C)",
+    cancel: "Supprimer l’enregistrement",
+    cancelShortcut: "Supprimer (⌥⇧C)",
+    discardConfirmTitle: "Supprimer cet enregistrement ?",
+    discardConfirmDescription:
+      "Cette action est irréversible. Votre enregistrement en cours sera définitivement supprimé.",
+    resume: "Reprendre",
+    discardRecording: "Supprimer l’enregistrement",
   },
   countdownOverlay: {
     startsIn: "L’enregistrement commence dans {{count}}",
@@ -1265,7 +1270,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     seekTo: "Seek to {{time}} (Localisé)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (Localisé)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (Localisé)",
     playPauseTooltip: "Play / Pause (Space) (Localisé)",
     sourceDuration: "({{duration}} src) (Localisé)",
     previewSpeed: "Preview speed (Localisé)",
@@ -1615,7 +1620,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     transcriptPending: "Transcript pending (Localisé)",
     notesPending: "Notes pending (Localisé)",
     pastRecordings: "Past recordings (Localisé)",
-    loadOlder: "Charger les plus anciens",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
     connectGoogleCalendar: "Connect Google Calendar (Localisé)",
@@ -1643,7 +1647,14 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     title: "Meetings (Localisé)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Localisé)",
-    searchPlaceholder: "Search meetings... (Localisé)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Localisé)",
+    agendaTab: "Agenda (Localisé)",
+    pastTab: "Past (Localisé)",
+    now: "Now (Localisé)",
+    noPastMeetings: "No past meetings yet (Localisé)",
+    loadOlder: "Load older (Localisé)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (Localisé)",
     clearSearch: "Clear search (Localisé)",
     noMeetingsYet: "No meetings yet (Localisé)",
     noMeetingsDescription:

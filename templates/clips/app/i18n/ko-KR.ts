@@ -687,13 +687,13 @@ const messages = {
     collapse: "접기",
     changelogMarkdown: `# 변경 로그
 
-Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
+Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd+K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
 
 ## 2026-06-23
 
 ### 추가됨
 
-- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd K)와 설정에 있습니다.`,
+- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -1034,8 +1034,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pauseShortcut: "일시정지 (⌥⇧P)",
     stop: "녹화 중지",
     elapsed: "경과 시간",
-    cancel: "녹화 취소",
-    cancelShortcut: "취소 (⌥⇧C)",
+    cancel: "녹화 삭제",
+    cancelShortcut: "삭제 (⌥⇧C)",
+    discardConfirmTitle: "이 녹화를 삭제할까요?",
+    discardConfirmDescription:
+      "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
+    resume: "재개",
+    discardRecording: "녹화 삭제",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",
@@ -1237,7 +1242,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     seekTo: "Seek to {{time}} (현지화됨)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (현지화됨)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
     playPauseTooltip: "Play / Pause (Space) (현지화됨)",
     sourceDuration: "({{duration}} src) (현지화됨)",
     previewSpeed: "Preview speed (현지화됨)",
@@ -1585,7 +1590,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptPending: "Transcript pending (현지화됨)",
     notesPending: "Notes pending (현지화됨)",
     pastRecordings: "Past recordings (현지화됨)",
-    loadOlder: "이전 항목 불러오기",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
@@ -1613,7 +1617,14 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     title: "Meetings (현지화됨)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
-    searchPlaceholder: "Search meetings... (현지화됨)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (현지화됨)",
+    agendaTab: "Agenda (현지화됨)",
+    pastTab: "Past (현지화됨)",
+    now: "Now (현지화됨)",
+    noPastMeetings: "No past meetings yet (현지화됨)",
+    loadOlder: "Load older (현지화됨)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
     noMeetingsYet: "No meetings yet (현지화됨)",
     noMeetingsDescription:

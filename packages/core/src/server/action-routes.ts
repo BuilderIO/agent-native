@@ -67,7 +67,7 @@ function currentBuildId(): string {
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
-import { isLoopbackRequest } from "./auth.js";
+import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -192,7 +192,10 @@ function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
     // keeps production from trusting arbitrary localhost callers.
   });
   if (allowedOrigin) {
-    return { origin: allowedOrigin, credentials: true };
+    return {
+      origin: allowedOrigin,
+      credentials: shouldAllowMcpEmbedCredentials(allowedOrigin),
+    };
   }
   if (origin && isMcpEmbedCorsOrigin(origin)) {
     return {
@@ -390,6 +393,7 @@ export function mountActionRoutes(
   options?: MountActionRoutesOptions,
 ) {
   const mounted: string[] = [];
+  const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
     // Skip agent-only actions
@@ -399,7 +403,15 @@ export function mountActionRoutes(
     const path = entry.http?.path ?? name;
     const routePath = `${ROUTE_PREFIX}/${path}`;
 
-    getH3App(nitroApp).use(
+    // These two actions authenticate with a scoped A2A bearer rather than a
+    // browser session. Let that verifier see the request before the cookie
+    // auth guard rejects it; the action route still fails closed on invalid
+    // or missing credentials.
+    if (name === "list-feature-flags" || name === "set-feature-flag") {
+      registerAuthPublicPaths([routePath], app);
+    }
+
+    app.use(
       routePath,
       defineEventHandler(async (event) => {
         const reqMethod = getMethod(event);

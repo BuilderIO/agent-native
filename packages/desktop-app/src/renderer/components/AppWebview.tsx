@@ -2,8 +2,12 @@ import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_MESSAGE,
 } from "@agent-native/core/client/hooks";
-import type { AppDefinition, AppConfig } from "@shared/app-registry";
-import { getTemplate } from "@shared/app-registry";
+import {
+  DESKTOP_DEFAULT_APPS,
+  getTemplate,
+  type AppDefinition,
+  type AppConfig,
+} from "@shared/app-registry";
 import {
   IconRefresh,
   IconCopy,
@@ -26,6 +30,7 @@ import {
 
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
+import DesktopIdentityGate from "./DesktopIdentityGate.js";
 
 const IS_DEV = window.location.protocol !== "file:";
 export const APP_WEBVIEW_PREFERENCES =
@@ -87,6 +92,53 @@ export function resolveAppWebviewAuthState(
   } catch {
     return "unknown";
   }
+}
+
+export function isDesktopIdentityGateEligible(
+  app: Pick<AppDefinition, "id">,
+  appConfig?: Pick<AppConfig, "isBuiltIn" | "mode" | "url" | "workspaceSso">,
+  sourceUrl?: string,
+): boolean {
+  if (sourceUrl?.trim() || appConfig?.mode === "dev") return false;
+
+  const canonical = DESKTOP_DEFAULT_APPS.find(
+    (candidate) => candidate.id === app.id,
+  );
+  const productionOrigin = (url: string | undefined): string | null => {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "https:" ? parsed.origin : null;
+      // coercion-ok: an invalid app URL is an ineligible SSO origin.
+    } catch {
+      return null;
+    }
+  };
+
+  // A built-in id must retain its canonical production origin. Otherwise a
+  // local or edited URL could inherit first-party SSO trust in the renderer.
+  if (canonical && appConfig?.isBuiltIn === true) {
+    if (productionOrigin(appConfig.url) !== productionOrigin(canonical.url)) {
+      return false;
+    }
+  }
+
+  if (appConfig?.workspaceSso === true) {
+    return productionOrigin(appConfig.url) !== null;
+  }
+  if (appConfig && appConfig.isBuiltIn !== true) return false;
+  return canonical !== undefined;
+}
+
+export function shouldSuppressDesktopSignInPrompt(
+  app: Pick<AppDefinition, "id">,
+  appConfig: Pick<
+    AppConfig,
+    "id" | "isBuiltIn" | "mode" | "url" | "workspaceSso"
+  >,
+  identityAvailable: boolean,
+): boolean {
+  return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
 }
 
 interface AppWebviewProps {
@@ -319,6 +371,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           },
         );
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
+    const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
+      app,
+      appConfig,
+      sourceUrl,
+    );
+    const [desktopIdentityStatus, setDesktopIdentityStatus] = useState<
+      DesktopIdentityStatus | "checking"
+    >("idle");
+    const [desktopIdentityEnabled, setDesktopIdentityEnabled] = useState<
+      boolean | null
+    >(() => (desktopIdentityGateEligible && isActive ? null : false));
+    const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
+      useState(() => !desktopIdentityGateEligible || !isActive);
+    const desktopIdentityGateActive =
+      desktopIdentityGateEligible &&
+      isActive &&
+      desktopIdentityEnabled === true;
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
@@ -363,6 +432,80 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onAuthStateChangeRef.current = onAuthStateChange;
     }, [onAuthStateChange]);
+
+    useEffect(() => {
+      const identity = window.electronAPI?.identity;
+      if (!identity || !desktopIdentityGateEligible || !isActive) {
+        setDesktopIdentityEnabled(false);
+        setDesktopIdentityStatus("idle");
+        setDesktopIdentitySessionReady(true);
+        return;
+      }
+      let active = true;
+      let statusRequest = 0;
+      setDesktopIdentityEnabled(null);
+      setDesktopIdentitySessionReady(false);
+
+      const applyStatus = async (status: DesktopIdentityStatus) => {
+        const request = ++statusRequest;
+        if (!active) return;
+        setDesktopIdentityStatus(status);
+        if (status === "signed-in") {
+          setDesktopIdentitySessionReady(false);
+          let synchronized: boolean | null;
+          try {
+            synchronized = await identity.ensureAppSession(app.id);
+          } catch (error) {
+            console.warn("[desktop-identity] lazy app synchronization failed", {
+              appId: app.id,
+              reason: error instanceof Error ? error.message : "unknown error",
+            });
+            synchronized = null;
+          }
+          if (!active || request !== statusRequest) return;
+          setDesktopIdentitySessionReady(synchronized === true);
+          if (synchronized !== true) setDesktopIdentityStatus("failed");
+          return;
+        }
+        setDesktopIdentitySessionReady(status !== "signing-in");
+      };
+
+      const applySettingAndStatus = async (
+        nextStatus?: DesktopIdentityStatus,
+      ) => {
+        try {
+          const settings = await identity.getSettings();
+          if (!active) return;
+          if (!settings.ssoEnabled) {
+            setDesktopIdentityEnabled(false);
+            setDesktopIdentityStatus("idle");
+            setDesktopIdentitySessionReady(true);
+            return;
+          }
+          setDesktopIdentityEnabled(true);
+          setDesktopIdentityStatus("checking");
+          setDesktopIdentitySessionReady(false);
+          await applyStatus(nextStatus ?? (await identity.getStatus()));
+        } catch {
+          // An older or unavailable preload must fail closed to the legacy
+          // app-owned login surface rather than strand the WebView behind SSO.
+          if (active) {
+            setDesktopIdentityEnabled(false);
+            setDesktopIdentityStatus("idle");
+            setDesktopIdentitySessionReady(true);
+          }
+        }
+      };
+
+      void Promise.resolve().then(() => applySettingAndStatus());
+      const unsubscribe = identity.onStatusChange((status) => {
+        void applySettingAndStatus(status);
+      });
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    }, [app.id, desktopIdentityGateEligible, isActive]);
 
     useImperativeHandle(
       ref,
@@ -892,9 +1035,45 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             }}
             style={{
               flex: "1 1 auto",
-              display: error ? "none" : "flex",
+              display:
+                error ||
+                (desktopIdentityGateActive && !desktopIdentitySessionReady)
+                  ? "none"
+                  : "flex",
               flexDirection: "column",
             }}
+          />
+        )}
+
+        {isActive &&
+          desktopIdentityGateActive &&
+          !desktopIdentitySessionReady &&
+          (desktopIdentityStatus === "idle" ||
+            desktopIdentityStatus === "signed-in") && (
+            <LoadingScreen app={app} slow={false} isDev={isDevMode} />
+          )}
+
+        {desktopIdentityGateActive && (
+          <DesktopIdentityGate
+            appName={app.name}
+            status={desktopIdentityStatus}
+            onSignIn={() =>
+              window.electronAPI?.identity?.signIn() ?? Promise.resolve(false)
+            }
+            onAuthenticate={(request) =>
+              window.electronAPI?.identity?.authenticate(request) ??
+              Promise.resolve({
+                ok: false,
+                error: "The desktop identity surface is unavailable.",
+              })
+            }
+            onMagicLink={(request) =>
+              window.electronAPI?.identity?.requestMagicLink(request) ??
+              Promise.resolve({
+                ok: false,
+                error: "The desktop identity surface is unavailable.",
+              })
+            }
           />
         )}
       </div>

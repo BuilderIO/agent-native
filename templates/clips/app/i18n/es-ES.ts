@@ -702,13 +702,13 @@ const messages = {
     collapse: "Contraer",
     changelogMarkdown: `# Registro de cambios
 
-Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd K -> "Novedades") o desde Ajustes.
+Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd+K -> "Novedades") o desde Ajustes.
 
 ## 2026-06-23
 
 ### Añadido
 
-- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd K) y en Ajustes.`,
+- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:
@@ -1061,8 +1061,13 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     pauseShortcut: "Pausar (⌥⇧P)",
     stop: "Detener grabación",
     elapsed: "Tiempo transcurrido",
-    cancel: "Cancelar grabación",
-    cancelShortcut: "Cancelar (⌥⇧C)",
+    cancel: "Descartar grabación",
+    cancelShortcut: "Descartar (⌥⇧C)",
+    discardConfirmTitle: "¿Descartar esta grabación?",
+    discardConfirmDescription:
+      "Esta acción no se puede deshacer. Tu grabación hasta ahora se eliminará permanentemente.",
+    resume: "Reanudar",
+    discardRecording: "Descartar grabación",
   },
   countdownOverlay: {
     startsIn: "La grabación empieza en {{count}}",
@@ -1265,7 +1270,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1608,7 +1613,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
-    loadOlder: "Cargar anteriores",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
@@ -1635,7 +1639,14 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Buscar reuniones, asistentes y transcripciones...",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Ahora",
+    noPastMeetings: "Aún no hay reuniones anteriores",
+    loadOlder: "Cargar anteriores",
+    searchFailed:
+      "No se pudieron buscar las reuniones. Inténtalo de nuevo en un momento.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

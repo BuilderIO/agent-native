@@ -7,8 +7,7 @@ import {
 } from "./session-token-store";
 
 export { SESSION_TOKEN_KEY };
-export const REMOTE_AUTH_MESSAGE =
-  "Connect this phone to Dispatch to use remote sessions.";
+export const REMOTE_AUTH_MESSAGE = "Sign in to connect a computer.";
 
 export const REMOTE_SESSIONS_ENDPOINTS = {
   hosts: "/_agent-native/integrations/remote/hosts",
@@ -423,25 +422,77 @@ function normalizeTranscriptEvent(
   record: Record<string, unknown>,
   runId: string,
 ): RemoteTranscriptEvent {
-  const type = record.type ?? record.kind;
+  const rawType = asString(record.type);
+  const rawKind = asString(record.kind);
+  const metadata = {
+    ...(asRecord(record.metadata) ?? {}),
+  };
+  const structuredEventType =
+    rawType === "thinking" ||
+    rawType === "reasoning" ||
+    rawType === "activity" ||
+    rawType === "tool_start" ||
+    rawType === "tool_done" ||
+    rawType === "assistant_delta" ||
+    rawType === "approval_required"
+      ? rawType
+      : undefined;
+  if (structuredEventType && metadata.type === undefined) {
+    metadata.type = structuredEventType;
+  }
+  for (const key of [
+    "tool",
+    "toolCallId",
+    "callId",
+    "partId",
+    "input",
+    "result",
+    "error",
+    "errorMessage",
+    "errorCode",
+    "isError",
+    "failed",
+    "approvalKey",
+    "approvalId",
+    "pendingApprovalId",
+    "pendingApproval",
+    "structuredMeta",
+    "chatUI",
+    "role",
+    "source",
+    "seq",
+    "status",
+    "phase",
+  ]) {
+    if (metadata[key] === undefined && record[key] !== undefined) {
+      metadata[key] = record[key];
+    }
+  }
+  const type =
+    rawKind === "user" ||
+    rawKind === "system" ||
+    rawKind === "artifact" ||
+    rawKind === "status"
+      ? rawKind
+      : rawType === "user"
+        ? "user"
+        : rawType === "artifact"
+          ? "artifact"
+          : rawType === "status" || structuredEventType
+            ? "status"
+            : "system";
   return {
     id:
       asString(record.id) ||
       `${runId}-${asString(record.createdAt) || Date.now().toString()}`,
     runId: asString(record.runId) || runId,
-    type:
-      type === "user" ||
-      type === "system" ||
-      type === "artifact" ||
-      type === "status"
-        ? type
-        : "system",
+    type,
     title: asString(record.title),
     text: asString(record.text) || asString(record.message) || "",
     createdAt: asString(record.createdAt) || new Date().toISOString(),
     artifactPath: asString(record.artifactPath),
     artifactUrl: asString(record.artifactUrl),
-    metadata: asRecord(record.metadata) ?? undefined,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   };
 }
 

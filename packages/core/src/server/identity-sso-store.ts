@@ -29,6 +29,7 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
+const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
 export const CANONICAL_IDENTITY_SSO_HUB_URL =
   "https://dispatch.agent-native.com";
@@ -138,6 +139,10 @@ export function isDesktopSsoCanaryUserAgent(
   return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
 }
 
+export function isDesktopSsoUserAgent(userAgent: string | undefined): boolean {
+  return DESKTOP_SSO_USER_AGENT.test(userAgent ?? "");
+}
+
 export function isCanonicalAgentNativeAppOrigin(
   origin: string | undefined,
 ): boolean {
@@ -183,11 +188,17 @@ export function isCanonicalIdentitySsoClientRequest(
 
 /**
  * The conditional login entry is the only browser UI this feature adds. It
- * stays byte-for-byte absent on self-hosted apps; canonical hosted clients
- * use their exact registered origin as the implicit opt-in.
+ * stays byte-for-byte absent on canonical hosted apps, even though those
+ * origins may use the backend flow for packaged Desktop. Explicitly
+ * configured noncanonical deployments may opt in to the browser entry.
  */
 export function identitySsoLoginButtonHtml(): string {
-  if (!isIdentitySsoEnabled()) return "";
+  if (
+    isCanonicalIdentitySsoClientOrigin(configuredAppOrigin()) ||
+    !isIdentitySsoExplicitlyEnabled()
+  ) {
+    return "";
+  }
   return (
     `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
     `href="/_agent-native/identity/login" ` +

@@ -63,6 +63,13 @@ export interface UseCollabReconcileOptions {
   /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
   editable: boolean;
   /**
+   * Reports whether focus is inside any editing surface owned by this editor.
+   * Defaults to TipTap's contenteditable focus. Apps with editable NodeView
+   * controls outside the contenteditable surface can include those controls so
+   * a partial save echo cannot interrupt an active edit.
+   */
+  isEditorFocused?: (editor: Editor) => boolean;
+  /**
    * Reads the current markdown from the editor. Injected so a dialect could
    * swap serializers; defaults to the tiptap-markdown storage reader. For an app
    * with a custom serializer (e.g. Content's `docToNfm(editor.getJSON())`), pass
@@ -216,6 +223,10 @@ function defaultSetContent(
   editor.commands.setContent(value);
 }
 
+function defaultIsEditorFocused(editor: Editor): boolean {
+  return editor.isFocused;
+}
+
 export function useCollabReconcile({
   editor,
   ydoc = null,
@@ -224,6 +235,7 @@ export function useCollabReconcile({
   value,
   contentUpdatedAt,
   editable,
+  isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
   setContent = defaultSetContent,
   parseValue,
@@ -452,8 +464,9 @@ export function useCollabReconcile({
       const editorUnchangedSinceApply =
         lastAppliedSerializedRef.current !== null &&
         currentMarkdown === lastAppliedSerializedRef.current;
+      const editorFocused = isEditorFocused(editor);
       const typingRecently =
-        editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
+        editorFocused && Date.now() - lastTypedAtRef.current < 1500;
 
       // Doc-equivalence skip. Never re-apply content the editor already
       // represents — comparing by DOC EQUIVALENCE, not raw strings/timestamps:
@@ -531,7 +544,7 @@ export function useCollabReconcile({
       // `lastAppliedSerializedRef` so the very first seed (nothing applied yet,
       // also not-newer) still lands.
       const seeded = lastAppliedSerializedRef.current !== null;
-      if (!externalNewer && (editor.isFocused || (!collab && seeded))) return;
+      if (!externalNewer && (editorFocused || (!collab && seeded))) return;
 
       // Race guard: with peers present, let Yjs deliver a peer's edit first.
       // Defer once and re-check — a peer edit makes the equality check above
@@ -616,6 +629,7 @@ export function useCollabReconcile({
     setContent,
     parseValue,
     normalizeValue,
+    isEditorFocused,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
