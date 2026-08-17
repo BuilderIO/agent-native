@@ -1583,6 +1583,7 @@ const ptBR = {
     messagingRecipes: "Receitas de mensagens",
     messagingInternals: "Internos de mensagens",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "Protocolo A2A",
     mcpClients: "Clientes MCP (adicionar ferramentas)",
     httpApi: "API HTTP (chamar ações)",

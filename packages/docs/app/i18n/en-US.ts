@@ -1577,6 +1577,7 @@ const enUS = {
     messagingRecipes: "Messaging Recipes",
     messagingInternals: "Messaging Internals",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "A2A Protocol",
     mcpClients: "MCP Clients (Add Tools)",
     httpApi: "HTTP API (Call Actions)",
