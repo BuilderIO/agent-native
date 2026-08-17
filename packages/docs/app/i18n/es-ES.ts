@@ -1587,6 +1587,7 @@ const esES = {
     messagingRecipes: "Recetas de mensajería",
     messagingInternals: "Arquitectura de mensajería",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "Protocolo A2A",
     mcpClients: "Clientes MCP (añadir herramientas)",
     httpApi: "API HTTP (llamar acciones)",

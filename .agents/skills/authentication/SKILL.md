@@ -200,9 +200,9 @@ separately approved.
 Treat the Canary user-agent marker only as an availability hint, never as
 remote attestation or an authentication boundary. Bind supervised acceptance
 to exact signed-artifact provenance.
-The Canary must not intercept anonymous app sign-in navigation. The user
-explicitly chooses workspace sign-in in Desktop Settings for the active eligible
-app; ordinary app sign-in remains the default path. A failed app fan-out is
+For an eligible registered app, Desktop presents the workspace sign-in surface
+over the app's sign-in flow. If rollout is unavailable or the app is not
+eligible, ordinary app sign-in remains available. A failed app fan-out is
 reported as incomplete and can be retried; Desktop must not claim workspace
 sign-in is complete until every eligible app in that snapshot succeeds.
 

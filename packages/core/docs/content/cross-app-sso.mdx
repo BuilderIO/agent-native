@@ -360,6 +360,10 @@ authorization decision trusts it. Supervised acceptance therefore binds the
 tested client through the signed artifact's exact commit, manifest, hashes, and
 notarization evidence.
 
+For an eligible registered app, Desktop presents the workspace sign-in surface
+over the app's sign-in flow. If the rollout is unavailable or the app is not
+eligible, ordinary per-app sign-in remains available.
+
 ## Self-hosting {#self-hosting}
 
 Any Dispatch deployment can serve as the identity hub — you are not limited to `dispatch.agent-native.com`. Set `AGENT_NATIVE_IDENTITY_HUB_URL` on each client app to point at your Dispatch instance:

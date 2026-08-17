@@ -1584,6 +1584,7 @@ const jaJP = {
     messagingRecipes: "メッセージング レシピ",
     messagingInternals: "メッセージングの内部",
     dispatch: "Dispatch",
+    portal: "Portal",
     a2aProtocol: "A2A プロトコル",
     mcpClients: "MCP クライアント (ツール追加)",
     httpApi: "HTTP API (アクション呼び出し)",
