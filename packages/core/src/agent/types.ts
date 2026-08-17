@@ -255,7 +255,9 @@ export interface AgentChatRequest {
    * `approval_required`; the client re-issues the turn (typically an empty
    * continuation) with the approved call's key here so the gate lets it run.
    * Keys not present here keep the action paused. The model never sees or sets
-   * this — it is supplied by the human's approve affordance.
+   * this — it is supplied by the human's approve affordance. Clients should
+   * preserve the original turnId; the server can recover one uniquely pending
+   * durable grant when a transport drops it, but refuses ambiguous matches.
    */
   approvedToolCalls?: string[];
 }
