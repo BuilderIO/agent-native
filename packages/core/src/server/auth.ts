@@ -2176,6 +2176,26 @@ function escapeHtmlAttr(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+const DESKTOP_MAGIC_LINK_CALLBACK_PATH =
+  "/_agent-native/auth/magic-link/desktop-callback";
+const DESKTOP_MAGIC_LINK_LANDING_PATH =
+  "/_agent-native/auth/magic-link/desktop-landing";
+const BETTER_AUTH_MAGIC_LINK_VERIFY_PATH =
+  "/_agent-native/auth/ba/magic-link/verify";
+
+function desktopMagicLinkLandingPage(verificationUrl: string): Response {
+  const safeVerificationUrl = escapeHtmlAttr(verificationUrl);
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent Native desktop app.</p><form method="get" action="${safeVerificationUrl}"><button type="submit">Continue</button></form></main></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
 function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
   const headCloseIdx = loginHtml.indexOf("</head>");
   if (headCloseIdx === -1) return loginHtml;
@@ -3907,6 +3927,61 @@ async function mountBetterAuthRoutes(
   // Magic-link verification happens in the system browser, so native shells
   // need the verified browser session copied into the same one-time exchange
   // used by Google OAuth before they can establish their own WebView session.
+  // Keep the desktop email URL itself non-consuming: mail security scanners
+  // commonly prefetch GET links, while Better Auth consumes a magic-link token
+  // on the first verification GET. The explicit form action below is the only
+  // request that reaches Better Auth's consuming verification endpoint.
+  app.use(
+    DESKTOP_MAGIC_LINK_LANDING_PATH,
+    defineEventHandler((event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const token = typeof query.token === "string" ? query.token.trim() : "";
+      const callbackURL =
+        typeof query.callbackURL === "string" ? query.callbackURL : "";
+      if (!token || !callbackURL) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop magic-link" };
+      }
+
+      let callback: URL;
+      try {
+        callback = new URL(callbackURL, getOrigin(event));
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop magic-link" };
+      }
+      if (
+        callback.origin !== new URL(getOrigin(event)).origin ||
+        !callback.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_PATH) ||
+        !normalizeDesktopFlowId(callback.searchParams.get("flow_id")) ||
+        !normalizeDesktopFlowVerifier(callback.searchParams.get("verifier"))
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop magic-link" };
+      }
+
+      const verificationURL = new URL(getOrigin(event));
+      verificationURL.pathname =
+        getAppBasePath() + BETTER_AUTH_MAGIC_LINK_VERIFY_PATH;
+      verificationURL.searchParams.set("token", token);
+      for (const key of [
+        "callbackURL",
+        "newUserCallbackURL",
+        "errorCallbackURL",
+      ]) {
+        const value = query[key];
+        if (typeof value === "string" && value) {
+          verificationURL.searchParams.set(key, value);
+        }
+      }
+      return desktopMagicLinkLandingPage(verificationURL.toString());
+    }),
+  );
+
   app.use(
     "/_agent-native/auth/magic-link/desktop-callback",
     defineEventHandler(async (event) => {
@@ -3916,11 +3991,32 @@ async function mountBetterAuthRoutes(
       }
       const flowId = normalizeDesktopFlowId(getQuery(event).flow_id);
       const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
+      const callbackError = getQuery(event).error;
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
       if (!verifier) {
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "missing_verifier",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+      if (typeof callbackError === "string" && callbackError.trim()) {
+        const code = callbackError
+          .trim()
+          .replace(/[^a-z0-9_-]/gi, "_")
+          .slice(0, 64);
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: code || "callback_error",
+        });
+        logGoogleOAuthDebug(event, "magic-link-callback-error", {
+          flowId,
+          message: callbackError,
+          code: code || "callback_error",
+        });
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
@@ -3928,7 +4024,10 @@ async function mountBetterAuthRoutes(
       if (!session?.email || !session.token) {
         setDesktopExchangeError(flowId, {
           message: AUTH_MAGIC_LINK_FALLBACK,
-          code: "callback_error",
+          code: "callback_session_missing",
+        });
+        logGoogleOAuthDebug(event, "magic-link-callback-session-missing", {
+          flowId,
         });
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
@@ -3944,19 +4043,28 @@ async function mountBetterAuthRoutes(
         });
         setDesktopExchangeError(flowId, {
           message: AUTH_MAGIC_LINK_FALLBACK,
-          code: "callback_error",
+          code: "callback_session_persist_failed",
         });
+        logGoogleOAuthDebug(
+          event,
+          "magic-link-callback-session-persist-failed",
+          {
+            flowId,
+          },
+        );
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
-      if (
-        !(await claimDesktopMagicLinkFlow(
+      const claimed = await claimDesktopMagicLinkFlow(
+        flowId,
+        verifier,
+        session.token,
+        session.email,
+      );
+      if (!claimed) {
+        logGoogleOAuthDebug(event, "magic-link-callback-flow-claim-failed", {
           flowId,
-          verifier,
-          session.token,
-          session.email,
-        ))
-      ) {
+        });
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
       return oauthDesktopExchangePage(
