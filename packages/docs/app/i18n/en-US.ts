@@ -1532,7 +1532,6 @@ const enUS = {
     actionsRunContext: "Run Context",
     actionsOtherSurfaces: "Other Surfaces",
     actionsAdvanced: "Advanced & Legacy",
-    humanApproval: "Human Approval",
     publicAgentWeb: "Public Agent Web",
     database: "Database",
     internationalization: "Internationalization",

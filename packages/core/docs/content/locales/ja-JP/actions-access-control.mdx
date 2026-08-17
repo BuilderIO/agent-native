@@ -83,8 +83,6 @@ export default defineAction({
 
 メール送信、カードへの課金、アカウント削除のように、エージェントに単独で実行させるには重大すぎるアクションがいくつかあります。`defineAction()` に `needsApproval: true` (または述語 `(args, ctx) => boolean | Promise<boolean>`) を設定すると、`run()` の前にループが一時停止し、人間がその特定の呼び出しを承認する必要が生じます。デフォルトは**オフ**であり、ほとんどすべてのアクションはそのままにしておくべきです。
 
-述語 API、`approval_required` イベント、エンドツーエンドの全体フローについては、[人間参加型の承認](/docs/human-approval) を参照してください。
-
 ## ロールで呼び出し元を制限する {#authorize}
 
 `authorize` は、たった1つの具体的な問いに答えます。**そもそもこの呼び出し元は、この操作を実行してよいのか?** ガード関数を渡すと、エージェント ツール、HTTP、フロントエンド、MCP、A2A、CLI のすべての呼び出し元に対して、`run()` の前に実行されます。
@@ -220,7 +218,6 @@ export default defineAction({
 - [**概要**](/docs/actions-overview) — アクションとは何か、hello world のウォークスルー
 - [**アクションを定義する**](/docs/actions-defining) — `defineAction()` の構造、スキーマ、HTTP 設定
 - [**実行コンテキスト**](/docs/actions-run-context) — これらのチェックが読み取る `ctx` 引数
-- [**人間参加型の承認**](/docs/human-approval) — `needsApproval` ゲートの詳細
 - [**監査ログ**](/docs/audit-log) — 誰が何を変更したかを自動記録する証跡
 - [**セキュリティ**](/docs/security) — `accessFilter`/`assertAccess` と拡張機能 iframe の信頼境界
 - [**共有**](/docs/sharing) — これらのヘルパーが支えるフレームワークの共有システム

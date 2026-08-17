@@ -1514,7 +1514,6 @@ const zhCN = {
     actionsRunContext: "运行上下文",
     actionsOtherSurfaces: "其他界面",
     actionsAdvanced: "高级与旧版",
-    humanApproval: "人工审批",
     publicAgentWeb: "公共 Agent Web",
     database: "数据库",
     internationalization: "国际化",

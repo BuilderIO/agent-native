@@ -1539,7 +1539,6 @@ const jaJP = {
     actionsRunContext: "実行コンテキスト",
     actionsOtherSurfaces: "その他のサーフェス",
     actionsAdvanced: "高度な機能とレガシー",
-    humanApproval: "人による承認",
     publicAgentWeb: "公開 Agent Web",
     database: "データベース",
     internationalization: "国際化",

@@ -1535,7 +1535,6 @@ const koKR = {
     actionsRunContext: "실행 컨텍스트",
     actionsOtherSurfaces: "다른 표면들",
     actionsAdvanced: "고급 및 레거시",
-    humanApproval: "사람 승인",
     publicAgentWeb: "공개 Agent Web",
     database: "데이터베이스",
     internationalization: "국제화",

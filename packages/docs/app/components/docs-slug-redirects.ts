@@ -13,6 +13,9 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // database.mdx was a near-duplicate of the Server section's own database
   // page; the Server version is the complete one (adds scoping + sync).
   database: "server-database",
+  // human-approval.mdx folded into the needsApproval section it was already
+  // a deep-dive companion to.
+  "human-approval": "actions-access-control",
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",

@@ -1542,7 +1542,6 @@ const esES = {
     actionsRunContext: "Contexto de ejecución",
     actionsOtherSurfaces: "Otras superficies",
     actionsAdvanced: "Avanzado y heredado",
-    humanApproval: "Aprobación humana",
     publicAgentWeb: "Agent Web público",
     database: "Base de datos",
     internationalization: "Internacionalización",

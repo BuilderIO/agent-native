@@ -83,8 +83,6 @@ export default defineAction({
 
 मुट्ठी भर actions एजेंट को अपने आप चलाने देने के लिए बहुत परिणामी हैं, जैसे email भेजना, कार्ड चार्ज करना, या account delete करना। `defineAction()` पर `needsApproval: true` (या एक predicate `(args, ctx) => boolean | Promise<boolean>`) सेट करें, और लूप `run()` से पहले रुक जाता है, जिसके लिए किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होता है। डिफ़ॉल्ट **off** है, और लगभग हर action को वैसा ही रहना चाहिए।
 
-predicate API, `approval_required` इवेंट, और पूरे end-to-end flow के लिए [Human-in-the-Loop Approvals](/docs/human-approval) देखें।
-
 ## भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें {#authorize}
 
 `authorize` एक विशिष्ट सवाल का जवाब देता है: **क्या यह कॉलर बिल्कुल भी यह ऑपरेशन चला सकता है?** इसे एक गार्ड फ़ंक्शन दें, और यह हर कॉलर पर `run()` से पहले चलता है: एजेंट टूल, HTTP, फ्रंटएंड, MCP, A2A, और CLI।
@@ -220,7 +218,6 @@ export default defineAction({
 - [**अवलोकन**](/docs/actions-overview) — action क्या है और hello-world वॉकथ्रू
 - [**Actions परिभाषित करना**](/docs/actions-defining) — `defineAction()` की संरचना, schema, और HTTP config
 - [**Run Context**](/docs/actions-run-context) — `ctx` argument जिसे ये जांचें पढ़ती हैं
-- [**Human-in-the-Loop Approvals**](/docs/human-approval) — `needsApproval` गेट विस्तार से
 - [**Audit Log**](/docs/audit-log) — अपने आप बनने वाला who-changed-what trail
 - [**Security**](/docs/security) — `accessFilter`/`assertAccess` और extension iframe trust boundary
 - [**Sharing**](/docs/sharing) — फ्रेमवर्क sharing सिस्टम जो इन हेल्पर्स को समर्थन देता है

@@ -1543,7 +1543,6 @@ const frFR = {
     actionsRunContext: "Contexte d’exécution",
     actionsOtherSurfaces: "Autres surfaces",
     actionsAdvanced: "Avancé et hérité",
-    humanApproval: "Validation humaine",
     publicAgentWeb: "Agent Web public",
     database: "Base de données",
     internationalization: "Internationalisation",

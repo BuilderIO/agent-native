@@ -83,8 +83,6 @@ export default defineAction({
 
 少數 action 的後果太過重大，不能放任代理自行執行，例如傳送電子郵件、刷卡扣款，或刪除帳號。在 `defineAction()` 上設定 `needsApproval: true`（或一個判斷式 `(args, ctx) => boolean | Promise<boolean>`），迴圈就會在 `run()` 之前暫停，要求人工核准那次特定的呼叫。預設值是**關閉**，幾乎所有 action 都應該維持這個狀態。
 
-判斷式 API、`approval_required` 事件，以及完整的端到端流程，請參閱[人工核准](/docs/human-approval)。
-
 ## 依角色限制呼叫者 {#authorize}
 
 `authorize` 回答一個特定的問題：**這位呼叫者到底是否可以執行此操作？** 提供一個守衛函式給它，它就會在每一種呼叫者（代理工具、HTTP、前端、MCP、A2A 與 CLI）呼叫 `run()` 之前先執行。
@@ -220,7 +218,6 @@ export default defineAction({
 - [**總覽**](/docs/actions-overview) — action 是什麼，以及 hello-world 示範
 - [**定義 Actions**](/docs/actions-defining) — `defineAction()` 的結構、架構與 HTTP 設定
 - [**執行情境**](/docs/actions-run-context) — 這些檢查所讀取的 `ctx` 引數
-- [**人工核准**](/docs/human-approval) — 深入探討 `needsApproval` 關卡
 - [**稽核記錄**](/docs/audit-log) — 自動記錄誰變更了什麼的紀錄
 - [**安全性**](/docs/security) — `accessFilter`/`assertAccess`，以及擴充功能 iframe 的信任邊界
 - [**分享**](/docs/sharing) — 這些輔助函式所支援的框架分享系統

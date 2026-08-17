@@ -83,8 +83,6 @@ export default defineAction({
 
 عدد قليل من actions ذو عواقب كبيرة بحيث لا يمكن ترك الوكيل يشغّله بمفرده، مثل إرسال بريد إلكتروني، أو شحن بطاقة، أو حذف حساب. اضبط `needsApproval: true` (أو مسندًا `(args, ctx) => boolean | Promise<boolean>`) على `defineAction()`، وستتوقف الحلقة مؤقتًا قبل `run()`، ما يتطلب موافقة إنسان على ذلك الاستدعاء المحدد. الافتراضي هو **معطَّل**، ويجب أن يبقى كل action تقريبًا على هذا الحال.
 
-راجع [موافقات الإنسان في الحلقة](/docs/human-approval) للاطلاع على واجهة برمجة المسند، وحدث `approval_required`، والتدفق الكامل من طرف إلى طرف.
-
 ## تقييد المستدعين حسب الدور {#authorize}
 
 يجيب `authorize` عن سؤال محدد واحد: **هل يجوز لهذا المستدعي تشغيل هذه العملية أصلًا؟** أعطه دالة حارسة، وستعمل قبل `run()` لدى كل مستدعٍ: أداة الوكيل، وHTTP، والواجهة الأمامية، وMCP، وA2A، وCLI.
@@ -220,7 +218,6 @@ export default defineAction({
 - [**نظرة عامة**](/docs/actions-overview) — ما هو action وجولة hello-world
 - [**تعريف Actions**](/docs/actions-defining) — تشريح `defineAction()`، والمخطط، وإعداد HTTP
 - [**سياق التشغيل**](/docs/actions-run-context) — وسيطة `ctx` التي تقرأها هذه الفحوصات
-- [**موافقات الإنسان في الحلقة**](/docs/human-approval) — بوابة `needsApproval` بالتفصيل
 - [**سجل التدقيق**](/docs/audit-log) — المسار التلقائي لمن غيّر ماذا
 - [**الأمان**](/docs/security) — `accessFilter`/`assertAccess` وحدود الثقة الخاصة بـ iframe الامتداد
 - [**المشاركة والخصوصية**](/docs/sharing) — نظام المشاركة في إطار العمل الذي يدعم هذين المساعدَين

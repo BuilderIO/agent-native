@@ -83,8 +83,6 @@ export default defineAction({
 
 少数 action 的后果太过严重,不能让代理自行运行,比如发送邮件、扣款,或删除账户。在 `defineAction()` 上设置 `needsApproval: true`(或者一个谓词 `(args, ctx) => boolean | Promise<boolean>`),代理循环就会在 `run()` 之前暂停,需要人工批准这一次具体的调用。默认值是**关闭**,几乎每一个 action 都应该保持这个默认值。
 
-关于谓词 API、`approval_required` 事件,以及完整的端到端流程,参阅 [人在环批准](/docs/human-approval)。
-
 ## 按角色限制调用者 {#authorize}
 
 `authorize` 回答一个具体的问题:**这个调用者到底能不能运行这个操作?** 给它一个守卫函数,它就会在每一个调用者(代理工具、HTTP、前端、MCP、A2A 和 CLI)上,在 `run()` 之前运行。
@@ -220,7 +218,6 @@ export default defineAction({
 - [**概览**](/docs/actions-overview) — action 是什么,以及 hello-world 演练
 - [**定义 Actions**](/docs/actions-defining) — `defineAction()` 的结构、schema 和 HTTP 配置
 - [**运行上下文**](/docs/actions-run-context) — 这些检查所读取的 `ctx` 参数
-- [**人在环批准**](/docs/human-approval) — 深入讲解 `needsApproval` 门控
 - [**审核日志**](/docs/audit-log) — 自动化的谁改了什么的记录
 - [**安全**](/docs/security) — `accessFilter`/`assertAccess`,以及扩展 iframe 的信任边界
 - [**共享**](/docs/sharing) — 这些辅助函数所依托的框架共享系统

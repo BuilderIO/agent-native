@@ -1538,7 +1538,6 @@ const ptBR = {
     actionsRunContext: "Contexto de Execução",
     actionsOtherSurfaces: "Outras Superfícies",
     actionsAdvanced: "Avançado e legado",
-    humanApproval: "Aprovação humana",
     publicAgentWeb: "Agent Web público",
     database: "Banco de dados",
     internationalization: "Internacionalização",

@@ -83,8 +83,6 @@ export default defineAction({
 
 이메일 전송, 카드 청구, 계정 삭제처럼 몇몇 action은 에이전트가 스스로 실행하기에는 결과가 너무 큽니다. `defineAction()`에 `needsApproval: true`(또는 술어 `(args, ctx) => boolean | Promise<boolean>`)를 설정하면 `run()` 전에 루프가 일시 정지되어, 사람이 그 특정 호출을 승인해야 합니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
 
-술어 API, `approval_required` 이벤트, 전체 흐름은 [Human-in-the-Loop 승인](/docs/human-approval)을 참고하세요.
-
 ## 역할로 호출자 제한하기 {#authorize}
 
 `authorize`는 한 가지 구체적인 질문에 답합니다. **이 호출자가 애초에 이 작업을 실행할 수 있는가?** 가드 함수를 전달하면, 에이전트 도구, HTTP, 프런트엔드, MCP, A2A, CLI 등 모든 호출자에 대해 `run()` 전에 실행됩니다.
@@ -220,7 +218,6 @@ export default defineAction({
 - [**개요**](/docs/actions-overview) — action이란 무엇인지와 hello-world 진행 과정
 - [**Actions 정의하기**](/docs/actions-defining) — `defineAction()`의 구조, schema, HTTP 설정
 - [**실행 컨텍스트**](/docs/actions-run-context) — 이 검사들이 읽는 `ctx` 인자
-- [**Human-in-the-Loop 승인**](/docs/human-approval) — `needsApproval` 게이트를 깊이 있게 다룸
 - [**감사 로그**](/docs/audit-log) — 자동으로 남는 누가-무엇을-바꿨는지 기록
 - [**보안**](/docs/security) — `accessFilter`/`assertAccess`와 확장 iframe 신뢰 경계
 - [**공유**](/docs/sharing) — 이 도우미들이 기대는 프레임워크 공유 시스템

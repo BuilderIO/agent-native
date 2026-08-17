@@ -596,11 +596,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
-        id: "human-approval",
-        labelKey: "humanApproval",
-        slug: "human-approval",
-      },
-      {
         id: "agent-web-surfaces",
         labelKey: "publicAgentWeb",
         slug: "agent-web-surfaces",

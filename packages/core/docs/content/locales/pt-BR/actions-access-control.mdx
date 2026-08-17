@@ -83,8 +83,6 @@ Use isso apenas para actions seguras, somente leitura, ou apenas de ingestão, o
 
 Um punhado de actions é consequencial demais para deixar o agente executar por conta própria, como enviar um e-mail, cobrar um cartão ou excluir uma conta. Defina `needsApproval: true` (ou um predicado `(args, ctx) => boolean | Promise<boolean>`) em `defineAction()`, e o loop pausa antes de `run()`, exigindo que um humano aprove aquela chamada específica. O padrão é **desligado**, e quase toda action deveria continuar assim.
 
-Veja [Human-in-the-Loop Approvals](/docs/human-approval) para a API do predicado, o evento `approval_required`, e o fluxo completo de ponta a ponta.
-
 ## Restringir chamadores por função {#authorize}
 
 `authorize` responde a uma pergunta específica: **este chamador pode executar esta operação?** Dê a ela uma função guarda, e ela roda antes de `run()` para todo chamador: ferramenta do agente, HTTP, frontend, MCP, A2A e CLI.
@@ -220,7 +218,6 @@ Mais algumas opções. `audit: { onRead: true }` audita uma leitura sensível, c
 - [**Visão geral**](/docs/actions-overview) — o que é uma action e o passo a passo hello-world
 - [**Definindo Actions**](/docs/actions-defining) — anatomia de `defineAction()`, schema e configuração de HTTP
 - [**Contexto de Execução**](/docs/actions-run-context) — o argumento `ctx` que essas verificações leem
-- [**Human-in-the-Loop Approvals**](/docs/human-approval) — a porta `needsApproval` em profundidade
 - [**Audit Log**](/docs/audit-log) — a trilha automática de quem-mudou-o-quê
 - [**Security**](/docs/security) — `accessFilter`/`assertAccess` e o limite de confiança do iframe de extensão
 - [**Sharing**](/docs/sharing) — o sistema de sharing do framework que esses helpers usam por trás

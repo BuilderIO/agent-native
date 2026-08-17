@@ -83,8 +83,6 @@ Utilisez-le uniquement pour des actions sûres, en lecture seule, ou d’ingesti
 
 Une poignée d’actions sont trop conséquentes pour laisser l’agent les exécuter seul, comme envoyer un email, débiter une carte, ou supprimer un compte. Définissez `needsApproval: true` (ou un prédicat `(args, ctx) => boolean | Promise<boolean>`) sur `defineAction()`, et la boucle se met en pause avant `run()`, exigeant qu’un humain approuve cet appel précis. La valeur par défaut est **désactivée**, et presque chaque action devrait le rester.
 
-Voir [Approbations humaines dans la boucle](/docs/human-approval) pour l’API du prédicat, l’événement `approval_required`, et le flux complet de bout en bout.
-
 ## Restreindre les appelants par rôle {#authorize}
 
 `authorize` répond à une question précise : **cet appelant peut-il exécuter cette opération, tout court ?** Donnez-lui une fonction de garde, et elle s’exécute avant `run()` sur chaque appelant : outil agent, HTTP, frontend, MCP, A2A, et CLI.
@@ -220,7 +218,6 @@ Quelques autres options. `audit: { onRead: true }` audite une lecture sensible, 
 - [**Vue d’ensemble**](/docs/actions-overview) — ce qu’est une action et la démonstration hello-world
 - [**Définir des actions**](/docs/actions-defining) — anatomie de `defineAction()`, schéma, et configuration HTTP
 - [**Contexte d’exécution**](/docs/actions-run-context) — l’argument `ctx` que ces contrôles lisent
-- [**Approbations humaines dans la boucle**](/docs/human-approval) — le mécanisme `needsApproval` en détail
 - [**Journal d’audit**](/docs/audit-log) — la piste automatique de qui-a-changé-quoi
 - [**Sécurité**](/docs/security) — `accessFilter`/`assertAccess` et la frontière de confiance de l’iframe d’extension
 - [**Partage**](/docs/sharing) — le système de partage du framework que ces aides soutiennent

@@ -83,8 +83,6 @@ export default defineAction({
 
 Un puñado de acciones son demasiado consecuentes como para dejar que el agente las ejecute por su cuenta, como enviar un correo, cobrar una tarjeta o eliminar una cuenta. Configura `needsApproval: true` (o un predicado `(args, ctx) => boolean | Promise<boolean>`) en `defineAction()`, y el bucle se pausa antes de `run()`, exigiendo que un humano apruebe esa llamada específica. El valor por defecto es **desactivado**, y casi todas las acciones deberían permanecer así.
 
-Consulta [Aprobaciones Human-in-The-Loop](/docs/human-approval) para la API del predicado, el evento `approval_required` y el flujo completo de extremo a extremo.
-
 ## Restringir invocadores por rol {#authorize}
 
 `authorize` responde a una pregunta concreta: **¿puede este invocador ejecutar esta operación?** Dale una función de guarda, y se ejecuta antes de `run()` para cada invocador: herramienta del agente, HTTP, frontend, MCP, A2A y CLI.
@@ -220,7 +218,6 @@ Algunas otras opciones. `audit: { onRead: true }` audita una lectura sensible, c
 - [**Resumen**](/docs/actions-overview) — qué es una acción y el recorrido hello-world
 - [**Definir acciones**](/docs/actions-defining) — la anatomía de `defineAction()`, el esquema y la configuración HTTP
 - [**Contexto de ejecución**](/docs/actions-run-context) — el argumento `ctx` que leen estas comprobaciones
-- [**Aprobaciones Human-in-The-Loop**](/docs/human-approval) — la puerta `needsApproval` en profundidad
 - [**Registro de auditoría**](/docs/audit-log) — el rastro automático de quién cambió qué
 - [**Seguridad**](/docs/security) — `accessFilter`/`assertAccess` y el límite de confianza del iframe de extensiones
 - [**Compartir**](/docs/sharing) — el sistema de compartir del framework que respaldan estos ayudantes

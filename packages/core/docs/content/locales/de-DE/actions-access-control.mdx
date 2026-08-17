@@ -83,8 +83,6 @@ Verwenden Sie es nur für sichere, schreibgeschützte oder reine Ingest-Actions,
 
 Eine Handvoll Actions sind zu folgenreich, um den Agenten sie allein ausführen zu lassen, etwa eine E-Mail senden, eine Karte belasten oder ein Konto löschen. Setzen Sie `needsApproval: true` (oder ein Prädikat `(args, ctx) => boolean | Promise<boolean>`) auf `defineAction()`, und die Schleife pausiert vor `run()` und verlangt, dass ein Mensch genau diesen Aufruf genehmigt. Der Standard ist **aus**, und fast jede Action sollte das bleiben.
 
-Siehe [Human-in-the-Loop-Genehmigungen](/docs/human-approval) für die Prädikat-API, das `approval_required`-Ereignis und den vollständigen End-to-End-Ablauf.
-
 ## Aufrufer nach Rolle einschränken {#authorize}
 
 `authorize` beantwortet eine ganz konkrete Frage: **darf dieser Aufrufer diese Operation überhaupt ausführen?** Geben Sie ihm eine Guard-Funktion, und sie läuft vor `run()` bei jedem Aufrufer: Agent-Tool, HTTP, Frontend, MCP, A2A und CLI.
@@ -220,7 +218,6 @@ Ein paar weitere Optionen. `audit: { onRead: true }` auditiert einen sensiblen L
 - [**Überblick**](/docs/actions-overview) — was eine Action ist und der Hello-World-Durchlauf
 - [**Actions definieren**](/docs/actions-defining) — `defineAction()`-Aufbau, Schema und HTTP-Konfiguration
 - [**Ausführungskontext**](/docs/actions-run-context) — das `ctx`-Argument, das diese Prüfungen lesen
-- [**Human-in-the-Loop-Genehmigungen**](/docs/human-approval) — das `needsApproval`-Gate im Detail
 - [**Audit-Protokoll**](/docs/audit-log) — der automatische Wer-hat-was-geändert-Trail
 - [**Sicherheit**](/docs/security) — `accessFilter`/`assertAccess` und die Vertrauensgrenze des Extension-Iframes
 - [**Freigabe und Datenschutz**](/docs/sharing) — das Framework-Freigabesystem, auf dem diese Helfer aufbauen
