@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.159.3
+
+### Patch Changes
+
+- 7b267fd: Rewrite preserved Yjs imports in Node server build output.
+- Updated dependencies [95ea873]
+  - @agent-native/toolkit@0.16.4
+
 ## 0.159.2
 
 ### Patch Changes
