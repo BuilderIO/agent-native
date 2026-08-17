@@ -1285,7 +1285,6 @@ export async function listAccessibleLexicalCandidates(
   results: ContextSearchResult[];
   nextCursor?: string;
 }> {
-  debugger;
   const { getDb, schema } = getCreativeContext();
   const offset = parseOffsetCursor(input.cursor);
   const packVersionIds: string[] | null = input.packId
