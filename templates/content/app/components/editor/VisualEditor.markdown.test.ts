@@ -1078,6 +1078,74 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(false);
   });
 
+  it("hydrates a zero-child collaborative Toggle without an invalid TextSelection warning", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const content = [
+      "<details open>",
+      "<summary>Parent</summary>",
+      "</details>",
+      "",
+      "After",
+    ].join("\n");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const renderEditor = () =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(TooltipProvider, {
+          delayDuration: 0,
+          children: createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              content,
+              contentUpdatedAt: "2026-08-14T12:00:00.000Z",
+              onChange: () => {},
+              ydoc,
+              collabSynced: true,
+              editable: true,
+            }),
+          ),
+        }),
+      );
+
+    try {
+      act(() => root.render(renderEditor()));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      act(() => root.unmount());
+      root = createRoot(container);
+
+      act(() => root.render(renderEditor()));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      expect(
+        warning.mock.calls.some((args) =>
+          args.some((arg) =>
+            String(arg).includes(
+              "TextSelection endpoint not pointing into a node with inline content",
+            ),
+          ),
+        ),
+      ).toBe(false);
+      expect(
+        container.querySelector<HTMLInputElement>(".notion-toggle__summary")
+          ?.value,
+      ).toBe("Parent");
+    } finally {
+      await act(async () => root.unmount());
+      warning.mockRestore();
+      queryClient.clear();
+      ydoc.destroy();
+      container.remove();
+    }
+  });
+
   it("keeps adjacent NFM blocks separate in collaborative external reconciles", () => {
     const editor = createFullEditor();
     const incoming = [
@@ -1803,7 +1871,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("uses the editable empty paragraph as the toggle body placeholder", () => {
+  it("reserves the empty-toggle placeholder for zero-child toggles", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -1834,7 +1902,7 @@ describe("VisualEditor markdown round-tripping", () => {
             "[data-notion-toggle-content] p, .notion-toggle__content p",
           )
           ?.getAttribute("data-placeholder"),
-      ).toBe("Empty toggle. Click or drop blocks inside.");
+      ).toBeNull();
     } finally {
       editor.destroy();
     }
