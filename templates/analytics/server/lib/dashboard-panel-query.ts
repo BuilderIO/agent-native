@@ -10,6 +10,7 @@ import { getUserSegmentation, queryEvents } from "./amplitude";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
 import { queryFirstPartyAnalytics } from "./first-party-analytics";
+import { FirstPartyAnalyticsUnsupportedSqlError } from "./first-party-analytics-backend";
 import { runReport } from "./google-analytics";
 import {
   runPrometheusPanel,
@@ -34,6 +35,19 @@ export interface DashboardPanelQueryResult {
   schema: { name: string; type: string }[];
   truncated?: boolean;
   bytesProcessed?: number;
+}
+
+/**
+ * A stored panel the active data backend cannot run at all. It carries no
+ * `rows` on purpose: an empty result set would be indistinguishable from a
+ * query that legitimately matched nothing, and this panel matched nothing
+ * because it never ran.
+ */
+export interface UnsupportedBackendResponse {
+  error: "unsupported_by_backend";
+  backend: "bigquery";
+  construct: string;
+  message: string;
 }
 
 export function isDashboardPanelSource(
@@ -419,7 +433,9 @@ export async function runDashboardPanelQuery(args: {
   query: string;
   ctx: CredentialContext;
   timeoutMs?: number;
-}): Promise<DashboardPanelQueryResult | MissingKeyResponse> {
+}): Promise<
+  DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
+> {
   const { source, query, ctx, timeoutMs } = args;
 
   if (source === "bigquery") {
@@ -465,17 +481,36 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "first-party") {
-    return await queryFirstPartyAnalytics(
-      query,
-      {
-        userEmail: ctx.userEmail,
-        orgId: ctx.orgId ?? null,
-      },
-      {
-        cache: true,
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      },
-    );
+    try {
+      return await queryFirstPartyAnalytics(
+        query,
+        {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId ?? null,
+        },
+        {
+          cache: true,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        },
+      );
+    } catch (error) {
+      // Only the "no BigQuery equivalent exists" failure becomes a rendered
+      // state. Every other failure — timeout, permission, provider outage —
+      // still throws, because those are retryable and must not read to the
+      // user as a permanent property of the panel.
+      if (!(error instanceof FirstPartyAnalyticsUnsupportedSqlError))
+        throw error;
+      console.error(
+        "[first-party-analytics] Panel SQL has no BigQuery translation:",
+        error,
+      );
+      return {
+        error: "unsupported_by_backend",
+        backend: "bigquery",
+        construct: error.construct,
+        message: `This panel can't run on your current data backend (BigQuery) because its SQL uses ${error.construct}. Edit the panel's SQL, or switch the backend back to PostgreSQL.`,
+      };
+    }
   }
 
   if (source === "demo") {

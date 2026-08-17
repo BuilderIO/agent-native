@@ -15,7 +15,8 @@ import {
   upsertDashboardWithRetry,
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
-import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
+import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
+import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   applyPanelOrder,
@@ -391,6 +392,11 @@ export function validateDashboardConfig(
 
 const MAX_CONCURRENT_SQL_VALIDATIONS = 8;
 
+function firstPartyScope() {
+  const { email, orgId } = resolveScope();
+  return { userEmail: email, orgId };
+}
+
 export interface ValidatePanelSqlOptions {
   signal?: AbortSignal;
 }
@@ -445,13 +451,19 @@ export async function validatePanelSql(
             i,
           );
           if (timeScopeError) return timeScopeError;
-          validateFirstPartyAnalyticsSql(interpolate(raw, vars));
+          await validateFirstPartyAnalyticsSqlForScope(
+            interpolate(raw, vars),
+            firstPartyScope(),
+          );
         } catch (e: any) {
           if (
             typeof e?.message === "string" &&
             e.message.startsWith("panel[")
           ) {
             return e.message;
+          }
+          if (e instanceof FirstPartyAnalyticsUnsupportedSqlError) {
+            return `panel[${i}] "${p.title || p.id}" cannot run on this scope's active data backend (BigQuery) because its SQL uses ${e.construct}. Rewrite it with BigQuery-compatible SQL, or move the scope back to the PostgreSQL backend.`;
           }
           return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
         }
