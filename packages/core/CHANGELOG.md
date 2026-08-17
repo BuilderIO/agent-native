@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.158.10
+
+### Patch Changes
+
+- c3a0f94: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
 ## 0.158.9
 
 ### Patch Changes
