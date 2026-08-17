@@ -190,6 +190,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
@@ -9222,13 +9223,27 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()
         ? backgroundRunMarker.turnId.trim()
-        : typeof requestTurnId === "string" && requestTurnId.trim()
-          ? requestTurnId.trim()
-          : runId;
+        : (resolvedApprovalTurnId ??
+          (typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId));
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {

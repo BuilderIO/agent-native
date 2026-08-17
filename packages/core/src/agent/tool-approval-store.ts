@@ -59,6 +59,58 @@ export function hashAgentToolApprovalKey(approvalKey: string): string {
   return createHash("sha256").update(approvalKey).digest("hex");
 }
 
+/**
+ * Recover the durable scope for an approval continuation when a transport
+ * drops the original turn id. A single pending logical turn is safe to
+ * recover; multiple turns are deliberately ambiguous and stay unmatched.
+ */
+export async function resolveAgentToolApprovalTurnId(binding: {
+  ownerEmail: string;
+  orgId?: string | null;
+  threadId?: string | null;
+  requestedTurnId?: string | null;
+  approvalKeys: readonly string[];
+}): Promise<string | null> {
+  const approvalKeys = [...new Set(binding.approvalKeys)].slice(0, 200);
+  if (!binding.threadId || approvalKeys.length === 0) return null;
+
+  await ensureAgentToolApprovalTable();
+  const now = Date.now();
+  const hashes = approvalKeys.map(hashAgentToolApprovalKey);
+  const placeholders = hashes.map(() => "?").join(", ");
+  const result = await getDbExec().execute({
+    sql: `SELECT turn_id FROM agent_tool_approvals
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
+        AND approval_key_hash IN (${placeholders})
+        AND status = 'pending'
+        AND expires_at > ?
+        AND turn_id IS NOT NULL`,
+    args: [
+      binding.ownerEmail,
+      binding.orgId ?? null,
+      binding.orgId ?? null,
+      binding.threadId,
+      binding.threadId,
+      ...hashes,
+      now,
+    ],
+  });
+
+  const turnIds = new Set(
+    (result.rows ?? [])
+      .map((row) => {
+        const value = (row as { turn_id?: unknown }).turn_id;
+        return typeof value === "string" && value.trim() ? value.trim() : null;
+      })
+      .filter((turnId): turnId is string => turnId !== null),
+  );
+  const requestedTurnId = binding.requestedTurnId?.trim();
+  if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
+  return turnIds.size === 1 ? [...turnIds][0]! : null;
+}
+
 export async function createAgentToolApproval(
   binding: AgentToolApprovalBinding,
 ): Promise<void> {

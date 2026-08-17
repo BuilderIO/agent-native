@@ -62,6 +62,51 @@ describe("agent tool approval store", () => {
     );
   });
 
+  it("recovers a unique pending turn when a continuation omits its turn id", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ turn_id: "turn-1" }],
+        rowsAffected: 0,
+      });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        requestedTurnId: "turn-replayed",
+        approvalKeys: [binding.approvalKey],
+      }),
+    ).resolves.toBe("turn-1");
+  });
+
+  it("does not guess between pending approvals from different turns", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],
+        rowsAffected: 0,
+      });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        approvalKeys: [binding.approvalKey],
+      }),
+    ).resolves.toBeNull();
+  });
+
   it.each([
     { rowsAffected: 1, expected: true },
     { rowsAffected: 0, expected: false },
