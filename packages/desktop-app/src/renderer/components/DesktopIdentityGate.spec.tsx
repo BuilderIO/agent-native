@@ -1,5 +1,11 @@
 // @vitest-environment happy-dom
 
+import type {
+  DesktopIdentityAuthRequest,
+  DesktopIdentityAuthResult,
+  DesktopIdentityMagicLinkRequest,
+  DesktopIdentityMagicLinkResult,
+} from "@shared/ipc-channels";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,107 +26,113 @@ describe("DesktopIdentityGate", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens the hosted sign-in on the first eligible app", () => {
-    const onSignIn = vi.fn();
+  function renderGate(
+    status: DesktopIdentityStatus | "checking" = "sign-in-required",
+    overrides: {
+      onSignIn?: () => boolean | Promise<boolean>;
+      onAuthenticate?: (
+        request: DesktopIdentityAuthRequest,
+      ) => Promise<DesktopIdentityAuthResult>;
+      onMagicLink?: (
+        request: DesktopIdentityMagicLinkRequest,
+      ) => Promise<DesktopIdentityMagicLinkResult>;
+    } = {},
+  ) {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-
+    const onSignIn = overrides.onSignIn ?? vi.fn(async () => true);
+    const onAuthenticate =
+      overrides.onAuthenticate ?? vi.fn(async () => ({ ok: true }));
+    const onMagicLink =
+      overrides.onMagicLink ??
+      vi.fn(async () => ({
+        ok: true,
+        pending: true,
+        email: "owner@example.com",
+      }));
     act(() => {
       root.render(
         <DesktopIdentityGate
           appName="Mail"
-          status="sign-in-required"
+          status={status}
           onSignIn={onSignIn}
+          onAuthenticate={onAuthenticate}
+          onMagicLink={onMagicLink}
         />,
       );
     });
+    return { onSignIn, onAuthenticate, onMagicLink };
+  }
 
-    expect(container.textContent).toContain(
-      "Sign in once to open your workspace",
-    );
-    expect(container.textContent).toContain("Continue to sign in");
-    container
-      .querySelector(".desktop-identity-gate__provider")
-      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  it("renders the canonical Google-first parent form", async () => {
+    const { onSignIn } = renderGate();
+
+    expect(container.textContent).toContain("Sign in with Google");
+    expect(container.textContent).toContain("Continue");
+    expect(container.textContent).not.toContain("Welcome");
+    expect(container.textContent).not.toContain("Create account");
+    expect(
+      container.querySelector('input[placeholder="you@example.com"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector(".desktop-identity-gate__provider")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
     expect(onSignIn).toHaveBeenCalledOnce();
   });
 
-  it("does not duplicate the hosted credential form in the child gate", () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-
+  it("reveals only the password fallback when selected", () => {
+    const { onAuthenticate } = renderGate();
+    const modeLink = container.querySelector(
+      ".desktop-identity-gate__mode-link",
+    );
     act(() => {
-      root.render(
-        <DesktopIdentityGate
-          appName="Mail"
-          status="sign-in-required"
-          onSignIn={vi.fn()}
-        />,
-      );
+      modeLink?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(container.querySelector('input[type="email"]')).toBeNull();
-    expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
+    expect(container.textContent).toContain("Sign in");
+    expect(container.textContent).toContain("Use a sign-in link instead");
+    expect(onAuthenticate).not.toHaveBeenCalled();
+  });
+
+  it("shows the magic-link confirmation after the request is accepted", async () => {
+    const { onMagicLink } = renderGate();
+    const email = container.querySelector(
+      'input[placeholder="you@example.com"]',
+    ) as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(email, "owner@example.com");
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(onMagicLink).toHaveBeenCalledWith({ email: "owner@example.com" });
+    expect(container.textContent).toContain("Check your email");
+  });
+
+  it("keeps the app covered while the broker checks the session", () => {
+    renderGate("checking");
+    expect(container.textContent).toContain("Checking...");
     expect(container.querySelector("form")).toBeNull();
   });
 
-  it("keeps the app covered while the isolated Electron ceremony is open", () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-
-    act(() => {
-      root.render(
-        <DesktopIdentityGate
-          appName="Mail"
-          status="signing-in"
-          onSignIn={vi.fn()}
-        />,
-      );
-    });
-
-    expect(container.textContent).toContain("Opening your workspace");
-    expect(container.querySelector("button")).toBeNull();
-  });
-
-  it("blocks the app while the shared identity status is being checked", () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-
-    act(() => {
-      root.render(
-        <DesktopIdentityGate
-          appName="Mail"
-          status="checking"
-          onSignIn={vi.fn()}
-        />,
-      );
-    });
-
-    expect(container.textContent).toContain(
-      "Checking your Agent Native account",
-    );
-    expect(container.querySelector("button")).toBeNull();
-  });
-
   it("renders nothing after the broker has fanned out app sessions", () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-
-    act(() => {
-      root.render(
-        <DesktopIdentityGate
-          appName="Mail"
-          status="signed-in"
-          onSignIn={vi.fn()}
-        />,
-      );
-    });
-
+    renderGate("signed-in");
     expect(container.textContent).toBe("");
   });
 });

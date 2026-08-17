@@ -47,6 +47,7 @@ const DEFAULT_COPY: Record<string, string> = {
   browserPreviewStarting: "Starting preview…",
   browserPreviewError: "Preview unavailable",
   appUnavailable: "This workspace app is no longer available.",
+  appLoadError: "This app could not be loaded",
   appLoading: "Loading app",
   agentActivityEyebrow: "Workspace",
   agentActivityTitle: "Agent activity",

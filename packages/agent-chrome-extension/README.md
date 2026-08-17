@@ -6,7 +6,10 @@ grant access to one exact extension origin instead of a wildcard.
 
 This private Manifest V3 extension is the Chrome-side capability adapter for the
 Agent-Native desktop app. It does not accept messages from web pages and it has
-no arbitrary JavaScript evaluation command.
+no agent-supplied JavaScript evaluation command. The shared control service may
+evaluate one fixed, extension-owned phantom-cursor expression with bounded
+coordinates so users can see the current action; that expression removes its
+own marker after a short fade and is also cleared during teardown.
 
 ## Native host contract
 
@@ -48,8 +51,9 @@ triggers an emergency detach of every controlled tab.
 
 ## Security boundaries
 
-- No content script, externally connectable page, `eval`, or CDP
-  `Runtime.evaluate` surface exists.
+- No content script, externally connectable page, `eval`, or agent-controlled
+  CDP expression surface exists. The only CDP `Runtime.evaluate` call is the
+  fixed cursor marker described above; action payloads never become code.
 - Every mutation revalidates the task, tab, and current origin immediately
   before input is dispatched.
 - Main-frame and tab URL changes are monitored and fail closed by detaching.

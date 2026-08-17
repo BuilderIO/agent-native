@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.159.2",
+  "version": "0.159.5",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -168,6 +168,7 @@
     "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
+    "./shared/auth-copy": "./dist/shared/auth-copy.js",
     "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
@@ -182,6 +183,7 @@
     "./user-profile/server": "./dist/user-profile/store.js",
     "./feature-flags": "./dist/feature-flags/index.js",
     "./feature-flags/registry": "./dist/feature-flags/registry.js",
+    "./feature-flags/server": "./dist/feature-flags/server.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
     "./feature-flags/actions/list-feature-flags": "./dist/feature-flags/actions/list-feature-flags.js",
     "./feature-flags/actions/set-feature-flag": "./dist/feature-flags/actions/set-feature-flag.js",

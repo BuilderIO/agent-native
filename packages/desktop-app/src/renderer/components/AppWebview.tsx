@@ -1057,9 +1057,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           <DesktopIdentityGate
             appName={app.name}
             status={desktopIdentityStatus}
-            onSignIn={() => {
-              void window.electronAPI?.identity?.signIn();
-            }}
+            onSignIn={() =>
+              window.electronAPI?.identity?.signIn() ?? Promise.resolve(false)
+            }
+            onAuthenticate={(request) =>
+              window.electronAPI?.identity?.authenticate(request) ??
+              Promise.resolve({
+                ok: false,
+                error: "The desktop identity surface is unavailable.",
+              })
+            }
+            onMagicLink={(request) =>
+              window.electronAPI?.identity?.requestMagicLink(request) ??
+              Promise.resolve({
+                ok: false,
+                error: "The desktop identity surface is unavailable.",
+              })
+            }
           />
         )}
       </div>

@@ -9,6 +9,10 @@ metadata:
 
 Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
 
+A worktree is a valid PR checkout. When monitoring from one, keep Git and
+GitHub commands in that worktree's cwd and current branch; do not copy changes
+to the shared checkout or require that an agent publish from the root checkout.
+
 ## Non-Negotiable Path Ownership Rule
 
 During `/babysit-pr`, the PR remains the unit of review, but the shared

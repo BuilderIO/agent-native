@@ -55,6 +55,7 @@ describe("multi-frontier preload API", () => {
             email: string;
             password: string;
           }): Promise<unknown>;
+          requestMagicLink(request: { email: string }): Promise<unknown>;
           signOut(): Promise<unknown>;
           onStatusChange(callback: (status: unknown) => void): () => void;
         };
@@ -71,6 +72,7 @@ describe("multi-frontier preload API", () => {
       email: "owner@example.com",
       password: "password",
     });
+    await identity.requestMagicLink({ email: "owner@example.com" });
     await identity.signOut();
     const callback = vi.fn();
     const unsubscribe = identity.onStatusChange(callback);
@@ -95,6 +97,10 @@ describe("multi-frontier preload API", () => {
       email: "owner@example.com",
       password: "password",
     });
+    expect(electron.invoke).toHaveBeenCalledWith(
+      IPC.IDENTITY_MAGIC_LINK_REQUEST,
+      { email: "owner@example.com" },
+    );
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
     expect(callback).toHaveBeenCalledWith("signed-in");
     expect(electron.removeListener).toHaveBeenCalledWith(

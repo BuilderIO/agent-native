@@ -1558,6 +1558,41 @@ describe("server/auth", () => {
       ).resolves.toEqual({ error: "Unauthorized" });
     });
 
+    it("lets device-token remote relay routes reach their own verifier", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of [
+        "/dispatch/_agent-native/integrations/remote/unregister",
+        "/dispatch/_agent-native/integrations/remote/heartbeat",
+        "/dispatch/_agent-native/integrations/remote/poll",
+        "/dispatch/_agent-native/integrations/remote/result",
+        "/dispatch/_agent-native/integrations/remote/run-events",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+
+      for (const path of [
+        "/dispatch/_agent-native/integrations/remote/register",
+        "/dispatch/_agent-native/integrations/remote/enqueue",
+        "/dispatch/_agent-native/integrations/remote/computer/commands",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
+      }
+    });
+
     it("shares late public-path registrations across Core module instances", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

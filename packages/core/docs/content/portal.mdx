@@ -47,15 +47,28 @@ the device token was rotated or the workspace moved. If Cloud is unavailable,
 the run has not started - use Local or Computer instead of retrying a queued
 cloud request.
 
+If the connector runs and polls but every request returns `401`, and the queued
+run is never claimed, repairing the pairing will not help. A deployment only
+accepts device tokens minted against its own database, so a device paired
+against one origin polls a second origin forever without ever being recognized.
+Read `deviceId` and `relayUrl` from `~/.agent-native/remote-device.json`, then
+request the authenticated host list from the origin `relayUrl` names. An
+authenticated `200` whose `hosts` array does not contain that `deviceId` is the
+mismatch - pair again from the origin the connector actually polls. Restart the
+connector afterwards: it reads the token and relay URL once at startup and
+caches them for the life of the process, so a running connector keeps using the
+previous pairing.
+
 ## Environment variables
 
 Self-hosted deployments can customize the Portal connection with:
 
-| Variable                             | Purpose                                                              |
-| ------------------------------------ | -------------------------------------------------------------------- |
-| `WORKSPACE_GATEWAY_URL`              | Public workspace gateway used for device handoff.                    |
-| `AGENT_NATIVE_REMOTE_DEVICE_PATH`    | Override the local device registration file path.                    |
-| `AGENT_NATIVE_COMPUTER_BRIDGE_URL`   | Computer bridge URL used by remote execution.                        |
-| `AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN` | Token used to authenticate with that bridge.                         |
-| `AGENT_NATIVE_REMOTE_ENGINES`        | Comma-separated remote execution engines available to the workspace. |
-| `AGENT_NATIVE_IDENTITY_HUB_URL`      | Optional Dispatch identity hub for self-hosted cross-app sign-in.    |
+| Variable                             | Purpose                                                                                                        |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `WORKSPACE_GATEWAY_URL`              | Public workspace gateway used for device handoff.                                                              |
+| `AGENT_NATIVE_REMOTE_DEVICE_PATH`    | Override the local device registration file path.                                                              |
+| `AGENT_NATIVE_COMPUTER_BRIDGE_URL`   | Computer bridge URL used by remote execution.                                                                  |
+| `AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN` | Token used to authenticate with that bridge.                                                                   |
+| `AGENT_NATIVE_COMPUTER_CAPABILITIES` | Capabilities that bridge exposes. Required with the two above - the bridge stays off unless all three are set. |
+| `AGENT_NATIVE_REMOTE_ENGINES`        | Comma-separated remote execution engines available to the workspace.                                           |
+| `AGENT_NATIVE_IDENTITY_HUB_URL`      | Optional Dispatch identity hub for self-hosted cross-app sign-in.                                              |

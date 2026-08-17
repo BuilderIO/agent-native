@@ -1,5 +1,35 @@
 # @agent-native/core
 
+## 0.159.5
+
+### Patch Changes
+
+- 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
+
+## 0.159.4
+
+### Patch Changes
+
+- 436340b: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
+- 436340b: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- 436340b: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 436340b: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 436340b: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- 436340b: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- 436340b: Format the Portal reference table in the shared core documentation.
+- 436340b: Redact nested callback parameters in desktop magic-link diagnostics.
+- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+- 436340b: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.159.3
+
+### Patch Changes
+
+- 7b267fd: Rewrite preserved Yjs imports in Node server build output.
+- Updated dependencies [95ea873]
+  - @agent-native/toolkit@0.16.4
+
 ## 0.159.2
 
 ### Patch Changes
