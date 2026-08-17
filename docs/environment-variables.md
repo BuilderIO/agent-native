@@ -214,7 +214,7 @@ authority for defaults and accepted values.
 | `*_NAME` / `*_STATE` / `*_RESULT` / `*_RUN_ID` / `*_REASON` / `*_STATUS` / `*_OK` / `*_AT` / `*_OUTPUT` / `*_JSON`                       | CI workflow handoff values. These are ephemeral and are not application settings.           |
 | `*_FILE` / `*_REVISION` / `HEAD_*` / `PR_*` / `REQUESTED_*` / `RUNNER_*`                                                                 | Additional CI handoff paths, revisions, pull-request, runner, and request metadata.         |
 | `ACTION` / `ACTOR` / `DEPLOY` / `METHOD` / `OPERATION` / `TEMPLATE` / `WORKSPACE` / `TARGET` / `ROUTE` / `SHA` / `TRUSTED_REPOSITORY`    | Trusted-acceptance and deployment workflow selectors.                                       |
-| `MERGED` / `REPO`                                                                                                                        | Internal workflow state and repository identifiers.                                         |
+| `MERGED` / `REPO` / `PUBLISHED` / `REDISPATCH`                                                                                           | Internal workflow state and repository identifiers.                                         |
 | `APPLE_*` / `MACOSX_*` / `GGML_*` / `NEON_*` / `CORE_CLI_VERSION` / `RELEASE_VERSION`                                                    | Desktop signing, native build, preview-database, and CLI release settings.                  |
 | `AUTO_*` / `CLEAR_*` / `DRY_RUN` / `MAX_AGE_MINUTES` / `REBUILD` / `PUBLISHED_PACKAGES` / `DIFF_*` / `IS_FORK` / `SHOT_*` / `SUPPRESSED` | Internal deployment and visual-recap workflow controls.                                     |
 
