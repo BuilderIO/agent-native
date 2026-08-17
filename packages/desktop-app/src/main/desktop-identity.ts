@@ -23,13 +23,49 @@ const DESKTOP_IDENTITY_CALLBACK_PATH = "/_agent-native/identity/callback";
 const DESKTOP_LOGOUT_PATH = "/_agent-native/auth/logout";
 const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
-const DEFAULT_SESSION_COOKIE_WAIT_MS = 2_000;
+const DEFAULT_SESSION_COOKIE_WAIT_MS = 10_000;
 const DEFAULT_AVAILABILITY_TIMEOUT_MS = 5_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 function normalizeIdentityEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function cookieMatchesOrigin(
+  cookie: Pick<Electron.Cookie, "domain" | "hostOnly">,
+  origin: string,
+): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    const domain = (cookie.domain ?? "").replace(/^\./, "").toLowerCase();
+    return Boolean(
+      domain &&
+      (hostname === domain ||
+        (!cookie.hostOnly && hostname.endsWith(`.${domain}`))),
+    );
+  } catch (error) {
+    void error;
+    return false;
+  }
+}
+
+function isAllowedDesktopIdentityOAuthNavigation(
+  navigationUrl: string,
+): boolean {
+  try {
+    const parsed = new URL(navigationUrl);
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === "accounts.google.com" ||
+      host.endsWith(".google.com") ||
+      host.endsWith(".gstatic.com")
+    );
+  } catch (error) {
+    void error;
+    return false;
+  }
 }
 
 export type DesktopWorkspaceLogoutPath =
@@ -1607,6 +1643,7 @@ export class DesktopIdentityBroker {
         if (isDesktopIdentityCompletion(url, app, nonce)) {
           return;
         }
+        if (isAllowedDesktopIdentityOAuthNavigation(url)) return;
         if (
           this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
         ) {
@@ -1687,9 +1724,9 @@ export class DesktopIdentityBroker {
               this.options.reloadApp(app);
               finish(true, "signed-in");
             },
-            () => {
+            (error) => {
               if (ceremonyAbort.signal.aborted) return;
-              this.recoverFromSessionCopyFailure(app, generation);
+              this.recoverFromSessionCopyFailure(app, generation, error);
               finish(false, "failed");
             },
           );
@@ -1731,13 +1768,18 @@ export class DesktopIdentityBroker {
     do {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) break;
-      const sourceCookies = await this.readIdentityCookies(
-        app.origin,
-        remainingMs,
-        signal,
-      );
+      const sourceCookies = await this.readIdentityCookies(remainingMs, signal);
       this.assertCeremonyActive(generation, signal);
-      cookies = sourceCookies.filter((cookie) => allowed.has(cookie.name));
+      cookies = sourceCookies.filter(
+        (cookie) =>
+          cookieMatchesOrigin(cookie, app.origin) && allowed.has(cookie.name),
+      );
+      if (cookies.length > 0) {
+        console.info("[desktop-identity] target session cookie observed", {
+          appId: app.id,
+          cookieNames: cookies.map((cookie) => cookie.name),
+        });
+      }
       if (cookies.length > 0 || Date.now() >= deadline) break;
       await this.waitForCookiePoll(
         Math.min(SESSION_COOKIE_POLL_INTERVAL_MS, deadline - Date.now()),
@@ -1796,7 +1838,6 @@ export class DesktopIdentityBroker {
   }
 
   private async readIdentityCookies(
-    origin: string,
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<Electron.Cookie[]> {
@@ -1815,7 +1856,11 @@ export class DesktopIdentityBroker {
     });
     try {
       return await Promise.race([
-        this.options.identitySession.cookies.get({ url: origin }),
+        // Partitioned cookies can be omitted by Chromium when the filter
+        // includes a URL but the current network partition is not supplied.
+        // Read the identity partition, then keep only the target app's
+        // allow-listed names in copyTargetSession.
+        this.options.identitySession.cookies.get({}),
         stopped,
       ]);
     } finally {
@@ -1860,10 +1905,15 @@ export class DesktopIdentityBroker {
   private recoverFromSessionCopyFailure(
     app: DesktopIdentityApp,
     generation: number,
+    error: unknown,
   ): void {
     if (!this.isCeremonyCurrent(generation)) return;
     console.warn("[desktop-identity] target session transfer failed", {
       appId: app.id,
+      reason:
+        error instanceof Error
+          ? error.message.slice(0, 200)
+          : "unknown transfer error",
     });
     this.options.reloadApp(app);
   }
