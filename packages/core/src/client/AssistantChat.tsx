@@ -5584,7 +5584,9 @@ const AssistantChatInner = forwardRef<
     >
       <IconRefresh className="h-5 w-5 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
-        {t("agentChat.message.restoreRequestFailed")}
+        {threadRestoreError === "not-found"
+          ? t("agentChat.message.threadNotFound")
+          : t("agentChat.message.restoreRequestFailed")}
       </p>
       <button
         type="button"

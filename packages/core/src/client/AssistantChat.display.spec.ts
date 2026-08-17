@@ -77,6 +77,7 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).not.toContain("knownAbsentThreadIds");
     expect(source).toContain('setThreadRestoreError("unavailable")');
     expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain('t("agentChat.message.threadNotFound")');
     expect(source).toContain("retryThreadRestore");
     expect(source).toContain('t("agentChat.common.retry")');
   });

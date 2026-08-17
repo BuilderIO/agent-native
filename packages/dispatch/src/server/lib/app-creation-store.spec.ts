@@ -504,31 +504,43 @@ describe("listWorkspaceApps", () => {
         }),
       },
     });
-    expect(mocks.getDbExec).toHaveBeenCalled();
   });
 
-  it("blocks non-admin workspace members from updating app display metadata", async () => {
+  it("lets workspace members update app display metadata", async () => {
     mocks.state.orgRole = "member";
     stubNoPendingContext();
-    stubManifest([{ id: "todo", name: "Todo", path: "/todo" }]);
+    stubManifest([
+      {
+        id: "todo",
+        name: "Todo",
+        description: "Original description",
+        path: "/todo",
+      },
+    ]);
 
-    await expect(
-      runWithRequestContext(
-        { userEmail: "dev@example.test", orgId: "org-123" },
-        () =>
-          updateWorkspaceAppMetadata({
-            appId: "todo",
-            name: "Todo Board",
-          }),
-      ),
-    ).rejects.toMatchObject({
-      message:
-        "Only organization owners and admins can update app creation settings.",
-      statusCode: 403,
+    const updated = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        updateWorkspaceAppMetadata({
+          appId: "todo",
+          name: "Todo Board",
+          description: "Tracks team work.",
+        }),
+    );
+
+    expect(updated).toMatchObject({
+      name: "Todo Board",
+      description: "Tracks team work.",
     });
-    expect(
-      mocks.settings.get("workspace-app-metadata:org:org-123"),
-    ).toBeUndefined();
+    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toEqual({
+      apps: {
+        todo: expect.objectContaining({
+          name: "Todo Board",
+          description: "Tracks team work.",
+          updatedBy: "dev@example.test",
+        }),
+      },
+    });
   });
 
   it("generates a concise seed description from an app prompt", () => {

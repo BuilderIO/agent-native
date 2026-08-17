@@ -107,6 +107,8 @@ export const IPC = {
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
+  CODE_AGENTS_PORTAL_TRANSFER_RUN: "code-agents:portal-transfer-run",
+  CODE_AGENTS_PORTAL_TRANSFER_ALL: "code-agents:portal-transfer-all",
   CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
@@ -651,6 +653,44 @@ export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 }

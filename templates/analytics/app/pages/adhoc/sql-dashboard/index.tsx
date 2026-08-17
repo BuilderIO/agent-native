@@ -71,6 +71,7 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -148,6 +149,7 @@ import { createDashboardSaveQueue } from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
 } from "./dashboard-sync";
@@ -2067,6 +2069,23 @@ function SqlDashboardPageContent({
       <DashboardReportCaptureSurface phase="error" error={dashboardQuery.error}>
         <DashboardSkeleton />
       </DashboardReportCaptureSurface>
+    );
+  }
+
+  if (
+    shouldShowDashboardLoadError({
+      dashboardId,
+      isError: dashboardQuery.isError,
+      loaded,
+      hasDashboard: !!dashboard,
+    })
+  ) {
+    return (
+      <ResourceLoadError
+        message={t("sidebar.dashboardsLoadFailed")}
+        retryLabel={t("sidebar.retry")}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
     );
   }
 
