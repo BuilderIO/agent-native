@@ -54,6 +54,7 @@ import {
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
+  resolveBuilderCliAuthCallbackTargetForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
   getBuilderBrowserOriginForEvent,
@@ -103,6 +104,17 @@ function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
   } as unknown as H3Event;
 }
 
+const PUBLIC_ORIGIN_ENV_KEYS = [
+  "APP_URL",
+  "VITE_APP_URL",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+  "WORKSPACE_GATEWAY_URL",
+  "VITE_WORKSPACE_GATEWAY_URL",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+] as const;
+
 describe("Builder callback CSRF state", () => {
   const originalEnv = { ...process.env };
 
@@ -110,6 +122,9 @@ describe("Builder callback CSRF state", () => {
     // Pin the secret so signed tokens are stable across calls and the
     // .env.local autogeneration in resolveAuthSecret never fires.
     process.env.BETTER_AUTH_SECRET = "test-secret-9f2a7c";
+    // Fusion/dev containers export a loopback BETTER_AUTH_URL, which would
+    // otherwise win the origin allowlist and mask what each case configures.
+    for (const key of PUBLIC_ORIGIN_ENV_KEYS) delete process.env[key];
   });
 
   afterEach(() => {
@@ -731,46 +746,97 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("uses the app's localhost origin for cli-auth when reached via a tunnel Builder rejects (local dev)", () => {
-      // Reproduces the ngrok/tunnel dev case: the preview host is trusted by us
-      // but not by Builder's /cli-auth allow-list, and no public gateway env is
-      // set. Without the fallback the app hands Builder the rejected origin and
-      // Builder redirects to its own dead http://localhost:10110/auth.
+      // Reproduces the ngrok/tunnel dev case: the app runs on this machine, the
+      // browser is on this machine, and the tunnel host is not in Builder's
+      // /cli-auth allow-list. Without the fallback the app hands Builder the
+      // rejected origin and Builder redirects to its own dead
+      // http://localhost:10110/auth.
       delete process.env.NODE_ENV;
       process.env.PORT = "8080";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "alice.ngrok.io",
+        "x-forwarded-proto": "https",
+      });
+
+      const target = resolveBuilderCliAuthCallbackTargetForEvent(event);
+      expect(target).toEqual({
+        origin: "http://localhost:8080",
+        reachable: true,
+      });
+    });
+
+    it("never sends a Builder-hosted preview back to a loopback callback", () => {
+      // The reported blank-popup bug: a Fusion preview runs in a container, so
+      // http://localhost:8080 resolves on the *visitor's* machine. Builder
+      // redirected the popup there after the space picker and it went blank
+      // (and handed the p-key to whatever was listening).
+      delete process.env.NODE_ENV;
+      process.env.PORT = "8080";
+      process.env.BETTER_AUTH_URL = "http://127.0.0.1:8080";
 
       const event = createBuilderBrowserEvent({
         "x-forwarded-host": "alice.builderio.xyz",
         "x-forwarded-proto": "https",
       });
 
-      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
-        "http://localhost:8080",
+      const target = resolveBuilderCliAuthCallbackTargetForEvent(event);
+      expect(target.reachable).toBe(false);
+      expect(target.origin).toBe("https://alice.builderio.xyz");
+
+      const redirectUrl = new URL(
+        new URL(
+          buildBuilderCliAuthUrl(
+            target.origin,
+            signBuilderCallbackState("alice@example.com"),
+          ),
+        ).searchParams.get("redirect_url")!,
       );
+      expect(redirectUrl.hostname).not.toBe("localhost");
+      expect(redirectUrl.hostname).not.toBe("127.0.0.1");
+    });
+
+    it("refuses the loopback callback a Fusion container advertises", () => {
+      // The live Fusion dev-container shape: the visitor is on FUSION_ENV_ORIGIN
+      // while every configured origin points at the container's own loopback
+      // port, so there is nowhere Builder can redirect back to.
+      delete process.env.NODE_ENV;
+      process.env.PORT = "8080";
+      process.env.BETTER_AUTH_URL = "http://127.0.0.1:8080";
+      process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+      process.env.FUSION_ENV_ORIGIN = "https://alice-key-nail.builderio.xyz";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      });
+
+      expect(resolveBuilderCliAuthCallbackTargetForEvent(event)).toEqual({
+        origin: "https://alice-key-nail.builderio.xyz",
+        reachable: false,
+      });
+    });
+
+    it("uses a configured public gateway for a Builder-hosted preview", () => {
+      delete process.env.NODE_ENV;
+      process.env.PORT = "8080";
+      process.env.BETTER_AUTH_URL = "http://127.0.0.1:8080";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "alice.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(resolveBuilderCliAuthCallbackTargetForEvent(event)).toEqual({
+        origin: "https://agent-workspace.builder.io",
+        reachable: true,
+      });
     });
 
     it("does not use the localhost cli-auth fallback in production", () => {
       process.env.NODE_ENV = "production";
       process.env.PORT = "8080";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
 
       const event = createBuilderBrowserEvent({
         "x-forwarded-host": "alice.builderio.xyz",
@@ -778,10 +844,12 @@ describe("Builder callback CSRF state", () => {
       });
 
       // Unchanged production behavior: with no gateway configured it returns the
-      // preview origin (never a localhost callback).
-      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
-        "https://alice.builderio.xyz",
-      );
+      // preview origin (never a localhost callback), and reports that Builder
+      // has nowhere reachable to redirect back to.
+      expect(resolveBuilderCliAuthCallbackTargetForEvent(event)).toEqual({
+        origin: "https://alice.builderio.xyz",
+        reachable: false,
+      });
     });
   });
 

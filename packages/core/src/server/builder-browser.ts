@@ -915,20 +915,31 @@ function isBuilderCliAuthAllowedOrigin(origin: string | null | undefined) {
   }
 }
 
-function firstBuilderCliAuthCallbackOriginFromEnv(): string | null {
-  for (const key of [
-    "APP_URL",
-    "VITE_APP_URL",
-    "BETTER_AUTH_URL",
-    "VITE_BETTER_AUTH_URL",
-    "WORKSPACE_GATEWAY_URL",
-    "VITE_WORKSPACE_GATEWAY_URL",
-  ]) {
+const BUILDER_CLI_AUTH_CALLBACK_ORIGIN_ENV_KEYS = [
+  "APP_URL",
+  "VITE_APP_URL",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+  "WORKSPACE_GATEWAY_URL",
+  "VITE_WORKSPACE_GATEWAY_URL",
+] as const;
+
+function firstBuilderCliAuthCallbackOriginFromEnv(options: {
+  allowLoopback: boolean;
+}): string | null {
+  for (const key of BUILDER_CLI_AUTH_CALLBACK_ORIGIN_ENV_KEYS) {
     const raw = process.env[key];
     if (!raw) continue;
     try {
       const origin = new URL(raw).origin;
-      if (isBuilderCliAuthAllowedOrigin(origin)) return origin;
+      if (!isBuilderCliAuthAllowedOrigin(origin)) continue;
+      if (
+        !options.allowLoopback &&
+        isLoopbackBuilderRequestHost(new URL(origin).host)
+      ) {
+        continue;
+      }
+      return origin;
     } catch {
       // Ignore malformed environment values.
     }
@@ -1080,14 +1091,19 @@ function readEventHeader(event: H3Event, name: string): string | undefined {
 }
 
 function isTrustedBuilderRequestHost(host: string | undefined): boolean {
+  return isLoopbackBuilderRequestHost(host) || isBuilderHostedPreviewHost(host);
+}
+
+/**
+ * Builder-owned preview domains. A request arriving on one of these is always
+ * rendered for a browser on some other machine, so a loopback callback origin
+ * can never be reached from it. Keep this list free of loopback hosts.
+ */
+function isBuilderHostedPreviewHost(host: string | undefined): boolean {
   if (!host) return false;
   try {
     const hostname = new URL(`http://${host}`).hostname.toLowerCase();
     return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]" ||
       hostname === "builderio.xyz" ||
       hostname.endsWith(".builderio.xyz") ||
       hostname === "builderio.dev" ||
@@ -1180,10 +1196,41 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
 export function getBuilderCliAuthCallbackOriginForEvent(
   event: H3Event,
 ): string {
+  return resolveBuilderCliAuthCallbackTargetForEvent(event).origin;
+}
+
+/**
+ * The origin Builder should redirect back to, plus whether the visitor's
+ * browser can actually reach it.
+ *
+ * `reachable: false` means this deployment has no callback origin that both
+ * Builder accepts and the visitor can load, so starting the flow would send the
+ * popup somewhere dead. Callers must refuse to start it and say so instead of
+ * handing Builder a redirect_url that blanks the popup after space selection.
+ */
+export function resolveBuilderCliAuthCallbackTargetForEvent(event: H3Event): {
+  origin: string;
+  reachable: boolean;
+} {
   const previewOrigin = getBuilderBrowserOriginForEvent(event);
-  if (isBuilderCliAuthAllowedOrigin(previewOrigin)) return previewOrigin;
-  const envOrigin = firstBuilderCliAuthCallbackOriginFromEnv();
-  if (envOrigin) return envOrigin;
+  if (isBuilderCliAuthAllowedOrigin(previewOrigin)) {
+    return { origin: previewOrigin, reachable: true };
+  }
+  // A Builder-hosted preview renders in a browser on someone else's machine.
+  // `http://localhost:<port>` resolves there, not here, so a loopback callback
+  // origin lands the popup on whatever that machine happens to serve (usually
+  // nothing) and hands it the p-key on the way. Only accept a loopback callback
+  // when the app is being reached over a tunnel to this same machine.
+  const allowLoopbackCallback = !isBuilderHostedPreviewHost(
+    hostFromOrigin(previewOrigin),
+  );
+  const envOrigin = firstBuilderCliAuthCallbackOriginFromEnv({
+    allowLoopback: allowLoopbackCallback,
+  });
+  if (envOrigin) return { origin: envOrigin, reachable: true };
+  if (!allowLoopbackCallback) {
+    return { origin: previewOrigin, reachable: false };
+  }
   // The app is being reached via a tunnel (e.g. ngrok) whose origin Builder's
   // /cli-auth does not trust, and no public gateway is configured. Handing
   // Builder the rejected tunnel origin makes it fall back to its own *dead*
@@ -1192,7 +1239,14 @@ export function getBuilderCliAuthCallbackOriginForEvent(
   // accepts and a same-machine browser can reach — so use that for the callback
   // instead of a broken redirect. (Production origins are *.agent-native.com,
   // which pass the allow-list above and never reach here.)
-  return localBuilderCliAuthCallbackOrigin() ?? previewOrigin;
+  const localOrigin = localBuilderCliAuthCallbackOrigin();
+  return localOrigin
+    ? { origin: localOrigin, reachable: true }
+    : { origin: previewOrigin, reachable: false };
+}
+
+function hostFromOrigin(origin: string): string | undefined {
+  return URL.parse(origin)?.host;
 }
 
 /** App's own localhost origin for the Builder connect callback, in local dev. */

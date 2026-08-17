@@ -137,7 +137,7 @@ import {
   createBuilderBrowserCallbackPage,
   createBuilderRelayRequest,
   getBuilderConnectTrackingParams,
-  getBuilderCliAuthCallbackOriginForEvent,
+  resolveBuilderCliAuthCallbackTargetForEvent,
   getBuilderBrowserOriginForEvent,
   resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
@@ -2116,7 +2116,9 @@ export function createCoreRoutesPlugin(
         ): T & { cliAuthUrl?: string } => {
           if (!userEmail) return status;
           const previewOrigin = getBuilderBrowserOriginForEvent(event);
-          const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(event);
+          const callbackTarget =
+            resolveBuilderCliAuthCallbackTargetForEvent(event);
+          const callbackOrigin = callbackTarget.origin;
           const statusWithConnectToken = {
             ...status,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
@@ -2125,10 +2127,13 @@ export function createCoreRoutesPlugin(
           // deployment that minted the signed state. Builder/Fusion previews
           // often need a gateway callback origin; in that case use the
           // /builder/connect trampoline so it can write the pending-connect
-          // row that the gateway callback validates against.
+          // row that the gateway callback validates against. An unreachable
+          // callback target must go through the trampoline too, which is the
+          // one place that can tell the user why the flow cannot start.
           if (
+            !callbackTarget.reachable ||
             previewOrigin.replace(/\/+$/, "") !==
-            callbackOrigin.replace(/\/+$/, "")
+              callbackOrigin.replace(/\/+$/, "")
           ) {
             return statusWithConnectToken;
           }
@@ -2497,9 +2502,43 @@ export function createCoreRoutesPlugin(
             /\/+$/,
             "",
           );
-          const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(
-            event,
-          ).replace(/\/+$/, "");
+          const callbackTarget =
+            resolveBuilderCliAuthCallbackTargetForEvent(event);
+          if (!callbackTarget.reachable) {
+            // Builder would redirect the popup to an origin this visitor cannot
+            // load (or that Builder itself rejects), which is what leaves the
+            // popup blank right after the space picker. Fail here instead.
+            const msg =
+              "This deployment has no public Builder callback URL. Set APP_URL (or WORKSPACE_GATEWAY_URL) to an https origin Builder accepts, such as a *.agent-native.com or *.builder.io host, then try again.";
+            await trackBuilderLifecycle(
+              event,
+              "builder connect failed",
+              ownerEmail,
+              {
+                ...builderConnectTrackingProperties(connectTracking),
+                reason: "callback_origin_unreachable",
+                stage: "connect",
+              },
+            );
+            await putSetting(`builder-connect-error:${ownerEmail}`, {
+              message: msg,
+              at: Date.now(),
+            }).catch(() => {});
+            setResponseStatus(event, 503);
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackErrorPage(msg, {
+              title: "Builder connect isn't available on this URL",
+              body: "Builder can only send the connection back to a public callback URL, and this deployment doesn't have one configured.",
+              closeHint:
+                "Close this popup and open the app on its public URL, or ask the deployment owner to set APP_URL.",
+              parentOrigin: previewOrigin,
+            });
+          }
+          const callbackOrigin = callbackTarget.origin.replace(/\/+$/, "");
           let relay:
             | { state: string; payload: BuilderPreviewRelayState }
             | undefined;
