@@ -7,7 +7,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 // guard:allow-unscoped — isolated SQLite fixtures intentionally inspect exact rows.
 
@@ -17,8 +17,9 @@ const TEST_DB_PATH = join(
 );
 const TEST_DATABASE_URL =
   process.env.CONTENT_BLOCK_ACTION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
-const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
+let ownerSequence = 0;
+let ownerEmail = "block-owner-0@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -34,7 +35,11 @@ let compareAndSwapAdditionalBlocksField: typeof import("./_database-block-action
 let persistBlocksFieldIdentity: typeof import("./_blocks-field-identity.js").persistBlocksFieldIdentity;
 
 const asOwner = <T>(run: () => Promise<T>) =>
-  runWithRequestContext({ userEmail: OWNER }, run);
+  runWithRequestContext({ userEmail: ownerEmail }, run);
+
+beforeEach(() => {
+  ownerEmail = `block-owner-${++ownerSequence}@example.com`;
+});
 
 beforeAll(async () => {
   if (TEST_DATABASE_URL.startsWith("postgres")) {
@@ -143,7 +148,7 @@ describe("exact Content database block actions", () => {
     await expect(
       persistBlocksFieldIdentity({
         db: getDb(),
-        ownerEmail: OWNER,
+        ownerEmail,
         documentId: target.target.rowDocumentId,
         propertyId: target.target.propertyId,
         previousMarkdown: "Target",
@@ -371,7 +376,7 @@ describe("exact Content database block actions", () => {
     const secondItemId = `shared-item-${Date.now()}`;
     await getDb().insert(schema.contentDatabaseItems).values({
       id: secondItemId,
-      ownerEmail: OWNER,
+      ownerEmail,
       orgId: secondRead.database.orgId,
       databaseId: secondDatabaseId,
       documentId: first.target.rowDocumentId,
@@ -701,7 +706,7 @@ describe("exact Content database block actions", () => {
     await expect(
       compareAndSwapAdditionalBlocksField({
         db: getDb(),
-        ownerEmail: OWNER,
+        ownerEmail,
         documentId: state.target.rowDocumentId,
         propertyId: additional.definition.id,
         expectedContent: "Agent read this\nSibling",
@@ -752,7 +757,7 @@ describe("exact Content database block actions", () => {
     await expect(
       compareAndSwapAdditionalBlocksField({
         db: getDb(),
-        ownerEmail: OWNER,
+        ownerEmail,
         documentId: state.target.rowDocumentId,
         propertyId: absent.definition.id,
         expectedContent: "",
