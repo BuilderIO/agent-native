@@ -536,11 +536,11 @@ export default defineEventHandler(async (event) => {
             viewerRole === "owner" ||
             viewerRole === "admin" ||
             viewerRole === "editor",
-          canComment:
-            viewerRole === "owner" ||
-            viewerRole === "admin" ||
-            viewerRole === "editor" ||
-            viewerRole === "commenter",
+          // Any signed-in viewer with access to the recording may comment or
+          // react — reaching this branch already requires a session
+          // (`session?.email` above), so there's no separate "commenter"
+          // tier to check.
+          canComment: Boolean(viewerRole),
           isOwner: viewerRole === "owner",
           role: viewerRole ?? "viewer",
           canOpenDashboard,

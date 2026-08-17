@@ -47,7 +47,10 @@ export default defineAction({
       .describe("Display name for the author (falls back to email local part)"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "commenter");
+    // Commenting is open to any signed-in viewer with access to the
+    // recording, not just an explicitly-granted "commenter" role — the
+    // `authorEmail` check below is what actually requires an account.
+    await assertAccess("recording", args.recordingId, "viewer");
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {
