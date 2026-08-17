@@ -542,6 +542,40 @@ describe("calendar event creation", () => {
       undefined,
     );
   });
+
+  it("sends recurrence rules when creating an event", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Daily standup",
+        description: "",
+        location: "",
+        start: "2026-07-09T16:00:00.000Z",
+        end: "2026-07-09T16:30:00.000Z",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        recurrence: ["RRULE:FREQ=DAILY"],
+        createdAt: "2026-07-09T15:00:00.000Z",
+        updatedAt: "2026-07-09T15:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        recurrence: ["RRULE:FREQ=DAILY"],
+      }),
+      undefined,
+    );
+  });
 });
 
 describe("calendar recurring event updates", () => {

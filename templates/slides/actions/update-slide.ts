@@ -125,10 +125,11 @@ export default defineAction({
         if (idx === -1) {
           notFound = true;
         } else {
-          slide.content =
+          slide.content = normalizeSlidePadding(
             slide.content.slice(0, idx) +
-            (replace ?? "") +
-            slide.content.slice(idx + find.length);
+              (replace ?? "") +
+              slide.content.slice(idx + find.length),
+          );
           applied = true;
         }
       }
@@ -197,8 +198,11 @@ export default defineAction({
         ...base,
         layoutOverflow: {
           verticalOverflow: fit.measurement.verticalOverflow,
+          horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
           contentHeight: fit.measurement.contentHeight,
+          contentWidth: fit.measurement.contentWidth,
           viewportHeight: fit.measurement.viewportHeight,
+          viewportWidth: fit.measurement.viewportWidth,
         },
         message: formatOverflowForTool(deckId, fit.measurement),
       };

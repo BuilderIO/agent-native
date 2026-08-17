@@ -57,6 +57,16 @@ vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
 }));
 
+vi.mock("@/hooks/use-google-auth", () => ({
+  useGoogleAuthStatus: () => ({ data: { accounts: [] }, isLoading: false }),
+}));
+
+vi.mock("@/hooks/use-view-preferences", () => ({
+  useViewPreferences: () => ({
+    prefs: { accountColors: {}, singleColor: undefined },
+  }),
+}));
+
 vi.mock("@/hooks/use-zoom-auth", () => ({
   useZoomStatus: () => ({ data: { connected: false, configured: true } }),
   useConnectZoom: () => ({ mutate: vi.fn(), isPending: false }),
@@ -75,18 +85,39 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  SelectTrigger: ({ children }: { children?: ReactNode }) => (
-    <div>{children}</div>
+  Select: ({
+    value,
+    onValueChange,
+    children,
+  }: {
+    value?: string;
+    onValueChange?: (value: string) => void;
+    children?: ReactNode;
+  }) => (
+    <select
+      value={value}
+      onChange={(event) => onValueChange?.(event.target.value)}
+    >
+      {children}
+    </select>
   ),
+  SelectTrigger: () => null,
   SelectValue: () => null,
-  SelectContent: ({ children }: { children?: ReactNode }) => (
-    <div>{children}</div>
+  SelectContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  SelectGroup: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  SelectItem: ({
+    value,
+    disabled,
+    children,
+  }: {
+    value: string;
+    disabled?: boolean;
+    children?: ReactNode;
+  }) => (
+    <option value={value} disabled={disabled}>
+      {children}
+    </option>
   ),
-  SelectGroup: ({ children }: { children?: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  SelectItem: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
@@ -456,5 +487,54 @@ describe("EventDetailPopover characterization", () => {
     });
 
     expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows a non-recurring draft as Does not repeat and saves a daily rule", () => {
+    const onDraftUpdate = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ source: "local" })}
+          defaultOpen
+          isDraft
+          onDelete={() => undefined}
+          onDraftUpdate={onDraftUpdate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const recurrenceText = findByExactText("span", "eventForm.doesNotRepeat");
+    expect(recurrenceText).toBeTruthy();
+
+    act(() => {
+      (recurrenceText!.parentElement as HTMLElement).click();
+    });
+
+    const recurrenceSelect = Array.from(
+      document.querySelectorAll<HTMLSelectElement>("select"),
+    ).find((select) =>
+      Array.from(select.options).some(
+        (option) => option.textContent === "eventForm.daily",
+      ),
+    );
+    expect(recurrenceSelect).toBeTruthy();
+
+    act(() => {
+      recurrenceSelect!.value = "daily";
+      recurrenceSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const saveButton = findByExactText("button", "eventForm.save");
+    expect(saveButton).toBeTruthy();
+    act(() => {
+      (saveButton as HTMLElement).click();
+    });
+
+    expect(onDraftUpdate).toHaveBeenCalledWith("event-1", {
+      recurrence: ["RRULE:FREQ=DAILY"],
+    });
   });
 });

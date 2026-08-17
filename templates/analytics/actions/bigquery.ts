@@ -1,5 +1,6 @@
 import { AgentActionStopError, defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { getRequestRunContext } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { runQuery } from "../server/lib/bigquery";
@@ -67,6 +68,58 @@ function stopForBigQueryCancellation(): never {
   });
 }
 
+function normalizeSqlForRepeat(sql: string): string {
+  return sql.trim().replace(/\s+/g, " ");
+}
+
+function hasPriorFailedBigQueryCall(sql: string): boolean {
+  const runContext = getRequestRunContext();
+  const priorCalls = runContext?.toolCalls ?? [];
+  const priorResults = runContext?.toolResults ?? [];
+  const normalizedSql = normalizeSqlForRepeat(sql);
+
+  return priorCalls.some((call, index) => {
+    if (call.name !== "bigquery") return false;
+    const input = call.input;
+    if (
+      !input ||
+      typeof input !== "object" ||
+      normalizeSqlForRepeat(String((input as { sql?: unknown }).sql ?? "")) !==
+        normalizedSql
+    ) {
+      return false;
+    }
+    const result = priorResults[index];
+    if (!result || result.name !== "bigquery") return false;
+    try {
+      const content = JSON.parse(result.content) as { error?: unknown };
+      return (
+        content.error === "bigquery_query_failed" ||
+        content.error === "bigquery_query_timeout"
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
+function stopForRepeatedBigQueryQuery(): never {
+  const message =
+    "I stopped the repeated BigQuery request because the same SQL already failed in this turn. Change the SQL using the provider error or schema result before trying again.";
+  throw new AgentActionStopError(message, {
+    errorCode: "bigquery_repeated_query",
+    toolResult: JSON.stringify(
+      {
+        error: "bigquery_repeated_query",
+        message,
+        recoverable: false,
+      },
+      null,
+      2,
+    ),
+  });
+}
+
 export default defineAction({
   description:
     "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
@@ -76,6 +129,9 @@ export default defineAction({
   readOnly: true,
   toolCallable: true,
   run: async (args, context?: ActionRunContext) => {
+    if (hasPriorFailedBigQueryCall(args.sql)) {
+      stopForRepeatedBigQueryQuery();
+    }
     try {
       return await runQuery(args.sql, { signal: context?.signal });
     } catch (err) {

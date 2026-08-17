@@ -21,6 +21,7 @@ export function useAnalysisRevisions(analysisId: string | null) {
         return Array.isArray(revisions) ? revisions : [];
       },
       placeholderData: (prev: any) => prev,
+      retry: false,
     } as any,
   );
 }

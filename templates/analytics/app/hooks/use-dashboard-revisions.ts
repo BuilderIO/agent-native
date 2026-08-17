@@ -1,6 +1,8 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { sqlDashboardPrefetchKey } from "@/lib/prefetch-keys";
+
 export interface DashboardRevision {
   id: string;
   dashboardId: string;
@@ -21,6 +23,7 @@ export function useDashboardRevisions(dashboardId: string | null) {
         return Array.isArray(revisions) ? revisions : [];
       },
       placeholderData: (prev: any) => prev,
+      retry: false,
     } as any,
   );
 }
@@ -37,6 +40,18 @@ export function useRestoreDashboardRevision(dashboardId: string) {
       });
       queryClient.invalidateQueries({
         queryKey: ["dashboard", dashboardId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId],
+      });
+      queryClient.removeQueries({
+        queryKey: sqlDashboardPrefetchKey(dashboardId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["sql-dashboards-sidebar"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["sql-dashboards-palette"],
       });
     },
   });

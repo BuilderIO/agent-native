@@ -42,6 +42,8 @@ import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu"
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
+import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
+import { TimestampedCommentButton } from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -407,6 +409,7 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
+  const [activeTab, setActiveTab] = useState("comments");
   const { session, isLoading: sessionLoading } = useSession();
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
@@ -428,7 +431,13 @@ export default function ShareRoute() {
   }, []);
 
   const dataQ = useQuery({
-    queryKey: ["public-recording", shareId, password, agentAccessToken],
+    queryKey: [
+      "public-recording",
+      shareId,
+      password,
+      agentAccessToken,
+      session?.email ?? null,
+    ],
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -481,6 +490,7 @@ export default function ShareRoute() {
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
   const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+  const viewerCanComment = Boolean(dataQ.data?.data?.viewer?.canComment);
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
@@ -850,16 +860,10 @@ export default function ShareRoute() {
                 </a>
               </Button>
             ) : session ? null : (
-              <Button variant="ghost" size="sm" asChild>
-                <a
-                  href={appPath("/")}
-                  className="gap-1.5"
-                  onClick={() => fireShareCtaClick("try_clips")}
-                >
-                  {t("sharePage.tryClips")}
-                  <IconExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
+              <SignedOutShareActions
+                recordingId={recording.id}
+                onCtaClick={fireShareCtaClick}
+              />
             )}
             {!viewerCanEdit && canDownloadRecording ? (
               <DropdownMenu
@@ -969,6 +973,20 @@ export default function ShareRoute() {
               ) : null}
             </div>
             <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
+              <TimestampedCommentButton
+                enableComments={
+                  recording.enableComments && (!session || viewerCanComment)
+                }
+                className="shrink-0"
+                onOpen={() => {
+                  if (!session) {
+                    requireSignIn("comment");
+                    return;
+                  }
+                  if (!viewerCanComment) return;
+                  setActiveTab("comments");
+                }}
+              />
               {recording.enableReactions ? (
                 <ReactionsTray
                   onReact={(emoji) => {
@@ -1026,7 +1044,11 @@ export default function ShareRoute() {
       </div>
 
       <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
-        <Tabs defaultValue="comments" className="flex h-full flex-col">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex h-full flex-col"
+        >
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
             <TabsTrigger value="comments" className="text-xs gap-1">
               {t("recordingPage.activity")}
@@ -1101,6 +1123,7 @@ export default function ShareRoute() {
                 shareId,
                 password,
                 agentAccessToken,
+                session?.email ?? null,
               ]}
               selectComments={(d: any) => d?.data?.comments}
               applyComments={(d: any, next) =>

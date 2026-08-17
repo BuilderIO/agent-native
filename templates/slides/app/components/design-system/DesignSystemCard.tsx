@@ -1,6 +1,20 @@
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+import { ShareButton, VisibilityBadge, useT } from "@agent-native/core/client";
+import {
+  IconEye,
+  IconPalette,
+  IconStar,
+  IconStarFilled,
+} from "@tabler/icons-react";
+import { useState } from "react";
 
+import { DesignSystemPreview } from "@/components/design-system/DesignSystemPreview";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -32,6 +46,8 @@ export function DesignSystemCard({
   onClick,
   onSetDefault,
 }: DesignSystemCardProps) {
+  const t = useT();
+  const [previewOpen, setPreviewOpen] = useState(false);
   const swatchColors = [
     { label: "Primary", color: data.colors.primary },
     { label: "Secondary", color: data.colors.secondary },
@@ -73,6 +89,20 @@ export function DesignSystemCard({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("raw.designSlidePreview")}
+                onClick={() => setPreviewOpen(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/40 bg-background/80 backdrop-blur-sm hover:bg-background"
+              >
+                <IconEye className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("raw.designSlidePreview")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
                 onClick={onSetDefault}
                 className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
               >
@@ -150,6 +180,16 @@ export function DesignSystemCard({
         </div>
         <VisibilityBadge visibility={visibility} className="text-[11px]" />
       </div>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{t("raw.designSlidePreview")}</DialogDescription>
+          </DialogHeader>
+          <DesignSystemPreview data={data} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

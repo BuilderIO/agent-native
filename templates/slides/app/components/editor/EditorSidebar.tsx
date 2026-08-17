@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { SlideThumbnailContextMenu } from "@/components/editor/SlideThumbnailContextMenu";
 import {
   Tooltip,
   TooltipContent,
@@ -174,6 +175,7 @@ function SortableSlideThumb({
   onSelect,
   onDuplicate,
   onDelete,
+  canDelete,
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
@@ -184,6 +186,7 @@ function SortableSlideThumb({
   onSelect: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  canDelete: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
@@ -208,60 +211,67 @@ function SortableSlideThumb({
 
   return (
     <div ref={setNodeRef} style={style} className="group relative">
-      <button
-        ref={(node) => registerButtonRef(slide.id, node)}
-        onClick={onSelect}
-        onFocus={onSelect}
-        aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
-        aria-current={isActive ? "true" : undefined}
-        data-slide-thumbnail-id={slide.id}
-        className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-[background-color,box-shadow] duration-150 ${
-          isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
-        } focus:outline-none`}
+      <SlideThumbnailContextMenu
+        canDelete={canDelete}
+        onSelect={onSelect}
+        onDuplicate={onDuplicate}
+        onDelete={onDelete}
       >
-        {/* Drag handle */}
-        <div
-          {...attributes}
-          {...listeners}
-          className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100"
+        <button
+          ref={(node) => registerButtonRef(slide.id, node)}
+          onClick={onSelect}
+          onFocus={onSelect}
+          aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
+          aria-current={isActive ? "true" : undefined}
+          data-slide-thumbnail-id={slide.id}
+          className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-[background-color,box-shadow] duration-150 ${
+            isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
+          } focus:outline-none`}
         >
-          <IconGripVertical className="w-3.5 h-3.5 text-muted-foreground/70" />
-        </div>
-
-        {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
-        <div className="relative flex-shrink-0 w-5 self-stretch mt-2">
-          <span className="block text-center text-[10px] font-medium text-muted-foreground/70">
-            {index + 1}
-          </span>
-          {presenceUsers.length > 0 && (
-            <div className="absolute left-1/2 top-6 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
-              {presenceUsers.slice(0, 4).map((u, i) => (
-                <PresenceAvatarTip key={i} user={u} size={16} />
-              ))}
-              {presenceUsers.length > 4 && (
-                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
-                  +{presenceUsers.length - 4}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Thumbnail */}
-        <div className="flex-1 min-w-0">
+          {/* Drag handle */}
           <div
-            className="w-full overflow-hidden rounded border"
-            style={{
-              borderColor:
-                presenceUsers.length > 0
-                  ? presenceUsers[0].color + "66"
-                  : "rgba(255,255,255,0.06)",
-            }}
+            {...attributes}
+            {...listeners}
+            className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100"
           >
-            <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
+            <IconGripVertical className="w-3.5 h-3.5 text-muted-foreground/70" />
           </div>
-        </div>
-      </button>
+
+          {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
+          <div className="relative flex-shrink-0 w-5 self-stretch mt-2">
+            <span className="block text-center text-[10px] font-medium text-muted-foreground/70">
+              {index + 1}
+            </span>
+            {presenceUsers.length > 0 && (
+              <div className="absolute left-1/2 top-6 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
+                {presenceUsers.slice(0, 4).map((u, i) => (
+                  <PresenceAvatarTip key={i} user={u} size={16} />
+                ))}
+                {presenceUsers.length > 4 && (
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
+                    +{presenceUsers.length - 4}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Thumbnail */}
+          <div className="flex-1 min-w-0">
+            <div
+              className="w-full overflow-hidden rounded border"
+              style={{
+                borderColor:
+                  presenceUsers.length > 0
+                    ? presenceUsers[0].color + "66"
+                    : "rgba(255,255,255,0.06)",
+              }}
+            >
+              <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
+            </div>
+          </div>
+        </button>
+      </SlideThumbnailContextMenu>
 
       {/* Actions - always visible on touch devices */}
       <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
@@ -677,6 +687,7 @@ export default function EditorSidebar({
               onSelect={() => onSelectSlide(slide.id)}
               onDuplicate={() => onDuplicateSlide(slide.id)}
               onDelete={() => onDeleteSlide(slide.id)}
+              canDelete={slides.length > 1}
               registerButtonRef={registerSlideButton}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
               aspectRatio={aspectRatio}

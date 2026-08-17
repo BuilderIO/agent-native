@@ -526,7 +526,9 @@ function isNoSpeechTranscriptFailure(
   return (
     normalized.includes("no speech") ||
     normalized.includes("no native transcript was captured") ||
-    normalized.includes("no transcript was captured by native speech")
+    normalized.includes("no transcript was captured by native speech") ||
+    normalized.includes("no audio track") ||
+    normalized.includes("recording was saved without audio")
   );
 }
 

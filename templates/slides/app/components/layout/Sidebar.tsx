@@ -15,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
@@ -92,6 +93,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             );
           })}
         </nav>
+        <ThemeToggle className="h-10 w-10 shrink-0" />
       </aside>
     );
   }
@@ -165,8 +167,13 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
           </div>
 
           <div className="px-3 py-2">
-            <DevDatabaseLink />
-            <FeedbackButton />
+            <div className="flex items-center justify-between gap-2">
+              <ThemeToggle />
+              <div className="flex min-w-0 items-center gap-1">
+                <DevDatabaseLink />
+                <FeedbackButton />
+              </div>
+            </div>
           </div>
         </div>
       </div>

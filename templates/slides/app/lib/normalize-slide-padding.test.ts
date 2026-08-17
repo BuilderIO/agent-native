@@ -38,4 +38,19 @@ describe("normalizeSlidePadding", () => {
     const html = '<div style="padding: 80px;"></div>';
     expect(normalizeSlidePadding(html)).toBe(html);
   });
+
+  it("normalizes the wrapper when attributes are reordered or quoted differently", () => {
+    const html =
+      "<div data-kind='slide' style='display: flex; padding: 72px 40px;' class='fmd-slide generated'><h1>Hi</h1></div>";
+    expect(normalizeSlidePadding(html)).toBe(
+      "<div data-kind='slide' style='display: flex; padding: 80px 110px;' class='fmd-slide generated'><h1>Hi</h1></div>",
+    );
+  });
+
+  it("adds a style attribute when the canonical wrapper has no inline style", () => {
+    const html = '<div class="fmd-slide"></div>';
+    expect(normalizeSlidePadding(html)).toBe(
+      '<div class="fmd-slide" style="padding: 80px 110px;"></div>',
+    );
+  });
 });

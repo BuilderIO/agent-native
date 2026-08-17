@@ -958,7 +958,7 @@ export function PlanModeCallout({
       <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
         <IconClipboardList size={13} className="shrink-0" />
         <span className="min-w-0 truncate">
-          {canImplementPlan ? "Plan ready" : "Plan mode"}
+          {canImplementPlan ? "Ready to implement" : "Plan mode"}
         </span>
         {canImplementPlan ? (
           <button

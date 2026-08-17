@@ -62,6 +62,8 @@ vi.mock("../../db/index.js", () => ({
 
 vi.mock("../../lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
+  sameOwnerEmail: (left: string, right: string) =>
+    left.trim().toLowerCase() === right.trim().toLowerCase(),
 }));
 
 vi.mock("../../lib/player-video-url.js", () => ({
@@ -245,5 +247,33 @@ describe("/api/public-recording route", () => {
       "rec-1",
       expect.objectContaining({ token: "agent-token" }),
     );
+  });
+
+  it("marks an authenticated public viewer as comment-capable", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({ email: "viewer@example.com" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            enableComments: true,
+            password: null,
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: {
+        canComment: true,
+        role: "viewer",
+      },
+    });
   });
 });

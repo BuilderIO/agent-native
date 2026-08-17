@@ -140,6 +140,7 @@ export interface CalendarEventDraft {
   colorId?: string;
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
+  recurrence?: CalendarEvent["recurrence"];
   attachments?: CalendarEvent["attachments"];
   attendees?: CalendarEvent["attendees"];
   addGoogleMeet?: boolean;

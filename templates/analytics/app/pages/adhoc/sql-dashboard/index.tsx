@@ -63,6 +63,7 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -128,6 +129,7 @@ import {
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
 } from "./dashboard-sync";
@@ -409,46 +411,50 @@ function parseDashboardCatalogMetadata(
 }
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
-  try {
-    const data: any = await callAction(
-      "get-sql-dashboard",
-      { id, includeConfig: true },
-      { method: "GET" },
+  const data: any = await callAction(
+    "get-sql-dashboard",
+    { id, includeConfig: true },
+    { method: "GET" },
+  );
+  if (!data) return null;
+  if (data.error) {
+    throw new Error(
+      typeof data.message === "string" && data.message
+        ? data.message
+        : typeof data.error === "string"
+          ? data.error
+          : "Dashboard load failed",
     );
-    if (!data || data.error) return null;
-    return {
-      id,
-      config: {
-        name: data.name ?? "Untitled Dashboard",
-        description: data.description,
-        parentId:
-          typeof data.parentId === "string" && data.parentId.trim().length > 0
-            ? data.parentId
-            : undefined,
-        catalog: parseDashboardCatalogMetadata(data.catalog),
-        demo: parseDashboardDemoMetadata(data.demo),
-        filters: data.filters,
-        variables: data.variables,
-        columns: typeof data.columns === "number" ? data.columns : undefined,
-        panels: data.panels ?? [],
-      },
-      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-      visibility:
-        data.visibility === "org" || data.visibility === "public"
-          ? data.visibility
-          : "private",
-      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
-      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-      role: typeof data.role === "string" ? data.role : undefined,
-      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-      canManage:
-        typeof data.canManage === "boolean" ? data.canManage : undefined,
-    };
-  } catch {
-    return null;
   }
+  return {
+    id,
+    config: {
+      name: data.name ?? "Untitled Dashboard",
+      description: data.description,
+      parentId:
+        typeof data.parentId === "string" && data.parentId.trim().length > 0
+          ? data.parentId
+          : undefined,
+      catalog: parseDashboardCatalogMetadata(data.catalog),
+      demo: parseDashboardDemoMetadata(data.demo),
+      filters: data.filters,
+      variables: data.variables,
+      columns: typeof data.columns === "number" ? data.columns : undefined,
+      panels: data.panels ?? [],
+    },
+    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+    hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+    visibility:
+      data.visibility === "org" || data.visibility === "public"
+        ? data.visibility
+        : "private",
+    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+    role: typeof data.role === "string" ? data.role : undefined,
+    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
+  };
 }
 
 /**
@@ -550,6 +556,7 @@ export default function SqlDashboardPage() {
     },
     staleTime: 30_000,
     placeholderData: (prev) => prev,
+    retry: false,
     initialData: () => {
       if (!dashboardId) return undefined;
       const snapshot = queryClient.getQueryData<
@@ -1611,6 +1618,23 @@ export default function SqlDashboardPage() {
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         {t("sqlDashboard.noDashboardSelected")}
       </div>
+    );
+  }
+
+  if (
+    shouldShowDashboardLoadError({
+      dashboardId,
+      isError: dashboardQuery.isError,
+      loaded,
+      hasDashboard: !!dashboard,
+    })
+  ) {
+    return (
+      <ResourceLoadError
+        message={t("sidebar.dashboardsLoadFailed")}
+        retryLabel={t("sidebar.retry")}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
     );
   }
 

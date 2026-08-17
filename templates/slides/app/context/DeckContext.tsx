@@ -897,7 +897,7 @@ export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
 }
 
 export const defaultSlideContent: Record<SlideLayout, string> = {
-  title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
+  title: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; justify-content: center; align-items: center; text-align: center;">
   <div>
     <div style="font-size: 16px; font-weight: 800; color: #fff; letter-spacing: 0; font-family: 'Poppins', sans-serif;">Deck</div>
   </div>
@@ -909,7 +909,7 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
     <div class="text-[16px] text-white/50">Date</div>
   </div>
 </div>`,
-  content: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: center;">
+  content: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; justify-content: flex-start;">
   <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 32px; font-family: 'Poppins', sans-serif;">SECTION</div>
   <div style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 40px;">Slide Title</div>
   <div style="display: flex; flex-direction: column; gap: 16px; padding-left: 16px;">
@@ -918,7 +918,7 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
     <div style="display: flex; align-items: baseline; gap: 20px; font-size: 22px; color: rgba(255,255,255,0.85); font-family: 'Poppins', sans-serif; line-height: 1.4;"><span style="color: #fff; font-size: 8px; position: relative; top: -4px;">&#x25CF;</span><span>Third point</span></div>
   </div>
 </div>`,
-  "two-column": `<div class="fmd-slide" style="padding: 50px 70px; justify-content: center;">
+  "two-column": `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; justify-content: center;">
   <div style="display: flex; gap: 40px; align-items: flex-start; width: 100%;">
     <div style="flex: 1;">
       <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 8px; font-family: 'Poppins', sans-serif;">SECTION</div>
@@ -928,21 +928,21 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
     <div class="fmd-img-placeholder" style="flex: 1; min-height: 280px;">Right column visual</div>
   </div>
 </div>`,
-  section: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: center;">
+  section: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; justify-content: center; align-items: center; text-align: center;">
   <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Section Title</div>
 </div>`,
-  image: `<div class="fmd-slide" style="padding: 60px 80px; align-items: center;">
+  image: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; align-items: center; justify-content: center; text-align: center;">
   <div style="font-size: 38px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -1px; font-family: 'Poppins', sans-serif; text-align: center; margin-bottom: 32px;">Image Slide Title</div>
   <div class="fmd-img-placeholder" style="width: 560px; flex: 1; min-height: 300px;">Image description</div>
 </div>`,
-  statement: `<div class="fmd-slide" style="padding: 60px 110px; justify-content: center;">
+  statement: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; justify-content: center; align-items: center; text-align: center;">
   <div style="font-size: 38px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -1px; font-family: 'Poppins', sans-serif; margin-bottom: 20px;">Bold statement or key message goes here</div>
   <div style="font-size: 20px; color: rgba(255,255,255,0.6); line-height: 1.5; font-family: 'Poppins', sans-serif;">Supporting context or subtitle text</div>
 </div>`,
   "full-image": `<div class="fmd-slide" style="padding: 0; align-items: center; justify-content: center;">
   <div class="fmd-img-placeholder" style="width: 100%; height: 100%;">Full-bleed image or screenshot</div>
 </div>`,
-  blank: `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
+  blank: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
   <div style="font-size: 28px; font-weight: 600; color: rgba(255,255,255,0.4); line-height: 1.3; font-family: 'Poppins', sans-serif;">Double-click to edit</div>
 </div>`,
 };

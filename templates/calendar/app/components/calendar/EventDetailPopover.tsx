@@ -572,7 +572,7 @@ export function EventDetailPopover({
   );
   const recurrenceLoading =
     isRecurringEvent && !recurrenceRules?.length && masterEvent.isLoading;
-  const canEditRecurrence = !isDraft && !isOverlay && !!recurrenceRules?.length;
+  const canEditRecurrence = !isOverlay && !recurrenceLoading;
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
@@ -1086,13 +1086,17 @@ export function EventDetailPopover({
       toast.error(t("eventForm.customRepeatGoogleCalendar"));
       return;
     }
-    saveField({ recurrence, scope: "all" });
+    saveField({
+      recurrence,
+      scope: isRecurringEvent ? "all" : "single",
+    });
     setEditingField(null);
   }, [
     editRecurrencePreset,
     editTimezone,
     event.start,
     event.startTimeZone,
+    isRecurringEvent,
     masterEvent.data?.start,
     masterEvent.data?.startTimeZone,
     saveField,
@@ -1222,7 +1226,11 @@ export function EventDetailPopover({
   const recurrenceText = recurrenceLoading
     ? t("eventForm.loadingRepeat")
     : formatRecurrenceText(recurrenceRules) ||
-      (isRecurringEvent ? t("eventForm.repeats") : null);
+      (isRecurringEvent
+        ? t("eventForm.repeats")
+        : isOverlay
+          ? null
+          : t("eventForm.doesNotRepeat"));
   // Show the browser's local timezone offset (this is what the user sees times in)
   const localOffsetMinutes = -new Date().getTimezoneOffset();
   const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";

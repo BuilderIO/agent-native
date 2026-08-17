@@ -59,6 +59,12 @@ import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
 import {
+  moveSlideObject,
+  resizeSlideObject,
+  type ResizeHandle,
+  type SlideObjectGeometry,
+} from "./slide-object-interactions";
+import {
   SlideStyleInspector,
   type SlideStylePatch,
   type SlideStyleSnapshot,
@@ -205,6 +211,65 @@ function stripBuilderIds(html: string): string {
 function cssPx(value: string): number {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getAbsoluteSlideObjectContext(element: HTMLElement): {
+  parent: HTMLElement;
+  geometry: SlideObjectGeometry;
+  scaleX: number;
+  scaleY: number;
+} | null {
+  const computed = window.getComputedStyle(element);
+  if (computed.position !== "absolute") return null;
+
+  const parent =
+    element.offsetParent instanceof HTMLElement
+      ? element.offsetParent
+      : element.parentElement;
+  if (!parent) return null;
+
+  const parentRect = parent.getBoundingClientRect();
+  const parentWidth = parent.offsetWidth || parentRect.width;
+  const parentHeight = parent.offsetHeight || parentRect.height;
+  const scaleX = parentWidth > 0 ? parentRect.width / parentWidth : 1;
+  const scaleY = parentHeight > 0 ? parentRect.height / parentHeight : 1;
+  const elementRect = element.getBoundingClientRect();
+  const left = Number.parseFloat(computed.left);
+  const top = Number.parseFloat(computed.top);
+
+  return {
+    parent,
+    geometry: {
+      x: Number.isFinite(left) ? left : element.offsetLeft,
+      y: Number.isFinite(top) ? top : element.offsetTop,
+      width:
+        element.offsetWidth ||
+        cssPx(computed.width) ||
+        elementRect.width / Math.max(scaleX, 0.001),
+      height:
+        element.offsetHeight ||
+        cssPx(computed.height) ||
+        elementRect.height / Math.max(scaleY, 0.001),
+    },
+    scaleX: Math.max(scaleX, 0.001),
+    scaleY: Math.max(scaleY, 0.001),
+  };
+}
+
+function applySlideObjectGeometry(
+  element: HTMLElement,
+  geometry: SlideObjectGeometry,
+  resize = false,
+) {
+  element.style.left = `${geometry.x}px`;
+  element.style.top = `${geometry.y}px`;
+  element.style.right = "auto";
+  element.style.bottom = "auto";
+  if (resize) {
+    element.style.boxSizing = "border-box";
+    element.style.width = `${Math.max(1, geometry.width)}px`;
+    element.style.height = `${Math.max(1, geometry.height)}px`;
+  }
 }
 
 function normalizedColor(value: string): string {
@@ -495,11 +560,32 @@ function ImageSelectionOutline({ rect }: { rect: DOMRect }) {
   );
 }
 
-function ElementSelectionOutline({ rect }: { rect: DOMRect }) {
+function ElementSelectionOutline({
+  rect,
+  onResizeStart,
+}: {
+  rect: DOMRect;
+  onResizeStart?: (
+    handle: ResizeHandle,
+    event: React.PointerEvent<Element>,
+  ) => void;
+}) {
   const pad = 2;
   const handle = 7;
   const handleClass =
-    "absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm";
+    "pointer-events-auto absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm touch-none";
+  const renderHandle = (
+    resizeHandle: ResizeHandle,
+    style: React.CSSProperties,
+    cursor: string,
+  ) => (
+    <span
+      className={handleClass}
+      data-slide-resize-handle={resizeHandle}
+      style={{ ...style, cursor }}
+      onPointerDown={(event) => onResizeStart?.(resizeHandle, event)}
+    />
+  );
   return createPortal(
     <div
       style={{
@@ -515,22 +601,26 @@ function ElementSelectionOutline({ rect }: { rect: DOMRect }) {
         boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.2)",
       }}
     >
-      <span
-        className={handleClass}
-        style={{ left: -handle / 2, top: -handle / 2 }}
-      />
-      <span
-        className={handleClass}
-        style={{ right: -handle / 2, top: -handle / 2 }}
-      />
-      <span
-        className={handleClass}
-        style={{ left: -handle / 2, bottom: -handle / 2 }}
-      />
-      <span
-        className={handleClass}
-        style={{ right: -handle / 2, bottom: -handle / 2 }}
-      />
+      {renderHandle(
+        "nw",
+        { left: -handle / 2, top: -handle / 2 },
+        "nwse-resize",
+      )}
+      {renderHandle(
+        "ne",
+        { right: -handle / 2, top: -handle / 2 },
+        "nesw-resize",
+      )}
+      {renderHandle(
+        "sw",
+        { left: -handle / 2, bottom: -handle / 2 },
+        "nesw-resize",
+      )}
+      {renderHandle(
+        "se",
+        { right: -handle / 2, bottom: -handle / 2 },
+        "nwse-resize",
+      )}
     </div>,
     document.body,
   );
@@ -597,14 +687,14 @@ function rectsIntersect(
 }
 
 /**
- * Push the current slide's vertical-fit measurement to application_state.
+ * Push the current slide's fit measurement to application_state.
  * Browser-tab requests read the tab-scoped key; the legacy global key stays
  * available for CLI/headless runs. Always written, even when the slide fits —
  * the `add-slide` / `update-slide` actions poll this key and use the
  * `measuredAt` timestamp + matching `slideId` to confirm the slide they
  * just wrote has actually been re-rendered and re-measured. If
- * `verticalOverflow > 0`, the action returns an "overflow" message so the
- * agent can patch the slide; if it's 0, the action knows the slide fits.
+ * Either overflow axis can produce an "overflow" message so the agent can
+ * patch the slide; if both are 0, the action knows the slide fits.
  *
  * `view-screen` and the editor badge also read this key so the agent can
  * see fit status without browser access of its own.
@@ -614,8 +704,11 @@ function syncOverflowToAppState(
     slideId: string;
     deckId?: string;
     contentHeight: number;
+    contentWidth: number;
     viewportHeight: number;
+    viewportWidth: number;
     verticalOverflow: number;
+    horizontalOverflow: number;
   } | null,
 ) {
   const keys = Array.from(
@@ -853,13 +946,17 @@ export default function SlideEditor({
 
   const handleOverflowChange = useCallback(
     (info: SlideOverflowInfo) => {
-      const overflowing = info.verticalOverflow > 0 ? info : null;
+      const overflowing =
+        info.verticalOverflow > 0 || info.horizontalOverflow > 0 ? info : null;
       // Dedup the React state update — the renderer fires on every
       // measurement (so the action can confirm freshness via the app-state
       // `measuredAt` timestamp), but most measurements report the same
       // value and shouldn't churn the badge UI.
       setOverflowInfo((prev) => {
-        if (prev?.verticalOverflow === overflowing?.verticalOverflow) {
+        if (
+          prev?.verticalOverflow === overflowing?.verticalOverflow &&
+          prev?.horizontalOverflow === overflowing?.horizontalOverflow
+        ) {
           return prev;
         }
         return overflowing;
@@ -871,15 +968,23 @@ export default function SlideEditor({
         slideId: slide.id,
         deckId,
         contentHeight: info.contentHeight,
+        contentWidth: info.contentWidth,
         viewportHeight: info.viewportHeight,
+        viewportWidth: info.viewportWidth,
         verticalOverflow: info.verticalOverflow,
+        horizontalOverflow: info.horizontalOverflow,
       });
     },
     [slide.id, deckId],
   );
 
   const handleAskAgentToFixLayout = useCallback(() => {
-    if (!overflowInfo || overflowInfo.verticalOverflow <= 0) return;
+    if (
+      !overflowInfo ||
+      (overflowInfo.verticalOverflow <= 0 &&
+        overflowInfo.horizontalOverflow <= 0)
+    )
+      return;
     const slideHeading = (() => {
       if (typeof document === "undefined") return null;
       const main = document.querySelector("[data-main-slide-canvas]");
@@ -891,13 +996,13 @@ export default function SlideEditor({
     setIsAskingAgentToFix(true);
     sendToAgentChat({
       message: [
-        `The current slide's content vertically overflows the canvas by ${overflowInfo.verticalOverflow}px and needs to be rewritten to fit.`,
+        `The current slide's content overflows the canvas${overflowInfo.verticalOverflow > 0 ? ` vertically by ${overflowInfo.verticalOverflow}px` : ""}${overflowInfo.horizontalOverflow > 0 ? ` horizontally by ${overflowInfo.horizontalOverflow}px` : ""} and needs to be rewritten to fit.`,
         ``,
         `Slide id: \`${slide.id}\``,
         slideHeading ? `Slide heading: "${slideHeading}"` : null,
         `Canvas size: ${dimsW}x${dimsH}px (16:9 native render).`,
-        `Available content area inside the slide's padding: ${overflowInfo.viewportHeight}px tall.`,
-        `Natural rendered content height: ${overflowInfo.contentHeight}px → overflows by ${overflowInfo.verticalOverflow}px.`,
+        `Available content area inside the slide's padding: ${overflowInfo.viewportWidth}px wide by ${overflowInfo.viewportHeight}px tall.`,
+        `Natural rendered content size: ${overflowInfo.contentWidth}px × ${overflowInfo.contentHeight}px.`,
         ``,
         `Please use \`view-screen\` to read the current slide HTML, then \`update-slide --fullContent\` to rewrite the slide so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
         `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
@@ -928,6 +1033,10 @@ export default function SlideEditor({
   useEffect(() => {
     onUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
+  /** Active drag/resize cleanup, used to cancel an interaction on unmount. */
+  const interactionCleanupRef = useRef<(() => void) | null>(null);
+  /** A drag should not fall through to the click-to-select handler. */
+  const suppressNextClickRef = useRef(false);
   const inlineEditDraftRef = useRef<{
     slideId: string;
     content: string;
@@ -1441,6 +1550,113 @@ export default function SlideEditor({
     [],
   );
 
+  const startElementGeometryInteraction = useCallback(
+    (
+      event: React.PointerEvent<Element>,
+      element: HTMLElement,
+      interaction: { type: "move" } | { type: "resize"; handle: ResizeHandle },
+    ) => {
+      if (readOnly) return;
+      const context = getAbsoluteSlideObjectContext(element);
+      if (!context) return;
+
+      interactionCleanupRef.current?.();
+      const originalStyle = element.getAttribute("style");
+      const startPoint = { x: event.clientX, y: event.clientY };
+      const startGeometry = context.geometry;
+      let moved = false;
+      let finished = false;
+
+      const finish = (cancel: boolean) => {
+        if (finished) return;
+        finished = true;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        window.removeEventListener("keydown", onKeyDown, true);
+        interactionCleanupRef.current = null;
+
+        if (cancel) {
+          if (originalStyle === null) element.removeAttribute("style");
+          else element.setAttribute("style", originalStyle);
+        } else if (moved) {
+          const html = readCurrentSlideContentHtml();
+          if (html !== null) onUpdateSlideRef.current({ content: html });
+        }
+
+        setSelectedElementRect(element.getBoundingClientRect());
+        if (moved && !cancel) {
+          suppressNextClickRef.current = true;
+          window.setTimeout(() => {
+            suppressNextClickRef.current = false;
+          }, 0);
+        }
+      };
+
+      const onMove = (nativeEvent: PointerEvent) => {
+        const clientDx = nativeEvent.clientX - startPoint.x;
+        const clientDy = nativeEvent.clientY - startPoint.y;
+        if (!moved && Math.hypot(clientDx, clientDy) < 3) return;
+
+        moved = true;
+        nativeEvent.preventDefault();
+        let dx = clientDx / context.scaleX;
+        let dy = clientDy / context.scaleY;
+        if (nativeEvent.shiftKey) {
+          if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+          else dx = 0;
+        }
+
+        const geometry =
+          interaction.type === "move"
+            ? moveSlideObject(startGeometry, dx, dy)
+            : resizeSlideObject(startGeometry, interaction.handle, dx, dy);
+        applySlideObjectGeometry(
+          element,
+          geometry,
+          interaction.type === "resize",
+        );
+        setSelectedElementRect(element.getBoundingClientRect());
+      };
+
+      const onUp = () => finish(false);
+      const onCancel = () => finish(true);
+      const onKeyDown = (keyboardEvent: KeyboardEvent) => {
+        if (keyboardEvent.key !== "Escape") return;
+        keyboardEvent.preventDefault();
+        finish(true);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+      window.addEventListener("keydown", onKeyDown, true);
+      interactionCleanupRef.current = () => finish(true);
+    },
+    [readCurrentSlideContentHtml, readOnly],
+  );
+
+  const startElementDrag = useCallback(
+    (event: React.PointerEvent<Element>, element: HTMLElement) => {
+      startElementGeometryInteraction(event, element, { type: "move" });
+    },
+    [startElementGeometryInteraction],
+  );
+
+  const startElementResize = useCallback(
+    (handle: ResizeHandle, event: React.PointerEvent<Element>) => {
+      const element = resolveSelectedElement();
+      if (!element) return;
+      startElementGeometryInteraction(event, element, {
+        type: "resize",
+        handle,
+      });
+    },
+    [resolveSelectedElement, startElementGeometryInteraction],
+  );
+
+  useEffect(() => () => interactionCleanupRef.current?.(), [slide.id]);
+
   // --- Marquee drag handlers (attached to slide-content via React props) ---
 
   const handleSlidePointerDown = useCallback(
@@ -1450,6 +1666,15 @@ export default function SlideEditor({
       const slideContent = getSlideContent();
       if (!slideContent) return;
       const target = e.target as HTMLElement;
+
+      const selectedElement = resolveSelectedElement();
+      if (
+        selectedElement?.contains(target) &&
+        getAbsoluteSlideObjectContext(selectedElement)
+      ) {
+        startElementDrag(e, selectedElement);
+        return;
+      }
 
       // Only start a marquee from "whitespace" inside the slide. Clicks on
       // an actual element fall through to handleSlideClick (which handles
@@ -1475,6 +1700,8 @@ export default function SlideEditor({
     [
       editingEl,
       getSlideContent,
+      resolveSelectedElement,
+      startElementDrag,
       isSlideWhitespaceTarget,
       multiSelection,
       applyMultiSelection,
@@ -1617,6 +1844,12 @@ export default function SlideEditor({
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        e.preventDefault();
+        return;
+      }
+
       // If currently editing a block, clicks inside it are for the caret —
       // don't select/style-edit.
       if (editingEl?.contains(e.target as Node)) return;
@@ -1792,6 +2025,13 @@ export default function SlideEditor({
     [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
 
+  const selectedElementForInteraction = selectedElementRect
+    ? resolveSelectedElement()
+    : null;
+  const canResizeSelectedElement =
+    !readOnly &&
+    !!selectedElementForInteraction &&
+    !!getAbsoluteSlideObjectContext(selectedElementForInteraction);
   const slideElementSelected =
     !!selectedImg || !!editingEl || !!selectedStyleSnapshot;
 
@@ -1936,8 +2176,17 @@ export default function SlideEditor({
                             stroke={2}
                           />
                           <span className="leading-tight">
-                            Layout overflows by {overflowInfo.verticalOverflow}
-                            px
+                            Layout overflow:{" "}
+                            {[
+                              overflowInfo.verticalOverflow > 0
+                                ? `${overflowInfo.verticalOverflow}px vertically`
+                                : null,
+                              overflowInfo.horizontalOverflow > 0
+                                ? `${overflowInfo.horizontalOverflow}px horizontally`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" and ")}
                           </span>
                           <Button
                             size="sm"
@@ -1983,7 +2232,12 @@ export default function SlideEditor({
 
       {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
       {selectedElementRect && (
-        <ElementSelectionOutline rect={selectedElementRect} />
+        <ElementSelectionOutline
+          rect={selectedElementRect}
+          onResizeStart={
+            canResizeSelectedElement ? startElementResize : undefined
+          }
+        />
       )}
 
       {/* Multi-select outlines */}

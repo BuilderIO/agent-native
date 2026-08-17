@@ -125,6 +125,8 @@ const markdownComponents = {
 };
 
 const MIN_AUTOFIT_SCALE = 0.65;
+const VERTICAL_OVERFLOW_TOLERANCE_PX = 8;
+const HORIZONTAL_OVERFLOW_TOLERANCE_PX = 8;
 
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -138,6 +140,8 @@ export interface SlideFitTransform {
    * rewrite the slide HTML to fit, instead of being papered over with a uniform
    * shrink that leaves ugly right/bottom margins. */
   verticalOverflow: number;
+  /** Horizontal overflow in CSS px (0 if content fits). */
+  horizontalOverflow: number;
 }
 
 export function computeSlideFitTransform({
@@ -145,6 +149,7 @@ export function computeSlideFitTransform({
   contentHeight,
   viewportWidth,
   viewportHeight,
+  measuredHorizontalOverflow = 0,
   minX = 0,
   minY = 0,
   minScale = MIN_AUTOFIT_SCALE,
@@ -153,6 +158,7 @@ export function computeSlideFitTransform({
   contentHeight: number;
   viewportWidth: number;
   viewportHeight: number;
+  measuredHorizontalOverflow?: number;
   minX?: number;
   minY?: number;
   minScale?: number;
@@ -163,13 +169,27 @@ export function computeSlideFitTransform({
   // unbalanced right/bottom margins (with origin top-left), which looks worse
   // than asking the LLM to redo the layout to fit the canvas properly.
   const safeContentWidth = Math.max(1, contentWidth);
-  const rawScale = Math.min(1, Math.max(1, viewportWidth) / safeContentWidth);
+  const rawHorizontalOverflow = Math.max(
+    measuredHorizontalOverflow,
+    contentWidth - viewportWidth,
+    0,
+  );
+  const widthToFit =
+    rawHorizontalOverflow > HORIZONTAL_OVERFLOW_TOLERANCE_PX
+      ? safeContentWidth
+      : Math.max(1, viewportWidth);
+  const rawScale = Math.min(1, Math.max(1, viewportWidth) / widthToFit);
   const scale = Math.max(minScale, rawScale);
 
-  const verticalOverflow = Math.max(
-    0,
-    Math.round(contentHeight - viewportHeight),
-  );
+  const rawVerticalOverflow = Math.max(0, contentHeight - viewportHeight);
+  const verticalOverflow =
+    rawVerticalOverflow > VERTICAL_OVERFLOW_TOLERANCE_PX
+      ? Math.round(rawVerticalOverflow)
+      : 0;
+  const horizontalOverflow =
+    rawHorizontalOverflow > HORIZONTAL_OVERFLOW_TOLERANCE_PX
+      ? Math.round(rawHorizontalOverflow)
+      : 0;
 
   return {
     scale,
@@ -177,6 +197,7 @@ export function computeSlideFitTransform({
     y: minY < 0 ? -minY * scale : 0,
     fitted: rawScale < 0.999,
     verticalOverflow,
+    horizontalOverflow,
   };
 }
 
@@ -216,6 +237,7 @@ function ensureRawHtmlFitLayers(root: HTMLElement): HTMLElement[] {
 function measureContentBounds(target: HTMLElement): {
   contentWidth: number;
   contentHeight: number;
+  horizontalOverflow: number;
   minX: number;
   minY: number;
 } {
@@ -260,6 +282,12 @@ function measureContentBounds(target: HTMLElement): {
   return {
     contentWidth: Math.max(target.scrollWidth, maxX - minX),
     contentHeight: Math.max(target.scrollHeight, maxY - minY),
+    horizontalOverflow: Math.max(
+      0,
+      -minX,
+      maxX - (target.clientWidth || cssWidth),
+      target.scrollWidth - (target.clientWidth || cssWidth),
+    ),
     minX,
     minY,
   };
@@ -271,10 +299,16 @@ function measureContentBounds(target: HTMLElement): {
 export interface SlideOverflowInfo {
   /** Vertical overflow in CSS px at native resolution (0 = fits). */
   verticalOverflow: number;
+  /** Horizontal overflow in CSS px at native resolution (0 = fits). */
+  horizontalOverflow: number;
   /** Total natural content height in CSS px. */
   contentHeight: number;
+  /** Total natural content width in CSS px. */
+  contentWidth: number;
   /** Available canvas height inside the slide padding. */
   viewportHeight: number;
+  /** Available canvas width inside the slide padding. */
+  viewportWidth: number;
 }
 
 function useSlideAutofit(
@@ -312,11 +346,15 @@ function useSlideAutofit(
           : [root].filter((target) => target.scrollHeight > 0);
 
       let worstOverflow = 0;
+      let worstHorizontalOverflow = 0;
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
         if (isEditing) {
-          resetTarget(target);
+          // Keep the last settled fit while the user edits text. Resetting the
+          // transform here makes a horizontally fitted text box jump as soon
+          // as contentEditable is enabled; the next non-editing measurement
+          // will recompute it after the edit is committed.
           continue;
         }
 
@@ -326,6 +364,7 @@ function useSlideAutofit(
         const viewportHeight = target.clientHeight || canvasHeight;
         const transform = computeSlideFitTransform({
           ...bounds,
+          measuredHorizontalOverflow: bounds.horizontalOverflow,
           viewportWidth,
           viewportHeight,
         });
@@ -337,12 +376,22 @@ function useSlideAutofit(
           target.setAttribute("data-fmd-autofit-active", "true");
         }
 
-        if (transform.verticalOverflow > worstOverflow) {
-          worstOverflow = transform.verticalOverflow;
+        worstOverflow = Math.max(worstOverflow, transform.verticalOverflow);
+        worstHorizontalOverflow = Math.max(
+          worstHorizontalOverflow,
+          transform.horizontalOverflow,
+        );
+        if (
+          transform.verticalOverflow > 0 ||
+          transform.horizontalOverflow > 0
+        ) {
           worstInfo = {
-            verticalOverflow: transform.verticalOverflow,
+            verticalOverflow: worstOverflow,
+            horizontalOverflow: worstHorizontalOverflow,
             contentHeight: Math.round(bounds.contentHeight),
+            contentWidth: Math.round(bounds.contentWidth),
             viewportHeight: Math.round(viewportHeight),
+            viewportWidth: Math.round(viewportWidth),
           };
         }
       }
@@ -359,8 +408,11 @@ function useSlideAutofit(
         overflowCallbackRef.current?.(
           worstInfo ?? {
             verticalOverflow: 0,
+            horizontalOverflow: 0,
             contentHeight: 0,
+            contentWidth: 0,
             viewportHeight: 0,
+            viewportWidth: 0,
           },
         );
       }
@@ -596,6 +648,59 @@ export function SlideInner({
 
   // Slides with fmd-slide class use inline styles — render as raw HTML to avoid layout conflicts
   const content = typeof slide.content === "string" ? slide.content : "";
+  const overflowByTargetRef = useRef(new Map<string, SlideOverflowInfo>());
+  const reportTargetOverflow = useCallback(
+    (targetKey: string, info: SlideOverflowInfo) => {
+      overflowByTargetRef.current.set(targetKey, info);
+      if (!onOverflowChange) return;
+
+      const measurements = [...overflowByTargetRef.current.values()];
+      onOverflowChange(
+        measurements.reduce(
+          (result, measurement) => ({
+            verticalOverflow: Math.max(
+              result.verticalOverflow,
+              measurement.verticalOverflow,
+            ),
+            horizontalOverflow: Math.max(
+              result.horizontalOverflow,
+              measurement.horizontalOverflow,
+            ),
+            contentHeight: Math.max(
+              result.contentHeight,
+              measurement.contentHeight,
+            ),
+            contentWidth: Math.max(
+              result.contentWidth,
+              measurement.contentWidth,
+            ),
+            viewportHeight: Math.max(
+              result.viewportHeight,
+              measurement.viewportHeight,
+            ),
+            viewportWidth: Math.max(
+              result.viewportWidth,
+              measurement.viewportWidth,
+            ),
+          }),
+          {
+            verticalOverflow: 0,
+            horizontalOverflow: 0,
+            contentHeight: 0,
+            contentWidth: 0,
+            viewportHeight: 0,
+            viewportWidth: 0,
+          },
+        ),
+      );
+    },
+    [onOverflowChange],
+  );
+
+  useEffect(() => {
+    overflowByTargetRef.current.clear();
+  }, [slide.id, content]);
+
   const isRawHtml =
     content.includes('class="fmd-slide"') ||
     content.trimStart().startsWith("<") ||
@@ -618,7 +723,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={left}
           className="slide-content text-white/90"
-          onOverflowChange={onOverflowChange}
+          onOverflowChange={(info) => reportTargetOverflow("left", info)}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -632,6 +737,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={right}
           className="slide-content text-white/90"
+          onOverflowChange={(info) => reportTargetOverflow("right", info)}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -656,7 +762,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={content}
           className="h-full w-full"
-          onOverflowChange={onOverflowChange}
+          onOverflowChange={(info) => reportTargetOverflow("raw", info)}
         >
           <BlankSlideContent content={content} />
         </AutoFitContent>
@@ -681,7 +787,7 @@ export function SlideInner({
         canvasHeight={dims.height}
         fitKey={content}
         className="slide-content text-white/90 w-full"
-        onOverflowChange={onOverflowChange}
+        onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
       >
         <ReactMarkdown
           components={markdownComponents}

@@ -303,6 +303,10 @@ export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
   );
 }
 
+export function shouldDefaultResourceWriteToShared(path: string): boolean {
+  return path.replace(/^\/+/, "") === "LEARNINGS.md";
+}
+
 export async function createResourceScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
@@ -443,6 +447,11 @@ export async function createResourceScriptEntries(): Promise<
             )
               return "Error: path and content are required for write";
             rest.createdBy = "agent";
+            rest.scope =
+              rest.scope ??
+              (shouldDefaultResourceWriteToShared(String(rest.path))
+                ? "shared"
+                : undefined);
             rest.visibility =
               rest.visibility ??
               (shouldDefaultResourceWriteToWorkspace(String(rest.path))

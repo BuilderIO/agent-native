@@ -1,11 +1,24 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+const requestRunContext = vi.hoisted(() => ({
+  toolCalls: [] as Array<{ name: string; input: unknown }>,
+  toolResults: [] as Array<{
+    name: string;
+    content: string;
+    isError: boolean;
+  }>,
+}));
+
 const runQuery = vi.fn();
 
 vi.mock("../server/lib/bigquery", () => ({
   runQuery: (sql: string, options?: { signal?: AbortSignal }) =>
     runQuery(sql, options),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestRunContext: () => requestRunContext,
 }));
 
 // Imported after the mock is registered so the action picks up the stub.
@@ -14,6 +27,8 @@ const { default: bigquery } = await import("./bigquery");
 describe("bigquery action error handling", () => {
   beforeEach(() => {
     runQuery.mockReset();
+    requestRunContext.toolCalls.length = 0;
+    requestRunContext.toolResults.length = 0;
   });
 
   it("returns a recoverable result (does NOT stop the turn) on a schema/SQL error", async () => {
@@ -49,6 +64,29 @@ describe("bigquery action error handling", () => {
 
     expect(result.message).toBe("Unrecognized name: event_time at [1:201]");
     expect(result.recoverable).toBe(true);
+  });
+
+  it("stops before issuing the same failed SQL again in one agent turn", async () => {
+    const sql = "SELECT event_time FROM `p.dbt_analytics.product_signups`";
+    runQuery.mockRejectedValue(
+      new Error("BigQuery API error 400: Unrecognized name: event_time"),
+    );
+
+    const first = (await bigquery.run({ sql })) as Record<string, unknown>;
+    requestRunContext.toolCalls.push({ name: "bigquery", input: { sql } });
+    requestRunContext.toolResults.push({
+      name: "bigquery",
+      content: JSON.stringify(first),
+      isError: false,
+    });
+
+    await expect(bigquery.run({ sql })).rejects.toSatisfy((err: unknown) => {
+      if (!isAgentActionStopError(err)) return false;
+      expect(err.errorCode).toBe("bigquery_repeated_query");
+      expect(err.toolResult).toContain('"recoverable": false');
+      return true;
+    });
+    expect(runQuery).toHaveBeenCalledOnce();
   });
 
   it("still stops the turn (non-recoverable) when BigQuery is not configured", async () => {

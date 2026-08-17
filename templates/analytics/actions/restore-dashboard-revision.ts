@@ -52,8 +52,11 @@ export default defineAction({
       resolveScope(),
     );
     if (!dashboard) {
-      throw new Error(
-        `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,
+      throw Object.assign(
+        new Error(
+          `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,
+        ),
+        { statusCode: 404 },
       );
     }
     await syncToCollab(dashboard.id, dashboard.config);

@@ -299,6 +299,20 @@ export async function hasCompletedFirstSessionPersonalization(
 }
 
 /**
+ * Hosted runs need the Builder handoff tool in their initial and lean
+ * registries so source-change requests do not depend on an explicit tool
+ * discovery request. Local development keeps the existing broader surface.
+ */
+export function resolveHostedBuilderHandoff(
+  browserTools: Record<string, ActionEntry>,
+  canToggle: boolean,
+): Record<string, ActionEntry> {
+  if (canToggle) return {};
+  const connectBuilder = browserTools["connect-builder"];
+  return connectBuilder ? { "connect-builder": connectBuilder } : {};
+}
+
+/**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
  * value is recent invocation timestamps within the rolling window. Stale
  * entries are pruned on read.
@@ -519,6 +533,10 @@ export function createAgentChatPlugin(
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
         extensionTools: options?.extensionTools,
       });
+      const hostedBuilderHandoff = resolveHostedBuilderHandoff(
+        browserTools,
+        canToggle,
+      );
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
       // and callable by other agents via the standard protocol.
@@ -977,10 +995,13 @@ export function createAgentChatPlugin(
       // apps that don't teach these tools by name.
       const corpusToolNames =
         corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
-      const effectiveInitialToolNames =
-        corpusToolNames.length > 0
-          ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
-          : templateInitialToolNames;
+      const effectiveInitialToolNames = [
+        ...new Set([
+          ...templateInitialToolNames,
+          ...corpusToolNames,
+          ...Object.keys(hostedBuilderHandoff),
+        ]),
+      ];
 
       const resolveExtraContext = async (
         event: any,
@@ -2098,6 +2119,7 @@ export function createAgentChatPlugin(
         ...urlTools,
         ...chatScripts,
         ...toolActions,
+        ...hostedBuilderHandoff,
       };
       const anonymousReadOnlyActions = attachToolSearch(
         filterReadOnlyActions(templateScripts),

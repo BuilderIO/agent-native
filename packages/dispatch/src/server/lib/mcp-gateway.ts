@@ -422,6 +422,73 @@ function targetMcpRetryDelay(attempt: number): number {
   return base + Math.floor(Math.random() * 100);
 }
 
+function isTargetMcpAuthError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required|authenticated MCP caller/i.test(
+    message,
+  );
+}
+
+type TargetMcpTokenAttempt = {
+  token: string;
+  strategy: "org" | "global";
+};
+
+async function createTargetMcpTokenAttempts(input: {
+  ownerEmail: string;
+  orgDomain?: string;
+  orgSecret?: string;
+}): Promise<TargetMcpTokenAttempt[]> {
+  const attempts: TargetMcpTokenAttempt[] = [];
+  const addAttempt = async (attempt: {
+    strategy: TargetMcpTokenAttempt["strategy"];
+    secret?: string;
+    preferGlobalSecret: boolean;
+  }) => {
+    const token = await signA2AToken(
+      input.ownerEmail,
+      input.orgDomain,
+      attempt.secret,
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: attempt.preferGlobalSecret,
+      },
+    );
+    if (!attempts.some((candidate) => candidate.token === token)) {
+      attempts.push({ token, strategy: attempt.strategy });
+    }
+  };
+
+  if (input.orgDomain && input.orgSecret) {
+    await addAttempt({
+      strategy: "org",
+      secret: input.orgSecret,
+      preferGlobalSecret: false,
+    });
+    // Workspace apps may not have the org secret synced yet. Only prepare the
+    // shared-secret compatibility attempt when it is configured; the caller
+    // uses it only after the target rejects the org-signed request.
+    if (process.env.A2A_SECRET?.trim()) {
+      await addAttempt({
+        strategy: "global",
+        preferGlobalSecret: true,
+      });
+    }
+  } else {
+    await addAttempt({
+      strategy: "global",
+      preferGlobalSecret: true,
+    });
+  }
+
+  return attempts;
+}
+
 async function callTargetCreateEmbedSession(input: {
   app: DispatchMcpAccessibleApp;
   token: string;
@@ -583,32 +650,52 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     typeof orgSecret === "string" && orgSecret.trim().length > 0;
   const usableOrgDomain =
     typeof orgDomain === "string" && orgDomain.trim().length > 0;
-  const useOrgSigning = usableOrgDomain && usableOrgSecret;
   const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
-  const token = await signA2AToken(
-    userEmail,
-    signedOrgDomain,
-    useOrgSigning ? orgSecret.trim() : undefined,
-    {
-      expiresIn: "5m",
-      // Prefer the synced org A2A secret when present because first-party
-      // production apps do not have to share the same deployment env secret.
-      // Fall back to the global A2A_SECRET for orgs that have not synced yet.
-      preferGlobalSecret: !useOrgSigning,
-    },
-  );
-
-  const result = await callTargetCreateEmbedSession({
-    app: target.app,
-    token,
-    url: target.url,
-    chrome: input.chrome,
+  const tokenAttempts = await createTargetMcpTokenAttempts({
+    ownerEmail: userEmail,
+    orgDomain: signedOrgDomain,
+    orgSecret: usableOrgSecret ? orgSecret.trim() : undefined,
   });
-  const parsed = parseMcpToolTextResult(result) as {
+  let parsed: {
     startUrl?: string;
     targetPath?: string;
     expiresAt?: number;
-  };
+  } | null = null;
+  let lastError: unknown;
+  for (
+    let attemptIndex = 0;
+    attemptIndex < tokenAttempts.length;
+    attemptIndex++
+  ) {
+    const tokenAttempt = tokenAttempts[attemptIndex];
+    try {
+      const result = await callTargetCreateEmbedSession({
+        app: target.app,
+        token: tokenAttempt.token,
+        url: target.url,
+        chrome: input.chrome,
+      });
+      parsed = parseMcpToolTextResult(result) as {
+        startUrl?: string;
+        targetPath?: string;
+        expiresAt?: number;
+      };
+      break;
+    } catch (error) {
+      lastError = error;
+      if (
+        !isTargetMcpAuthError(error) ||
+        attemptIndex >= tokenAttempts.length - 1
+      ) {
+        throw error;
+      }
+    }
+  }
+  if (!parsed) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Target app did not return an embed session.");
+  }
   if (!parsed.startUrl) {
     throw new Error("Target app did not return an embed start URL.");
   }

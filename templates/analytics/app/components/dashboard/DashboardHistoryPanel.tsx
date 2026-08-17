@@ -3,6 +3,7 @@ import { IconHistory, IconLoader2, IconRotate } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,9 +57,12 @@ export function DashboardHistoryPanel({
   canRestore = true,
 }: DashboardHistoryPanelProps) {
   const t = useT();
-  const { data: revisions, isLoading } = useDashboardRevisions(
-    open ? dashboardId : null,
-  );
+  const {
+    data: revisions,
+    isLoading,
+    isError,
+    refetch,
+  } = useDashboardRevisions(open ? dashboardId : null);
   const restoreRevision = useRestoreDashboardRevision(dashboardId);
   const [pendingRestore, setPendingRestore] =
     useState<DashboardRevision | null>(null);
@@ -101,6 +105,13 @@ export function DashboardHistoryPanel({
                   className="animate-spin text-muted-foreground"
                 />
               </div>
+            ) : isError ? (
+              <ResourceLoadError
+                inline
+                message={t("sidebar.dashboardsLoadFailed")}
+                retryLabel={t("sidebar.retry")}
+                onRetry={() => void refetch()}
+              />
             ) : !revisions?.length ? (
               <div className="px-6 py-12 text-center text-xs text-muted-foreground">
                 {t("dashboard.historyEmpty")}

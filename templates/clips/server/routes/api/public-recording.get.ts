@@ -236,6 +236,11 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  const viewerCanComment = Boolean(
+    session?.email &&
+    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
+  );
+
   if (
     rec.visibility !== "public" &&
     !viewerIsOwner &&
@@ -460,6 +465,7 @@ export default defineEventHandler(async (event) => {
     viewer: session?.email
       ? {
           canEdit: viewerIsOwner,
+          canComment: viewerCanComment,
           isOwner: viewerIsOwner,
           role: viewerIsOwner ? "owner" : "viewer",
         }

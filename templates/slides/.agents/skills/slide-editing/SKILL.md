@@ -5,17 +5,27 @@ description: How to edit individual slides -- content formatting, HTML styling r
 
 # Slide Editing
 
-Slides are HTML content stored inside the deck JSON. Each slide's `content` field is a self-contained HTML string that renders at 1920x1080 resolution.
+Slides are HTML content stored inside the deck JSON. Each slide's `content` field is a self-contained HTML string that renders on the native 960x540 16:9 canvas (other aspect ratios use the same native scale contract).
 
 ## Slide HTML Structure
 
 Every slide uses this wrapper:
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;">
+<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;">
   <!-- Slide content here -->
 </div>
 ```
+
+The outer wrapper is persisted and normalized on write. Keep its exact
+`box-sizing`, `width`, `height`, and `padding: 80px 110px` values so refresh,
+presentation mode, and export share one deterministic content area. Center
+title, section, statement, and closing slides with `align-items: center` and
+`text-align: center`; content slides should remain left-aligned.
+
+Never use emoji as decorative icons or bullets. Use HTML entities, CSS shapes,
+or text labels instead, and keep normal-flow content inside the wrapper rather
+than relying on unbounded absolute positioning.
 
 ## Styling Rules
 

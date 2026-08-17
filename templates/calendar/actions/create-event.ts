@@ -20,6 +20,7 @@ import {
   googleColorIdInput,
   ensureOrganizerInAttendees,
   normalizeAttendees,
+  normalizeRecurrence,
   resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
@@ -62,6 +63,12 @@ export default defineAction({
     reminders: remindersInput.describe(
       "Custom reminder overrides, max 5, such as [{method:'popup', minutes:10}].",
     ),
+    recurrence: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe(
+        "Google recurrence rules, such as RRULE:FREQ=DAILY. Pass an empty string or [] for a non-recurring event.",
+      ),
     attachments: attachmentsInput.describe(
       "Google Calendar attachments, max 25. Use Drive or https file URLs, e.g. [{fileUrl,title}].",
     ),
@@ -141,6 +148,7 @@ export default defineAction({
       reminderMethod: args.reminderMethod,
       useDefaultReminders: args.remindersUseDefault,
     });
+    const recurrence = normalizeRecurrence(args.recurrence);
     const statusEventFields = buildStatusEventFields({
       eventType: args.eventType,
       title: args.title,
@@ -168,6 +176,7 @@ export default defineAction({
       attachments: args.attachments,
       colorId: args.colorId,
       ...reminderFields,
+      ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
       ...statusEventFields,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

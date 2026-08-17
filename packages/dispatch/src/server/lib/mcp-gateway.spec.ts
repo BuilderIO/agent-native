@@ -634,6 +634,76 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
   });
 
+  it("falls back to the shared A2A secret when the target rejects org signing", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.signA2AToken
+      .mockResolvedValueOnce("org-signed-token")
+      .mockResolvedValueOnce("global-signed-token");
+    mocks.managerCallTool
+      .mockRejectedValueOnce(
+        new Error(
+          'MCP server "target" is not connected: HTTP 401 Unauthorized',
+        ),
+      )
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer global-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenNthCalledWith(
+      2,
+      "owner@example.test",
+      "builder.io",
+      undefined,
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+      },
+    );
+  });
+
   it("falls back to the shared A2A secret when no org secret is available", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue(null);
