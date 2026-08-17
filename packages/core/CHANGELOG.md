@@ -4,7 +4,19 @@
 
 ### Patch Changes
 
+- b676db8: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
+- b676db8: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
+- b676db8: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- b676db8: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- b676db8: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- b676db8: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- b676db8: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
 - 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
+- b676db8: Format the Portal reference table in the shared core documentation.
+- b676db8: Redact nested callback parameters in desktop magic-link diagnostics.
+- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+- b676db8: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
 
 ## 0.159.4
 

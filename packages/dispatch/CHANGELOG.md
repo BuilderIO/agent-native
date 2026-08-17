@@ -5,6 +5,8 @@
 ### Patch Changes
 
 - 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
+- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
 
 ## 0.27.18
 
