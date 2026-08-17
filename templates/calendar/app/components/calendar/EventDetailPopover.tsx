@@ -549,9 +549,7 @@ export function EventDetailPopover({
   const isRecurringEvent = !!(
     event.recurringEventId || recurrenceRules?.length
   );
-  const recurrenceLoading =
-    isRecurringEvent && !recurrenceRules?.length && masterEvent.isLoading;
-  const canEditRecurrence = !isOverlay && !recurrenceLoading;
+  const canEditRecurrence = !isOverlay && !isWorkingLocation;
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
@@ -1203,31 +1201,33 @@ export function EventDetailPopover({
     [editTimeScope, findTimeTimezone, isRecurringEvent, saveField],
   );
 
-  const handleSaveRecurrence = useCallback(() => {
-    const recurrence = buildRecurrenceRules(
-      editRecurrencePreset,
-      masterEvent.data?.start || event.start,
-      masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
-    );
-    if (!recurrence) {
-      toast.error(t("eventForm.customRepeatGoogleCalendar"));
-      return;
-    }
-    saveField({
-      recurrence,
-      scope: isRecurringEvent ? "all" : "single",
-    });
-    setEditingField(null);
-  }, [
-    editRecurrencePreset,
-    editTimezone,
-    event.start,
-    event.startTimeZone,
-    isRecurringEvent,
-    masterEvent.data?.start,
-    masterEvent.data?.startTimeZone,
-    saveField,
-  ]);
+  const handleSaveRecurrence = useCallback(
+    (preset: RecurrencePreset) => {
+      const recurrence = buildRecurrenceRules(
+        preset,
+        masterEvent.data?.start || event.start,
+        masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
+      );
+      if (!recurrence) {
+        toast.error(t("eventForm.customRepeatGoogleCalendar"));
+        return;
+      }
+      saveField({
+        recurrence,
+        scope: isRecurringEvent ? "all" : "single",
+      });
+    },
+    [
+      editTimezone,
+      event.start,
+      event.startTimeZone,
+      masterEvent.data?.start,
+      masterEvent.data?.startTimeZone,
+      isRecurringEvent,
+      saveField,
+      t,
+    ],
+  );
 
   const handleAddAttendee = useCallback(
     (attendee: AttendeeRecipient) => {
@@ -1348,25 +1348,6 @@ export function EventDetailPopover({
   const locationIsUrl = event.location ? isUrl(event.location) : false;
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
-  const recurrenceText = recurrenceLoading
-    ? t("eventForm.loadingRepeat")
-    : formatRecurrenceText(recurrenceRules) ||
-      (isRecurringEvent
-        ? t("eventForm.repeats")
-        : isOverlay
-          ? null
-          : t("eventForm.doesNotRepeat"));
-  // Show the browser's local timezone offset (this is what the user sees times in)
-  const localOffsetMinutes = -new Date().getTimezoneOffset();
-  const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
-  const localOffsetH = Math.floor(Math.abs(localOffsetMinutes) / 60);
-  const localOffsetM = Math.abs(localOffsetMinutes) % 60;
-  const tzLabel = event.startTimeZone
-    ? formatTimezoneLabel(event.startTimeZone)
-    : localOffsetM
-      ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
-      : `GMT${localOffsetSign}${localOffsetH}`;
-
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       const isPopoverSuppressed =

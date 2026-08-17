@@ -858,21 +858,27 @@ describe("calendar event creation", () => {
     );
   });
 
-  it("sends recurrence rules when creating an event", async () => {
+  it("lets Google derive the summary for working-location events", async () => {
     await createEvent(
       {
         id: "",
-        title: "Daily standup",
+        title: "Neighborhood cafe",
         description: "",
         location: "",
-        start: "2026-07-09T16:00:00.000Z",
-        end: "2026-07-09T16:30:00.000Z",
-        allDay: false,
+        start: "2026-07-08",
+        end: "2026-07-09",
+        allDay: true,
         source: "google",
         accountEmail: "steve@example.com",
-        recurrence: ["RRULE:FREQ=DAILY"],
-        createdAt: "2026-07-09T15:00:00.000Z",
-        updatedAt: "2026-07-09T15:00:00.000Z",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
       },
       {
         account: {
@@ -886,7 +892,69 @@ describe("calendar event creation", () => {
       "access-token",
       "primary",
       expect.objectContaining({
-        recurrence: ["RRULE:FREQ=DAILY"],
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-09" },
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+      }),
+      undefined,
+    );
+    const body = calendarInsertEventMock.mock.calls[0]?.[2];
+    expect(body).not.toHaveProperty("summary");
+    expect(body).not.toHaveProperty("description");
+    expect(body).not.toHaveProperty("location");
+  });
+
+  it("serializes full-day OOO semantics as timed Google event bounds", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Out of office",
+        description: "",
+        location: "",
+        start: "2026-07-31T04:00:00.000Z",
+        end: "2026-08-01T04:00:00.000Z",
+        startTimeZone: "America/Indiana/Indianapolis",
+        endTimeZone: "America/Indiana/Indianapolis",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "opaque",
+        eventType: "outOfOffice",
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+        createdAt: "2026-07-26T14:00:00.000Z",
+        updatedAt: "2026-07-26T14:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        eventType: "outOfOffice",
+        start: {
+          dateTime: "2026-07-31T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        end: {
+          dateTime: "2026-08-01T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
       }),
       undefined,
     );

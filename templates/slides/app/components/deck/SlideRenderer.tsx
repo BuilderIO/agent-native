@@ -162,7 +162,6 @@ export function computeSlideFitTransform({
   contentHeight: number;
   viewportWidth: number;
   viewportHeight: number;
-  measuredHorizontalOverflow?: number;
   minX?: number;
   minY?: number;
   minScale?: number;
@@ -179,6 +178,9 @@ export function computeSlideFitTransform({
     contentWidth - viewportWidth,
     0,
   );
+  // Do not visually zoom for the same small wrapper spill that the warning
+  // intentionally ignores. Positioned objects also report independently, so
+  // their overflow never becomes an accidental scale-to-fit transform.
   const widthToFit =
     rawHorizontalOverflow > HORIZONTAL_OVERFLOW_TOLERANCE_PX
       ? safeContentWidth
@@ -187,6 +189,9 @@ export function computeSlideFitTransform({
   const scale = Math.max(minScale, rawScale);
 
   const rawVerticalOverflow = Math.max(0, contentHeight - viewportHeight);
+  // Small differences are commonly caused by line-box rounding and layout
+  // wrappers. Do not turn that harmless spill into an agent repair request;
+  // significant overflow is still reported at its measured size.
   const verticalOverflow =
     rawVerticalOverflow > VERTICAL_OVERFLOW_TOLERANCE_PX
       ? Math.round(rawVerticalOverflow)
@@ -331,13 +336,12 @@ function measureContentBounds(target: HTMLElement): {
   }
 
   return {
-    contentWidth: Math.max(target.scrollWidth, maxX - minX),
-    contentHeight: Math.max(target.scrollHeight, maxY - minY),
+    contentWidth: Math.max(target.clientWidth, flowMaxX - minX),
+    contentHeight: Math.max(target.clientHeight, flowMaxY - minY, contentMaxY),
     horizontalOverflow: Math.max(
       0,
-      -minX,
-      maxX - (target.clientWidth || cssWidth),
-      target.scrollWidth - (target.clientWidth || cssWidth),
+      -contentMinX,
+      contentMaxX - target.clientWidth,
     ),
     minX,
     minY,
@@ -428,10 +432,11 @@ function useSlideAutofit(
 
       for (const target of targets) {
         if (isEditing) {
-          // Keep the last settled fit while the user edits text. Resetting the
-          // transform here makes a horizontally fitted text box jump as soon
-          // as contentEditable is enabled; the next non-editing measurement
-          // will recompute it after the edit is committed.
+          // Entering inline edit must not change the canvas geometry. The
+          // contenteditable attribute is observed below, so resetting the fit
+          // transform here made a horizontally fitted slide jump as soon as a
+          // user clicked its text. Freeze the most recent fit until the edit
+          // commits, then measure the saved HTML again.
           continue;
         }
 
@@ -453,7 +458,9 @@ function useSlideAutofit(
           target.setAttribute("data-fmd-autofit-active", "true");
         }
 
-        worstOverflow = Math.max(worstOverflow, transform.verticalOverflow);
+        if (transform.verticalOverflow > worstOverflow) {
+          worstOverflow = transform.verticalOverflow;
+        }
         worstHorizontalOverflow = Math.max(
           worstHorizontalOverflow,
           transform.horizontalOverflow,
@@ -1005,59 +1012,6 @@ export function SlideInner({
   // Slides with fmd-slide markup carry their layout in the raw HTML contract;
   // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
-  const overflowByTargetRef = useRef(new Map<string, SlideOverflowInfo>());
-  const reportTargetOverflow = useCallback(
-    (targetKey: string, info: SlideOverflowInfo) => {
-      overflowByTargetRef.current.set(targetKey, info);
-      if (!onOverflowChange) return;
-
-      const measurements = [...overflowByTargetRef.current.values()];
-      onOverflowChange(
-        measurements.reduce(
-          (result, measurement) => ({
-            verticalOverflow: Math.max(
-              result.verticalOverflow,
-              measurement.verticalOverflow,
-            ),
-            horizontalOverflow: Math.max(
-              result.horizontalOverflow,
-              measurement.horizontalOverflow,
-            ),
-            contentHeight: Math.max(
-              result.contentHeight,
-              measurement.contentHeight,
-            ),
-            contentWidth: Math.max(
-              result.contentWidth,
-              measurement.contentWidth,
-            ),
-            viewportHeight: Math.max(
-              result.viewportHeight,
-              measurement.viewportHeight,
-            ),
-            viewportWidth: Math.max(
-              result.viewportWidth,
-              measurement.viewportWidth,
-            ),
-          }),
-          {
-            verticalOverflow: 0,
-            horizontalOverflow: 0,
-            contentHeight: 0,
-            contentWidth: 0,
-            viewportHeight: 0,
-            viewportWidth: 0,
-          },
-        ),
-      );
-    },
-    [onOverflowChange],
-  );
-
-  useEffect(() => {
-    overflowByTargetRef.current.clear();
-  }, [slide.id, content]);
-
   const isRawHtml =
     content.includes('class="fmd-slide"') ||
     content.trimStart().startsWith("<") ||
@@ -1081,6 +1035,7 @@ export function SlideInner({
           fitKey={left}
           className="slide-content text-white/90"
           onOverflowChange={(info) => reportTargetOverflow("left", info)}
+          onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -1095,6 +1050,7 @@ export function SlideInner({
           fitKey={right}
           className="slide-content text-white/90"
           onOverflowChange={(info) => reportTargetOverflow("right", info)}
+          onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -1120,6 +1076,7 @@ export function SlideInner({
           fitKey={content}
           className="h-full w-full"
           onOverflowChange={(info) => reportTargetOverflow("raw", info)}
+          onAutofitSettled={onAutofitSettled}
         >
           <BlankSlideContent content={content} />
         </AutoFitContent>
@@ -1145,6 +1102,7 @@ export function SlideInner({
         fitKey={content}
         className="slide-content text-white/90 w-full"
         onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
+        onAutofitSettled={onAutofitSettled}
       >
         <ReactMarkdown
           components={markdownComponents}

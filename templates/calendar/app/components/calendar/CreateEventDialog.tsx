@@ -71,13 +71,12 @@ import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { buildEventFormInitializationKey } from "@/lib/event-form-initialization";
 import {
   attachmentsToDrafts,
+  buildRecurrenceRules,
   buildReminderPayload,
   createAttachmentDraft,
   createReminderDraft,
   dateTimeInTimezoneToIso,
   getEventEndValidationMessage,
-  getLocalTimezone,
-  buildRecurrenceRules,
   getRecurrencePreset,
   remindersToDraftState,
   resolveEventTimezone,
@@ -475,8 +474,8 @@ export function CreateEventPopover({
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
     const recurrence = buildRecurrenceRules(
       recurrencePreset,
-      effectiveAllDay ? date : startISO,
-      timezone,
+      effectiveAllDay ? date : startValue,
+      eventTimezone,
     );
     const nextDraft: CalendarEventDraft = {
       id: draftId,
@@ -564,7 +563,7 @@ export function CreateEventPopover({
     availability,
     visibility,
     recurrencePreset,
-    timezone,
+    eventTimezone,
     colorId,
     reminderMode,
     reminders,
@@ -764,8 +763,8 @@ export function CreateEventPopover({
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
     const recurrence = buildRecurrenceRules(
       recurrencePreset,
-      effectiveAllDay ? date : startISO,
-      timezone,
+      effectiveAllDay ? date : startValue,
+      eventTimezone,
     );
     const statusPatch =
       eventType === "default"
@@ -1389,6 +1388,43 @@ export function CreateEventPopover({
                       </Select>
                     </div>
 
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-visibility" className="text-xs">
+                        {t("eventForm.visibility")}
+                      </Label>
+                      <Select
+                        value={
+                          eventType === "workingLocation"
+                            ? "public"
+                            : visibility
+                        }
+                        onValueChange={(value) =>
+                          setVisibility(value as Visibility)
+                        }
+                        disabled={eventType === "workingLocation"}
+                      >
+                        <SelectTrigger
+                          id="event-visibility"
+                          className="h-8 text-sm"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">
+                            {t("eventForm.default")}
+                          </SelectItem>
+                          <SelectItem value="public">
+                            {t("eventForm.public")}
+                          </SelectItem>
+                          <SelectItem value="private">
+                            {t("eventForm.private")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <Label htmlFor="event-recurrence" className="text-xs">
                     {t("eventForm.repeats")}
@@ -1433,7 +1469,7 @@ export function CreateEventPopover({
                   </Select>
                 </div>
 
-                {!allDay && (
+                {(!allDay || isOutOfOffice) && (
                   <div className="space-y-1.5">
                     <Label htmlFor="event-timezone" className="text-xs">
                       {t("eventForm.timezone")}

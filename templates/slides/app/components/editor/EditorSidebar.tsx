@@ -21,9 +21,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
-import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { SlideThumbnailContextMenu } from "@/components/editor/SlideThumbnailContextMenu";
+import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import { AddSlidePopover } from "@/components/editor/AddSlidePopover";
+import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
+import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import {
   Tooltip,
   TooltipContent,
@@ -168,9 +169,6 @@ function SortableSlideThumb({
   index,
   isActive,
   onSelect,
-  onDuplicate,
-  onDelete,
-  canDelete,
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
@@ -183,9 +181,7 @@ function SortableSlideThumb({
   index: number;
   isActive: boolean;
   onSelect: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  canDelete: boolean;
+  readOnly?: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
@@ -220,102 +216,77 @@ function SortableSlideThumb({
   const showAiMarker = aiEditing || agentPresent;
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative">
-      <SlideThumbnailContextMenu
-        canDelete={canDelete}
-        onSelect={onSelect}
-        onDuplicate={onDuplicate}
-        onDelete={onDelete}
+    <div ref={setNodeRef} style={style}>
+      <button
+        ref={(node) => registerButtonRef(slide.id, node)}
+        type="button"
+        {...(readOnly ? {} : attributes)}
+        {...(readOnly ? {} : listeners)}
+        onClick={(event) => {
+          // Safari does not focus a button on click, and the slide copy/paste
+          // and delete shortcuts are scoped to a focused thumbnail.
+          event.currentTarget.focus();
+          onSelect();
+        }}
+        onFocus={onSelect}
+        aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
+        aria-current={isActive ? "true" : undefined}
+        data-slide-thumbnail-id={slide.id}
+        className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
+          isActive ? "bg-accent" : ""
+        } ${
+          readOnly ? "" : "cursor-grab active:cursor-grabbing"
+        } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1`}
       >
-        <button
-          ref={(node) => registerButtonRef(slide.id, node)}
-          onClick={onSelect}
-          onFocus={onSelect}
-          aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
-          aria-current={isActive ? "true" : undefined}
-          data-slide-thumbnail-id={slide.id}
-          className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-[background-color,box-shadow] duration-150 ${
-            isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
-          } focus:outline-none`}
-        >
-          {/* Drag handle */}
-          <div
-            {...attributes}
-            {...listeners}
-            className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100"
-          >
-            <IconGripVertical className="w-3.5 h-3.5 text-muted-foreground/70" />
-          </div>
-
-          {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
-          <div className="relative flex-shrink-0 w-5 self-stretch mt-2">
-            <span className="block text-center text-[10px] font-medium text-muted-foreground/70">
-              {index + 1}
-            </span>
-            {presenceUsers.length > 0 && (
-              <div className="absolute left-1/2 top-6 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
-                {presenceUsers.slice(0, 4).map((u, i) => (
-                  <PresenceAvatarTip key={i} user={u} size={16} />
-                ))}
-                {presenceUsers.length > 4 && (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
-                    +{presenceUsers.length - 4}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Thumbnail */}
-          <div className="flex-1 min-w-0">
-            <div
-              className="w-full overflow-hidden rounded border"
-              style={{
-                borderColor:
-                  presenceUsers.length > 0
-                    ? presenceUsers[0].color + "66"
-                    : "rgba(255,255,255,0.06)",
-              }}
-            >
-              <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
+        {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
+        <div className="relative flex-shrink-0 w-4 self-stretch">
+          <span className="block text-center text-[10px] font-medium leading-5 text-muted-foreground/70">
+            {index + 1}
+          </span>
+          {(showAiMarker || humanPresenceUsers.length > 0) && (
+            <div className="absolute left-1/2 top-5 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
+              {showAiMarker && (
+                <AiEditingMarker className="size-4 text-[8px]" />
+              )}
+              {humanPresenceUsers.slice(0, 4).map((u, i) => (
+                <PresenceAvatarTip key={i} user={u} size={14} />
+              ))}
+              {humanPresenceUsers.length > 4 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[8px] font-medium leading-none text-muted-foreground ring-1 ring-black/40">
+                  +{humanPresenceUsers.length - 4}
+                </span>
+              )}
             </div>
-          </div>
-        </button>
-      </SlideThumbnailContextMenu>
+          )}
+        </div>
 
-      {/* Actions - always visible on touch devices */}
-      <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDuplicate();
-              }}
-              className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
-              aria-label={t("editorSidebar.duplicateSlide")}
-            >
-              <IconCopy className="w-3 h-3 text-white/60" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorSidebar.duplicate")}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
-              aria-label={t("editorSidebar.deleteSlide")}
-            >
-              <IconTrash className="w-3 h-3 text-white/60" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorSidebar.delete")}</TooltipContent>
-        </Tooltip>
-      </div>
+        {/* Thumbnail */}
+        <div className="flex-1 min-w-0">
+          {/* Each thumbnail paints a full-resolution slide canvas scaled down by
+           * transform, so a long rail keeps dozens of large layers live and the
+           * browser drops frames or paints stale tiles. `content-visibility`
+           * lets it skip everything below the fold; `aspect-ratio` keeps the row
+           * the right height while its contents are skipped. */}
+          <div
+            className="w-full overflow-hidden rounded border"
+            style={{
+              borderColor:
+                humanPresenceUsers.length > 0
+                  ? humanPresenceUsers[0].color + "66"
+                  : "rgba(255,255,255,0.06)",
+              aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
+              contentVisibility: "auto",
+            }}
+          >
+            <SlideRenderer
+              slide={slide}
+              aspectRatio={aspectRatio}
+              designSystem={designSystem}
+              onOverflowChange={onOverflowChange}
+            />
+          </div>
+        </div>
+      </button>
     </div>
   );
 }
@@ -550,61 +521,9 @@ export default function EditorSidebar({
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
       <div
-        ref={thumbScrollRef}
-        className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2"
-      >
-        <SortableContext
-          items={slides.map((s) => s.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {slides.map((slide, index) => (
-            <SortableSlideThumb
-              key={slide.id}
-              slide={slide}
-              index={index}
-              isActive={slide.id === activeSlideId}
-              onSelect={() => onSelectSlide(slide.id)}
-              onDuplicate={() => onDuplicateSlide(slide.id)}
-              onDelete={() => onDeleteSlide(slide.id)}
-              canDelete={slides.length > 1}
-              registerButtonRef={registerSlideButton}
-              presenceUsers={slidePresence?.get(slide.id) ?? []}
-              aspectRatio={aspectRatio}
-            />
-          ))}
-        </SortableContext>
-        {addSlideGenerating && (
-          <GeneratingSlideSkeleton
-            index={slides.length}
-            aspectRatio={aspectRatio}
-          />
-        )}
-        {/* Fading "AI edited" highlights over the thumbnails of just-edited
-            slides (the component handles the fade + name/color tag). */}
-        {recentEdits && recentEdits.length > 0 && (
-          <RecentEditHighlights
-            edits={recentEdits}
-            resolveRect={resolveThumbRect}
-            containerRef={thumbScrollRef}
-          />
-        )}
-      </div>
-
-      <AddSlidePopover
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        anchorRef={headerAddRef}
-        deckId={deckId}
-        deckTitle={deckTitle}
-        activeSlideId={activeSlideId}
-        slideCount={slides.length}
-        activeSlideIndex={activeIndex >= 0 ? activeIndex : 0}
-        agentSubmit={(msg, ctx) => {
-          setAddSlideGenerating(true);
-          agentSubmit(msg, ctx);
-        }}
-        onDuplicateCurrent={
-          activeSlideId ? () => onDuplicateSlide(activeSlideId) : undefined
+        className="relative min-h-0 flex-1"
+        data-slides-thumbnail-scroll={
+          thumbnailListScrolled ? "scrolled" : "top"
         }
       >
         <div

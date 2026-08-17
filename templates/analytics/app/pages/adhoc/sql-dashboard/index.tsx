@@ -445,51 +445,67 @@ function parseDashboardCatalogMetadata(
   };
 }
 
-async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
-  const data: any = await callAction(
-    "get-sql-dashboard",
-    { id, includeConfig: true },
-    { method: "GET" },
-  );
-  if (!data) return null;
-  if (data.error) {
-    throw new Error(
-      typeof data.message === "string" && data.message
-        ? data.message
-        : typeof data.error === "string"
-          ? data.error
-          : "Dashboard load failed",
+async function fetchDashboard(
+  id: string,
+  options?: { reportScreenshot?: boolean },
+): Promise<FetchedDashboard | null> {
+  try {
+    const data: any = await callAction(
+      "get-sql-dashboard",
+      { id, includeConfig: true },
+      {
+        method: "GET",
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS }
+          : {}),
+      },
     );
+    if (!data) return null;
+    if (data.error) {
+      throw new Error(
+        typeof data.message === "string" && data.message
+          ? data.message
+          : typeof data.error === "string"
+            ? data.error
+            : "Dashboard bootstrap failed",
+      );
+    }
+    return {
+      id,
+      config: {
+        name: data.name ?? "Untitled Dashboard",
+        description: data.description,
+        parentId:
+          typeof data.parentId === "string" && data.parentId.trim().length > 0
+            ? data.parentId
+            : undefined,
+        catalog: parseDashboardCatalogMetadata(data.catalog),
+        demo: parseDashboardDemoMetadata(data.demo),
+        filters: data.filters,
+        variables: data.variables,
+        columns: typeof data.columns === "number" ? data.columns : undefined,
+        panels: data.panels ?? [],
+      },
+      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+      visibility:
+        data.visibility === "org" || data.visibility === "public"
+          ? data.visibility
+          : "private",
+      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
+      role: typeof data.role === "string" ? data.role : undefined,
+      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+      canManage:
+        typeof data.canManage === "boolean" ? data.canManage : undefined,
+    };
+  } catch (error) {
+    if (options?.reportScreenshot) throw error;
+    return null;
   }
-  return {
-    id,
-    config: {
-      name: data.name ?? "Untitled Dashboard",
-      description: data.description,
-      parentId:
-        typeof data.parentId === "string" && data.parentId.trim().length > 0
-          ? data.parentId
-          : undefined,
-      catalog: parseDashboardCatalogMetadata(data.catalog),
-      demo: parseDashboardDemoMetadata(data.demo),
-      filters: data.filters,
-      variables: data.variables,
-      columns: typeof data.columns === "number" ? data.columns : undefined,
-      panels: data.panels ?? [],
-    },
-    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-    hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-    hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-    visibility:
-      data.visibility === "org" || data.visibility === "public"
-        ? data.visibility
-        : "private",
-    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
-    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-    role: typeof data.role === "string" ? data.role : undefined,
-    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
-  };
 }
 
 function DashboardReportCaptureSurface({
@@ -688,8 +704,6 @@ function SqlDashboardPageContent({
       ? DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS
       : undefined,
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
-    retry: false,
     initialData: () => {
       if (!dashboardId) return undefined;
       const snapshot = queryClient.getQueryData<
@@ -2047,6 +2061,14 @@ function SqlDashboardPageContent({
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         {t("sqlDashboard.noDashboardSelected")}
       </div>
+    );
+  }
+
+  if (reportScreenshot && dashboardQuery.isError) {
+    return (
+      <DashboardReportCaptureSurface phase="error" error={dashboardQuery.error}>
+        <DashboardSkeleton />
+      </DashboardReportCaptureSurface>
     );
   }
 

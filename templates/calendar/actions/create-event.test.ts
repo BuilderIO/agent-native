@@ -10,6 +10,7 @@ const { createEventMock, getAuthStatusMock, isConnectedMock } = vi.hoisted(
 
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: vi.fn(),
+  registerEvent: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({

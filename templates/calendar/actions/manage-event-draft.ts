@@ -19,6 +19,7 @@ import {
   eventTypeInput,
   googleColorIdInput,
   normalizeAttendees,
+  normalizeCreateEventInput,
   normalizeRecurrence,
   reminderMethodInput,
   reminderMinutesInput,

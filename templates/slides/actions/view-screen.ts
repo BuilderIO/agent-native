@@ -251,33 +251,30 @@ export default defineAction({
       }
 
       // ─── Layout-fit measurement ──────────────────────────────────────────
-      // The editor measures the rendered slide and reports overflow here
-      // whenever natural content exceeds the canvas content area. If this
-      // block is present, the current slide's HTML needs to be rewritten.
-      const overflow = (await readAppStateForCurrentTab("slide-fit-check")) as {
-        slideId?: string;
-        verticalOverflow?: number;
-        horizontalOverflow?: number;
-        contentHeight?: number;
-        contentWidth?: number;
-        viewportHeight?: number;
-        viewportWidth?: number;
-      } | null;
+      // The editor measures the rendered slide and reports vertical overflow
+      // here whenever the natural content bounds exceed the canvas content
+      // area. If this block is present, the current slide's HTML needs to be
+      // rewritten to fit the canvas.
+      const currentSlideMeasurement = getCurrentSlideFitMeasurement(
+        await readAppStateForCurrentTab("slide-fit-check"),
+        currentSlide,
+        rows[0].id,
+      );
+      const verticalOverflow = currentSlideMeasurement?.verticalOverflow ?? 0;
+      const horizontalOverflow =
+        currentSlideMeasurement?.horizontalOverflow ?? 0;
       if (
-        overflow &&
-        typeof overflow.verticalOverflow === "number" &&
-        (overflow.verticalOverflow > 0 ||
-          (overflow.horizontalOverflow ?? 0) > 0) &&
-        overflow.slideId === currentSlide?.id
+        currentSlideMeasurement &&
+        (verticalOverflow > 0 || horizontalOverflow > 0)
       ) {
         lines.push(``);
         lines.push(`### ⚠ Layout overflows the canvas`);
         lines.push(
-          `This slide's natural rendered size is ${overflow.contentWidth ?? "unknown"}x${overflow.contentHeight}px, ` +
-            `but the canvas content area is ${overflow.viewportWidth ?? "unknown"}x${overflow.viewportHeight}px ` +
-            `(vertical overflow: ${overflow.verticalOverflow}px; horizontal overflow: ${overflow.horizontalOverflow ?? 0}px). The renderer no longer ` +
-            `auto-shrinks overflowing slides - you must rewrite the slide HTML so ` +
-            `the rendered content fits the canvas. Options, ` +
+          `This slide's natural rendered content is ${currentSlideMeasurement.contentWidth}x${currentSlideMeasurement.contentHeight}px, ` +
+            `but the canvas content area is ${currentSlideMeasurement.viewportWidth}x${currentSlideMeasurement.viewportHeight}px ` +
+            `(overflow: ${verticalOverflow}px vertical, ${horizontalOverflow}px horizontal). The renderer no longer ` +
+            `auto-shrinks overflowing slides — you must rewrite the slide HTML so ` +
+            `the rendered content fits the measured content area. Options, ` +
             `in order of preference: (1) tighten copy — shorter headings/bullets, ` +
             `drop low-value lines; (2) reduce vertical density — fewer stacked ` +
             `cards, smaller gaps, slightly smaller body font (not below 16px); ` +

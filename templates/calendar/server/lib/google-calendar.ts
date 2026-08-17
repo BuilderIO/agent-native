@@ -305,6 +305,7 @@ function applyEventOptions(body: any, event: CalendarEvent): void {
   if (event.status !== undefined) body.status = event.status;
   if (event.colorId !== undefined) body.colorId = event.colorId;
   if (event.recurrence !== undefined) body.recurrence = event.recurrence;
+  if (event.recurrence !== undefined) body.recurrence = event.recurrence;
   if (event.remindersUseDefault !== undefined) {
     body.reminders = event.remindersUseDefault
       ? { useDefault: true }

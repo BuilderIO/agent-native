@@ -6,16 +6,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TranscriptPanel } from "./transcript-panel";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appPath: (path: string) => path,
-  cn: (...classes: Array<string | false | null | undefined>) =>
-    classes.filter(Boolean).join(" "),
+}));
+
+vi.mock("@agent-native/core/client/settings", () => ({
   openBuilderConnectPopup: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
     values
       ? key.replace(/\{\{(\w+)\}\}/g, (_, name: string) => values[name] ?? "")
       : key,
+}));
+
+vi.mock("@/lib/utils", () => ({
+  cn: (...classes: Array<string | false | null | undefined>) =>
+    classes.filter(Boolean).join(" "),
 }));
 
 describe("TranscriptPanel no-audio failures", () => {

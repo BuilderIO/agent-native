@@ -32,24 +32,13 @@ in scope. Keep the code change and the external reply equally evidence-based.
 
 ## Decision Gate
 
-Use this gate before reacting, editing code, or posting a reply. It applies to
-the whole sweep, not only the newest thread.
-
-1. **Concrete bug** - the report names an observable bad behavior or regression.
-   Add `👀`, investigate it, and keep working until the repo-owned fix is
-   implemented and verified. Do not reply with a diagnosis while leaving the
-   fix undone if the code can be changed safely.
-2. **Missing evidence** - after exhausting the thread, replies, linked files,
-   run IDs, app state, history, and source, a safe fix still cannot be chosen.
-   Add `👀` and ask one specific question naming the exact missing surface,
-   reproduction, or input needed to fix and verify it.
-3. **Subjective/product request** - a preference, feature idea, design opinion,
-   or future product direction without a concrete broken behavior. Do nothing:
-   no `👀`, no reply, and no code change.
-4. **Policy, informational, bot-forward, status-only, or non-repo-owned item**
-   - do nothing unless the user explicitly assigns a concrete repo action and
-   the available evidence identifies one. An existing answer from the owning
-   team is not a reason to add a reaction or repeat it.
+Use `address-feedback`'s **Choose the fix altitude** gate before reacting or
+editing. It decides whether the smallest owning seam, a shared contract,
+discovery/registry, or build/deploy diagnosis is appropriate; it also prevents
+one subjective report from becoming a global instruction. This workflow adds
+the Slack disposition: react to concrete bugs or missing-evidence investigations
+with `👀`, and leave subjective, informational, policy, and non-repo-owned
+items untouched unless the user explicitly puts them in scope.
 
 Every actionable thread must end in exactly one external state: **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and

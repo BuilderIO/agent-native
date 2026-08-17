@@ -212,6 +212,82 @@ describe("CommentsPanel reply composer", () => {
     });
   });
 
+  it("only offers comment editing to the comment author", () => {
+    expect(container.querySelector('[aria-haspopup="menu"]')).toBeNull();
+
+    renderPanel("AUTHOR@example.com");
+
+    expect(container.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+  });
+
+  it("prefills and saves an author's comment inline", async () => {
+    renderPanel("author@example.com");
+
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-haspopup="menu"]',
+    );
+    await openMenu(menuTrigger);
+
+    const editItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "commentsPanel.editComment");
+    expect(editItem).toBeDefined();
+
+    await act(async () => {
+      editItem?.click();
+      await Promise.resolve();
+    });
+
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="commentsPanel.editComment"]',
+    );
+    expect(editor?.value).toBe(rootComment.content);
+    expect(document.activeElement).toBe(editor);
+
+    act(() => {
+      if (!editor) return;
+      setTextareaValue(editor, "Updated comment");
+    });
+
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "common.save",
+    );
+    act(() => save?.click());
+
+    expect(actionMocks.updateComment).toHaveBeenCalledWith({
+      id: "comment-1",
+      content: "Updated comment",
+    });
+  });
+
+  it("cancels comment editing without saving", async () => {
+    renderPanel("author@example.com");
+
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-haspopup="menu"]',
+    );
+    await openMenu(menuTrigger);
+    const editItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "commentsPanel.editComment");
+    await act(async () => {
+      editItem?.click();
+      await Promise.resolve();
+    });
+
+    const cancel = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "common.cancel",
+    );
+    act(() => cancel?.click());
+
+    expect(
+      container.querySelector(
+        'textarea[aria-label="commentsPanel.editComment"]',
+      ),
+    ).toBeNull();
+    expect(actionMocks.updateComment).not.toHaveBeenCalled();
+  });
+
   it("submits a new comment for a signed-in viewer", () => {
     const newComment = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',

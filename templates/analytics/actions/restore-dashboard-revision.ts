@@ -34,7 +34,7 @@ export default defineAction({
       resolveScope(),
       args.expectedUpdatedAt,
     );
-    if (!dashboard) {
+    if (!restored) {
       throw Object.assign(
         new Error(
           `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,

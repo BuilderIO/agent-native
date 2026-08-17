@@ -1024,73 +1024,6 @@ function targetMcpRetryDelay(attempt: number): number {
   return base + Math.floor(Math.random() * 100);
 }
 
-function isTargetMcpAuthError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-  return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required|authenticated MCP caller/i.test(
-    message,
-  );
-}
-
-type TargetMcpTokenAttempt = {
-  token: string;
-  strategy: "org" | "global";
-};
-
-async function createTargetMcpTokenAttempts(input: {
-  ownerEmail: string;
-  orgDomain?: string;
-  orgSecret?: string;
-}): Promise<TargetMcpTokenAttempt[]> {
-  const attempts: TargetMcpTokenAttempt[] = [];
-  const addAttempt = async (attempt: {
-    strategy: TargetMcpTokenAttempt["strategy"];
-    secret?: string;
-    preferGlobalSecret: boolean;
-  }) => {
-    const token = await signA2AToken(
-      input.ownerEmail,
-      input.orgDomain,
-      attempt.secret,
-      {
-        expiresIn: "5m",
-        preferGlobalSecret: attempt.preferGlobalSecret,
-      },
-    );
-    if (!attempts.some((candidate) => candidate.token === token)) {
-      attempts.push({ token, strategy: attempt.strategy });
-    }
-  };
-
-  if (input.orgDomain && input.orgSecret) {
-    await addAttempt({
-      strategy: "org",
-      secret: input.orgSecret,
-      preferGlobalSecret: false,
-    });
-    // Workspace apps may not have the org secret synced yet. Only prepare the
-    // shared-secret compatibility attempt when it is configured; the caller
-    // uses it only after the target rejects the org-signed request.
-    if (process.env.A2A_SECRET?.trim()) {
-      await addAttempt({
-        strategy: "global",
-        preferGlobalSecret: true,
-      });
-    }
-  } else {
-    await addAttempt({
-      strategy: "global",
-      preferGlobalSecret: true,
-    });
-  }
-
-  return attempts;
-}
-
 async function callTargetCreateEmbedSession(input: {
   app: DispatchMcpAccessibleApp;
   token: string;
@@ -1356,9 +1289,14 @@ async function createEmbedSessionForResolvedApp(input: {
     typeof orgDomain === "string" && orgDomain.trim().length > 0;
   const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const tokenAttempts = await createTargetMcpTokenAttempts({
-    ownerEmail: userEmail,
+    ownerEmail,
     orgDomain: signedOrgDomain,
     orgSecret: usableOrgSecret ? orgSecret.trim() : undefined,
+    target: target.app,
+  });
+  const targetDetails = targetMcpRequestDetails({
+    app: target.app,
+    url: target.url,
   });
   let parsed: {
     startUrl?: string;
@@ -1372,12 +1310,18 @@ async function createEmbedSessionForResolvedApp(input: {
     attemptIndex++
   ) {
     const tokenAttempt = tokenAttempts[attemptIndex];
+    console.info("[dispatch] workspace embed target request", {
+      ...targetDetails,
+      authStrategy: tokenAttempt.strategy,
+      attempt: attemptIndex + 1,
+      attempts: tokenAttempts.length,
+    });
     try {
       const result = await callTargetCreateEmbedSession({
         app: target.app,
         token: tokenAttempt.token,
         url: target.url,
-        chrome: input.chrome,
+        chrome,
       });
       parsed = parseMcpToolTextResult(result) as {
         startUrl?: string;
@@ -1387,6 +1331,17 @@ async function createEmbedSessionForResolvedApp(input: {
       break;
     } catch (error) {
       lastError = error;
+      console.warn("[dispatch] workspace embed target response", {
+        ...targetDetails,
+        authStrategy: tokenAttempt.strategy,
+        attempt: attemptIndex + 1,
+        status: targetMcpErrorStatus(error),
+        category: isTargetMcpAuthError(error)
+          ? "authentication"
+          : isRetryableTargetMcpError(error)
+            ? "transient"
+            : "permanent",
+      });
       if (
         !isTargetMcpAuthError(error) ||
         attemptIndex >= tokenAttempts.length - 1

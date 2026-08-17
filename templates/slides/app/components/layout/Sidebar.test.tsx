@@ -42,7 +42,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "sidebar.search": "Search",
       "sidebar.expandSidebar": "Expand sidebar",
       "sidebar.collapseSidebar": "Collapse sidebar",
-      "root.toggleTheme": "Toggle theme",
     })[key] ?? key,
 }));
 vi.mock("@agent-native/toolkit/app-shell", () => ({
@@ -64,9 +63,6 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 }));
 vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => null,
-}));
-vi.mock("next-themes", () => ({
-  useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }),
 }));
 
 import { Sidebar } from "./Sidebar";
@@ -94,7 +90,6 @@ describe("<Sidebar collapsed>", () => {
 
     expect(screen.queryByText("Slides")).toBeNull();
     expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
-    expect(screen.getByRole("button", { name: "Toggle theme" })).toBeDefined();
   });
 
   it("hides nav labels but keeps each nav item as a clickable icon with a tooltip", () => {
@@ -141,7 +136,6 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Decks")).toBeDefined();
     expect(screen.getByText("Design Systems")).toBeDefined();
     expect(screen.getByText("Settings")).toBeDefined();
-    expect(screen.getByRole("button", { name: "Toggle theme" })).toBeDefined();
 
     const collapseBtn = screen.getAllByLabelText("Collapse sidebar")[0];
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));

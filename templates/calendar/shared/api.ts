@@ -146,7 +146,6 @@ export interface CalendarEventDraft {
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;
-  recurrence?: string[];
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
   recurrence?: CalendarEvent["recurrence"];

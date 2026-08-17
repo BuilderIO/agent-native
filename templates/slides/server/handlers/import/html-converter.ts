@@ -1682,13 +1682,8 @@ function buildTitleSlide(
   const titleText = titlePara.map(formatRun).join(" ") || "Untitled Slide";
   const subtitleText = subtitlePara.map(formatRun).join(" ");
 
-  let imageHtml = "";
-  if (slide.images.length > 0) {
-    imageHtml = `\n    <div class="fmd-img-placeholder" style="width: 100%; height: 200px; border-radius: 12px; margin-top: 32px;">Imported image: ${esc(slide.images[0].name)}</div>`;
-  }
-
-  return `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
-    <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}${imageHtml}
+  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: ${fontFamily};">
+    <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}
 </div>`;
 }
 
@@ -1720,12 +1715,7 @@ ${bulletItems}
     </div>`;
   }
 
-  let imageHtml = "";
-  if (slide.images.length > 0) {
-    imageHtml = `\n    <div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px; margin-top: 24px;">Imported image: ${esc(slide.images[0].name)}</div>`;
-  }
-
-  return `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
+  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
     <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
     <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${headingText}</h2>${bulletsHtml}
 </div>`;
@@ -1840,10 +1830,9 @@ function buildStackedImageSlide(
     `display: block; max-width: 100%; max-height: 320px; aspect-ratio: ${aspectRatio}; border-radius: 12px; margin: 0 auto 24px;`,
   );
 
-  return `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
-    <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
-    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 32px 0;">${headingText}</h2>
-    <div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">Imported image: ${esc(imageName)}</div>${captionText ? `\n    <p style="font-size: 18px; color: rgba(255,255,255,0.55); margin: 24px 0 0 0;">${captionText}</p>` : ""}
+  return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
+    ${imageHtml}
+    <h2 style="font-size: 32px; font-weight: 900; color: #fff; /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    ${captionText}` : ""}
 </div>`;
 }
 
@@ -1873,7 +1862,7 @@ export function convertSectionsToSlides(
     if (lines.length === 0) {
       // Section with just a heading becomes a section divider
       slides.push(
-        `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
+        `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
     <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;">${String(slides.length + 1).padStart(2, "0")}</div>
     <h2 style="font-size: 72px; font-weight: 900; color: #fff; line-height: 1.05; letter-spacing: -2px; margin: 0;">${esc(heading)}</h2>
 </div>`,
@@ -1897,7 +1886,7 @@ export function convertSectionsToSlides(
         .join("\n");
 
       slides.push(
-        `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
+        `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
     <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
     <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${esc(heading)}</h2>
     <div style="display: flex; flex-direction: column; gap: 20px;">

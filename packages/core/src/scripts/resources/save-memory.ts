@@ -8,6 +8,7 @@
 
 import { resourcePut, resourceGetByPath } from "../../resources/store.js";
 import {
+  getAmbientUserEmail,
   getRequestRunContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
@@ -35,7 +36,10 @@ export default async function saveMemoryScript(args: string[]): Promise<void> {
   const content = parsed.content;
   if (!content) fail("--content is required");
 
-  const owner = getRequestRunContext()?.owner ?? getRequestUserEmail();
+  const owner =
+    getRequestRunContext()?.owner ??
+    getRequestUserEmail() ??
+    getAmbientUserEmail();
   if (!owner) {
     fail(
       "save-memory requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

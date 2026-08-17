@@ -113,80 +113,66 @@ describe("booking availability", () => {
     ]);
   });
 
-  it("narrows slots to the overlap with an eligible host schedule", () => {
+  it("omits slots that overlap existing calendar conflicts", () => {
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",
       duration: 30,
       config: availabilityConfig(),
-      conflictItems: [],
-      hostSchedules: [
+      conflictItems: [
         {
-          email: "peer@example.com",
-          timezone: "America/Los_Angeles",
-          weeklySchedule: {
-            monday: {
-              enabled: true,
-              slots: [{ start: "10:00", end: "11:00" }],
-            },
-            tuesday: { enabled: false, slots: [] },
-            wednesday: { enabled: false, slots: [] },
-            thursday: { enabled: false, slots: [] },
-            friday: { enabled: false, slots: [] },
-            saturday: { enabled: false, slots: [] },
-            sunday: { enabled: false, slots: [] },
-          },
+          start: "2026-07-20T16:30:00.000Z",
+          end: "2026-07-20T17:30:00.000Z",
         },
       ],
     });
 
     expect(slots.map((slot) => slot.start)).toEqual([
-      "2026-07-20T17:00:00.000Z",
+      "2026-07-20T16:00:00.000Z",
       "2026-07-20T17:30:00.000Z",
+      "2026-07-20T18:00:00.000Z",
+      "2026-07-20T18:30:00.000Z",
     ]);
   });
 
-  it("returns no slots when an eligible host schedule does not overlap", () => {
+  it("offers slots from each disjoint availability window", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "10:00" },
+      { start: "14:00", end: "15:00" },
+    ];
+
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",
       duration: 30,
-      config: availabilityConfig(),
+      config,
       conflictItems: [],
-      hostSchedules: [
-        {
-          email: "peer@example.com",
-          timezone: "America/Los_Angeles",
-          weeklySchedule: {
-            monday: { enabled: false, slots: [] },
-            tuesday: { enabled: false, slots: [] },
-            wednesday: { enabled: false, slots: [] },
-            thursday: { enabled: false, slots: [] },
-            friday: { enabled: false, slots: [] },
-            saturday: { enabled: false, slots: [] },
-            sunday: { enabled: false, slots: [] },
-          },
-        },
-      ],
     });
 
-    expect(slots).toEqual([]);
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T16:30:00.000Z",
+      "2026-07-20T21:00:00.000Z",
+      "2026-07-20T21:30:00.000Z",
+    ]);
   });
 
-  it("leaves slots unchanged for a host with no saved schedule", () => {
-    const withoutHost = generateAvailableSlotsForDate({
+  it("does not publish duplicate slots from overlapping availability windows", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "12:00" },
+      { start: "11:00", end: "14:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",
-      duration: 45,
-      config: availabilityConfig(),
+      duration: 60,
+      config,
       conflictItems: [],
-    });
-    const withUnscheduledHost = generateAvailableSlotsForDate({
-      date: "2026-07-20",
-      duration: 45,
-      config: availabilityConfig(),
-      conflictItems: [],
-      hostSchedules: [{ email: "peer@example.com" }],
     });
 
-    expect(withUnscheduledHost).toEqual(withoutHost);
+    expect(new Set(slots.map((slot) => `${slot.start}/${slot.end}`)).size).toBe(
+      slots.length,
+    );
   });
 
   it("marks owner availability unavailable when Google is not connected", async () => {

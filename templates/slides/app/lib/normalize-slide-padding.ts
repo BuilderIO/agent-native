@@ -1,49 +1,50 @@
-const CANONICAL_SLIDE_PADDING = "80px 110px";
-
 /**
- * Force the canonical padding on the outer `.fmd-slide` wrapper when the
- * agent supplies slide HTML. Models drift on numeric values during
- * regeneration - most often dropping the second padding arg, which collapses
- * horizontal padding from 110px to 80px and makes a layout look shifted.
+ * Ensure the outer `.fmd-slide` wrapper has a padding declaration.
  *
- * This intentionally uses a small attribute scanner instead of matching one
- * exact attribute order. Saved HTML can come from an agent, an import, or the
- * browser editor, and all three legitimately produce different quote styles
- * and class lists. Normalizing at every server-side write makes the padding
- * survive a refresh instead of depending on the last renderer's DOM.
+ * Explicit padding is part of the slide layout, so preserve it. In particular,
+ * an overflow repair often needs to reduce vertical padding; rewriting that
+ * value here makes a successful-looking agent edit a no-op in the renderer.
  */
 export function normalizeSlidePadding(html: string): string {
-  const openingTagPattern = /<div\b[^>]*>/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = openingTagPattern.exec(html))) {
+  for (const match of html.matchAll(/<div\b[^>]*>/gi)) {
     const openingTag = match[0];
     const classMatch = /\bclass\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
-    if (!classMatch || !/(^|\s)fmd-slide(?:\s|$)/i.test(classMatch[2])) {
-      continue;
-    }
+
+    if (!classMatch || !/\bfmd-slide\b/i.test(classMatch[2])) continue;
 
     const styleMatch = /\bstyle\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
-    const nextStyle = normalizeStyleAttribute(styleMatch?.[2] ?? "");
-    const nextOpeningTag = styleMatch
-      ? openingTag.slice(0, styleMatch.index) +
-        `style=${styleMatch[1]}${nextStyle}${styleMatch[1]}` +
-        openingTag.slice(styleMatch.index + styleMatch[0].length)
-      : openingTag.replace(/\s*\/?>$/, ` style="${nextStyle}"$&`);
+    if (styleMatch) {
+      const style = styleMatch[2];
+      if (/(?:^|;)\s*padding\s*:/i.test(style)) return html;
 
-    return `${html.slice(0, match.index)}${nextOpeningTag}${html.slice(match.index + openingTag.length)}`;
+      const nextStyle = `padding: 80px 110px;${
+        style.startsWith(" ") ? "" : " "
+      }${style}`;
+      const nextStyleAttribute = styleMatch[0].replace(style, nextStyle);
+      const nextOpeningTag = openingTag.replace(
+        styleMatch[0],
+        nextStyleAttribute,
+      );
+
+      return (
+        html.slice(0, match.index) +
+        nextOpeningTag +
+        html.slice(match.index + openingTag.length)
+      );
+    }
+
+    const classEnd = classMatch.index + classMatch[0].length;
+    const nextOpeningTag =
+      openingTag.slice(0, classEnd) +
+      ' style="padding: 80px 110px;"' +
+      openingTag.slice(classEnd);
+
+    return (
+      html.slice(0, match.index) +
+      nextOpeningTag +
+      html.slice(match.index + openingTag.length)
+    );
   }
 
   return html;
-}
-
-function normalizeStyleAttribute(style: string): string {
-  const withCanonicalPadding = /(?:^|;)\s*padding\s*:/i.test(style)
-    ? style.replace(
-        /(^|;)\s*padding\s*:\s*[^;]*/i,
-        `$1 padding: ${CANONICAL_SLIDE_PADDING}`,
-      )
-    : `padding: ${CANONICAL_SLIDE_PADDING};${style ? ` ${style}` : ""}`;
-
-  return withCanonicalPadding.replace(/^\s+/, "");
 }

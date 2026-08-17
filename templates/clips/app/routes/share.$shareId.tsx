@@ -20,7 +20,6 @@ import {
   IconDeviceDesktop,
   IconDownload,
   IconDots,
-  IconExternalLink,
   IconLock,
   IconLogin2,
 } from "@tabler/icons-react";
@@ -447,7 +446,6 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
-  const [activeTab, setActiveTab] = useState("comments");
   const { session, isLoading: sessionLoading } = useSession();
   const requestAccess = useActionMutation<
     {
@@ -654,7 +652,18 @@ export default function ShareRoute() {
         : 401
       : null);
   const firstCta = ctas[0] ?? null;
-  const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+  const viewerRole = dataQ.data?.data?.viewer?.role as
+    | "owner"
+    | "admin"
+    | "editor"
+    | "commenter"
+    | "viewer"
+    | undefined;
+  const viewerCanEdit =
+    Boolean(dataQ.data?.data?.viewer?.canEdit) ||
+    viewerRole === "owner" ||
+    viewerRole === "admin" ||
+    viewerRole === "editor";
   const viewerCanComment = Boolean(dataQ.data?.data?.viewer?.canComment);
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const canReshareLink =
@@ -1124,19 +1133,14 @@ export default function ShareRoute() {
           </div>
 
           <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
-            {viewerCanEdit ? (
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={appPath(`/r/${recording.id}`)}
-                  className="min-w-0 gap-1.5"
-                >
-                  <span className="truncate">
-                    {t("sharePage.openDashboard")}
-                  </span>
-                  <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
-                </a>
-              </Button>
-            ) : session ? null : (
+            <RecordingViewsBadge
+              recordingId={recording.id}
+              viewCount={viewCount}
+              agentViewCount={agentViewCount}
+              canViewDetails={viewerCanEdit}
+              onOpenInsights={() => setPanel("insights")}
+            />
+            {session ? null : (
               <SignedOutShareActions
                 recordingId={recording.id}
                 onCtaClick={fireShareCtaClick}
@@ -1248,17 +1252,15 @@ export default function ShareRoute() {
             </div>
             <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
               <TimestampedCommentButton
-                enableComments={
-                  recording.enableComments && (!session || viewerCanComment)
-                }
+                enableComments={recording.enableComments}
+                canComment={!session || viewerCanComment}
                 className="shrink-0"
                 onOpen={() => {
                   if (!session) {
                     requireSignIn("comment");
                     return;
                   }
-                  if (!viewerCanComment) return;
-                  setActiveTab("comments");
+                  if (viewerCanComment) setPanel("comments");
                 }}
               />
               {recording.enableReactions ? (
@@ -1320,11 +1322,13 @@ export default function ShareRoute() {
 
       <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
         <Tabs
-          value={activeTab}
-          onValueChange={setActiveTab}
+          value={panel}
+          onValueChange={setPanel}
           className="flex h-full flex-col"
         >
-          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+          <TabsList
+            className={`mx-3 mt-3 grid w-auto ${viewerCanEdit ? "grid-cols-4" : "grid-cols-3"}`}
+          >
             <TabsTrigger value="comments" className="text-xs gap-1">
               {t("recordingPage.activity")}
               {comments.length > 0 ? (

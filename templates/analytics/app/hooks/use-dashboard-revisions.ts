@@ -5,9 +5,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { dashboardCacheScope } from "@/lib/prefetch-keys";
-
-import { sqlDashboardPrefetchKey } from "@/lib/prefetch-keys";
+import {
+  dashboardCacheScope,
+  sqlDashboardPrefetchKey,
+} from "@/lib/prefetch-keys";
 
 export interface DashboardRevision {
   id: string;
@@ -19,22 +20,35 @@ export interface DashboardRevision {
 }
 
 export function useDashboardRevisions(dashboardId: string | null) {
-  return useActionQuery<DashboardRevision[]>(
-    "list-dashboard-revisions",
-    dashboardId ? { dashboardId } : undefined,
-    {
-      enabled: !!dashboardId,
-      select: (data: any) => {
-        const revisions = data?.revisions ?? data;
-        return Array.isArray(revisions) ? revisions : [];
-      },
-      placeholderData: (prev: any) => prev,
-      retry: false,
-    } as any,
-  );
+  const { session } = useSession();
+  const scope = dashboardCacheScope(session);
+  return useQuery({
+    queryKey: ["dashboard-revisions", dashboardId, scope],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      if (!dashboardId) return [];
+      const data = await callAction(
+        "list-dashboard-revisions",
+        { dashboardId },
+        { method: "GET" },
+      );
+      const revisions =
+        data &&
+        typeof data === "object" &&
+        !Array.isArray(data) &&
+        "revisions" in data
+          ? (data as { revisions?: unknown }).revisions
+          : undefined;
+      const rows = revisions ?? data;
+      return (Array.isArray(rows) ? rows : []) as DashboardRevision[];
+    },
+    retry: false,
+  });
 }
 
 export function useRestoreDashboardRevision(dashboardId: string) {
+  const { session } = useSession();
+  const scope = dashboardCacheScope(session);
   const queryClient = useQueryClient();
   return useActionMutation<
     {
@@ -60,13 +74,13 @@ export function useRestoreDashboardRevision(dashboardId: string) {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
       queryClient.removeQueries({
-        queryKey: sqlDashboardPrefetchKey(dashboardId),
+        queryKey: sqlDashboardPrefetchKey(dashboardId, scope),
       });
       queryClient.invalidateQueries({
-        queryKey: ["sql-dashboards-sidebar"],
+        queryKey: ["sql-dashboards-sidebar", scope],
       });
       queryClient.invalidateQueries({
-        queryKey: ["sql-dashboards-palette"],
+        queryKey: ["sql-dashboards-palette", scope],
       });
     },
   });

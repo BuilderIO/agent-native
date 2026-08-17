@@ -27,6 +27,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -47,7 +48,7 @@ describe("add-comment access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
-    mockAssertAccess.mockResolvedValue({ role: "viewer" });
+    mockAssertAccess.mockResolvedValue({ role: "commenter" });
     mockDb.select.mockReturnValue({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
@@ -57,7 +58,7 @@ describe("add-comment access", () => {
     });
   });
 
-  it("allows a signed-in viewer to start a comment thread", async () => {
+  it("allows a signed-in commenter to start a comment thread", async () => {
     await addComment.run({
       recordingId: "recording-1",
       content: "A note from a viewer",
@@ -67,7 +68,7 @@ describe("add-comment access", () => {
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "recording",
       "recording-1",
-      "viewer",
+      "commenter",
     );
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({

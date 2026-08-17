@@ -44,6 +44,28 @@ describe("computeSlideFitTransform", () => {
     });
   });
 
+  it("ignores a small layout-wrapper spill", () => {
+    expect(
+      computeSlideFitTransform({
+        contentWidth: 700,
+        contentHeight: 386,
+        viewportWidth: 740,
+        viewportHeight: 380,
+      }).verticalOverflow,
+    ).toBe(0);
+  });
+
+  it("ignores a small horizontal layout-wrapper spill", () => {
+    expect(
+      computeSlideFitTransform({
+        contentWidth: 746,
+        contentHeight: 300,
+        viewportWidth: 740,
+        viewportHeight: 380,
+      }),
+    ).toMatchObject({ scale: 1, fitted: false, horizontalOverflow: 0 });
+  });
+
   it("does not scale for vertical overflow but reports it for the LLM to fix", () => {
     expect(
       computeSlideFitTransform({
@@ -116,36 +138,6 @@ describe("computeSlideFitTransform", () => {
       verticalOverflow: 0,
       horizontalOverflow: 0,
     });
-  });
-
-  it("reports a cutoff that remains after the minimum visual fit scale", () => {
-    expect(
-      computeSlideFitTransform({
-        contentWidth: 1400,
-        contentHeight: 300,
-        viewportWidth: 740,
-        viewportHeight: 380,
-      }),
-    ).toEqual({
-      scale: 0.65,
-      x: 0,
-      y: 0,
-      fitted: true,
-      verticalOverflow: 0,
-      horizontalOverflow: 660,
-    });
-  });
-
-  it("ignores sub-pixel wrapper spill while reporting a real measured cutoff", () => {
-    expect(
-      computeSlideFitTransform({
-        contentWidth: 740,
-        contentHeight: 380,
-        viewportWidth: 740,
-        viewportHeight: 380,
-        measuredHorizontalOverflow: 12,
-      }).horizontalOverflow,
-    ).toBe(12);
   });
 });
 
@@ -272,10 +264,7 @@ describe("SlideInner autofit", () => {
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          verticalOverflow: 120,
-          horizontalOverflow: 0,
-        }),
+        expect.objectContaining({ verticalOverflow: 120 }),
       );
     });
   });
@@ -342,10 +331,7 @@ describe("SlideInner autofit", () => {
       expect(fitRoot?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitRoot?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          verticalOverflow: 120,
-          horizontalOverflow: 0,
-        }),
+        expect.objectContaining({ verticalOverflow: 120 }),
       );
     });
   });

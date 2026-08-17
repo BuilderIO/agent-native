@@ -378,17 +378,314 @@ describe("/api/public-recording route", () => {
     );
   });
 
-  it("marks an authenticated public viewer as comment-capable", async () => {
+  it("hides private recording existence from anonymous API callers", async () => {
     const event = { setCookies: [] as unknown[] };
-    mockGetSession.mockResolvedValue({ email: "viewer@example.com" });
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Not found",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
+  });
+
+  it("hides private recording existence from authenticated outsiders", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Not found",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
+  });
+
+  it("allows an authenticated viewer with an explicit user share", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeRecording({ visibility: "private", password: null }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { id: "rec-1", visibility: "private" },
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("recording", "rec-1", {
+      userEmail: "viewer@example.com",
+      orgId: "org-1",
+    });
+    expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
+  });
+
+  it("allows a signed-in member to open an organization-visible clip", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "member@example.com",
+      orgId: "org-1",
+    });
+    mockGetOrganizationRoleForEmail.mockResolvedValue("member");
     mockGetDb.mockReturnValue(
       createDbWithSelectResults([
         [
           makeRecording({
-            enableComments: true,
+            visibility: "org",
+            organizationId: "org-1",
             password: null,
           }),
         ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { id: "rec-1", visibility: "org" },
+      viewer: { canEdit: false, isOwner: false, role: "viewer" },
+    });
+    expect(mockGetOrganizationRoleForEmail).toHaveBeenCalledWith(
+      "org-1",
+      "member@example.com",
+    );
+    expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
+  });
+
+  it("preserves an explicit editor grant in the share payload", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "editor@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: makeRecording({ visibility: "private", password: null }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: { canEdit: true, isOwner: false, role: "editor" },
+    });
+  });
+
+  it("returns an aggregate view count to anonymous visitors without viewer identities", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = (await handler(event as any)) as Record<string, unknown>;
+
+    expect(result.viewCount).toBe(7);
+    expect(Number.isInteger(result.viewCount)).toBe(true);
+    expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+    expect(result.agentViewCount).toBe(2);
+    expect(mockCountRecordingAgentViews).toHaveBeenCalledWith("rec-1");
+    expect(result.viewer).toBeNull();
+    expect(result).not.toHaveProperty("viewers");
+    expect(JSON.stringify(result)).not.toContain("viewerEmail");
+  });
+
+  it("lets the owner open the dashboard even for a password-protected clip", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: makeRecording(),
+    });
+    mockHasExplicitRecordingShare.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: { isOwner: true, role: "owner", canOpenDashboard: true },
+    });
+  });
+
+  it("keeps a non-owner on the share page for a password-protected clip", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeRecording(),
+    });
+    mockHasExplicitRecordingShare.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: { isOwner: false, canOpenDashboard: false },
+    });
+  });
+
+  it("keeps a public-link viewer without an explicit grant on the share page", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeRecording({ password: null }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({ viewer: { canOpenDashboard: false } });
+    expect(mockHasExplicitRecordingShare).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      role: "viewer",
+      visibility: "public",
+      hasPassword: false,
+      userEmail: "viewer@example.com",
+      orgId: "org-1",
+    });
+  });
+
+  it("lets an explicitly shared public clip open the dashboard", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeRecording({ password: null }),
+    });
+    mockHasExplicitRecordingShare.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({ viewer: { canOpenDashboard: true } });
+  });
+
+  it("never promotes the org-member display role the player action would reject", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "member@example.com",
+      orgId: "org-1",
+    });
+    mockGetOrganizationRoleForEmail.mockResolvedValue("member");
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            visibility: "org",
+            organizationId: "org-1",
+            password: null,
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: { role: "viewer", canOpenDashboard: false },
+    });
+    expect(mockHasExplicitRecordingShare).not.toHaveBeenCalled();
+  });
+
+  it("marks an authenticated public viewer as comment-capable", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({ email: "viewer@example.com" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "public", password: null })],
         [],
         [],
         [],
@@ -404,5 +701,33 @@ describe("/api/public-recording route", () => {
         role: "viewer",
       },
     });
+  });
+
+  it("refuses an expired recording before exposing counts or dashboard eligibility", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: makeRecording(),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ expiresAt: "2020-01-01T00:00:00.000Z" })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toEqual({ error: "Recording has expired", expired: true });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 410);
+    expect(result).not.toHaveProperty("viewer");
+    expect(mockCountRecordingViews).not.toHaveBeenCalled();
   });
 });

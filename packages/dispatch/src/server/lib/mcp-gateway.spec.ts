@@ -1411,10 +1411,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         }),
     );
 
-    expect(result).toMatchObject({
-      app: "analytics",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-    });
+    expect(result).toMatchObject({ app: "analytics" });
     expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
     expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
       1,
@@ -1443,6 +1440,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );

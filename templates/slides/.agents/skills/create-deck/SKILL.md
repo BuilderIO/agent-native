@@ -149,21 +149,28 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 Every slide's `content` must use this exact outer div:
 
 ```html
-<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, sans-serif);">
   <!-- slide content here -->
 </div>
 ```
 
-The wrapper is the persisted layout contract. Keep `box-sizing: border-box`,
-`width: 100%`, `height: 100%`, and `padding: 80px 110px` on the outer wrapper
-so the editor, presentation view, and export use the same content area. Center
-title, section, statement, and closing slides with `align-items: center` and
-`text-align: center`; keep content slides left-aligned for scanability.
+The literal values in the examples below are fallback values for a deck with no
+linked system. When a system is linked, use its hydrated values or the renderer
+variables (`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`,
+`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) instead of copying
+Poppins, cyan, white, black, or a stock radius into new markup.
 
-Do not use emoji as decorative icons or bullets in generated decks. Use the
-provided HTML bullet entities (`&#x25CF;`, `&#x25CB;`), CSS shapes, or a named
-label instead. Keep text within the wrapper's content area and avoid
-unbounded absolute-positioned content in normal slide layouts.
+## Fit budget
+
+The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
+canvas (960x540) and `padding: 80px 110px`, the usable content area is only
+740x380px. Treat that as a hard budget for the main flow: use at most two title
+lines, three short bullets or cards, and two or three short items per column.
+Split dense source material across slides instead of shrinking it into a dense
+stack. Keep body text at or above 16px. Never hide overflow with zoom,
+`transform: scale()`, clipping, or scroll overflow. A later structural repair
+may reduce the slide's explicit padding, and that padding must remain intact
+when the saved HTML is rendered.
 
 Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
 
@@ -192,7 +199,7 @@ Copy and fill in the bracketed values. Use `\` to escape quotes inside the JSON 
 ### Title Slide
 
 ```html
-<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
   <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;">[LABEL OR DATE]</div>
   <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">[TITLE]</h1>
   <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">[SUBTITLE OR PRESENTER]</p>
@@ -204,7 +211,7 @@ Copy and fill in the bracketed values. Use `\` to escape quotes inside the JSON 
 ### Section Divider
 
 ```html
-<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
   <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;">[SECTION NUMBER, e.g. 01]</div>
   <h2 style="font-size: 72px; font-weight: 900; color: #fff; line-height: 1.05; letter-spacing: -2px; margin: 0;">[SECTION TITLE]</h2>
 </div>
@@ -264,7 +271,7 @@ Copy and fill in the bracketed values. Use `\` to escape quotes inside the JSON 
 ### Statement / Quote Slide
 
 ```html
-<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
   <div style="width: 60px; height: 4px; background: #00E5FF; margin-bottom: 40px;"></div>
   <p style="font-size: 48px; font-weight: 800; color: #fff; line-height: 1.2; letter-spacing: -1px; margin: 0 0 32px 0;">&ldquo;[STATEMENT OR QUOTE]&rdquo;</p>
   <p style="font-size: 18px; color: rgba(255,255,255,0.45); margin: 0;">[SOURCE OR ATTRIBUTION]</p>
@@ -301,7 +308,7 @@ Copy and fill in the bracketed values. Use `\` to escape quotes inside the JSON 
 ### Closing / CTA Slide
 
 ```html
-<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: 'Poppins', sans-serif;">
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
   <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;">[LABEL, e.g. GET STARTED]</div>
   <h2 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 32px 0;">[CLOSING STATEMENT]</h2>
   <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">[CONTACT OR NEXT STEP]</p>

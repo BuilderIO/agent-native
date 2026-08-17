@@ -394,6 +394,15 @@ export type AgentChatEvent =
       details?: string;
       /** True when the user can reasonably continue/retry from partial work. */
       recoverable?: boolean;
+      /**
+       * The engine's own verdict that another attempt at the same request may
+       * succeed (`EngineError.providerRetryable`). Distinct from `recoverable`,
+       * which the server's continuation classifiers read as "this run ended at
+       * an internal boundary, fold it and chain the next chunk". A provider
+       * throttle is retryable without being a boundary — conflating them makes
+       * a rate limit self-chain background continuations.
+       */
+      providerRetryable?: boolean;
     }
   /**
    * Legacy SSE terminal event. New streams emit

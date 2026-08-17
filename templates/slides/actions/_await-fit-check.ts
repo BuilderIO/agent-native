@@ -1,9 +1,7 @@
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 /** A measurement record written by the editor after rendering a slide.
- * Both overflow fields must be zero for the slide to fit the canvas. The
- * horizontal fields remain optional so older open editors can still complete
- * a fit check while they refresh. */
+ * Both overflow fields must be zero for the slide to fit the canvas. */
 export interface SlideFitMeasurement {
   slideId: string;
   deckId?: string;
@@ -13,6 +11,7 @@ export interface SlideFitMeasurement {
   viewportWidth?: number;
   verticalOverflow: number;
   horizontalOverflow?: number;
+  contentHash?: string;
   measuredAt: number;
 }
 
@@ -72,9 +71,11 @@ export async function awaitLayoutFitCheck(
         m.contentHash === expectedContentHash) &&
       Number.isFinite(m.measuredAt) &&
       m.measuredAt >= since &&
-      typeof m.verticalOverflow === "number" &&
+      Number.isFinite(m.verticalOverflow) &&
+      Number.isFinite(m.contentHeight) &&
+      Number.isFinite(m.viewportHeight) &&
       (m.horizontalOverflow === undefined ||
-        typeof m.horizontalOverflow === "number")
+        Number.isFinite(m.horizontalOverflow))
     ) {
       return m.verticalOverflow > 0 || (m.horizontalOverflow ?? 0) > 0
         ? { status: "overflows", measurement: m }
@@ -95,7 +96,7 @@ export function formatOverflowForTool(
 ): string {
   return [
     ``,
-    `⚠ Layout overflows the canvas${m.verticalOverflow > 0 ? ` vertically by ${m.verticalOverflow}px` : ""}${(m.horizontalOverflow ?? 0) > 0 ? ` horizontally by ${m.horizontalOverflow}px` : ""} - natural content is ${m.contentWidth ?? "unknown"}x${m.contentHeight}px inside a ${m.viewportWidth ?? "unknown"}x${m.viewportHeight}px content area.`,
+    `⚠ Layout overflows the canvas${m.verticalOverflow > 0 ? ` vertically by ${m.verticalOverflow}px` : ""}${(m.horizontalOverflow ?? 0) > 0 ? ` and horizontally by ${m.horizontalOverflow}px` : ""} — natural content is ${m.contentWidth ?? "unknown"}x${m.contentHeight}px inside a ${m.viewportWidth ?? "unknown"}x${m.viewportHeight}px content area.`,
     ``,
     `Make one structural repair now with \`update-slide --deckId ${deckId} --slideId ${m.slideId}\`. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
     `1. Tighten copy — shorter headings/bullets, drop low-value lines.`,

@@ -15,7 +15,6 @@ import {
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
@@ -191,7 +190,35 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             );
           })}
         </nav>
-        <ThemeToggle className="h-10 w-10 shrink-0" />
+        <nav className="flex shrink-0 flex-col items-center gap-1 py-1">
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Tooltip key={item.href} delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.href}
+                    aria-label={t(item.labelKey)}
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                      isItemActive(item.href) &&
+                        "bg-sidebar-accent text-sidebar-accent-foreground",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+        <SidebarFooterActions
+          collapsed
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </aside>
     );
   }
@@ -250,14 +277,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             <OrgSwitcher />
           </div>
 
-          <div className="px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <ThemeToggle />
-              <div className="flex min-w-0 items-center gap-1">
-                <DevDatabaseLink />
-                <FeedbackButton />
-              </div>
-            </div>
+          <div className="px-3 py-2 empty:hidden">
+            <DevDatabaseLink />
           </div>
           <SidebarFooterActions
             feedback={feedbackButton}

@@ -239,7 +239,6 @@ function draftToCalendarEvent(
     attendees: draft.attendees,
     reminders: draft.reminders,
     remindersUseDefault: draft.remindersUseDefault,
-    recurrence: draft.recurrence,
     attachments: draft.attachments,
     pendingConferenceProvider: draft.addZoom
       ? "zoom"
@@ -282,7 +281,6 @@ function applyDraftPatch(
   copy("recurrence");
   copy("reminders");
   copy("remindersUseDefault");
-  copy("recurrence");
   copy("attachments");
   copy("attendees");
   copy("accountEmail");
@@ -742,7 +740,6 @@ export default function CalendarView() {
           eventType === "workingLocation" ? "public" : draft.visibility,
         reminders: draft.reminders,
         remindersUseDefault: draft.remindersUseDefault,
-        recurrence: draft.recurrence,
         ...statusPatch,
         addGoogleMeet:
           eventType === "outOfOffice" ? undefined : draft.addGoogleMeet,

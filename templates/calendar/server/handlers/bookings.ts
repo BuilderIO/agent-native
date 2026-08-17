@@ -45,10 +45,6 @@ import {
   buildBookingEventTitle,
 } from "../lib/booking-event-details.js";
 import {
-  getEligibleHostAvailability,
-  type EligibleHostAvailability,
-} from "../lib/booking-host-availability.js";
-import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
   normalizeBookingHosts,
@@ -178,8 +174,6 @@ type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
   hostEmails: string[];
-  /** Overlay-listed hosts with a saved working-hours schedule/time zone. */
-  eligibleHosts: EligibleHostAvailability[];
   slug: string;
   bookingLink?: BookingLinkRow;
   durationSource?: BookingDurationSource;
@@ -464,6 +458,12 @@ function unavailableAvailabilityResponse(event: H3Event) {
   };
 }
 
+function formatLocalTime(totalMinutes: number): string {
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 async function resolveAvailabilityContext({
   slug,
   draft,
@@ -522,10 +522,6 @@ async function resolveAvailabilityContext({
   ]);
   const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
   const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
-  const eligibleHosts = await getEligibleHostAvailability(
-    ownerEmail,
-    hostEmails,
-  );
 
   return {
     effectiveConfig:
@@ -537,7 +533,6 @@ async function resolveAvailabilityContext({
         : config),
     ownerEmail,
     hostEmails,
-    eligibleHosts,
     slug,
     bookingLink,
     durationSource: overrides?.durationSource,
@@ -682,138 +677,34 @@ export async function getConflictItems({
   return { items: conflictItems };
 }
 
-type ScheduleWindow = { start: Date; end: Date };
-
-const DAY_NAMES = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-] as const;
-
-function getScheduleWindowsForLocalDate(
-  date: string,
-  timezone: string,
-  weeklySchedule: AvailabilityConfig["weeklySchedule"],
-): ScheduleWindow[] {
-  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
-  const dayName = DAY_NAMES[getDayOfWeekInTimezone(targetNoon, timezone)];
-  const daySchedule = weeklySchedule[dayName as keyof typeof weeklySchedule];
-  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
-    return [];
-  }
-
-  const windows: ScheduleWindow[] = [];
-  for (const slot of daySchedule.slots) {
-    const start = zonedTimeToUtc(date, slot.start, timezone);
-    const end = zonedTimeToUtc(date, slot.end, timezone);
-    if (end > start) windows.push({ start, end });
-  }
-  return windows;
-}
-
-function getScheduleWindowsOverlappingRange(
-  rangeStart: Date,
-  rangeEnd: Date,
-  timezone: string,
-  weeklySchedule: AvailabilityConfig["weeklySchedule"],
-): ScheduleWindow[] {
-  const startDate = formatLocalDateInTimezone(
-    new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000),
-    timezone,
-  );
-  const endDate = formatLocalDateInTimezone(
-    new Date(rangeEnd.getTime() + 24 * 60 * 60 * 1000),
-    timezone,
-  );
-
-  const windows: ScheduleWindow[] = [];
-  for (
-    let cursor = startDate;
-    cursor <= endDate;
-    cursor = addDateString(cursor, 1)
-  ) {
-    windows.push(
-      ...getScheduleWindowsForLocalDate(cursor, timezone, weeklySchedule),
-    );
-  }
-  return windows.filter(
-    (window) => window.end > rangeStart && window.start < rangeEnd,
-  );
-}
-
-function intersectScheduleWindows(
-  a: ScheduleWindow[],
-  b: ScheduleWindow[],
-): ScheduleWindow[] {
-  const result: ScheduleWindow[] = [];
-  for (const windowA of a) {
-    for (const windowB of b) {
-      const start =
-        windowA.start > windowB.start ? windowA.start : windowB.start;
-      const end = windowA.end < windowB.end ? windowA.end : windowB.end;
-      if (end > start) result.push({ start, end });
-    }
-  }
-  return result;
-}
-
-function roundUpToStepInTimezone(
-  date: Date,
-  timezone: string,
-  stepMinutes: number,
-): Date {
-  const parts = getLocalDateTimeParts(date, timezone);
-  const currentMinutes = parts.hour * 60 + parts.minute;
-  const roundedMinutes = Math.ceil(currentMinutes / stepMinutes) * stepMinutes;
-  const diffMs =
-    (roundedMinutes - currentMinutes) * 60 * 1000 - parts.second * 1000;
-  return new Date(date.getTime() + diffMs);
-}
-
 export function generateAvailableSlotsForDate({
   date,
   duration,
   config,
   conflictItems,
-  hostSchedules = [],
 }: {
   date: string;
   duration: number;
   config: AvailabilityConfig;
   conflictItems: ConflictItem[];
-  /** Eligible hosts' saved schedules to hard-filter against, if any. */
-  hostSchedules?: EligibleHostAvailability[];
 }): TimeSlot[] {
   const timezone = config.timezone || "UTC";
-  let windows = getScheduleWindowsForLocalDate(
-    date,
-    timezone,
-    config.weeklySchedule,
-  );
-  if (windows.length === 0) return [];
+  const dayNames = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ] as const;
+  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
+  const dayName = dayNames[getDayOfWeekInTimezone(targetNoon, timezone)];
+  const daySchedule =
+    config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
 
-  for (const host of hostSchedules) {
-    if (!host.weeklySchedule) continue;
-    const rangeStart = windows.reduce(
-      (min, window) => (window.start < min ? window.start : min),
-      windows[0].start,
-    );
-    const rangeEnd = windows.reduce(
-      (max, window) => (window.end > max ? window.end : max),
-      windows[0].end,
-    );
-    const hostWindows = getScheduleWindowsOverlappingRange(
-      rangeStart,
-      rangeEnd,
-      host.timezone || timezone,
-      host.weeklySchedule,
-    );
-    windows = intersectScheduleWindows(windows, hostWindows);
-    if (windows.length === 0) return [];
+  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
+    return [];
   }
 
   const availableSlots: TimeSlot[] = [];
@@ -840,17 +731,35 @@ export function generateAvailableSlotsForDate({
     timezone,
   );
 
-  for (const window of windows) {
-    let current = roundUpToStepInTimezone(
-      window.start,
+  for (const scheduleSlot of normalizeAvailabilitySlots(daySchedule.slots)) {
+    const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
+    const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
+    if (
+      !Number.isFinite(startHour) ||
+      !Number.isFinite(startMin) ||
+      !Number.isFinite(endHour) ||
+      !Number.isFinite(endMin)
+    ) {
+      continue;
+    }
+
+    const slotStart = zonedTimeToUtc(date, scheduleSlot.start, timezone);
+    const slotEnd = zonedTimeToUtc(date, scheduleSlot.end, timezone);
+    if (slotEnd <= slotStart) continue;
+
+    const scheduleStartMinutes = startHour * 60 + startMin;
+    const firstSlotStartMinutes =
+      Math.ceil(scheduleStartMinutes / BOOKING_SLOT_STEP_MINUTES) *
+      BOOKING_SLOT_STEP_MINUTES;
+    if (firstSlotStartMinutes >= 24 * 60) continue;
+
+    let current = zonedTimeToUtc(
+      date,
+      formatLocalTime(firstSlotStartMinutes),
       timezone,
-      BOOKING_SLOT_STEP_MINUTES,
     );
 
-    while (
-      current.getTime() + slotDuration * 60 * 1000 <=
-      window.end.getTime()
-    ) {
+    while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
       const candidateStart = new Date(current);
       const candidateEnd = new Date(
         current.getTime() + slotDuration * 60 * 1000,
@@ -917,7 +826,6 @@ async function requestedSlotIsCurrentlyAvailable({
     duration,
     config: context.effectiveConfig,
     conflictItems: conflictResult.items,
-    hostSchedules: context.eligibleHosts,
   });
   const startMs = start.getTime();
   const endMs = end.getTime();
@@ -1401,42 +1309,11 @@ async function getAvailableSlotsForQuery(
       setResponseStatus(event, 400);
       return { error: "from must be before to" };
     }
-    const duration = durationResult.duration;
-
-    if (hasRangeQuery) {
-      const rangeStart = formatDateOnly(from!);
-      const rangeEnd = formatDateOnly(to!);
-      const timezone = context.effectiveConfig.timezone || "UTC";
-      const conflictResult = await getConflictItems({
-        ownerEmail: context.ownerEmail,
-        hostEmails: context.hostEmails,
-        conflictSlugs: context.conflictSlugs,
-        rangeStartIso: dateStartIso(rangeStart, timezone),
-        rangeEndIso: dateEndIso(rangeEnd, timezone),
-        timezone,
-      });
-      if (conflictResult.unavailableReason) {
-        return unavailableAvailabilityResponse(event);
-      }
-      const dates: string[] = [];
-      for (
-        let cursor = new Date(from!);
-        cursor <= to!;
-        cursor = addLocalDays(cursor, 1)
-      ) {
-        const day = formatDateOnly(cursor);
-        const slots = generateAvailableSlotsForDate({
-          date: day,
-          duration,
-          config: context.effectiveConfig,
-          conflictItems: conflictResult.items,
-          hostSchedules: context.eligibleHosts,
-        });
-        if (slots.length > 0) {
-          dates.push(day);
-        }
-      }
-      return { dates };
+    if (countDaysInclusive(from, to) > MAX_AVAILABILITY_RANGE_DAYS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `date range cannot exceed ${MAX_AVAILABILITY_RANGE_DAYS} days`,
+      };
     }
   } else if (!parseDateOnly(date)) {
     setResponseStatus(event, 400);
@@ -1473,13 +1350,25 @@ async function getAvailableSlotsForQuery(
     if (conflictResult.unavailableReason) {
       return unavailableAvailabilityResponse(event);
     }
-    const availableSlots = generateAvailableSlotsForDate({
-      date,
-      duration,
-      config: context.effectiveConfig,
-      conflictItems: conflictResult.items,
-      hostSchedules: context.eligibleHosts,
-    });
+    const dates: string[] = [];
+    for (
+      let cursor = new Date(from!);
+      cursor <= to!;
+      cursor = addLocalDays(cursor, 1)
+    ) {
+      const day = formatDateOnly(cursor);
+      const slots = generateAvailableSlotsForDate({
+        date: day,
+        duration,
+        config: context.effectiveConfig,
+        conflictItems: conflictResult.items,
+      });
+      if (slots.length > 0) {
+        dates.push(day);
+      }
+    }
+    return { dates };
+  }
 
   const timezone = context.effectiveConfig.timezone || "UTC";
   const conflictResult = await getConflictItems({

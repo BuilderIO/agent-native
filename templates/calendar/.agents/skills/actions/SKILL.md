@@ -52,14 +52,7 @@ export default defineAction({
 
 Use Drizzle's query builder, not raw SQL/`getDbExec()`/dialect-specific imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets — read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
 
-When an action calls an external service, never hardcode API keys, bearer
-tokens, webhook URLs, signing secrets, OAuth refresh tokens, private
-Builder/internal data, or customer data. Read user/org/workspace credentials
-from a granted workspace connection's vault-backed credential refs first, then
-from `readAppSecret`, `resolveCredential`, OAuth token helpers, or the provider
-API credential adapter. Use `process.env` only for explicitly deploy-level
-configuration - never for customer or workspace data access - and keep examples
-to obvious placeholders.
+**Decision order:** existing action → extend/create a `defineAction` → custom route as last resort (*Custom `/api/` Routes* below). Actions are already callable by agents, CLIs, hooks, HTTP, and MCP/A2A — don't wrap them in an umbrella REST API.
 
 ## Keep the Action Surface Small and Orthogonal
 

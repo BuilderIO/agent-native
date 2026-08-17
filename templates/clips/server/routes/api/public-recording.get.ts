@@ -257,11 +257,6 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const viewerCanComment = Boolean(
-    session?.email &&
-    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
-  );
-
   if (
     rec.visibility !== "public" &&
     !viewerAccess &&
@@ -272,6 +267,11 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
+
+  const viewerCanComment = Boolean(
+    session?.email &&
+    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
+  );
 
   // Expiry check
   const recordingExpired = isRecordingExpired(rec.expiresAt);
@@ -537,10 +537,14 @@ export default defineEventHandler(async (event) => {
     })),
     viewer: session?.email
       ? {
-          canEdit: viewerIsOwner,
+          canEdit:
+            viewerRole === "owner" ||
+            viewerRole === "admin" ||
+            viewerRole === "editor",
           canComment: viewerCanComment,
-          isOwner: viewerIsOwner,
-          role: viewerIsOwner ? "owner" : "viewer",
+          isOwner: viewerRole === "owner",
+          role: viewerRole ?? "viewer",
+          canOpenDashboard,
         }
       : null,
   };

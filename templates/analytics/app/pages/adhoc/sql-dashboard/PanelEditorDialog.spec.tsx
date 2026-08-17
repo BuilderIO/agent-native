@@ -8,13 +8,22 @@ const mocks = vi.hoisted(() => ({
   promptComposerProps: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => ({ data: undefined, isLoading: false }),
+}));
+
+vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: Record<string, unknown>) => {
     mocks.promptComposerProps = props;
     return <div data-testid="prompt-composer" />;
   },
-  useActionQuery: () => ({ data: undefined, isLoading: false }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   useSendToAgentChat: () => ({ send: vi.fn(), isGenerating: false }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
