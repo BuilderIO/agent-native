@@ -76,7 +76,6 @@ import {
   LocalMdxComponentNode,
 } from "./extensions/LocalMdxComponentNode";
 import {
-  EMPTY_TOGGLE_BODY_PLACEHOLDER,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
   type NotionPageLink,
@@ -447,10 +446,7 @@ const NotionMarkdownShortcuts = Extension.create({
                   .replaceWith(
                     shortcut.blockFrom,
                     shortcut.blockTo,
-                    toggle.create(
-                      { summary: "", open: true },
-                      paragraph.create(),
-                    ),
+                    toggle.create({ summary: "", open: true }),
                   )
                   .scrollIntoView(),
               );
@@ -471,47 +467,6 @@ const NotionMarkdownShortcuts = Extension.create({
             );
             view.dispatch(tr.scrollIntoView());
             return true;
-          },
-        },
-      }),
-    ];
-  },
-});
-
-const NotionToggleBodyPlaceholder = Extension.create({
-  name: "notionToggleBodyPlaceholder",
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey("notionToggleBodyPlaceholder"),
-        props: {
-          decorations: ({ doc, selection }) => {
-            const decorations: Decoration[] = [];
-
-            doc.descendants((node, pos, parent) => {
-              const selectionIsInsideNode =
-                selection.from >= pos && selection.to <= pos + node.nodeSize;
-
-              if (
-                node.type.name !== "paragraph" ||
-                parent?.type.name !== "notionToggle" ||
-                node.content.size > 0 ||
-                node.textContent.trim() ||
-                selectionIsInsideNode
-              ) {
-                return;
-              }
-
-              decorations.push(
-                Decoration.node(pos, pos + node.nodeSize, {
-                  class: "is-empty notion-toggle__body-placeholder",
-                  "data-placeholder": EMPTY_TOGGLE_BODY_PLACEHOLDER,
-                }),
-              );
-            });
-
-            return DecorationSet.create(doc, decorations);
           },
         },
       }),
@@ -1363,9 +1318,7 @@ function getVisualEditorPlaceholder({
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor && editor.isFocused
-      ? emptyBlockPlaceholder
-      : EMPTY_TOGGLE_BODY_PLACEHOLDER;
+    return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
   }
 
   if (node.type.name === "heading") {
@@ -1671,7 +1624,6 @@ export function createVisualEditorExtensions({
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
-      NotionToggleBodyPlaceholder,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: "notion-link" },
@@ -2042,6 +1994,14 @@ export function VisualEditor({
           link.notionPageId === notionPageId ||
           link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
       ) ?? null
+    );
+  }, []);
+  const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
+    if (editor.isFocused) return true;
+    const activeElement = editor.view.dom.ownerDocument.activeElement;
+    return Boolean(
+      activeElement?.matches(".notion-toggle__summary") &&
+      editor.view.dom.contains(activeElement),
     );
   }, []);
 
@@ -2468,6 +2428,7 @@ export function VisualEditor({
     value: content,
     contentUpdatedAt,
     editable,
+    isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
     // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
     // cursors; their editor content comes from the server state fetch + peer Yjs
