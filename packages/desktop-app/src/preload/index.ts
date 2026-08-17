@@ -23,6 +23,10 @@ import {
   type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentPortalTransferAllRequest,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferRequest,
+  type CodeAgentPortalTransferResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
@@ -430,6 +434,14 @@ const electronAPI = {
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
+    transferRun: (
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN, request),
+    transferAll: (
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL, request),
     updateRun: (
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult> =>

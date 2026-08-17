@@ -111,6 +111,21 @@ the right abstraction, not the most general one.
    - Cite issue IDs or links when you find a match.
    - If nothing matches, say that plainly.
 
+## Fix-altitude gate
+
+Before editing a verified bug, choose the narrowest seam supported by the
+evidence:
+
+- One isolated report -> fix the owning local seam and add a regression check.
+- Repeated or cross-surface evidence -> inspect the shared primitive or
+  contract before patching a leaf.
+- Missing capability or wrong tool -> fix discovery, registry, or action-contract
+  wiring.
+- Source-vs-live mismatch -> diagnose build/deploy state before changing source.
+- Do not turn one data point into a global agent instruction. For subjective
+  feedback, name the invariant and require repeated evidence before broadening
+  it.
+
 6. Fix only the clear bugs you agree with.
 
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.

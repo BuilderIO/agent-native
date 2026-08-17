@@ -262,6 +262,44 @@ export interface CodeAgentFollowUpResult {
   error?: string;
 }
 
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
+  message: string;
+  error?: string;
+}
+
 export interface CodeAgentUpdateRunRequest {
   goalId?: string;
   runId: string;
