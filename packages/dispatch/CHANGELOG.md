@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.27.20
+
+### Patch Changes
+
+- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
 ## 0.27.19
 
 ### Patch Changes
