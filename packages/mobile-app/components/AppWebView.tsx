@@ -784,10 +784,9 @@ function AppWebView(
   // Workspace apps load only through their one-time embed URL. Other WebViews
   // stay on their ordinary app-owned URL and never receive a reusable token.
   const webviewUrl = useMemo(() => {
-    if (!effectiveCaptureSessionToken) return url;
     return buildMobileWebViewAuthUrl({
       url,
-      workspaceAppId,
+      workspaceAppId: effectiveCaptureSessionToken ? workspaceAppId : undefined,
       workspaceEmbedState,
       workspaceEmbedUrl,
     });

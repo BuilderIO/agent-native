@@ -4494,6 +4494,7 @@ async function spawnCodeAgentRunner(
       resourcesPath: process.resourcesPath,
       electronPath: process.execPath,
       repoRoot,
+      cwd,
       environment: process.env,
     },
     "run",
@@ -4553,7 +4554,7 @@ async function spawnCodeAgentRunner(
         runnerState: "running",
         runnerPid: child.pid,
         runnerCommand,
-        runnerCwd: repoRoot,
+        runnerCwd: invocation.cwd,
         runnerStartedAt,
       },
     });
@@ -4703,6 +4704,7 @@ function spawnCodeAgentApprovalRunner(
       resourcesPath: process.resourcesPath,
       electronPath: process.execPath,
       repoRoot,
+      cwd,
       environment: process.env,
     },
     subcommand,
@@ -4746,6 +4748,7 @@ function spawnCodeAgentApprovalRunner(
       metadata: {
         approvalRunnerPid: child.pid,
         approvalRunnerCommand: runnerCommand,
+        approvalRunnerCwd: invocation.cwd,
         approvalRunnerStartedAt: runnerStartedAt,
       },
     });

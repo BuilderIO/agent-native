@@ -1,0 +1,61 @@
+---
+title: "Portal"
+description: "Pair a computer and continue Agent-Native work across devices with Portal."
+---
+
+# Portal
+
+Portal connects a phone or browser to a registered computer so an Agent-Native
+workspace can continue work on the machine that owns the local tools. It is a
+device handoff feature, not a second chat or a cloud runner.
+
+## Pair a computer
+
+In the app, open **Settings → Workspace** and choose **Pair or repair**. The
+pairing flow shows a relay URL and workspace path. Open the URL on the computer
+you want to pair and confirm the workspace path there. The computer registers
+itself with the workspace through:
+
+```text
+POST /_agent-native/integrations/remote/register
+```
+
+The registration returns a device token. Store that token in the computer's
+private `~/.agent-native/remote-device.json` file. Do not put it in source
+control, a URL, or a client-visible application setting. If pairing is lost,
+use **Pair or repair** again to replace the device registration.
+
+## Execution modes
+
+The chat composer can target the execution environment that fits the task:
+
+- **Local** runs on the current app/runtime.
+- **Computer** runs on a paired computer through Portal, so local files and
+  installed coding tools are available there.
+- **Cloud** is a waitlisted execution mode. Until access is enabled, choosing
+  Cloud does not start a run; it only shows the waitlist state.
+
+The selected mode is part of the run request. Pairing a computer does not copy
+credentials or grant it access to unrelated workspaces; the device and
+workspace registration remain scoped to the authenticated account.
+
+## Troubleshooting
+
+If Computer is unavailable, confirm the paired computer is online, the relay
+URL is reachable, and the workspace path still exists. Repair the pairing when
+the device token was rotated or the workspace moved. If Cloud is unavailable,
+the run has not started - use Local or Computer instead of retrying a queued
+cloud request.
+
+## Environment variables
+
+Self-hosted deployments can customize the Portal connection with:
+
+| Variable | Purpose |
+| --- | --- |
+| `WORKSPACE_GATEWAY_URL` | Public workspace gateway used for device handoff. |
+| `AGENT_NATIVE_REMOTE_DEVICE_PATH` | Override the local device registration file path. |
+| `AGENT_NATIVE_COMPUTER_BRIDGE_URL` | Computer bridge URL used by remote execution. |
+| `AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN` | Token used to authenticate with that bridge. |
+| `AGENT_NATIVE_REMOTE_ENGINES` | Comma-separated remote execution engines available to the workspace. |
+| `AGENT_NATIVE_IDENTITY_HUB_URL` | Optional Dispatch identity hub for self-hosted cross-app sign-in. |

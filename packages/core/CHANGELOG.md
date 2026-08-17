@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.158.0
+
+### Minor Changes
+
+- 1267aec: Add approved background-tab creation to the remote Chrome browser control action surface.
+
 ## 0.157.28
 
 ### Patch Changes

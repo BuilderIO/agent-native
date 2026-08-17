@@ -1559,6 +1559,7 @@ const zhCN = {
     messagingRecipes: "消息范例",
     messagingInternals: "消息内部机制",
     dispatch: "调度",
+    portal: "Portal",
     a2aProtocol: "A2A 协议",
     mcpClients: "MCP 客户端（添加工具）",
     httpApi: "HTTP API（调用行动）",
