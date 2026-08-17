@@ -51,6 +51,7 @@ import {
 import { WorkingLocationEditor } from "@/components/calendar/WorkingLocationEditor";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverTrigger,
@@ -64,6 +65,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -73,6 +75,11 @@ import {
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { addCalendarDays } from "@/lib/calendar-timezone";
+import {
+  getDateKeyInTimezone,
+  getDateTimePartsInTimezone,
+} from "@/lib/calendar-timezone";
 import {
   attachmentsToDrafts,
   buildRecurrenceRules,
@@ -83,7 +90,6 @@ import {
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
-  normalizeAllDayEditEndDate,
   remindersToDraftState,
   resolveTimeEditScope,
   type AttachmentDraft,
@@ -103,6 +109,7 @@ import {
   buildWorkingLocationUpdate,
   createWorkingLocationDisplayLabels,
   getWorkingLocationTitle,
+  isWorkingLocationDraftReadyToCreate,
   isWorkingLocationEvent,
   type WorkingLocationSelection,
 } from "@/lib/working-location";
@@ -395,19 +402,45 @@ function isUrl(str: string): boolean {
   return /^https?:\/\//i.test(str.trim());
 }
 
-/** Convert ISO date string to local date input value (YYYY-MM-DD) */
-function toDateInputValue(iso: string): string {
+/** Convert an event date to the calendar's date input value. */
+function toDateInputValue(iso: string, timezone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const zonedDate = timezone ? getDateKeyInTimezone(iso, timezone) : null;
+  if (zonedDate) return zonedDate;
   const d = parseISO(iso);
   return format(d, "yyyy-MM-dd");
 }
 
-function toAllDayEndDateInputValue(iso: string): string {
+function toAllDayEndDateInputValue(iso: string, timezone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return addCalendarDays(iso, -1);
+  const zonedDate = timezone ? getDateKeyInTimezone(iso, timezone) : null;
+  if (zonedDate) return addCalendarDays(zonedDate, -1);
   const d = parseISO(iso);
   return format(new Date(d.getTime() - 1), "yyyy-MM-dd");
 }
 
-/** Convert ISO date string to local time input value (HH:mm) */
-function toTimeInputValue(iso: string): string {
+/** Timed events ending at 00:00 already store the next date; don't add another day. */
+function inclusiveEndDateForAllDayConversion(
+  startDate: string,
+  endDate: string,
+  endTime: string,
+): string {
+  const bounded = endDate < startDate ? startDate : endDate;
+  if (endTime === "00:00" && bounded > startDate) {
+    return addCalendarDays(bounded, -1);
+  }
+  return bounded;
+}
+
+/** Convert an event time to the calendar's time input value. */
+function toTimeInputValue(iso: string, timezone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "00:00";
+  const zonedTime = timezone ? getDateTimePartsInTimezone(iso, timezone) : null;
+  if (zonedTime) {
+    return `${String(zonedTime.hour).padStart(2, "0")}:${String(
+      zonedTime.minute,
+    ).padStart(2, "0")}`;
+  }
   const d = parseISO(iso);
   return format(d, "HH:mm");
 }
@@ -426,6 +459,7 @@ interface EventDetailPopoverProps {
   children: React.ReactNode;
   onDelete: (eventId: string) => void;
   isDraft?: boolean;
+  timezone?: string;
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
@@ -458,6 +492,7 @@ export function EventDetailPopover({
   children,
   onDelete,
   isDraft = false,
+  timezone,
   defaultOpen = false,
   onTitleSave,
   onDismissNew,
@@ -469,6 +504,7 @@ export function EventDetailPopover({
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const isMobile = useIsMobile();
+  const eventTimezone = event.startTimeZone || timezone || getLocalTimezone();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
     defaultOpen ? getEditableEventTitle(event) : "",
@@ -489,7 +525,6 @@ export function EventDetailPopover({
   } = useCalendarContext();
   const isWorkingLocation = isWorkingLocationEvent(event);
   const isOutOfOffice = isOutOfOfficeEvent(event);
-  const isSingleDayWorkingLocation = isWorkingLocation && event.allDay;
   const editableLocationValue = event.location || "";
 
   // Inline editing state
@@ -499,21 +534,23 @@ export function EventDetailPopover({
     event.description || "",
   );
   const [editLocation, setEditLocation] = useState(editableLocationValue);
-  const [editDate, setEditDate] = useState(() => toDateInputValue(event.start));
+  const [editDate, setEditDate] = useState(() =>
+    toDateInputValue(event.start, eventTimezone),
+  );
   const [editEndDate, setEditEndDate] = useState(() =>
     event.allDay
-      ? toAllDayEndDateInputValue(event.end)
-      : toDateInputValue(event.end),
+      ? toAllDayEndDateInputValue(event.end, eventTimezone)
+      : toDateInputValue(event.end, eventTimezone),
   );
   const [editStartTime, setEditStartTime] = useState(() =>
-    toTimeInputValue(event.start),
+    toTimeInputValue(event.start, eventTimezone),
   );
   const [editEndTime, setEditEndTime] = useState(() =>
-    toTimeInputValue(event.end),
+    toTimeInputValue(event.end, eventTimezone),
   );
-  const [editTimezone, setEditTimezone] = useState(
-    event.startTimeZone || getLocalTimezone(),
-  );
+  const [editTimezone, setEditTimezone] = useState(eventTimezone);
+  const isSingleDayWorkingLocation =
+    isWorkingLocation && event.allDay && editDate === editEndDate;
   const [editReminderMode, setEditReminderMode] = useState<ReminderMode>(
     () => remindersToDraftState(event).mode,
   );
@@ -615,15 +652,15 @@ export function EventDetailPopover({
       setEditDescription(event.description || "");
     if (editingField !== "location") setEditLocation(editableLocationValue);
     if (editingField !== "time") {
-      setEditDate(toDateInputValue(event.start));
+      setEditDate(toDateInputValue(event.start, eventTimezone));
       setEditEndDate(
         event.allDay
-          ? toAllDayEndDateInputValue(event.end)
-          : toDateInputValue(event.end),
+          ? toAllDayEndDateInputValue(event.end, eventTimezone)
+          : toDateInputValue(event.end, eventTimezone),
       );
-      setEditStartTime(toTimeInputValue(event.start));
-      setEditEndTime(toTimeInputValue(event.end));
-      setEditTimezone(event.startTimeZone || getLocalTimezone());
+      setEditStartTime(toTimeInputValue(event.start, eventTimezone));
+      setEditEndTime(toTimeInputValue(event.end, eventTimezone));
+      setEditTimezone(eventTimezone);
       setEditTimeScope("single");
     }
     if (editingField !== "reminders") {
@@ -652,6 +689,7 @@ export function EventDetailPopover({
     event.remindersUseDefault,
     event.attachments,
     editableLocationValue,
+    eventTimezone,
   ]);
 
   // When defaultOpen changes to true (new event created), open the popover
@@ -659,14 +697,14 @@ export function EventDetailPopover({
     if (defaultOpen) {
       setOpen(true);
       setIsEditingTitle(true);
-      isNewEventRef.current = true;
+      isNewEventRef.current = isDraft;
       setEditingTitle((current) => {
         const eventTitle = getEditableEventTitle(event);
         if (current.trim() && current !== eventTitle) return current;
         return eventTitle;
       });
     }
-  }, [defaultOpen, event.title, event.titleIsGenerated]);
+  }, [defaultOpen, event.title, event.titleIsGenerated, isDraft]);
 
   // Focus title input when editing starts
   useEffect(() => {
@@ -998,32 +1036,29 @@ export function EventDetailPopover({
   );
 
   const saveTimeValues = useCallback(
-    (values: TimeEditValues) => {
-      const normalizedEndDate = normalizeAllDayEditEndDate(
-        isSingleDayWorkingLocation,
-        values.date,
-        values.endDate,
-      );
-      const allDayEnd = new Date(`${normalizedEndDate}T00:00:00`);
-      allDayEnd.setDate(allDayEnd.getDate() + 1);
-      const newStart = event.allDay
-        ? new Date(`${values.date}T00:00:00`).toISOString()
+    (values: TimeEditValues, nextAllDay = event.allDay) => {
+      const newStart = nextAllDay
+        ? values.date
         : dateTimeInTimezoneToIso(
             values.date,
             values.startTime,
             values.timezone,
           );
-      const newEnd = event.allDay
-        ? allDayEnd.toISOString()
+      const newEnd = nextAllDay
+        ? addCalendarDays(values.endDate, 1)
         : dateTimeInTimezoneToIso(
             values.endDate,
             values.endTime,
             values.timezone,
           );
-      if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
+      if (
+        nextAllDay
+          ? values.endDate < values.date
+          : new Date(newEnd).getTime() <= new Date(newStart).getTime()
+      ) {
         toast.error(
           getEventEndValidationMessage({
-            allDay: event.allDay ?? false,
+            allDay: nextAllDay,
             startDate: values.date,
             endDate: values.endDate,
             startTime: values.startTime,
@@ -1037,9 +1072,9 @@ export function EventDetailPopover({
         saved = saveField({
           start: newStart,
           end: newEnd,
-          allDay: event.allDay,
-          startTimeZone: event.allDay ? undefined : values.timezone,
-          endTimeZone: event.allDay ? undefined : values.timezone,
+          allDay: nextAllDay,
+          startTimeZone: nextAllDay ? undefined : values.timezone,
+          endTimeZone: nextAllDay ? undefined : values.timezone,
           scope: resolveTimeEditScope(
             isRecurringEvent,
             isSingleDayWorkingLocation,
@@ -1058,6 +1093,49 @@ export function EventDetailPopover({
       isRecurringEvent,
       editTimeScope,
       saveField,
+    ],
+  );
+
+  const handleWorkingLocationAllDayChange = useCallback(
+    (nextAllDay: boolean) => {
+      const nextStartTime =
+        !nextAllDay && editStartTime === "00:00" && editEndTime === "00:00"
+          ? "09:00"
+          : editStartTime;
+      const nextEndTime =
+        !nextAllDay && editStartTime === "00:00" && editEndTime === "00:00"
+          ? "17:00"
+          : editEndTime;
+      const nextEndDate = nextAllDay
+        ? inclusiveEndDateForAllDayConversion(
+            editDate,
+            editEndDate,
+            editEndTime,
+          )
+        : editEndDate < editDate
+          ? editDate
+          : editEndDate;
+      setEditEndDate(nextEndDate);
+      setEditStartTime(nextStartTime);
+      setEditEndTime(nextEndTime);
+      saveTimeValues(
+        {
+          date: editDate,
+          endDate: nextEndDate,
+          startTime: nextStartTime,
+          endTime: nextEndTime,
+          timezone: editTimezone,
+        },
+        nextAllDay,
+      );
+    },
+    [
+      editDate,
+      editEndDate,
+      editEndTime,
+      editStartTime,
+      editTimezone,
+      saveTimeValues,
     ],
   );
 
@@ -1182,10 +1260,10 @@ export function EventDetailPopover({
 
   const handleSelectFindTimeSlot = useCallback(
     (slot: FindTimeSlot) => {
-      setEditDate(toDateInputValue(slot.start));
-      setEditEndDate(toDateInputValue(slot.end));
-      setEditStartTime(toTimeInputValue(slot.start));
-      setEditEndTime(toTimeInputValue(slot.end));
+      setEditDate(toDateInputValue(slot.start, findTimeTimezone));
+      setEditEndDate(toDateInputValue(slot.end, findTimeTimezone));
+      setEditStartTime(toTimeInputValue(slot.start, findTimeTimezone));
+      setEditEndTime(toTimeInputValue(slot.end, findTimeTimezone));
       setEditTimezone(findTimeTimezone);
       setEditingField(null);
       setFindTimeOpen(false);
@@ -1316,6 +1394,7 @@ export function EventDetailPopover({
 
   const handleCreateDraft = useCallback(() => {
     if (!onDraftCreate) return;
+    if (!isWorkingLocationDraftReadyToCreate(event)) return;
     const title = editingTitle.trim();
     const updates = isEditingTitle && title ? { title } : undefined;
     if (updates) {
@@ -1590,11 +1669,29 @@ export function EventDetailPopover({
               <div className="flex items-start gap-3 rounded-md py-1.5">
                 <IconClock className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
+                  {isWorkingLocation && (
+                    <div className="mb-1 flex items-center gap-2">
+                      <Switch
+                        id={`working-location-all-day-${event.id}`}
+                        checked={event.allDay}
+                        onCheckedChange={handleWorkingLocationAllDayChange}
+                        disabled={updateEvent.isPending}
+                      />
+                      <Label
+                        htmlFor={`working-location-all-day-${event.id}`}
+                        className="text-xs"
+                      >
+                        {t("eventForm.allDay")}
+                      </Label>
+                    </div>
+                  )}
                   {event.allDay ? (
                     <div className="flex flex-wrap items-center gap-1 text-sm">
-                      <span className="text-muted-foreground">
-                        {t("eventForm.allDay")}
-                      </span>
+                      {!isWorkingLocation && (
+                        <span className="text-muted-foreground">
+                          {t("eventForm.allDay")}
+                        </span>
+                      )}
                       <DatePickerPopover
                         value={editDate}
                         label={t("eventForm.startDate")}
@@ -1602,7 +1699,7 @@ export function EventDetailPopover({
                           handleInlineDateChange("date", value)
                         }
                       />
-                      {editEndDate !== editDate && (
+                      {(isWorkingLocation || editEndDate !== editDate) && (
                         <>
                           <span className="text-muted-foreground/50">→</span>
                           <DatePickerPopover
@@ -1719,7 +1816,9 @@ export function EventDetailPopover({
                   onOpenChange={setFindTimeOpen}
                   title={t("eventForm.findTime")}
                   subtitle={event.title}
-                  date={editDate || toDateInputValue(event.start)}
+                  date={
+                    editDate || toDateInputValue(event.start, findTimeTimezone)
+                  }
                   timezone={findTimeTimezone}
                   durationMinutes={findTimeDurationMinutes}
                   attendees={schedulingAttendees}
@@ -1737,6 +1836,7 @@ export function EventDetailPopover({
                 <WorkingLocationEditor
                   event={event}
                   isRecurring={isRecurringEvent}
+                  isDraft={isDraft}
                   readOnly={isOverlay}
                   disabled={updateEvent.isPending}
                   onSave={handleSaveWorkingLocation}
@@ -2426,6 +2526,7 @@ export function EventDetailPopover({
                 <Button
                   size="sm"
                   className="ml-auto text-xs"
+                  disabled={!isWorkingLocationDraftReadyToCreate(event)}
                   onClick={handleCreateDraft}
                 >
                   {event.attendees?.length

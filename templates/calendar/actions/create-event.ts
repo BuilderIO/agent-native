@@ -38,7 +38,9 @@ export default defineAction({
     title: z
       .string()
       .optional()
-      .describe("Event title. Defaults to 'Out of office' for OOO events."),
+      .describe(
+        "Event title. Defaults to 'Out of office' for OOO events. Working-location events use Google's generated display title and do not require one.",
+      ),
     start: z
       .string()
       .describe(
@@ -47,7 +49,7 @@ export default defineAction({
     end: z
       .string()
       .describe(
-        "End time in ISO format, or the last inclusive YYYY-MM-DD date for a full-day OOO event.",
+        "End time in ISO format, the last inclusive YYYY-MM-DD date for a full-day OOO event, or the exclusive YYYY-MM-DD date for an all-day working-location event.",
       ),
     startTimeZone: z
       .string()

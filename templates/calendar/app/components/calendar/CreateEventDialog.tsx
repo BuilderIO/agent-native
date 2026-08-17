@@ -183,6 +183,10 @@ function dateTimePartsInTimezone(value: string, timezone: string) {
 
 function allDayEndDate(end: string | undefined, fallback: string) {
   if (!end) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    const previous = addDaysToDateString(end, -1);
+    return previous < fallback ? fallback : previous;
+  }
   const parsed = new Date(end);
   if (Number.isNaN(parsed.getTime())) return fallback;
   parsed.setDate(parsed.getDate() - 1);
@@ -328,12 +332,14 @@ export function CreateEventPopover({
 
     if (draft) {
       const startParts = draft.start
-        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
+        ? (draft.fullDay || draft.allDay) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
           ? { date: draft.start, time: "00:00" }
           : dateTimePartsInTimezone(draft.start, draftTimezone)
         : null;
       const endParts = draft.end
-        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
+        ? (draft.fullDay || draft.allDay) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
           ? { date: draft.end, time: "00:00" }
           : dateTimePartsInTimezone(
               draft.end,
