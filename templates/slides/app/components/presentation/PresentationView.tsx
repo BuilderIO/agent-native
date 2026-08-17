@@ -311,14 +311,13 @@ export default function PresentationView({
   const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
   const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {
-    const newIds = safeSlides.map((s) => s.id);
     const prevKey = prevDeepLinkKeyRef.current;
     const isDeepLinkChange =
       prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
     prevDeepLinkKeyRef.current = { startIndex, deckId };
-    prevSafeSlideIdsRef.current = newIds;
 
     if (isDeepLinkChange) {
+      prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
       clearTransitionTimer();
       queuedNavigationRef.current = null;
       setCurrentIndex(clampIndex(initialIndex));
@@ -328,14 +327,27 @@ export default function PresentationView({
       return;
     }
 
+    // Read the prior ids before overwriting the ref below — the lookup needs
+    // the slide order from before this update, not the one it's producing.
     const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
+    const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    prevSafeSlideIdsRef.current = newIds;
     setCurrentIndex(
       followedIndex >= 0 ? followedIndex : clampIndex(currentIndexRef.current),
     );
     setPrevIndex((prev) =>
       prev !== null && prev >= safeSlides.length ? null : prev,
     );
+    if (followedIndex < 0) {
+      // The active slide is gone (e.g. just skipped) and we fell back to a
+      // different one — its reveal/transition state doesn't apply here.
+      clearTransitionTimer();
+      queuedNavigationRef.current = null;
+      setCurrentStep(0);
+      setPrevIndex(null);
+      setAnimating(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeSlides, startIndex, deckId]);
 

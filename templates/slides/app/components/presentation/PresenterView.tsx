@@ -131,20 +131,24 @@ export default function PresenterView({
   const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
   const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {
-    const newIds = safeSlides.map((s) => s.id);
     const prevKey = prevDeepLinkKeyRef.current;
     const isDeepLinkChange =
       prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
     prevDeepLinkKeyRef.current = { startIndex, deckId };
-    prevSafeSlideIdsRef.current = newIds;
 
     if (isDeepLinkChange) {
+      prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
       setIndex(initialIndex);
       return;
     }
 
+    // Read the prior ids before overwriting the ref below — the lookup
+    // needs the slide order from before this update, not the one it's
+    // producing.
     const activeId = prevSafeSlideIdsRef.current[indexRef.current];
+    const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    prevSafeSlideIdsRef.current = newIds;
     setIndex(
       followedIndex >= 0
         ? followedIndex
