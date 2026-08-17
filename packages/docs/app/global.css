@@ -1755,7 +1755,7 @@ html.dark .shiki span {
   line-height: 1.2;
   letter-spacing: 0.28px;
   text-decoration: none;
-  text-transform: uppercase;
+  text-transform: none;
   transition:
     background-color 150ms,
     border-color 150ms,
