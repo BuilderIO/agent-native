@@ -1639,6 +1639,41 @@ describe("Builder gateway credential lane", () => {
     expect(await resolveBuilderCredentialSource()).toBeNull();
   });
 
+  // The engine registry treats an owner-configured legacy pair as non-injected and
+  // gives it priority, so the resolver has to agree: picking `builder` on the
+  // customer's own pair and then billing the call to the project's gateway space
+  // moves an existing customer's spend without them changing anything.
+  it("lets a complete legacy pair in env outrank the deploy gateway pair", async () => {
+    // Deliberately not `hostedVisitor()`: that runtime refuses env legacy
+    // credentials outright, so the conflict only exists where they do resolve.
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    process.env.BUILDER_PRIVATE_KEY = "bpk-owner";
+    process.env.BUILDER_PUBLIC_KEY = "space-owner";
+
+    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+      privateKey: "bpk-owner",
+      publicKey: "space-owner",
+    });
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({ lane: "identity" });
+  });
+
+  // Half a legacy pair cannot authenticate anything, so it must not shadow a
+  // usable gateway pair.
+  it("still uses the gateway pair when only half a legacy pair is set", async () => {
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    process.env.BUILDER_PRIVATE_KEY = "bpk-owner";
+
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({ lane: "gateway-deploy" });
+  });
+
   it("does not resolve a gateway token without its space id", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";

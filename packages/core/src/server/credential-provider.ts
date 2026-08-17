@@ -1057,6 +1057,14 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   if (scoped.source && scoped.source !== "env") {
     return { ...scoped, lane: "identity" };
   }
+  // A COMPLETE legacy pair in env is owner-configured, not deploy-injected, so it
+  // outranks the gateway here — `selectDetectedEngine` gives it priority for the
+  // same reason, and letting the gateway win would pick `builder` on the
+  // customer's own pair and then bill the call to the project's gateway space.
+  // An incomplete pair is not a usable credential and still falls through.
+  if (scoped.privateKey && scoped.publicKey) {
+    return { ...scoped, lane: "identity" };
+  }
   const gateway = await resolveUsableBuilderGatewayDeployCredentials();
   if (gateway) {
     // Same discipline as `resolveBuilderCredential`: a deploy fallback must not
