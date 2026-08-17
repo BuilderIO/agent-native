@@ -108,7 +108,7 @@ export const templates = [
     demoUrl: "https://assets.agent-native.com",
     color: "#0F766E",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F797d0b56b93a4e779baa0d7a5724e0db?format=webp&width=800&height=1200",
   },
   {
     name: "Calendar",
