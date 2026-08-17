@@ -63,6 +63,9 @@ import {
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferItem,
+  type CodeAgentPortalTransferResult,
   type CodeAgentPromptAttachment,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunResult,
@@ -147,6 +150,10 @@ import {
   withFileLockSync,
   writeJsonFileAtomically,
 } from "../../../core/src/cli/atomic-json-file.js";
+import {
+  createPortalTransferContext,
+  portalTransferContinuationPrompt,
+} from "../../../core/src/cli/portal-transfer.js";
 import {
   createPortalHandoff,
   type PortalHandoff,
@@ -2684,6 +2691,425 @@ async function appendPortalCodeAgentFollowUp(input: {
     eventFile,
     message: firstStringValue(result.message) ?? "Follow-up sent to Portal.",
   };
+}
+
+const PORTAL_TRANSFER_RUNNER_STOP_TIMEOUT_MS = 5_000;
+
+async function transferCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentPortalTransferResult> {
+  const payload = isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  if (!runId) {
+    return {
+      ok: false,
+      runId: "",
+      message: "Select a chat first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+
+  const selected = await selectPortalHost(payload);
+  if ("error" in selected) {
+    return {
+      ok: false,
+      runId,
+      message: "Could not move the chat to Portal.",
+      error: selected.error,
+    };
+  }
+  return transferCodeAgentRunToPortal(runId, selected);
+}
+
+async function transferAllCodeAgentRuns(
+  input?: unknown,
+): Promise<CodeAgentPortalTransferAllResult> {
+  const transferred: CodeAgentPortalTransferItem[] = [];
+  const skipped: CodeAgentPortalTransferItem[] = [];
+  const failed: CodeAgentPortalTransferItem[] = [];
+  const selected = await selectPortalHost(input);
+  if ("error" in selected) {
+    return {
+      ok: false,
+      transferred,
+      skipped,
+      failed,
+      message: "Could not move local chats to Portal.",
+      error: selected.error,
+    };
+  }
+
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    const title = getRecordString(record, "title");
+    const item = {
+      runId,
+      ...(title ? { title } : {}),
+    };
+    if (isPortalCodeAgentRunRecord(record)) {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "Already running on Portal.",
+      });
+      continue;
+    }
+    const goal = getCodeAgentGoal(getRecordString(record, "goalId"));
+    if (!goal || goal.surfaceKind !== "native") {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "This session does not run as a native coding chat.",
+      });
+      continue;
+    }
+    if (
+      getRecordString(record, "status") === "needs-approval" ||
+      record.needsApproval === true
+    ) {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "Waiting for a local approval. Resolve it before moving it.",
+      });
+      continue;
+    }
+
+    const result = await transferCodeAgentRunToPortal(runId, selected);
+    const transferItem: CodeAgentPortalTransferItem = {
+      ...item,
+      ok: result.ok,
+      ...(result.eventCount !== undefined
+        ? { eventCount: result.eventCount }
+        : {}),
+      message: result.message,
+      ...(result.error ? { error: result.error } : {}),
+    };
+    if (result.ok) transferred.push(transferItem);
+    else failed.push(transferItem);
+  }
+
+  const counts = [
+    `${transferred.length} moved`,
+    `${skipped.length} skipped`,
+    `${failed.length} failed`,
+  ].join(", ");
+  return {
+    ok: failed.length === 0,
+    host: { id: selected.host.id, label: selected.host.label },
+    transferred,
+    skipped,
+    failed,
+    message:
+      transferred.length > 0
+        ? `Portal transfer: ${counts}.`
+        : `No local chats moved. ${counts}.`,
+    ...(failed.length > 0
+      ? { error: failed.map((item) => item.error ?? item.message).join(" ") }
+      : {}),
+  };
+}
+
+async function transferCodeAgentRunToPortal(
+  runId: string,
+  selected: { relayUrl: string; host: PortalRemoteHost },
+): Promise<CodeAgentPortalTransferResult> {
+  const record = readCodeAgentRunRecord(runId);
+  if (!record) {
+    return {
+      ok: false,
+      runId,
+      message: "The selected chat no longer exists.",
+      error: `No run record exists for ${runId}.`,
+    };
+  }
+  if (isPortalCodeAgentRunRecord(record)) {
+    return {
+      ok: false,
+      runId,
+      message: "This chat is already running on Portal.",
+      error: "The chat already has a Portal execution residence.",
+    };
+  }
+  if (
+    getRecordString(record, "status") === "needs-approval" ||
+    record.needsApproval === true
+  ) {
+    return {
+      ok: false,
+      runId,
+      message: "Resolve the local approval before moving this chat.",
+      error: "Pending approvals cannot be moved safely between computers.",
+    };
+  }
+
+  const goal = getCodeAgentGoal(getRecordString(record, "goalId"));
+  if (!goal || goal.surfaceKind !== "native") {
+    return {
+      ok: false,
+      runId,
+      message: "This session cannot be moved as a native coding chat.",
+      error: "Portal transfer requires a native code-agent goal.",
+    };
+  }
+  const sourceCwd = getRecordString(record, "cwd");
+  if (!sourceCwd || !fs.existsSync(sourceCwd)) {
+    return {
+      ok: false,
+      runId,
+      message: "The local coding folder is no longer available.",
+      error: sourceCwd
+        ? `Portal source folder does not exist: ${sourceCwd}`
+        : "The run has no source folder.",
+    };
+  }
+
+  const metadata = isObject(record.metadata) ? record.metadata : {};
+  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
+  const recordedWorktreePath = firstStringValue(worktree?.path);
+  if (recordedWorktreePath && !fs.existsSync(recordedWorktreePath)) {
+    return {
+      ok: false,
+      runId,
+      message: "This chat's worktree is no longer available.",
+      error: `Portal cannot move a missing worktree: ${recordedWorktreePath}`,
+    };
+  }
+
+  if (
+    activeCodeAgentProcesses.has(runId) ||
+    startingCodeAgentRuns.has(runId) ||
+    isActiveDesktopCodeAgentRun(record)
+  ) {
+    const activePid = activeCodeAgentProcesses.get(runId)?.pid;
+    const stopped = await controlCodeAgentRun({
+      goalId: goal.id,
+      runId,
+      command: "stop",
+    });
+    if (!stopped.ok) {
+      return {
+        ok: false,
+        runId,
+        message: "The local runner could not be stopped for Portal.",
+        error: stopped.error ?? stopped.message,
+      };
+    }
+    try {
+      await waitForPortalRunnerStop(runId, activePid);
+    } catch (error) {
+      return {
+        ok: false,
+        runId,
+        message:
+          "The local runner is still stopping. Portal did not start a duplicate.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  const transcript = readAllCodeAgentTranscript({ runId });
+  if (transcript.status !== "ok") {
+    return {
+      ok: false,
+      runId,
+      message: "The chat transcript could not be read for Portal.",
+      error: transcript.error ?? "Transcript is unavailable.",
+    };
+  }
+
+  let transferContext;
+  try {
+    transferContext = createPortalTransferContext({
+      sourceRunId: runId,
+      sourceStatus: getRecordString(record, "status"),
+      sourcePhase: getRecordString(record, "phase"),
+      events: transcript.events,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal could not package the full chat context.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  let handoff: PortalHandoff;
+  try {
+    handoff = await createPortalHandoff({ sourcePath: sourceCwd });
+  } catch (error) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal could not snapshot the local code.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const prompt = portalTransferContinuationPrompt({
+    hostLabel: selected.host.label,
+    handoffId: handoff.handoffId,
+    eventCount: transferContext.events.length,
+  });
+  const sourceKind = firstStringValue(metadata.kind);
+  const remote = await portalRelayRequest(
+    selected.relayUrl,
+    "POST",
+    "/_agent-native/integrations/remote/enqueue",
+    {
+      operation: "code-agent.run.create",
+      payload: {
+        hostId: selected.host.id,
+        runId,
+        prompt,
+        title: getRecordString(record, "title") ?? "Transferred coding chat",
+        goalId: goal.id,
+        permissionMode: readCodeAgentPermissionMode(record),
+        engine: firstStringValue(metadata.engine, record.engine),
+        model: firstStringValue(metadata.model, record.model),
+        effort: firstStringValue(metadata.effort, record.effort),
+        metadata: {
+          source: "desktop-portal-transfer",
+          executionTarget: "portal",
+          portal: handoff,
+          ...(sourceKind ? { kind: sourceKind } : {}),
+          portalTransfer: transferContext,
+        },
+      },
+    },
+  );
+  if (remote.ok === false) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal code was pushed but the chat was not queued remotely.",
+      error: remote.error ?? "The Portal relay rejected the transfer.",
+    };
+  }
+  const commandId = firstStringValue(remote.commandId, remote.requestId);
+  if (!commandId) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal code was pushed but the relay returned no command id.",
+      error: "Invalid Portal relay response.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const permissionMode = readCodeAgentPermissionMode(record);
+  const executionResidence = {
+    schemaVersion: 1,
+    kind: "portal",
+    state: "queued",
+    hostId: selected.host.id,
+    hostLabel: selected.host.label,
+    handoffId: handoff.handoffId,
+    sourceBranch: handoff.sourceBranch,
+    sourceCommit: handoff.commit,
+    portalBranch: handoff.branch,
+    envPolicy: handoff.envPolicy,
+  };
+  const portalMetadata: Record<string, unknown> = {
+    ...metadata,
+    cwd: sourceCwd,
+    executionTarget: "portal",
+    portal: handoff,
+    executionResidence,
+    remote: {
+      commandId,
+      remoteRunId: runId,
+      deviceId: selected.host.id,
+      relayUrl: selected.relayUrl,
+    },
+    source: "desktop-portal-transfer",
+    queued: true,
+    queuedAt: now,
+    ...(metadata.initialPrompt !== undefined
+      ? { initialPrompt: metadata.initialPrompt }
+      : {}),
+    permissionMode,
+    portalTransfer: {
+      schemaVersion: 1,
+      sourceRunId: runId,
+      sourceStatus: getRecordString(record, "status"),
+      sourcePhase: getRecordString(record, "phase"),
+      eventCount: transferContext.events.length,
+      transferredAt: now,
+    },
+  };
+  touchCodeAgentRunRecord(runId, {
+    status: "queued",
+    phase: "portal-queued",
+    needsApproval: false,
+    subtitle: `Portal queued on ${selected.host.label}`,
+    progress: { label: "Portal queued", completed: 0, total: 1, percent: 0 },
+    details: [
+      { label: "Goal", value: goal.slashCommand },
+      { label: "Workspace", value: `Portal · ${selected.host.label}` },
+      {
+        label: "Snapshot",
+        value: `${handoff.branch} @ ${handoff.commit.slice(0, 12)}`,
+      },
+      {
+        label: "Context",
+        value: `Imported ${transferContext.events.length} transcript events`,
+      },
+      { label: "Environment", value: "Loaded locally on paired computer" },
+      ...(permissionMode ? [{ label: "Mode", value: permissionMode }] : []),
+    ],
+    metadata: portalMetadata,
+  });
+  appendCodeAgentStatusEvent(
+    runId,
+    `Portal handoff queued on ${selected.host.label}.`,
+    {
+      source: "desktop-portal-transfer",
+      commandId,
+      handoffId: handoff.handoffId,
+      eventCount: transferContext.events.length,
+      executionResidence,
+    },
+  );
+
+  return {
+    ok: true,
+    runId,
+    run: readDesktopCodeAgentRun(runId) ?? undefined,
+    host: { id: selected.host.id, label: selected.host.label },
+    eventCount: transferContext.events.length,
+    message: `Moved ${getRecordString(record, "title") ?? "chat"} to Portal on ${selected.host.label}.`,
+  };
+}
+
+async function waitForPortalRunnerStop(
+  runId: string,
+  pid?: number,
+): Promise<void> {
+  const deadline = Date.now() + PORTAL_TRANSFER_RUNNER_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const inFlight = isCodeAgentRunnerInFlight(
+      runId,
+      activeCodeAgentProcesses,
+      startingCodeAgentRuns,
+    );
+    const processAlive = pid ? isProcessAlive(pid) : false;
+    if (!inFlight && !processAlive) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Local runner for ${runId} did not stop within 5 seconds.`);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw error;
+  }
 }
 
 function isPortalCodeAgentRunRecord(record: Record<string, unknown>): boolean {
@@ -9814,6 +10240,8 @@ registerCodeAgentsIpc({
     codeAgentTranscriptSubscriptions.set(subscriptionId, subscription),
   sendCodeAgentTranscriptSubscriptionBatch,
   appendCodeAgentFollowUp,
+  transferCodeAgentRun,
+  transferAllCodeAgentRuns,
   updateCodeAgentRun,
   retryCodeAgentRun,
   rerunCodeAgentRun,

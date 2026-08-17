@@ -803,6 +803,33 @@ describe("bug fixes — reliability sweep", () => {
   // n18: toggle/details summaries must round-trip verbatim (as raw NFM
   // source), not be escaped on write after being stored unescaped.
   describe("n18: toggle summary verbatim round-trip", () => {
+    it("preserves an open details toggle", () => {
+      const nfm = L(
+        "<details open>",
+        "<summary>Expanded</summary>",
+        "\tBody",
+        "</details>",
+      );
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+
+    it("canonicalizes a quoted open boolean without closing the toggle", () => {
+      const nfm = L(
+        '<details open="">',
+        "<summary>Expanded</summary>",
+        "\tBody",
+        "</details>",
+      );
+      expect(canonicalizeNfm(nfm)).toBe(
+        L(
+          "<details open>",
+          "<summary>Expanded</summary>",
+          "\tBody",
+          "</details>",
+        ),
+      );
+    });
+
     it("keeps inline formatting inside a <details><summary> intact", () => {
       const nfm = L(
         "<details>",

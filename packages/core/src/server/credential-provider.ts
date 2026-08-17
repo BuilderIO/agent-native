@@ -20,7 +20,10 @@
 
 import { createHash } from "node:crypto";
 
-import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE } from "../agent/engine/credential-errors.js";
+import {
+  CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
+  GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+} from "../agent/engine/credential-errors.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   getDbExec,
@@ -175,6 +178,12 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "ANTHROPIC_API_KEY",
+  // The Builder-credits pair pays for the deployed app's own model calls and
+  // carries no end-user identity — the token is scoped to ['gateway'] and can
+  // make no identity-bearing Builder call. The legacy BUILDER_PRIVATE_KEY /
+  // BUILDER_PUBLIC_KEY pair can, so it must never be added to this set.
+  "BUILDER_GATEWAY_TOKEN",
+  "BUILDER_GATEWAY_SPACE_ID",
   "EMAIL_FROM",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
   "EMAIL_AGENT_ADDRESS",
@@ -227,6 +236,11 @@ export function canUseDeployCredentialFallbackForRequest(
   if (!isProductionLikeRuntime()) return true;
   return isLocalDatabase();
 }
+
+/** The raw `btk-` gateway PAT a Builder-credits deploy injects. */
+export const BUILDER_GATEWAY_TOKEN_ENV_VAR = "BUILDER_GATEWAY_TOKEN";
+/** The space id that pairs with it, sent as `x-builder-api-key`. */
+export const BUILDER_GATEWAY_SPACE_ID_ENV_VAR = "BUILDER_GATEWAY_SPACE_ID";
 
 const BUILDER_CREDENTIAL_KEYS = [
   "BUILDER_PRIVATE_KEY",
@@ -977,6 +991,186 @@ export async function resolveBuilderCredentials(
   };
 }
 
+/** `gateway-deploy` means the site pays, so owner-facing copy must not be shown. */
+export type BuilderGatewayLane = "identity" | "gateway-deploy";
+
+export interface BuilderGatewayCredentialsDetailed extends BuilderCredentialsDetailed {
+  lane: BuilderGatewayLane | null;
+}
+
+/**
+ * Both halves required: the gateway 403s a token with no space id before it
+ * consults any route policy, so half a pair is not a usable credential.
+ */
+export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
+  token: string;
+  spaceId: string;
+} | null> {
+  const token = canUseDeployCredentialFallbackForRequest(
+    BUILDER_GATEWAY_TOKEN_ENV_VAR,
+  )
+    ? readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR)
+    : undefined;
+  const spaceId = canUseDeployCredentialFallbackForRequest(
+    BUILDER_GATEWAY_SPACE_ID_ENV_VAR,
+  )
+    ? readDeployCredentialEnv(BUILDER_GATEWAY_SPACE_ID_ENV_VAR)
+    : undefined;
+  if (!token || !spaceId) return null;
+  const failure = await getProviderCredentialAuthFailure({
+    key: BUILDER_GATEWAY_TOKEN_ENV_VAR,
+    value: token,
+  });
+  return failure ? null : { token, spaceId };
+}
+
+/**
+ * Weaker than "usable" on purpose: a present-but-rejected token still means the
+ * reader is a visitor. Excludes the dev preview, which carries the same token but
+ * is read by the project owner.
+ */
+export function isBuilderGatewayDeployConfigured(): boolean {
+  if (isHostedWorkspaceRuntime()) return false;
+  return Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR));
+}
+
+/** One decision for every gateway-lane consumer; a per-consumer copy drifts. */
+export function gatewayLaneUnavailableMessage(ownerFacing: string): string {
+  return isBuilderGatewayDeployConfigured()
+    ? GATEWAY_UNAVAILABLE_VISITOR_MESSAGE
+    : ownerFacing;
+}
+
+/**
+ * Gateway-lane credentials. Fall-through: the request's own Builder connection,
+ * then the deployment's credits pair, then the legacy pair.
+ *
+ * Identity-bearing calls (asset upload, design systems, Admin GraphQL, browser
+ * agent) must keep using `resolveBuilderCredentials`: a `['gateway']` token 403s
+ * on all of them.
+ */
+export async function resolveBuilderGatewayCredentialsDetailed(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderGatewayCredentialsDetailed> {
+  const scoped = await resolveBuilderCredentialsDetailed(identity);
+  if (scoped.source && scoped.source !== "env") {
+    return { ...scoped, lane: "identity" };
+  }
+  // A COMPLETE legacy pair in env is owner-configured, not deploy-injected, so it
+  // outranks the gateway here — `selectDetectedEngine` gives it priority for the
+  // same reason, and letting the gateway win would pick `builder` on the
+  // customer's own pair and then bill the call to the project's gateway space.
+  // An incomplete pair is not a usable credential and still falls through.
+  if (scoped.privateKey && scoped.publicKey) {
+    return { ...scoped, lane: "identity" };
+  }
+  const gateway = await resolveUsableBuilderGatewayDeployCredentials();
+  if (gateway) {
+    // Same discipline as `resolveBuilderCredential`: a deploy fallback must not
+    // turn an unreadable credential store into a clean connected result.
+    assertCredentialStoreReadable(scoped);
+    return {
+      privateKey: gateway.token,
+      publicKey: gateway.spaceId,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: "env",
+      lookupFailed: scoped.lookupFailed,
+      cause: scoped.cause,
+      lane: "gateway-deploy",
+    };
+  }
+  return { ...scoped, lane: scoped.source ? "identity" : null };
+}
+
+/**
+ * Gateway-lane credentials in the same shape as `resolveBuilderCredentials`, so
+ * a consumer moves lane by changing which resolver it calls and nothing else.
+ */
+export async function resolveBuilderGatewayCredentials(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<{
+  privateKey: string | null;
+  publicKey: string | null;
+  userId: string | null;
+  orgName: string | null;
+  orgKind: string | null;
+  subscription: string | null;
+  subscriptionLevel: string | null;
+  subscriptionName: string | null;
+  isEnterprise: boolean | null;
+  isFreeAccount: boolean | null;
+}> {
+  const {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
+  } = await resolveBuilderGatewayCredentialsDetailed(identity);
+  return {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
+  };
+}
+
+export interface BuilderGatewayAuth {
+  /** `Bearer <token>` for the `Authorization` header. */
+  authorization: string;
+  /** Send as `x-builder-api-key`. Null only for a legacy single-key deployment. */
+  spaceId: string | null;
+  /** Send as `x-builder-user-id` when the lane carries a Builder user. */
+  userId: string | null;
+}
+
+/**
+ * The gate for gateway-lane features. Not `resolveHasBuilderPrivateKey`, which is
+ * identity-only and false on a credits site.
+ */
+export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
+  return Boolean(await resolveBuilderGatewayAuth());
+}
+
+/** Gateway-lane `resolveBuilderAuthHeader`, same fall-through order. */
+export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
+  const creds = await resolveBuilderGatewayCredentialsDetailed();
+  const token = creds.privateKey?.trim();
+  const spaceId = creds.publicKey?.trim();
+  if (token && spaceId) {
+    return {
+      authorization: `Bearer ${token}`,
+      spaceId,
+      userId: creds.userId?.trim() || null,
+    };
+  }
+  // Single-key deployments predate the space id and still authenticate on a
+  // `bpk-` private key alone. A gateway token never reaches this branch — its
+  // pair is required above.
+  const legacyKey = (await resolveBuilderPrivateKey())?.trim();
+  return legacyKey
+    ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
+    : null;
+}
+
 const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
 /**
  * Stale markers expire so a rejected model or a transient gateway failure
@@ -1216,6 +1410,45 @@ export async function clearProviderCredentialAuthFailure(opts: {
   } catch {
     // A stale failure marker should not block writing or using fresh keys.
   }
+}
+
+/**
+ * `builderCredentialFingerprint` needs both legacy keys, so on a credits site the
+ * legacy marker is a no-op and a rejected token would be resent forever. The
+ * gateway lane fingerprints its single token through the provider marker.
+ */
+export async function recordBuilderGatewayAuthFailure(details?: {
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  try {
+    const creds = await resolveBuilderGatewayCredentialsDetailed();
+    if (creds.lane === "gateway-deploy" && creds.privateKey) {
+      await recordProviderCredentialAuthFailure({
+        key: BUILDER_GATEWAY_TOKEN_ENV_VAR,
+        value: creds.privateKey,
+        ...details,
+      });
+      return;
+    }
+  } catch {
+    // Best-effort marker only; the chat error is still returned to the caller.
+    return;
+  }
+  await recordBuilderCredentialAuthFailure(details);
+}
+
+/** Each clear is a no-op off its own lane, so callers need not know which they are on. */
+export async function clearBuilderGatewayAuthFailure(creds: {
+  privateKey?: string | null;
+  publicKey?: string | null;
+}): Promise<void> {
+  await clearBuilderCredentialAuthFailure(creds);
+  await clearProviderCredentialAuthFailure({
+    key: BUILDER_GATEWAY_TOKEN_ENV_VAR,
+    value: creds.privateKey,
+  });
 }
 
 /**

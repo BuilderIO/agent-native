@@ -1620,7 +1620,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     transcriptPending: "Transcript pending (Localisé)",
     notesPending: "Notes pending (Localisé)",
     pastRecordings: "Past recordings (Localisé)",
-    loadOlder: "Charger les plus anciens",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
     connectGoogleCalendar: "Connect Google Calendar (Localisé)",
@@ -1648,7 +1647,14 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     title: "Meetings (Localisé)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Localisé)",
-    searchPlaceholder: "Search meetings... (Localisé)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Localisé)",
+    agendaTab: "Agenda (Localisé)",
+    pastTab: "Past (Localisé)",
+    now: "Now (Localisé)",
+    noPastMeetings: "No past meetings yet (Localisé)",
+    loadOlder: "Load older (Localisé)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (Localisé)",
     clearSearch: "Clear search (Localisé)",
     noMeetingsYet: "No meetings yet (Localisé)",
     noMeetingsDescription:

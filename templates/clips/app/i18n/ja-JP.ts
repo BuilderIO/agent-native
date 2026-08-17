@@ -1610,7 +1610,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     transcriptPending: "Transcript pending (ローカライズ済み)",
     notesPending: "Notes pending (ローカライズ済み)",
     pastRecordings: "Past recordings (ローカライズ済み)",
-    loadOlder: "古いものを読み込む",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
@@ -1639,7 +1638,15 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     title: "Meetings (ローカライズ済み)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
-    searchPlaceholder: "Search meetings... (ローカライズ済み)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (ローカライズ済み)",
+    agendaTab: "Agenda (ローカライズ済み)",
+    pastTab: "Past (ローカライズ済み)",
+    now: "Now (ローカライズ済み)",
+    noPastMeetings: "No past meetings yet (ローカライズ済み)",
+    loadOlder: "Load older (ローカライズ済み)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",
     clearSearch: "Clear search (ローカライズ済み)",
     noMeetingsYet: "No meetings yet (ローカライズ済み)",
     noMeetingsDescription:

@@ -1607,7 +1607,6 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
-    loadOlder: "Carregar mais antigos",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
@@ -1634,7 +1633,14 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Agora",
+    noPastMeetings: "Ainda não há reuniões anteriores",
+    loadOlder: "Carregar anteriores",
+    searchFailed:
+      "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

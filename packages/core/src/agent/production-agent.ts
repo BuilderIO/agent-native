@@ -40,6 +40,7 @@ import {
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
+  isBuilderGatewayDeployConfigured,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -84,11 +85,17 @@ import {
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
+  formatLlmCredentialErrorMessage,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
-import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isContextOverflowCode,
+  isContextOverflowMessage,
+  isProviderConnectionErrorMessage,
+} from "./engine/error-detail.js";
 import {
   resolveEngine,
   explicitEngineName,
@@ -184,6 +191,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
@@ -1484,22 +1492,15 @@ function toolInputActivityLabel(toolName?: string): string {
  */
 export function isContextTooLongError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  if (
-    msg.includes("context_length_exceeded") ||
-    msg.includes("input_too_long") ||
-    msg.includes("too many tokens") ||
-    msg.includes("prompt is too long") ||
-    msg.includes("reduce the length") ||
-    // Gemini phrasing
-    msg.includes("input token count exceeds") ||
-    msg.includes("request too large")
-  )
+  // The engine's structural verdict comes first: it was read off the provider's
+  // own reply, which is not always the message delivered here — a
+  // Builder-credits deployment answers every gateway rejection with one visitor
+  // line, and the gateway reports an overflow as a plain `invalid_request_error`
+  // whose prose was the only signal.
+  if (err instanceof EngineError && err.contextOverflow === true) return true;
+  if (isContextOverflowMessage(err.message)) return true;
+  if (err instanceof EngineError && isContextOverflowCode(err.errorCode)) {
     return true;
-  if (err instanceof EngineError) {
-    const code = (err.errorCode ?? "").toLowerCase();
-    if (code.includes("context_length") || code.includes("input_too_long"))
-      return true;
   }
   return false;
 }
@@ -1533,6 +1534,9 @@ export function isRetryableError(err: unknown): boolean {
 
   return (
     code === "builder_gateway_error" ||
+    // The gateway's unhandled-500 envelope arriving in-stream, where there is no
+    // status to read. Same failure as `http_500` below, so same verdict.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "builder_gateway_network_error" ||
     code === "provider_network_error" ||
     code === "http_429" ||
@@ -2193,8 +2197,10 @@ export async function callConnectedAgentReference(input: {
       onUpdate: relay.observePollUpdate,
     });
     const responseText =
-      userFacingLlmCredentialError(response, { agentName: input.agent }) ??
-      response;
+      userFacingLlmCredentialError(response, {
+        agentName: input.agent,
+        visitorFacing: isBuilderGatewayDeployConfigured(),
+      }) ?? response;
     relay.emitResponseText(responseText);
     relay.finish("done");
     return responseText;
@@ -2483,6 +2489,11 @@ export function isResumableEngineError(err: unknown): boolean {
   if (
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
+    // A gateway stream that stopped mid-turn. It reached here as
+    // `builder_gateway_network_error` until the engine named it, and a
+    // continuation is precisely its recovery: the partial turn is preserved and
+    // the agent is nudged to finish it, where an in-call retry would `clear` it.
+    code === "builder_gateway_stream_ended" ||
     code === "provider_network_error"
   ) {
     return true;
@@ -2555,6 +2566,15 @@ export function continuationReasonForResumableError(
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return "gateway_timeout";
+  // A gateway/proxy timeout status, read structurally. The prose below says the
+  // same thing on most lanes, but not on a Builder-credits deployment, where the
+  // message is one visitor line.
+  if (
+    err instanceof EngineError &&
+    (err.statusCode === 408 || err.statusCode === 504)
+  ) {
+    return "gateway_timeout";
+  }
   const text = err instanceof Error ? err.message.toLowerCase() : "";
   if (
     text.includes("gateway timeout") ||
@@ -5205,6 +5225,7 @@ export async function runAgentLoop(opts: {
                   upgradeUrl: event.upgradeUrl,
                   statusCode: event.statusCode,
                   providerRetryable: event.providerRetryable,
+                  contextOverflow: event.contextOverflow,
                   requestId: event.requestId,
                 });
               }
@@ -6796,7 +6817,8 @@ function backgroundChatProgressRunId(turnId: string): string {
   return `agent-chat-${normalized || "turn"}`;
 }
 
-function isRecoverableContinuationError(event: {
+/** @internal exported for unit tests only */
+export function isRecoverableContinuationError(event: {
   type: "error";
   error: string;
   errorCode?: string;
@@ -6815,12 +6837,28 @@ function isRecoverableContinuationError(event: {
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
+    // Server-driven background continuation for a truncated stream. The message
+    // used to carry this ("stream ended without a stop event", classified into
+    // `builder_gateway_network_error` above); the code carries it now, and on a
+    // Builder-credits deployment the code is all that is left.
+    code === "builder_gateway_stream_ended" ||
     code === "provider_network_error" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
+    // The 5xx family the message clauses below used to reach by prose alone
+    // ("temporarily unavailable", "gateway timeout"). The client's own
+    // continuation list (sse-event-processor) has always carried these codes;
+    // the server read the sentence instead, which a Builder-credits deployment
+    // replaces with one visitor line.
+    code === "http_500" ||
+    // The same 500, delivered in-stream with no status attached.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
@@ -8650,13 +8688,22 @@ export function createProductionAgentHandler(
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
       const encoder = new TextEncoder();
+      // A Builder-credits deployment serves this chat to visitors with no
+      // account, so the owner-facing "connect a provider" copy is unactionable
+      // for them. It is also what they see most of the time once a gateway auth
+      // failure arms the 15-minute marker: the credits lane stops resolving,
+      // engine selection falls back to the anthropic default, and this branch —
+      // not the engine's own error — is what answers the turn.
+      const missingCredentialsError = formatLlmCredentialErrorMessage({
+        visitorFacing: isBuilderGatewayDeployConfigured(),
+      });
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: "error",
-                error: LLM_MISSING_CREDENTIALS_MESSAGE,
+                error: missingCredentialsError,
                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
               })}\n\n`,
             ),
@@ -9183,13 +9230,27 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()
         ? backgroundRunMarker.turnId.trim()
-        : typeof requestTurnId === "string" && requestTurnId.trim()
-          ? requestTurnId.trim()
-          : runId;
+        : (resolvedApprovalTurnId ??
+          (typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId));
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
@@ -9997,6 +10058,7 @@ export function createProductionAgentHandler(
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
                   }) ?? `Failed to run ${ref.name}: ${err?.message}`;
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\n${message}\n</agent-response>`;
               }
@@ -10049,6 +10111,7 @@ export function createProductionAgentHandler(
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
                   }) ?? `Failed to reach ${ref.name}: ${err?.message}`;
                 return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\n${message}\n</agent-response>`;
               }

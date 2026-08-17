@@ -165,6 +165,7 @@ function buildOptimisticCalendarEvent(
         : undefined,
     reminders: newData.reminders,
     remindersUseDefault: newData.remindersUseDefault,
+    recurrence: newData.recurrence,
     attendees: newData.attendees,
     accountEmail: newData.accountEmail,
     source: "local",

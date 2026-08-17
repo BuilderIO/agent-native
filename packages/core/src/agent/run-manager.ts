@@ -451,6 +451,10 @@ function shouldCaptureRunError(err: unknown): boolean {
   return (
     !normalizedCode.startsWith("credits-limit") &&
     normalizedCode !== "builder_gateway_network_error" &&
+    // A truncated gateway stream, which the client continues. It arrived here as
+    // `builder_gateway_network_error` until the engine gave it its own code, so
+    // omitting it would turn a routine recovered interruption into Sentry noise.
+    normalizedCode !== "builder_gateway_stream_ended" &&
     normalizedCode !== PROVIDER_NETWORK_ERROR_CODE &&
     normalizedCode !== "provider_rate_limited" &&
     normalizedCode !== "rate_limit_exceeded"
@@ -1511,6 +1515,32 @@ export function startRun(
         ...(details ? { details } : {}),
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
+          : {}),
+        // The engine's own retry verdict, carried structurally. The client
+        // decides auto-continue from this, `recoverable` and the error code, and
+        // a deployment whose visitor copy replaces the message (Builder credits)
+        // leaves it nothing else to read: without this a provider throttle the
+        // engine marked retryable ends the turn on those sites only.
+        //
+        // NOT `recoverable`. That field is the server's own "this run stopped at
+        // an internal continuation boundary" signal, read by
+        // `isInternalContinuationError` (thread-data-builder) to drop the error
+        // from the persisted turn and by `isRecoverableContinuationError`
+        // (production-agent) to self-chain the next background chunk. Neither
+        // lists `rate_limited` or `too_many_concurrent_requests` today, so
+        // feeding them from the engine verdict would newly chain up to
+        // MAX_BACKGROUND_RUN_CONTINUATIONS invocations into a live throttle — on
+        // every lane, not just Builder credits.
+        ...(err instanceof EngineError && err.providerRetryable === true
+          ? { providerRetryable: true }
+          : {}),
+        // Same reasoning as `providerRetryable`: on the credits lane the message
+        // is the visitor line and the code is `invalid_request_error`, so this
+        // flag is the only thing left that says "trim and retry once". Dropping
+        // it here turns a recoverable overflow into a terminal failure on exactly
+        // the sites that cannot read the real reason.
+        ...(err instanceof EngineError && err.contextOverflow === true
+          ? { contextOverflow: true }
           : {}),
       });
     })
