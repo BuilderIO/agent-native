@@ -708,6 +708,28 @@ export class DesktopComputerMcpBridge {
       },
     );
     mcp.registerTool(
+      "browser_open_tab",
+      {
+        description:
+          "Open a new Chrome tab in the background within the exact origin assigned when this task attached the tab, then control that new tab without focusing Chrome.",
+        inputSchema: { url: z.string().max(16_384) },
+        annotations: { readOnlyHint: false, openWorldHint: true },
+      },
+      async ({ url }) => {
+        const context = this.assertBrowserContext();
+        const parsed = new URL(url);
+        if (parsed.origin !== context.browserOrigin) {
+          throw new Error("New tabs cannot leave the attached origin.");
+        }
+        const result = await this.browserExecute(context, {
+          type: "open-tab",
+          url: parsed.toString(),
+        });
+        context.browserObservationId = undefined;
+        return this.textResult(result);
+      },
+    );
+    mcp.registerTool(
       "browser_scroll",
       {
         description: "Scroll the attached Chrome tab.",
@@ -892,6 +914,11 @@ export class DesktopComputerMcpBridge {
       case "browser.navigate":
         return bridge.execute(registration, {
           type: "navigate",
+          url: String(input.url ?? ""),
+        });
+      case "browser.open-tab":
+        return bridge.execute(registration, {
+          type: "open-tab",
           url: String(input.url ?? ""),
         });
       case "browser.scroll":
