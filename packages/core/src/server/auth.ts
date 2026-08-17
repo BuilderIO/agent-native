@@ -729,6 +729,19 @@ function getSetCookieHeaders(headers: Headers): string[] {
         .filter(Boolean);
 }
 
+function cookieNames(header: string | null | undefined): string[] {
+  return (header ?? "")
+    .split(";")
+    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function setCookieNames(headers: Headers): string[] {
+  return getSetCookieHeaders(headers)
+    .map((cookie) => cookie.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
 function extractSessionTokenFromSetCookies(
   response: Response,
 ): string | undefined {
@@ -2373,6 +2386,9 @@ function logMagicLinkVerificationResponse(
     ),
     producer: invalidToken ? "better-auth.magic-link.verify" : undefined,
     reason: invalidToken ? "consumeVerificationValue returned null" : undefined,
+    requestCookieNames: cookieNames(getHeader(event, "cookie")),
+    responseSetCookieCount: getSetCookieHeaders(response.headers).length,
+    responseSetCookieNames: setCookieNames(response.headers),
     preConsume,
     classification: invalidToken
       ? preConsume?.lookup === "present" && preConsume.expiryState === "valid"
@@ -4325,6 +4341,11 @@ async function mountBetterAuthRoutes(
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
+      logMagicLinkDebug(event, "callback-session-lookup", {
+        source: "desktop-callback",
+        flow: oauthDebugFlowId(flowId),
+        requestCookieNames: cookieNames(getHeader(event, "cookie")),
+      });
       const session = await getSession(event);
       if (!session?.email || !session.token) {
         setDesktopExchangeError(flowId, {
