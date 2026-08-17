@@ -986,7 +986,8 @@ function serializeToggle(node: PMNode, ind: number): string[] {
     return out;
   }
   const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
-  out.push(indentStr(ind) + `<details${attrStr}>`);
+  const openAttr = node.attrs?.open === true ? " open" : "";
+  out.push(indentStr(ind) + `<details${attrStr}${openAttr}>`);
   out.push(indentStr(ind) + `<summary>${summary}</summary>`);
   out.push(...serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + "</details>");
@@ -2006,7 +2007,7 @@ function parseContainer(
       attrs: {
         summary,
         headingLevel: null,
-        open: false,
+        open: attrs.open !== undefined || /(?:^|\s)open(?:\s|>)/.test(openLine),
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
