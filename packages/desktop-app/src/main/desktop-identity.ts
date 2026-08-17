@@ -1596,7 +1596,7 @@ export class DesktopIdentityBroker {
         this.availability = "unavailable";
         markUnsupported();
         this.setStatus("idle");
-        this.options.reloadApp(app);
+        this.reloadAppSafely(app);
         return false;
       }
       let available = false;
@@ -1615,7 +1615,7 @@ export class DesktopIdentityBroker {
         if (options.interactive === false) {
           markUnsupported();
           this.setStatus("idle");
-          this.options.reloadApp(app);
+          this.reloadAppSafely(app);
           return false;
         }
       } else {
@@ -1650,14 +1650,14 @@ export class DesktopIdentityBroker {
         console.warn("[desktop-identity] identity preflight failed");
         markUnsupported();
         this.setStatus("failed");
-        this.options.reloadApp(app);
+        this.reloadAppSafely(app);
         return false;
       }
       if (!this.isCeremonyCurrent(generation)) return false;
       if (!redirectUrl) {
         markUnsupported();
         this.setStatus("failed");
-        this.options.reloadApp(app);
+        this.reloadAppSafely(app);
         return false;
       }
       initialUrl = redirectUrl;
@@ -1669,7 +1669,7 @@ export class DesktopIdentityBroker {
         ) {
           markUnsupported();
           this.setStatus("failed");
-          this.options.reloadApp(app);
+          this.reloadAppSafely(app);
           return false;
         }
       }
@@ -1753,7 +1753,7 @@ export class DesktopIdentityBroker {
             isDesktopIdentityAuthorizeNavigation(url, authorityApp, app)
           ) {
             markUnsupported();
-            this.options.reloadApp(app);
+            this.reloadAppSafely(app);
             finish(false, "idle");
             return;
           }
@@ -1765,6 +1765,9 @@ export class DesktopIdentityBroker {
             return;
           }
           completionStarted = true;
+          console.info("[desktop-identity] target completion received", {
+            appId: app.id,
+          });
           if (!this.isCeremonyCurrent(generation)) {
             finish(false, "sign-in-required");
             return;
@@ -1774,7 +1777,7 @@ export class DesktopIdentityBroker {
               appId: app.id,
               statusCode: httpResponseCode,
             });
-            this.options.reloadApp(app);
+            this.reloadAppSafely(app);
             finish(false, "failed");
             return;
           }
@@ -1787,14 +1790,30 @@ export class DesktopIdentityBroker {
             ),
           ).then(
             () => {
+              console.info(
+                "[desktop-identity] target session transfer complete",
+                {
+                  appId: app.id,
+                },
+              );
               if (!this.isCeremonyCurrent(generation)) {
                 finish(false, "sign-in-required");
                 return;
               }
-              this.options.reloadApp(app);
+              this.reloadAppSafely(app);
               finish(true, "signed-in");
             },
             (error) => {
+              console.warn(
+                "[desktop-identity] target session transfer rejected",
+                {
+                  appId: app.id,
+                  reason:
+                    error instanceof Error
+                      ? error.message.slice(0, 200)
+                      : "unknown transfer error",
+                },
+              );
               if (ceremonyAbort.signal.aborted) return;
               this.recoverFromSessionCopyFailure(app, generation, error);
               finish(false, "failed");
@@ -1985,7 +2004,26 @@ export class DesktopIdentityBroker {
           ? error.message.slice(0, 200)
           : "unknown transfer error",
     });
-    this.options.reloadApp(app);
+    this.reloadAppSafely(app);
+  }
+
+  private reloadAppSafely(app: DesktopIdentityApp): void {
+    try {
+      this.options.reloadApp(app);
+    } catch (error) {
+      // Session transfer succeeded even when an old webview was destroyed
+      // during reload; never strand the broker before its completion signal.
+      console.warn(
+        "[desktop-identity] app reload after session transfer failed",
+        {
+          appId: app.id,
+          reason:
+            error instanceof Error
+              ? error.message.slice(0, 200)
+              : "unknown error",
+        },
+      );
+    }
   }
 
   private closeActiveWindow(): void {

@@ -1451,7 +1451,9 @@ describe("DesktopIdentityBroker", () => {
       const returnPath = target.searchParams.get("return")!;
       return new URL(returnPath, target.origin).toString();
     });
-    const reloadApp = vi.fn();
+    const reloadApp = vi.fn((target: DesktopIdentityApp) => {
+      if (target.id === "calendar") throw new Error("webview destroyed");
+    });
     const broker = new DesktopIdentityBroker({
       identitySession: {
         cookies: identityCookies,
@@ -1490,6 +1492,7 @@ describe("DesktopIdentityBroker", () => {
     completeWindow(2);
 
     await expect(signIn).resolves.toBe(true);
+    expect(broker.getStatus()).toBe("signed-in");
     expect(authority.session.cookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "an_session_dispatch",
