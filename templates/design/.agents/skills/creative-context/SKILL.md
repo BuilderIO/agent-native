@@ -2,8 +2,10 @@
 name: creative-context
 description: >-
   Reuse creative context across generation while respecting explicit context
-  choices, pinned packs, provenance, and opt-out state.
-scope: app
+  choices, pinned packs, provenance, and opt-out state. Use when generating or
+  refining any creative output, or when the user references saved or approved
+  context.
+scope: both
 metadata:
   internal: true
 ---
@@ -90,6 +92,9 @@ Prefer components before pixels. Use the library like a code repository:
 3. Clone a fitting artifact unchanged with `clone-creative-context-design`.
 4. For a light adaptation, clone first, inspect the saved file with
    `get-design-snapshot`, then use one bounded `edit-design` pass on that file.
+   A clone carries every screen the source had: `delete-file` each cloned
+   screen the request does not need, and `delete-design` every candidate clone
+   you compared but did not keep, before you report the work done.
 5. To combine pieces, clone every selected artifact into the same design,
    inspect the saved native files, and compose the smallest useful sections or
    components. Preserve every contributing item/version in the context pack
