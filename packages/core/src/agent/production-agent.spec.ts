@@ -10134,6 +10134,88 @@ describe("runAgentLoop", () => {
     expect(events2.at(-1)).toEqual({ type: "done" });
   });
 
+  it("runs an approved call when the continuation has a new provider call id", async () => {
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const events1: any[] = [];
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    let continuationStreamCalls = 0;
+    const continuationEngine: AgentEngine = {
+      ...approvalEngine().engine,
+      async *stream(): AsyncIterable<EngineEvent> {
+        continuationStreamCalls += 1;
+        if (continuationStreamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "replayed-call-id",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "sent the email" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const consumeApproval = vi.fn(
+      async (binding: { callId: string; approvalKey: string }) => {
+        expect(binding.callId).toBe("replayed-call-id");
+        return binding.approvalKey === approvalKey;
+      },
+    );
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: continuationEngine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired: vi.fn(async () => undefined),
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events2.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("requires the server approval consumer before executing an approved call", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");

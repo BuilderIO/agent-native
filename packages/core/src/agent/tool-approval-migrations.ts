@@ -39,6 +39,9 @@ export const AGENT_TOOL_APPROVAL_TABLE_SQL = {
 export const AGENT_TOOL_APPROVAL_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approvals_binding
   ON agent_tool_approvals(owner_email, org_id, thread_id, tool_name, call_id, status)`;
 
+export const AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approvals_logical
+  ON agent_tool_approvals(owner_email, org_id, thread_id, turn_id, tool_name, approval_key_hash, status)`;
+
 /**
  * Durable approval grants are created and consumed on request paths, but their
  * schema belongs to the release migration boundary in production.
@@ -52,6 +55,14 @@ export const AGENT_TOOL_APPROVAL_MIGRATIONS: MigrationEntry[] = [
 ${AGENT_TOOL_APPROVAL_INDEX_SQL}`,
       sqlite: `${AGENT_TOOL_APPROVAL_TABLE_SQL.sqlite};
 ${AGENT_TOOL_APPROVAL_INDEX_SQL}`,
+    },
+  },
+  {
+    version: 2,
+    name: "agent-tool-approvals-logical-binding-index",
+    sql: {
+      postgres: AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+      sqlite: AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
     },
   },
 ];

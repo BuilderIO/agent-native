@@ -9121,6 +9121,11 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    // The durable approval row is the authorization boundary. Do not require
+    // the client to reproduce the original structured history exactly: the UI
+    // may truncate tool arguments and intentionally assigns fresh replay ids.
+    // The loop still consumes only a matching server-created grant for the
+    // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
       structuredHistory,
       requestedApprovedToolCalls,
@@ -9211,18 +9216,7 @@ export function createProductionAgentHandler(
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
     };
-    const exactApprovedToolEntry = exactApprovedToolCall
-      ? requestActions[exactApprovedToolCall.name]
-      : undefined;
-    const approvedToolCallsForExecution =
-      exactApprovedToolCall && exactApprovedToolEntry?.needsApproval
-        ? [
-            toolCallCacheKey(
-              exactApprovedToolCall.name,
-              exactApprovedToolCall.input,
-            ),
-          ]
-        : undefined;
+    const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))
@@ -10143,9 +10137,10 @@ export function createProductionAgentHandler(
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),
-          // Human-in-the-loop approval grants for this turn (sanitized — the
-          // request is untrusted; only the exact structured call is passed to
-          // the loop, where the durable grant is consumed atomically.
+          // Human-in-the-loop approval grants for this turn. The request is
+          // untrusted; the durable approval consumer below validates every key
+          // against the authenticated owner/org/thread/turn and consumes it
+          // atomically for the exact tool/input tuple.
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }
             : {}),
