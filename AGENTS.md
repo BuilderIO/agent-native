@@ -71,6 +71,11 @@ step is still pending. Use `🔴` only when blocked on user input.
   have a safe way to call it directly through the provider API substrate. If an
   app stores provider credentials on resource/share rows, add a scoped resolver
   that preserves those access checks before exposing raw provider requests.
+- For customer or third-party provider data, never read API keys or tokens from
+  `process.env`. Inspect the workspace connection catalog first, use the
+  granted connection's vault-backed credential refs, and only use scoped local
+  credentials when no reusable connection exists. Deployment environment
+  variables are for deploy-level configuration, not user/workspace data access.
 - Treat Clay as a credentialed GTM provider API, not as a messaging channel.
   Hosted access uses `CLAY_PUBLIC_API_KEY` through the provider API substrate;
   the optional local Clay CLI/MCP plugin has a separate browser-login session
