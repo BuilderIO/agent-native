@@ -361,6 +361,63 @@ function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
 
+/**
+ * The saved file is shorter than the wall-clock duration the recorder tracked.
+ * The file itself is playable, so plain Retry re-runs the same check and fails
+ * identically forever — the only way forward is the user deciding to upload
+ * the short clip.
+ */
+const SHORT_CLIP_FAILURE_RE =
+  /local media duration \((\d+) ms\) did not match the recorded duration \((\d+) ms\)/;
+
+function shortClipShortfallMs(
+  message: string | null | undefined,
+): number | null {
+  const match = SHORT_CLIP_FAILURE_RE.exec(message ?? "");
+  if (!match) return null;
+  const media = Number(match[1]);
+  const recorded = Number(match[2]);
+  if (!Number.isFinite(media) || !Number.isFinite(recorded)) return null;
+  return Math.max(0, recorded - media);
+}
+
+async function postShortClipNotice(
+  serverUrl: string,
+  recordingId: string,
+  shortfallMs: number,
+): Promise<void> {
+  const seconds = Math.round(shortfallMs / 1000);
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const authToken = loadDesktopAuthToken(serverUrl);
+  if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+  const response = await fetch(
+    `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/add-annotation`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify({
+        recordingId,
+        kind: "editor-note",
+        label: "Clip may be incomplete",
+        body: `This clip was uploaded at the recorder's request even though its media is about ${seconds}s shorter than the recorded duration. The end of the recording may be missing.`,
+      }),
+    },
+  );
+  if (!response.ok) {
+    let body: string;
+    try {
+      body = await response.text();
+    } catch (err) {
+      // An unreadable body is not an empty one — say which happened.
+      body = `<body unreadable: ${err instanceof Error ? err.message : String(err)}>`;
+    }
+    throw new Error(
+      `add-annotation failed (${response.status}): ${body}`.slice(0, 300),
+    );
+  }
+}
+
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
@@ -943,6 +1000,13 @@ export function App() {
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [micOffConfirmOpen, setMicOffConfirmOpen] = useState(false);
+  // Set when a retry stops on the short-clip check. The check is deterministic,
+  // so leaving the user to notice the chip changed and click a second button is
+  // just making them fail once to discover the only move that works.
+  const [shortClipPrompt, setShortClipPrompt] = useState<{
+    upload: PendingDesktopUpload;
+    shortfallMs: number;
+  } | null>(null);
   const pendingStartOptionsRef =
     useRef<Parameters<typeof handleStartRecording>[0]>(undefined);
   const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
@@ -2743,21 +2807,61 @@ export function App() {
     }
   }
 
-  async function retryPendingUpload(upload: PendingDesktopUpload) {
+  async function retryPendingUpload(
+    upload: PendingDesktopUpload,
+    options?: { allowIncomplete?: boolean; shortfallMs?: number },
+  ) {
     if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
+    const allowIncomplete = options?.allowIncomplete === true;
+    // The caller's measurement wins: when this retry follows a failed attempt,
+    // `upload` is the row as it was *before* that attempt, so its lastError is
+    // the previous failure and would not describe the shortfall at all.
+    const shortfallMs = !allowIncomplete
+      ? null
+      : (options?.shortfallMs ?? shortClipShortfallMs(upload.lastError));
     const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
-    // Open the recording page NOW — same principle as the stop-time early
-    // open: a retry of a large clip can run for many minutes, and the page
-    // live-updates to ready (or shows the failure) while the popover stays
-    // open so remaining saved clips are still visible.
-    openExternal(`${targetServerUrl}/r/${upload.recordingId}`).catch((err) => {
-      console.error("[clips-tray] open failed:", err);
-    });
+    // The page is opened when the server row has actually been claimed for
+    // this retry — not before. Opening at click time meant the recording page
+    // rendered the *previous* failure for the whole prepare phase, so a retry
+    // that was working looked like it had failed again the instant you asked
+    // for it.
+    let pageOpened = false;
+    const openRecordingPage = () => {
+      if (pageOpened) return;
+      pageOpened = true;
+      openExternal(`${targetServerUrl}/r/${upload.recordingId}`).catch(
+        (err) => {
+          console.error("[clips-tray] open failed:", err);
+        },
+      );
+    };
+    let stopProgress: (() => void) | null = null;
     try {
       const authToken = loadDesktopAuthToken(targetServerUrl);
       if (upload.kind === "native") {
+        // The native retry runs entirely inside one invoke, so its progress
+        // events are the only way to tell the user what is happening.
+        const unlisten = await listen<{
+          stage?: string;
+          message?: string;
+          progress?: number | null;
+        }>("clips:native-upload-progress", (event) => {
+          const { stage, message, progress } = event.payload ?? {};
+          if (stage === "failed") return;
+          const percent =
+            typeof progress === "number" && Number.isFinite(progress)
+              ? ` · ${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`
+              : "";
+          setRetryingUploadStatus(`${message ?? "Uploading"}${percent}`);
+          // "uploading" is emitted after the plan has reset or resumed the row,
+          // so by now the recording page shows this attempt, not the old one.
+          if (stage === "uploading" || stage === "processing") {
+            openRecordingPage();
+          }
+        });
+        stopProgress = unlisten;
         const result = await invoke<{ verificationPending?: boolean }>(
           "native_fullscreen_recording_retry_upload",
           {
@@ -2766,6 +2870,7 @@ export function App() {
             authToken,
             cookie:
               typeof document !== "undefined" ? document.cookie || "" : "",
+            allowIncomplete,
           },
         );
         if (result.verificationPending) {
@@ -2788,12 +2893,26 @@ export function App() {
                   ? "Restarting upload"
                   : "Finishing upload",
             );
+            // Resume/reset has claimed the row; the page now shows this run.
+            openRecordingPage();
           },
+        });
+      }
+      // Flag the clip in the app itself, not just in a tray toast the user
+      // will never see again: they accepted a recording known to be short,
+      // and whoever opens it later needs to know why the tail is missing.
+      if (shortfallMs !== null) {
+        await postShortClipNotice(
+          targetServerUrl,
+          upload.recordingId,
+          shortfallMs,
+        ).catch((err) => {
+          console.error("[clips-tray] short-clip notice failed:", err);
         });
       }
       await loadPendingUploads();
       await copyShareLink(upload.recordingId, targetServerUrl);
-      await openExternal(`${targetServerUrl}/r/${upload.recordingId}`);
+      openRecordingPage();
       getCurrentWindow()
         .hide()
         .catch(() => {});
@@ -2801,13 +2920,22 @@ export function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-tray] retry saved upload failed:", err);
-      setRecError(
-        isStorageSetupFailureMessage(message)
-          ? "Connect storage to finish uploading this saved clip: Builder.io (free tier storage + AI) or S3-compatible storage."
-          : message,
-      );
+      const failedShortfallMs = shortClipShortfallMs(message);
+      if (failedShortfallMs !== null && !allowIncomplete) {
+        // Ask right here rather than dropping a raw sentence in a banner far
+        // from the row it belongs to. Nothing reached the server on this
+        // attempt, so there is nothing to undo.
+        setShortClipPrompt({ upload, shortfallMs: failedShortfallMs });
+      } else {
+        setRecError(
+          isStorageSetupFailureMessage(message)
+            ? "Connect storage to finish uploading this saved clip: Builder.io (free tier storage + AI) or S3-compatible storage."
+            : message,
+        );
+      }
       await loadPendingUploads();
     } finally {
+      stopProgress?.();
       setRetryingUploadId(null);
       setRetryingUploadStatus(null);
     }
@@ -4116,6 +4244,41 @@ export function App() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <AlertDialog
+          open={shortClipPrompt !== null}
+          onOpenChange={(open) => {
+            if (!open) setShortClipPrompt(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Clip is shorter than expected</AlertDialogTitle>
+              <AlertDialogDescription>
+                {shortClipPrompt
+                  ? `The saved file is about ${Math.round(shortClipPrompt.shortfallMs / 1000)}s shorter than the length that was recorded, so the end of the clip is probably missing. Nothing was uploaded. Retrying runs the same check and stops here again — uploading anyway keeps everything that was captured, and the clip is marked as possibly incomplete.`
+                  : null}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction
+                onClick={() => {
+                  const pending = shortClipPrompt;
+                  setShortClipPrompt(null);
+                  if (pending) {
+                    void retryPendingUpload(pending.upload, {
+                      allowIncomplete: true,
+                      shortfallMs: pending.shortfallMs,
+                    });
+                  }
+                }}
+              >
+                Upload anyway
+              </AlertDialogAction>
+              <AlertDialogCancel>Keep it local</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -4335,7 +4498,10 @@ function PendingUploadBanner({
   exportingUploadId: string | null;
   dismissingUploadId: string | null;
   onExport: (upload: PendingDesktopUpload) => void;
-  onRetry: (upload: PendingDesktopUpload) => void;
+  onRetry: (
+    upload: PendingDesktopUpload,
+    options?: { allowIncomplete?: boolean; shortfallMs?: number },
+  ) => void;
   onDismiss: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
   onConnectStorage: (upload: PendingDesktopUpload) => void;
@@ -4386,7 +4552,10 @@ function PendingUploadRow({
   exporting: boolean;
   actionsDisabled: boolean;
   onExport: (upload: PendingDesktopUpload) => void;
-  onRetry: (upload: PendingDesktopUpload) => void;
+  onRetry: (
+    upload: PendingDesktopUpload,
+    options?: { allowIncomplete?: boolean; shortfallMs?: number },
+  ) => void;
   onDiscard: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
   onConnectStorage: (upload: PendingDesktopUpload) => void;
@@ -4395,19 +4564,23 @@ function PendingUploadRow({
   const canOpenFolder = upload.kind === "native" && !!upload.folderPath;
   const canExport = upload.kind === "browser";
   const nativeCorrupt = upload.kind === "native" && !!upload.corrupt;
+  const shortfallMs = shortClipShortfallMs(upload.lastError);
+  const shortClip = shortfallMs !== null && !nativeCorrupt;
   const title = nativeCorrupt
     ? "Clip could not be finalized"
     : storageSetupFailure
       ? "Connect storage to upload saved Clip"
       : retrying
         ? "Uploading saved Clip…"
-        : "Clip saved locally";
+        : shortClip
+          ? "Clip is shorter than expected"
+          : "Clip saved locally";
   const details = [
     upload.savedAt ? `saved ${formatAgo(upload.savedAt)}` : null,
     formatFileSize(upload.bytes),
   ].filter(Boolean);
   const errorText = upload.lastError
-    ? upload.lastError.replace(/\s+/g, " ").slice(0, 140)
+    ? upload.lastError.replace(/\s+/g, " ").slice(0, 220)
     : null;
 
   return (
@@ -4417,20 +4590,19 @@ function PendingUploadRow({
       </div>
       <div className="pending-upload-copy">
         <div className="pending-upload-title">{title}</div>
-        <div
-          className={
-            storageSetupFailure
-              ? "pending-upload-sub pending-upload-sub-wrap"
-              : "pending-upload-sub"
-          }
-        >
+        {/* Wraps rather than ellipsizing: the retry status and the last upload
+            error are the only explanation the user gets, and a single clipped
+            line reads as "no reason given". */}
+        <div className="pending-upload-sub pending-upload-sub-wrap">
           {nativeCorrupt
             ? `${details.join(" · ")} · file may be unusable`
             : storageSetupFailure
               ? `${details.join(" · ")} · your clip is safe locally`
               : retrying
-                ? `${details.join(" · ")} · progress opens in your browser`
-                : `${details.join(" · ")}${errorText ? ` · ${errorText}` : " · upload didn't finish — kept as a backup"}`}
+                ? `${details.join(" · ")} · ${retryingUploadStatus ?? "starting…"}`
+                : shortClip
+                  ? `${details.join(" · ")} · the recording is about ${Math.round((shortfallMs ?? 0) / 1000)}s short, so Retry will keep failing — upload it anyway to keep what was captured`
+                  : `${details.join(" · ")}${errorText ? ` · ${errorText}` : " · upload didn't finish — kept as a backup"}`}
         </div>
         {storageSetupFailure ? (
           <Tooltip>
@@ -4498,14 +4670,23 @@ function PendingUploadRow({
                 Connect
               </button>
             ) : null}
+            {/* Retry re-runs the same duration check and fails identically, so
+                a short clip gets the one action that can move it forward. */}
             <button
               type="button"
               className="pending-upload-retry"
               disabled={actionsDisabled}
-              onClick={() => onRetry(upload)}
+              onClick={() =>
+                onRetry(
+                  upload,
+                  shortClip
+                    ? { allowIncomplete: true, shortfallMs: shortfallMs ?? 0 }
+                    : undefined,
+                )
+              }
             >
               <IconRefresh size={14} stroke={2} />
-              {retrying ? (retryingUploadStatus ?? "Retrying") : "Retry"}
+              {retrying ? "Uploading" : shortClip ? "Upload anyway" : "Retry"}
             </button>
           </>
         )}

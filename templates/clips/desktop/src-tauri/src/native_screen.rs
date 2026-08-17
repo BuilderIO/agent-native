@@ -3326,7 +3326,12 @@ pub async fn native_fullscreen_recording_retry_upload(
     recording_id: String,
     auth_token: Option<String>,
     cookie: Option<String>,
+    // `allow_incomplete` is set only by the tray's explicit "Upload anyway"
+    // action, after the user has been told the clip is shorter than the
+    // recorded duration.
+    allow_incomplete: Option<bool>,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    let allow_incomplete = allow_incomplete.unwrap_or(false);
     let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
     saved.server_url = server_url.trim_end_matches('/').to_string();
     saved.last_attempt_at = Some(now_iso());
@@ -3478,6 +3483,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             active_attempt_id.clone(),
             upload_generation_id.clone(),
             streaming_resume,
+            allow_incomplete,
         )
         .await;
         let replay_attempt_id = native_replay_attempt_id(
@@ -3521,6 +3527,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                         replay_attempt_id.clone(),
                         reset.upload_generation_id,
                         None,
+                        allow_incomplete,
                     )
                     .await
                 }
@@ -4856,6 +4863,9 @@ pub(crate) async fn upload_finalized_native_artifact(
         None,
         None,
         None,
+        // First automatic attempt after stop: a short clip still stops here so
+        // the user is told before anything is published.
+        false,
     )
     .await;
     if prepared.temporary {
@@ -5015,14 +5025,27 @@ async fn upload_prepared_recording_file(
     upload_attempt_id: Option<String>,
     upload_generation_id: Option<String>,
     streaming_resume: Option<NativeStreamingResume>,
+    allow_incomplete: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    // `duration_ms` is a wall-clock estimate (start→stop minus pauses); the
+    // probed media duration is what actually got written and is what finalize
+    // and the receipt check both use. They diverge for ordinary reasons —
+    // ScreenCaptureKit setup lag, segment-rotation gaps, a dropped tail — so a
+    // gap means "the clip may be short", not "the file is unusable". Blocking
+    // on it costs the user the whole recording to avoid losing its tail, so it
+    // stays a hard stop only until they explicitly choose to upload anyway.
     #[cfg(target_os = "macos")]
     let verified_local_duration_ms = {
         let media_duration_ms = probe_local_media_duration_ms(&prepared.path)?;
         if !media_durations_materially_match(duration_ms, media_duration_ms) {
-            return Err(format!(
-                "Clip may be incomplete. The local media duration ({media_duration_ms} ms) did not match the recorded duration ({duration_ms} ms); the local backup was kept."
-            ));
+            if !allow_incomplete {
+                return Err(format!(
+                    "Clip may be incomplete. The local media duration ({media_duration_ms} ms) did not match the recorded duration ({duration_ms} ms); the local backup was kept."
+                ));
+            }
+            eprintln!(
+                "[clips-tray] uploading a short clip at the user's request recording={recording_id} media={media_duration_ms}ms recorded={duration_ms}ms"
+            );
         }
         media_duration_ms
     };
