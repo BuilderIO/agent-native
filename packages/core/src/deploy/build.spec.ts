@@ -29,6 +29,7 @@ import {
   rewriteBareYjsImportsForServerlessOutput,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  shouldRewriteBareYjsImportsForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
@@ -52,6 +53,24 @@ describe("nitroNoExternalsForPreset", () => {
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("shouldRewriteBareYjsImportsForPreset", () => {
+  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+    for (const preset of [
+      "node",
+      "node-server",
+      "netlify",
+      "vercel",
+      "aws-lambda",
+    ]) {
+      expect(shouldRewriteBareYjsImportsForPreset(preset)).toBe(true);
+    }
+    expect(shouldRewriteBareYjsImportsForPreset("cloudflare-pages")).toBe(
+      false,
+    );
+    expect(shouldRewriteBareYjsImportsForPreset("deno-deploy")).toBe(false);
   });
 });
 
@@ -1715,6 +1734,24 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(rewritten).toContain('import("../_libs/yjs.mjs")');
     prepareSingleTemplateNetlifyOutput(cwd);
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("rewrites bare Yjs imports in a Node .output server directory", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-node-yjs-"));
+    dirs.push(cwd);
+    const serverDir = path.join(cwd, ".output", "server");
+    const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "_libs", "yjs.mjs"), "export {};");
+    fs.writeFileSync(collabChunk, 'import * as Y from "yjs";\nexport { Y };\n');
+
+    expect(rewriteBareYjsImportsForServerlessOutput(serverDir)).toEqual([
+      collabChunk,
+    ]);
+    expect(fs.readFileSync(collabChunk, "utf8")).toContain(
+      'from "../_libs/yjs.mjs"',
+    );
   });
 
   it("rejects unsupported Yjs subpath imports instead of rewriting their semantics", () => {

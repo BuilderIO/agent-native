@@ -2536,9 +2536,9 @@ function walkServerJavaScriptFiles(
 
 /**
  * Nitro can preserve Vite's `yjs` external in a split server chunk even when
- * its own server build has emitted `_libs/yjs.mjs`. Netlify does not install
- * that bare package at runtime, so make every emitted server chunk use the
- * bundled copy before its function is packaged.
+ * its own server build has emitted `_libs/yjs.mjs`. Node `.output` directories
+ * and serverless function bundles may not contain that bare package at runtime,
+ * so make every emitted server chunk use the bundled copy before packaging.
  */
 export function rewriteBareYjsImportsForServerlessOutput(
   serverDir: string,
@@ -2559,13 +2559,13 @@ export function rewriteBareYjsImportsForServerlessOutput(
 
   if (unsupportedSubpathImports.length > 0) {
     throw new Error(
-      `[deploy] Serverless output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
+      `[deploy] Node/server output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
     );
   }
   if (bareImports.length === 0) return [];
   if (!fs.existsSync(bundledYjsPath)) {
     throw new Error(
-      `[deploy] Serverless output left yjs as a runtime import but did not emit ${bundledYjsPath}`,
+      `[deploy] Node/server output left yjs as a runtime import but did not emit ${bundledYjsPath}`,
     );
   }
 
@@ -2589,6 +2589,19 @@ export function rewriteBareYjsImportsForServerlessOutput(
   }
 
   return bareImports;
+}
+
+/** Presets whose Node-style output needs the emitted Yjs import rewrite. */
+export function shouldRewriteBareYjsImportsForPreset(
+  targetPreset: string,
+): boolean {
+  return (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    targetPreset === "aws-lambda" ||
+    targetPreset === "node" ||
+    targetPreset === "node-server"
+  );
 }
 
 export function assertSingleTemplateNetlifyBuildOutput(
@@ -3354,6 +3367,8 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+  }
+  if (shouldRewriteBareYjsImportsForPreset(preset)) {
     rewriteBareYjsImportsForServerlessOutput(nitro.options.output.serverDir);
   }
 
