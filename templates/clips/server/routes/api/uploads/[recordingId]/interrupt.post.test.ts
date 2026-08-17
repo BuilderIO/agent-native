@@ -120,11 +120,13 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
       status: "failed",
       resumable: true,
     });
+    // The diagnosis rides on the row itself — the recording page reads
+    // `failureReason` and nothing else.
     expect(mockUpdateSets).toEqual([
       expect.objectContaining({
         status: "failed",
         failureReason:
-          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. — TypeError: Load failed",
       }),
     ]);
     expect(mockCompareAndSetAppState).toHaveBeenCalledWith(

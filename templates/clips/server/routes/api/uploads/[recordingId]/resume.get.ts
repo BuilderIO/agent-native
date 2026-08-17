@@ -41,10 +41,7 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import { getResumableSession } from "../../../../lib/resumable-session.js";
-import {
-  isRetryableUploadInterruption,
-  RETRYABLE_UPLOAD_INTERRUPTION_REASON,
-} from "../../../../lib/upload-interruption.js";
+import { isRetryableUploadInterruption } from "../../../../lib/upload-interruption.js";
 import { uploadLeaseExpiry } from "../../../../lib/upload-lease.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -176,11 +173,11 @@ export default defineEventHandler(async (event: H3Event) => {
           retryableFailure
             ? eq(schema.recordings.status, "failed")
             : eq(schema.recordings.status, "uploading"),
-          retryableFailure
-            ? eq(
-                schema.recordings.failureReason,
-                RETRYABLE_UPLOAD_INTERRUPTION_REASON,
-              )
+          // Fence on the exact reason we just read, not on the bare constant:
+          // an interruption reason now carries its diagnosis, and matching the
+          // prefix-only constant would never claim the row.
+          retryableFailure && recording.failureReason
+            ? eq(schema.recordings.failureReason, recording.failureReason)
             : undefined,
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)

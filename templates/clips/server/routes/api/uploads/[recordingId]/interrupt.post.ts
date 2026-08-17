@@ -32,6 +32,7 @@ import {
 import {
   isRetryableUploadInterruption,
   RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+  retryableUploadInterruptionReason,
 } from "../../../../lib/upload-interruption.js";
 import abortUpload from "./abort.post.js";
 
@@ -67,6 +68,10 @@ export default defineEventHandler(async (event: H3Event) => {
     typeof body?.detail === "string" && body.detail.trim()
       ? body.detail.trim().slice(0, 1000)
       : null;
+  // Carried on the row, not only in app state: the recording page reads
+  // `failureReason`, so a detail kept anywhere else never reaches the owner.
+  const interruptionReason =
+    retryableUploadInterruptionReason(interruptionDetail);
   const uploadGenerationId =
     typeof body?.uploadGenerationId === "string" &&
     body.uploadGenerationId.length > 0 &&
@@ -136,7 +141,7 @@ export default defineEventHandler(async (event: H3Event) => {
         .update(schema.recordings)
         .set({
           status: "failed",
-          failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          failureReason: interruptionReason,
           updatedAt: interruptedAt,
         })
         .where(
@@ -167,7 +172,7 @@ export default defineEventHandler(async (event: H3Event) => {
         ...uploadState,
         recordingId,
         status: "failed",
-        failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+        failureReason: interruptionReason,
         retryableInterruption: true,
         uploadAttemptId: attemptId,
         uploadGenerationId,
