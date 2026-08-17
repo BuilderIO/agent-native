@@ -57,12 +57,16 @@ export default function PresenterView({
   const channelRef = useRef<BroadcastChannel | null>(null);
 
   // `initialIndex` only seeds the first render. Without this, reusing the
-  // presenter route after a deep-link change or skip-state update leaves
-  // `index` pointing at the previous (or now out-of-range) slide until the
-  // next broadcast-channel `state` message arrives.
+  // presenter route after a deep-link change leaves `index` pointing at the
+  // previous (or now out-of-range) slide until the next broadcast-channel
+  // `state` message arrives. Keyed on `startIndex` alone (not `initialIndex`,
+  // which also recomputes on every slide content edit) so an in-progress
+  // presenter session isn't yanked back to the URL slide by an unrelated
+  // deck update.
   useEffect(() => {
     setIndex(initialIndex);
-  }, [initialIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startIndex]);
 
   useEffect(() => {
     const channel = openPresentChannel(deckId);
@@ -125,6 +129,14 @@ export default function PresenterView({
         : [],
     [slides],
   );
+
+  // A skip toggle changes how many slides are visible without changing
+  // `startIndex` (no `initialIndex` effect fires), so clamp separately here
+  // to keep `index` in range instead of pointing past the end.
+  useEffect(() => {
+    setIndex((prev) => Math.max(0, Math.min(prev, safeSlides.length - 1)));
+  }, [safeSlides.length]);
+
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
   const notes = current?.notes?.trim();

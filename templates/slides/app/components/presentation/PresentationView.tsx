@@ -313,7 +313,13 @@ export default function PresentationView({
     setCurrentStep(0);
     setPrevIndex(null);
     setAnimating(false);
-  }, [clearTransitionTimer, clampIndex, initialIndex]);
+    // `initialIndex`/`clampIndex` also change on every slide content edit or
+    // skip toggle (they're derived from the whole `slides` array), which
+    // would otherwise reset an in-progress presentation back to the deep
+    // link's starting slide on unrelated updates. Only re-seed when
+    // `startIndex` itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startIndex]);
 
   const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
