@@ -1,3 +1,5 @@
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
  * outside the app. Used by both
@@ -41,8 +43,9 @@ export function formatChatErrorText(
 ): string {
   const normalized = normalizeChatError(errorMessage, errorCode);
   if (
-    errorCode === "gateway_not_enabled" ||
-    /space has not enabled the LLM gateway/i.test(normalized.message)
+    !isServerChosenVisitorMessage(normalized.message) &&
+    (errorCode === "gateway_not_enabled" ||
+      /space has not enabled the LLM gateway/i.test(normalized.message))
   ) {
     return `Error: ${normalized.message}\n\n[${OPEN_BUILDER_SPACE_SETTINGS_LABEL}](${BUILDER_SPACE_SETTINGS_URL})`;
   }
@@ -64,6 +67,23 @@ export function formatChatErrorText(
 export interface NormalizedChatError {
   message: string;
   details?: string;
+}
+
+/**
+ * True when the server already decided what this reader may be told.
+ *
+ * A Builder-credits deployment answers every gateway rejection with one visitor
+ * line and keeps the real reason on `errorCode` for its owner. Every mapping
+ * below is keyed on that code, so re-deriving copy from it hands the visitor
+ * back the owner instruction the server just removed — "reconnect Builder in
+ * Settings" to someone with no account. This is an identity check against the
+ * exported constant, not a keyword match: the rewrite is the whole message.
+ *
+ * Deliberately not a `KNOWN_CHAT_ERROR_KEYS` entry: that map localizes copy,
+ * while this returns before any mapping runs at all.
+ */
+function isServerChosenVisitorMessage(text: string): boolean {
+  return text === GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
 }
 
 type ErrorTranslate = (
@@ -260,6 +280,11 @@ export function normalizeChatError(
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
+
+  // Ahead of every mapping below, including the provider-payload fallback: the
+  // server already chose this reader's message, and any re-derivation from a
+  // code hands a visitor the owner instruction it deliberately removed.
+  if (isServerChosenVisitorMessage(text)) return { message: text };
 
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const providerMessage =

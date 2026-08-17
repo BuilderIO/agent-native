@@ -1209,6 +1209,21 @@ export async function getEvent(
   };
 }
 
+function timedWorkingLocationSummary(event: CalendarEvent): string | undefined {
+  if (event.eventType !== "workingLocation" || event.allDay) return undefined;
+  const properties = event.workingLocationProperties;
+  if (properties?.type === "officeLocation") {
+    return properties.officeLocation?.label || "Office";
+  }
+  if (properties?.type === "customLocation") {
+    return properties.customLocation?.label || "Working location";
+  }
+  if (properties?.type === "homeOffice") return "Home";
+  const trimmed = event.title?.trim();
+  if (trimmed && !event.titleIsGenerated) return trimmed;
+  return "Home";
+}
+
 export async function createEvent(
   event: CalendarEvent,
   opts: {
@@ -1230,9 +1245,15 @@ export async function createEvent(
     throw new Error("Out of office and focus time events must be timed.");
   }
 
+  const workingLocationSummary = timedWorkingLocationSummary(event);
   const body: any =
     event.eventType === "workingLocation"
-      ? buildDateRange(event)
+      ? {
+          ...buildDateRange(event),
+          ...(workingLocationSummary
+            ? { summary: workingLocationSummary }
+            : {}),
+        }
       : {
           summary: event.title,
           description: event.description,
