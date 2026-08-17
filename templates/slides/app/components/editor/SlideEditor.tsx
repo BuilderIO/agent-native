@@ -662,9 +662,13 @@ interface SlideEditorProps {
    * reconcile path knows not to replace the deck under an active in-progress
    * edit, even before a `content` update has been flushed.
    */
-  onInlineEditStart?: () => void;
-  /** Called after inline edit mode exits and its draft has been handed off. */
-  onInlineEditEnd?: () => void;
+  onInlineEditStart?: (slideId: string) => void;
+  /** Called after inline edit mode exits and its draft has been handed off.
+   *  Always receives the slide that was actually being edited — the slide
+   *  prop may have already advanced to a new slide by the time this fires
+   *  (see the slide-switch effect), so callers must not substitute their own
+   *  "current slide" state for this argument. */
+  onInlineEditEnd?: (slideId: string) => void;
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -1550,6 +1554,13 @@ export default function SlideEditor({
   useEffect(() => {
     onUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
+  /** Latest onInlineEditEnd in a ref so the unmount cleanup below (which must
+   *  run with a stable, empty dependency array) always calls the current
+   *  version instead of whatever was passed on the very first render. */
+  const onInlineEditEndRef = useRef(onInlineEditEnd);
+  useEffect(() => {
+    onInlineEditEndRef.current = onInlineEditEnd;
+  }, [onInlineEditEnd]);
   const inlineEditDraftRef = useRef<InlineEditContentSnapshot | null>(null);
   const inlineEditInitialContentRef = useRef<InlineEditContentSnapshot | null>(
     null,
@@ -1893,7 +1904,7 @@ export default function SlideEditor({
     ) {
       onUpdateSlideRef.current({ content: html });
     }
-    onInlineEditEnd?.();
+    onInlineEditEnd?.(slide.id);
     inlineEditDraftRef.current = null;
     inlineEditInitialContentRef.current = null;
     const escape = slidesCanvasInteractionCore.escape({
@@ -1933,7 +1944,7 @@ export default function SlideEditor({
       // Mark the deck dirty immediately so SSE/poll refreshes do not replace
       // the deck under an active contentEditable edit, even before the user
       // types and triggers an onUpdateSlide flush.
-      onInlineEditStart?.();
+      onInlineEditStart?.(slide.id);
       // Don't override the selection. The browser's native double-click
       // word-select (or single-click caret) is already on the element from the
       // user's gesture; re-selecting from JS clobbers it. focus() on an
@@ -1976,11 +1987,22 @@ export default function SlideEditor({
       onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
       inlineEditDraftRef.current = null;
     }
-    if (editing || draft) onInlineEditEnd?.();
+    if (editing || draft) onInlineEditEnd?.(previousSlideId);
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
   }, [onInlineEditEnd, slide.id]);
+
+  // Editor unmount (navigating away, closing the deck) skips the slide-switch
+  // effect above entirely, so an active edit's "mid-edit" marker would
+  // otherwise never clear and permanently block live sync for that slide.
+  useEffect(() => {
+    return () => {
+      if (editingElRef.current || inlineEditDraftRef.current) {
+        onInlineEditEndRef.current?.(previousSlideIdRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!editingEl) return;
@@ -2646,6 +2668,15 @@ export default function SlideEditor({
     );
   }, []);
 
+  /** Column ops change cell count per row but not `<col>` tracks. A
+   *  `<colgroup>` (imported decks can carry one — sanitize-slide-html allows
+   *  it) positionally maps each `<col>` to a column, so an unsynced insert
+   *  or delete leaves too few/many tracks and visually misaligns columns.
+   *  Row ops don't touch columns, so this only guards column ops. */
+  const tableHasColgroup = useCallback((table: HTMLTableElement) => {
+    return table.querySelector("colgroup") !== null;
+  }, []);
+
   const insertTableRow = useCallback(
     (cell: HTMLTableCellElement, position: "above" | "below") => {
       const row = cell.closest("tr");
@@ -2690,7 +2721,7 @@ export default function SlideEditor({
       Array.from(table.rows).forEach((row) => {
         const refCell = row.cells[columnIndex];
         if (!refCell) return;
-        if (tableHasMergedCells(table)) return;
+        if (tableHasMergedCells(table) || tableHasColgroup(table)) return;
         const newCell = document.createElement(
           refCell.tagName,
         ) as HTMLTableCellElement;
@@ -2704,7 +2735,7 @@ export default function SlideEditor({
       });
       commitTableMutation();
     },
-    [commitTableMutation, tableHasMergedCells],
+    [commitTableMutation, tableHasMergedCells, tableHasColgroup],
   );
 
   const deleteTableColumn = useCallback(
@@ -2715,12 +2746,12 @@ export default function SlideEditor({
       const firstRow = table.rows[0];
       if (!firstRow || firstRow.cells.length <= 1) return;
       Array.from(table.rows).forEach((row) => {
-        if (tableHasMergedCells(table)) return;
+        if (tableHasMergedCells(table) || tableHasColgroup(table)) return;
         row.cells[columnIndex]?.remove();
       });
       commitTableMutation();
     },
-    [commitTableMutation, tableHasMergedCells],
+    [commitTableMutation, tableHasMergedCells, tableHasColgroup],
   );
 
   // Delete/Backspace removes the selected slide content (single or

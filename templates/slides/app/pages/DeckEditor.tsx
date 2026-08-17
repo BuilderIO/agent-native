@@ -1449,14 +1449,14 @@ export default function DeckEditor() {
                 options,
               )
             }
-            onInlineEditStart={() => {
+            onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
               markDeckDirty(id);
-              if (id) markSlideEditingActive(id, currentSlide.id);
+              if (id) markSlideEditingActive(id, slideId);
             }}
-            onInlineEditEnd={() => {
+            onInlineEditEnd={(slideId) => {
               setInlineEditActive(false);
-              if (id) clearSlideEditingActive(id, currentSlide.id);
+              if (id) clearSlideEditingActive(id, slideId);
             }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {

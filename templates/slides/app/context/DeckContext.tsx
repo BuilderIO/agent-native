@@ -328,6 +328,13 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 
+// The ops a deck's current in-flight save actually sent, so a slide-scoped
+// check can tell "this slide's save is in flight" from "some other slide in
+// this deck has a save in flight" — `inFlightSaves` alone can't, since it is
+// deck-wide and previously made every slide in the deck look pending for the
+// whole request duration, starving unrelated agent writes of live sync.
+const inFlightOpSlides = new Map<string, GranularOp[]>();
+
 // Slides currently mid inline-edit (contentEditable open, keystrokes not yet
 // committed to a "patch-slide" op). `onInlineEditStart`/`onInlineEditEnd`
 // keep this current; a slide only reaches `pendingOpsQueue` when editing
@@ -499,6 +506,7 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
     typeof AbortController === "undefined" ? null : new AbortController();
   if (controller) inFlightSaveControllers.set(deckId, controller);
   inFlightSaves.add(deckId);
+  inFlightOpSlides.set(deckId, ops);
   const isCurrentGeneration = () =>
     (deckSaveGenerations.get(deckId) ?? 0) === generation;
   const next = persistDeckOps(deckId, ops, controller?.signal)
@@ -539,6 +547,7 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
           inFlightSaveControllers.delete(deckId);
         }
         inFlightSaves.delete(deckId);
+        inFlightOpSlides.delete(deckId);
         const flushImmediately = immediateFlushRequests.delete(deckId);
         notifySaveListeners();
         if (flushImmediately) {
@@ -1203,25 +1212,32 @@ export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
   return { ...local, slides: merged };
 }
 
+/** True when `op` is a deck-wide write (touches every slide) or targets
+ *  `slideId` specifically. */
+function opTargetsSlide(op: GranularOp, slideId: string): boolean {
+  return (
+    op.op === "full-replace" ||
+    op.op === "reorder-slides" ||
+    ("slideId" in op && op.slideId === slideId)
+  );
+}
+
 /**
  * True when some queued-or-in-flight write for `deckId` could still touch
  * `slideId`, so adopting the server's copy of that slide would race a local
- * write instead of reflecting it. A deck-wide op (`full-replace` /
- * `reorder-slides`), an in-flight save (its op list already left the
- * queue), or the slide being mid inline-edit (typing not yet committed to
- * any op) all count as "could touch anything".
+ * write instead of reflecting it. Checking the actual ops (queued or
+ * in-flight) rather than a deck-wide "a save is running" flag matters: an
+ * in-flight save for slide B must not block slide A's live update for the
+ * whole request duration. The slide being mid inline-edit (typing not yet
+ * committed to any op) also counts as a pending write.
  */
 function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
-  if (inFlightSaves.has(deckId)) return true;
   if (activeInlineEditSlides.get(deckId)?.has(slideId)) return true;
+  const inFlightOps = inFlightOpSlides.get(deckId);
+  if (inFlightOps?.some((op) => opTargetsSlide(op, slideId))) return true;
   const queue = pendingOpsQueue.get(deckId);
   if (!queue) return false;
-  return queue.some(
-    (op) =>
-      op.op === "full-replace" ||
-      op.op === "reorder-slides" ||
-      ("slideId" in op && op.slideId === slideId),
-  );
+  return queue.some((op) => opTargetsSlide(op, slideId));
 }
 
 /**
