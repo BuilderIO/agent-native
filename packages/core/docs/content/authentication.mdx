@@ -179,8 +179,11 @@ flag state. Custom and third-party apps are excluded.
 Canonical hosted apps recognize packaged Desktop requests without per-app
 identity-hub environment configuration. Ordinary browsers and self-hosted apps
 still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
-Stable Desktop builds do not initialize the broker until a later release is
-separately approved.
+Every Desktop build may initialize the broker when the per-device
+`desktopSsoEnabled` preference is true (the default); an explicit persisted
+`false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
+be enabled. The Canary user-agent marker no longer gates broker initialization;
+it only identifies the update channel.
 The Canary user-agent marker is an availability hint rather than remote
 attestation. Authentication and authorization never trust it; supervised
 acceptance binds the client through exact signed-artifact provenance.
