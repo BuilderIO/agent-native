@@ -245,6 +245,16 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
           rm certificate.p12
 
+      - name: Build macOS assets
+        if: matrix.platform == 'mac'
+        working-directory: packages/desktop-app
+        run: pnpm build:mac-assets
+
+      - name: Build Chrome extension assets
+        if: matrix.platform != 'mac'
+        working-directory: packages/desktop-app
+        run: pnpm build:chrome-extension
+
       - name: Build and publish
         working-directory: packages/desktop-app
         env:
@@ -258,11 +268,6 @@ jobs:
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
         run: |
-          if [ "${{ matrix.platform }}" = "mac" ]; then
-            pnpm build:mac-assets
-          else
-            pnpm build:chrome-extension
-          fi
           pnpm build
           npx electron-builder --${{ matrix.platform }} --config --publish always
 
