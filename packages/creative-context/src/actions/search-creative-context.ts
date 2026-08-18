@@ -41,7 +41,7 @@ const schema = z
 
 export default defineAction({
   description:
-    "Search accessible approved Creative Context evidence, optionally within one named context, through portable lexical, Postgres FTS, and same-database pgvector lanes; fuse and diversify results, collapse revisions, and snapshot exact evidence by default.",
+    "Search accessible approved Creative Context evidence, optionally within one named context, through portable lexical, Postgres FTS, and same-database pgvector lanes; fuse and diversify results, collapse revisions, and snapshot exact evidence by default. A result with nativeArtifact set has a real source artifact behind it, so call get-context-item on that item/version to read version.nativeCode instead of reusing the text excerpt.",
   schema,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: performCreativeContextSearch,

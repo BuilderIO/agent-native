@@ -1,5 +1,12 @@
 # @agent-native/mobile-app
 
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [bee7146]
+  - @agent-native/core@0.161.10
+
 ## 0.1.18
 
 ### Patch Changes
