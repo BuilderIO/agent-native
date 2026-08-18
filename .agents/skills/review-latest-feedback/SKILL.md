@@ -97,13 +97,15 @@ from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **React first for actionable feedback** - once an item is classified as a
-   concrete repo-owned bug or missing-reporter-evidence case, add `👀` to the
-   Slack parent immediately. This must be the first external action for that
-   item: do it before reading linked evidence, delegating, editing code, or
-   asking a clarification. Do not react to status-only, subjective,
-   duplicate, external, or non-repo-owned items. A duplicate reaction is safe
-   and should still be attempted when the marker is not visible in the thread.
+1. **React first for actionable Slack feedback** - once a Slack item is
+   classified as a concrete repo-owned bug or missing-reporter-evidence case,
+   add `👀` to its parent immediately. This must be the first external action
+   for that Slack item: do it before reading linked evidence, delegating,
+   editing code, or asking a clarification. GitHub and Sentry items have no
+   Slack parent, so apply the same evidence-first triage without a reaction.
+   Do not react to status-only, subjective, duplicate, external, or non-repo-
+   owned items. A duplicate reaction is safe and should still be attempted
+   when the marker is not visible in the thread.
 2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
    it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
    working until the smallest meaningful verification is green.
