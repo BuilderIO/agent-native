@@ -168,9 +168,10 @@ identify the failure.
 ## Release follow-up
 
 After the final ship, return to the same threads and post a brief follow-up
-saying the fix is live. If the ship has not happened yet, say that plainly and
-do not imply that the fix is already live. Omit commit, release, and live-path
-details unless the reporter asks for them.
+saying the fix is live only after verifying the live path internally. If the
+ship has not happened yet or live verification is unavailable, do not imply
+that the fix is already live. Omit commit, release, and live-path details from
+the posted follow-up unless the reporter asks for them.
 
 ## Verification
 
