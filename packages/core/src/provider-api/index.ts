@@ -5503,8 +5503,12 @@ async function handleSaveToFile(
   contentType: string | null,
   status: number,
 ): Promise<unknown> {
-  const { writeWorkspaceFile, SAVE_TO_FILE_MAX_BYTES: maxSaveBytes } =
-    await import("../workspace-files/store.js");
+  const {
+    writeWorkspaceFile,
+    SAVE_TO_FILE_MAX_BYTES: maxSaveBytes,
+    isScratchWorkspacePath,
+    toWorkspaceFileCard,
+  } = await import("../workspace-files/store.js");
   const { getRequestOrgId, getRequestUserEmail } =
     await import("../server/request-context.js");
 
@@ -5523,9 +5527,15 @@ async function handleSaveToFile(
   }
 
   const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
-  await writeWorkspaceFile(scope, filePath, responseText, mimeType, {
-    maxFileBytes: maxSaveBytes,
-  });
+  const meta = await writeWorkspaceFile(
+    scope,
+    filePath,
+    responseText,
+    mimeType,
+    {
+      maxFileBytes: maxSaveBytes,
+    },
+  );
   const bytes = Buffer.byteLength(responseText, "utf8");
   const preview = responseText.slice(0, 2000);
   return {
@@ -5535,6 +5545,11 @@ async function handleSaveToFile(
     bytes,
     contentType: mimeType,
     preview: preview.length < responseText.length ? `${preview}…` : preview,
+    // A durable (non-scratch) file renders a download card the moment it's
+    // created — no separate show-workspace-file call needed to get a link.
+    ...(isScratchWorkspacePath(filePath)
+      ? {}
+      : { file: toWorkspaceFileCard(meta) }),
   };
 }
 

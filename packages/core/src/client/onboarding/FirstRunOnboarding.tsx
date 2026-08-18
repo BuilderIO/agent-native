@@ -9,7 +9,7 @@ import {
   IconLoader2,
   IconSearch,
 } from "@tabler/icons-react";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 
 import type {
   OnboardingAppProfile,
@@ -77,9 +77,21 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const previewMode = useOnboardingPreviewMode();
-  const { firstRun, loading, error, profile, completeFirstRun } = useOnboarding(
-    { preview: previewMode, initialFirstRun },
-  );
+  const {
+    firstRun,
+    loading,
+    error,
+    profile,
+    completeFirstRun,
+    completeFirstRunError,
+  } = useOnboarding({ preview: previewMode, initialFirstRun });
+  // completeFirstRun() rejects on failure — swallow it here so a Skip/
+  // Continue click never becomes an unhandled rejection; completeFirstRunError
+  // (rendered below) is the real signal, and the user stays on this screen
+  // to retry instead of being bounced to an unrelated error screen.
+  const finishOnboarding = useCallback(() => {
+    completeFirstRun().catch(() => {});
+  }, [completeFirstRun]);
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [integrationQuery, setIntegrationQuery] = useState("");
@@ -173,18 +185,18 @@ export function FirstRunOnboarding({
     });
   };
 
-  const handleOpenSettings = async () => {
+  const handleOpenSettings = () => {
     window.dispatchEvent(
       new CustomEvent("agent-panel:open-settings", {
         detail: { section: "integrations" },
       }),
     );
-    await completeFirstRun();
+    finishOnboarding();
   };
 
   const handleFinish = () => {
     if (extensions.length === 0) {
-      void completeFirstRun();
+      finishOnboarding();
       return;
     }
     setExtensionIndex(0);
@@ -272,7 +284,7 @@ export function FirstRunOnboarding({
   if (screen === "extension") {
     const extension = extensions[extensionIndex];
     if (!extension) {
-      void completeFirstRun();
+      finishOnboarding();
       return null;
     }
     const Extension = extension.component;
@@ -281,13 +293,18 @@ export function FirstRunOnboarding({
         setExtensionIndex((current) => current + 1);
         return;
       }
-      void completeFirstRun();
+      finishOnboarding();
     };
     return (
-      <Extension
-        onComplete={advanceExtension}
-        onSkip={() => void completeFirstRun()}
-      />
+      <>
+        <Extension onComplete={advanceExtension} onSkip={finishOnboarding} />
+        {completeFirstRunError && (
+          <FirstRunCompletionError
+            message={completeFirstRunError}
+            onRetry={finishOnboarding}
+          />
+        )}
+      </>
     );
   }
 
@@ -750,6 +767,12 @@ export function FirstRunOnboarding({
           <IconArrowRight size={15} />
         </button>
       </div>
+      {completeFirstRunError && (
+        <FirstRunCompletionError
+          message={completeFirstRunError}
+          onRetry={finishOnboarding}
+        />
+      )}
     </OnboardingShell>
   );
 }
@@ -940,6 +963,31 @@ function CapabilityInfoButton({
 
 const primaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** Inline failure signal for a failed completeFirstRun() call — keeps the
+ *  user on their current screen with a way forward, instead of swapping to
+ *  an unrelated full-screen error or leaving Skip/Continue looking like it
+ *  did nothing. */
+function FirstRunCompletionError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[90vw] items-center gap-3 rounded-lg border border-destructive/30 bg-background px-4 py-2 text-xs shadow-lg">
+      <span className="text-destructive">{message}</span>
+      <button
+        type="button"
+        className="font-medium underline underline-offset-2 hover:no-underline"
+        onClick={onRetry}
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
 
 const secondaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
