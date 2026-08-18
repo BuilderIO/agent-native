@@ -135,15 +135,6 @@ For app and template catalogs, the guard checks:
 - CLDR plural categories through `Intl.PluralRules`
 - `t()` calls in app source whose key is missing from the English catalog
 
-For localized docs under `packages/core/docs/content/locales/*`, the guard
-also checks that every English doc has a matching locale file and that prose
-inside `an-*` blocks and MDX segments has actually changed from the English
-source, not just been copied over. Reviewed, intentional exceptions, such as
-a mockup's HTML that stays in English by convention, are recorded in
-`scripts/i18n-localized-docs-baseline.txt` and
-`scripts/i18n-localized-doc-coverage-baseline.txt` instead of being silently
-skipped, so new debt still fails the guard.
-
 The guard checks structure, not translation quality. High-visibility strings
 still need human review.
 
