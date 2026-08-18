@@ -147,7 +147,7 @@ const requiredGeneratedGuidance = [
   {
     rel: "packages/core/src/templates/workspace-core/AGENTS.md",
     pattern:
-      /Before implementing an app that connects to an external service, inspect the\s+framework and toolkit for existing settings, secrets\/vault, OAuth,/,
+      /For external integrations, read `agent-native-toolkit` and `secrets`\./,
     message: "shared-primitive integration preflight",
   },
 ];
