@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.161.20
+
+### Patch Changes
+
+- 814f0ad: Allow explicitly configured public ingestion routes to complete cross-origin preflight requests without enabling credentialed CORS.
+- c54d918: `useSemanticNavigationState` no longer reports an unserializable navigation state
+  once per render. The write-dedup token fell back to a fresh symbol, and
+  `navigationKeys` is typically a new array each render, so every re-render issued
+  another failing write and another `onError`. It now falls back to the state's own
+  identity, which still lets a genuinely different unserializable state reach the
+  write path and surface its real error.
+
 ## 0.161.19
 
 ### Patch Changes
