@@ -176,6 +176,19 @@ mod native_upload_mode_tests {
     }
 }
 
+#[cfg(test)]
+mod pending_recording_file_name_tests {
+    use super::pending_recording_file_stem;
+
+    #[test]
+    fn uses_a_clips_specific_pending_recording_prefix() {
+        assert_eq!(
+            pending_recording_file_stem("FxGL6zX7HWhU", 4242),
+            "clips-pending-recording-FxGL6zX7HWhU-4242",
+        );
+    }
+}
+
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
@@ -1686,7 +1699,7 @@ fn discard_session(session: &mut NativeFullscreenSession) {
 
 /// Sibling path next to the original pending recording, numbered with
 /// the segment counter so multiple resume cycles don't clobber each
-/// other. Example: `clips-fullscreen-<id>-<pid>-seg2.mp4`.
+/// other. Example: `clips-pending-recording-<id>-<pid>-seg2.mp4`.
 fn segment_path_for(
     app: &AppHandle,
     safe_id: &str,
@@ -1694,6 +1707,10 @@ fn segment_path_for(
     counter: u32,
 ) -> Result<PathBuf, String> {
     pending_recording_path(app, &format!("{safe_id}-seg{counter}"), extension)
+}
+
+fn pending_recording_file_stem(safe_id: &str, pid: u32) -> String {
+    format!("clips-pending-recording-{safe_id}-{pid}")
 }
 
 /// Dispatches to the right backend starter for resume. Mirrors the
@@ -2322,8 +2339,8 @@ fn pending_recording_path(
     extension: &str,
 ) -> Result<PathBuf, String> {
     Ok(pending_uploads_dir(app)?.join(format!(
-        "clips-fullscreen-{safe_id}-{}.{}",
-        std::process::id(),
+        "{}.{}",
+        pending_recording_file_stem(safe_id, std::process::id()),
         extension.trim_start_matches('.')
     )))
 }

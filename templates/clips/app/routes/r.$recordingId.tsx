@@ -174,6 +174,30 @@ function InsightsUnavailableState() {
   );
 }
 
+export function BackToLibraryButton() {
+  const t = useT();
+  const navigate = useNavigate();
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={() => navigate("/library")}
+          aria-label={t("recordingPage.backToLibrary")}
+        >
+          <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start">
+        {t("recordingPage.backToLibrary")}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function parseTimeParam(raw: string | null): number {
   if (!raw) return 0;
   const value = raw.trim();
@@ -771,15 +795,7 @@ export default function RecordingPage() {
       return (
         <div className="flex min-h-screen w-full flex-col bg-background">
           <header className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              onClick={() => navigate("/")}
-              aria-label={t("recordingPage.back")}
-            >
-              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
-            </Button>
+            <BackToLibraryButton />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{visibleTitle}</p>
               <p className="truncate text-xs text-muted-foreground">
@@ -1121,15 +1137,7 @@ export default function RecordingPage() {
       {/* Main video column */}
       <div className="flex w-full min-w-0 flex-col xl:flex-1">
         <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={() => navigate("/")}
-            aria-label={t("recordingPage.back")}
-          >
-            <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
-          </Button>
+          <BackToLibraryButton />
           <div className="flex-1 min-w-0">
             <EditableRecordingTitle
               recordingId={recording.id}
