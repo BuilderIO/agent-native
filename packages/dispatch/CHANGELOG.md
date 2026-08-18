@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.29.1
+
+### Patch Changes
+
+- 96ecc13: Use compact app search and pin labels that stay on one line.
+
 ## 0.29.0
 
 ### Minor Changes

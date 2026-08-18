@@ -63,4 +63,14 @@ describe("library recording cards", () => {
     expect(source).toContain("{recording.ownerEmail}");
     expect(source).toContain("{relative}");
   });
+
+  it("waits for the delete menu to close before removing a card", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("const pendingTrashRef = useRef(false);");
+    expect(source).toContain("onCloseAutoFocus={(event) => {");
+    expect(source).toContain("event.preventDefault();");
+    expect(source).toContain("pendingTrashRef.current = false;");
+    expect(source).toContain("setTimeout(() => onTrash?.(recording), 0);");
+  });
 });

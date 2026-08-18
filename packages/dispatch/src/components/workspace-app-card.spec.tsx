@@ -94,6 +94,7 @@ describe("WorkspaceAppCard", () => {
     expect(newTabItem?.getAttribute("target")).toBe("_blank");
     const openMenu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(openMenu?.className).toContain("w-48");
+    expect(openMenu?.className).toContain("min-w-max");
     expect(openMenu?.className).toContain("bg-popover");
     expect(openMenu?.className).toContain("shadow-md");
     expect(newTabItem?.querySelector("svg")).not.toBeNull();
@@ -178,7 +179,7 @@ describe("WorkspaceAppCard", () => {
 
     const pinItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Unpin Analytics"));
+    ).find((item) => item.textContent?.includes("Unpin this app"));
     expect(pinItem).not.toBeUndefined();
 
     await act(async () => pinItem?.click());

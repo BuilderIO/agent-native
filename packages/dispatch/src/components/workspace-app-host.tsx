@@ -32,6 +32,8 @@ import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
   mergeChatFirstWorkspaceApps,
   isWorkspaceSsoAppId,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
@@ -245,6 +247,7 @@ export interface WorkspaceAppFrameApp {
 
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
+  navigateToTopWindow?: (href: string) => boolean | void;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
   /** Chat-first app surfaces own the parent chat rail around the iframe. */
@@ -254,6 +257,7 @@ interface WorkspaceAppFrameProps {
 
 export function WorkspaceAppFrame({
   app,
+  navigateToTopWindow = navigateToWorkspaceApp,
   embedPath,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
@@ -270,6 +274,8 @@ export function WorkspaceAppFrame({
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
+  const [topWindowNavigationFailed, setTopWindowNavigationFailed] =
+    useState(false);
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
   const postThemeToFrame = useCallback(() => {
     embedFrameRef.current?.contentWindow?.postMessage(
@@ -301,6 +307,21 @@ export function WorkspaceAppFrame({
     path: app.path ?? "",
     url: app.url,
   });
+  const topWindowHref = useMemo(() => {
+    if (embedPath !== undefined) {
+      return workspaceAppDirectHref(
+        { path: app.path, url: app.url },
+        embedPath,
+      );
+    }
+
+    const target = workspaceAppEmbedTarget({
+      path: app.path ?? "",
+      url: app.url,
+    });
+    return target.url ?? target.path ?? null;
+  }, [app.path, app.url, embedPath]);
+  const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
       return buildChatFirstEmbedSessionInput(app.id, embedPath);
@@ -314,7 +335,26 @@ export function WorkspaceAppFrame({
   }, [app.id, app.path, app.url, appHref, embedPath]);
 
   useEffect(() => {
-    if (!embedInput) return;
+    if (!openInTopWindow) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
+    if (!topWindowHref) {
+      setTopWindowNavigationFailed(true);
+      return;
+    }
+
+    let didNavigate = false;
+    try {
+      didNavigate = navigateToTopWindow(topWindowHref) !== false;
+    } catch {
+      didNavigate = false;
+    }
+    setTopWindowNavigationFailed(!didNavigate);
+  }, [navigateToTopWindow, openInTopWindow, topWindowHref]);
+
+  useEffect(() => {
+    if (!embedInput || (openInTopWindow && !topWindowNavigationFailed)) return;
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
@@ -361,6 +401,8 @@ export function WorkspaceAppFrame({
     embedInput,
     embedPath,
     embedAttempt,
+    openInTopWindow,
+    topWindowNavigationFailed,
     useWorkspaceSso,
   ]);
 
@@ -426,7 +468,13 @@ export function WorkspaceAppFrame({
   );
 }
 
-export function WorkspaceAppHost({ appId }: { appId?: string }) {
+export function WorkspaceAppHost({
+  appId,
+  navigateToTopWindow = navigateToWorkspaceApp,
+}: {
+  appId?: string;
+  navigateToTopWindow?: (href: string) => boolean | void;
+}) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
@@ -577,7 +625,10 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
       className="flex h-full min-h-0 flex-col bg-background"
     >
       <div className="min-h-0 flex-1 bg-muted/20">
-        <WorkspaceAppFrame app={app} />
+        <WorkspaceAppFrame
+          app={app}
+          navigateToTopWindow={navigateToTopWindow}
+        />
       </div>
     </div>
   );
