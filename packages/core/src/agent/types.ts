@@ -199,6 +199,16 @@ export interface AgentChatRequest {
      */
     continuationCount?: number;
     /**
+     * Terminal error code the previous chunk failed with, plus how many chunks
+     * in a row have now ended on that same code having emitted no assistant
+     * text and no tool activity. Carried on the marker because each chunk is a
+     * separate invocation with no memory of the last one — without it the
+     * no-progress circuit breaker in `shouldChainBackgroundContinuation`
+     * cannot see a repeat at all.
+     */
+    noProgressErrorCode?: string;
+    noProgressCount?: number;
+    /**
      * True when the dispatcher expects the self-POST to land in a real
      * Netlify `-background` function rather than the ~60s synchronous function.
      * This is diagnostic only; the 15-minute budget is unlocked by the worker's

@@ -457,6 +457,7 @@ export class DesktopIdentityBroker {
     string,
     Promise<boolean>
   >();
+  private readonly completedModernAppSessions = new Set<string>();
   private readonly unsupportedAppIds = new Set<string>();
   private readonly activeSessionCopies = new Set<Promise<void>>();
   private queue: Promise<void> = Promise.resolve();
@@ -490,6 +491,7 @@ export class DesktopIdentityBroker {
 
   setStatusForSetting(status: DesktopIdentityStatus): void {
     this.ceremonyGeneration += 1;
+    this.completedModernAppSessions.clear();
     this.setStatus(status);
   }
 
@@ -647,6 +649,9 @@ export class DesktopIdentityBroker {
     expectedEmail?: string,
   ): Promise<boolean> {
     const pendingKey = `${generation}:${appId}`;
+    if (this.completedModernAppSessions.has(pendingKey)) {
+      return Promise.resolve(true);
+    }
     const existing = this.pendingModernAppSessions.get(pendingKey);
     if (existing) return existing;
 
@@ -657,9 +662,12 @@ export class DesktopIdentityBroker {
     );
     this.pendingModernAppSessions.set(pendingKey, operation);
     void operation.then(
-      () => {
+      (succeeded) => {
         if (this.pendingModernAppSessions.get(pendingKey) === operation) {
           this.pendingModernAppSessions.delete(pendingKey);
+        }
+        if (succeeded && this.isCeremonyCurrent(generation)) {
+          this.completedModernAppSessions.add(pendingKey);
         }
       },
       () => {
@@ -2030,6 +2038,7 @@ export class DesktopIdentityBroker {
     this.magicLinkRequestOperation = null;
     this.pendingByApp.clear();
     this.pendingModernAppSessions.clear();
+    this.completedModernAppSessions.clear();
     this.unsupportedAppIds.clear();
     this.closeActiveWindow();
     this.updateSignOutIntent(options);
@@ -2959,6 +2968,13 @@ export class DesktopIdentityBroker {
   }
 
   private setStatus(status: DesktopIdentityStatus): void {
+    if (
+      status === "signing-in" ||
+      status === "sign-in-required" ||
+      status === "failed"
+    ) {
+      this.completedModernAppSessions.clear();
+    }
     this.status = status;
     this.options.onStatus?.(status);
   }

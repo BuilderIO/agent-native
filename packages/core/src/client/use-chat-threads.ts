@@ -619,9 +619,9 @@ export function useChatThreads(
   //   it; the server hasn't seen it yet because there's no POST anymore,
   //   the row gets written when the user sends a message.
   // - savedId is set but not on the current page → look it up directly. A
-  //   found thread stays active. An unavailable lookup keeps the saved id so
-  //   the detail surface can preserve cached state and offer recovery instead
-  //   of replacing a shared/reopened conversation with a blank local tab.
+  //   found thread stays active. An unavailable lookup keeps the saved id for
+  //   list-only readers and explicit routes, while a normal home surface drops
+  //   a dead local pointer instead of opening with a restore error.
   // - No savedId → synthesize a fresh local id (no POST; server creates the
   //   row on first message). The server may contain chats from another
   //   branch, preview, or project that shares the same user/database, so
@@ -672,12 +672,13 @@ export function useChatThreads(
           scopeRef.current,
         ),
       );
-      // Keep the saved id when the direct lookup says 404. AssistantChat owns
-      // the detail restore and can show a retryable error while preserving any
-      // cached transcript or composer draft. Replacing the id here silently
-      // turns a shared/reopened conversation into a new blank chat after the
-      // slower lookup finishes.
-      const restoredNeedsReplacement = restoredBelongsElsewhere;
+      // A missing saved id is stale local UI state on a normal home surface,
+      // not a reason to show an error above a fresh composer. Preserve it for
+      // explicit routes and list-only readers, where the caller still owns
+      // recovery for a deliberately selected thread.
+      const restoredNeedsReplacement =
+        restoredBelongsElsewhere ||
+        (restoredIsUnavailable && autoCreate && !routeControlsActiveThread);
       if (restoredNeedsReplacement) setActiveThreadId(null);
       const savedId = restoredNeedsReplacement ? null : restoredId;
       const loadedHasSavedId = Boolean(
