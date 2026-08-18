@@ -9493,9 +9493,12 @@ export function createProductionAgentHandler(
           await import("./thread-data-builder.js");
         const priorThreadData = (await getThread(effectiveThreadId))
           ?.threadData;
-        const resumed = threadDataToEngineMessages(priorThreadData, {
-          includeToolCalls: true,
-        });
+        // `threadDataToEngineMessages` takes one argument and flattens tool
+        // calls to text by design. The second argument never existed anywhere
+        // in the repo, so this failed `tsc` and broke every production build
+        // between 16:29 and now -- it reached main only because admin merges
+        // do not wait for the typecheck that would have caught it.
+        const resumed = threadDataToEngineMessages(priorThreadData);
         if (resumed.length > 0) {
           const actionPreparationTool =
             typeof backgroundRunMarker?.actionPreparationTool === "string" &&
