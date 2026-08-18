@@ -396,7 +396,7 @@ function WorkspaceAppSettings({
       </Tooltip>
       <DropdownMenuContent
         align="end"
-        className={APP_ACTION_MENU_CONTENT_CLASS}
+        className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
       >
         <DropdownMenuItem onSelect={onEdit}>
           <IconEdit size={14} aria-hidden="true" />
