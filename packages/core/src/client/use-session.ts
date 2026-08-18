@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { setSentryUser, trackSessionStatus } from "./analytics.js";
+import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
@@ -118,6 +119,9 @@ export function notifySessionInvalidated(): void {
 }
 
 function fetchSharedSession(): Promise<AuthSession | null | undefined> {
+  // A surface with no agent-native backend is genuinely signed out. `undefined`
+  // would read as "unavailable" and retry until it gave up with an error.
+  if (agentNativeApiDisabledReason()) return Promise.resolve(null);
   if (hasFreshSessionCache()) return Promise.resolve(cachedSession ?? null);
   if (sessionRequest) return sessionRequest;
 

@@ -1,13 +1,9 @@
 import { type H3Event, mockEvent } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-const mocks = vi.hoisted(() => ({ verifyEmbedSessionToken: vi.fn() }));
-
-vi.mock("@agent-native/core/server", () => ({
-  verifyEmbedSessionToken: mocks.verifyEmbedSessionToken,
-}));
-
-import registerBuilderHostEmbedHeaders from "./builder-host-embed-headers.js";
+import registerBuilderHostEmbedHeaders, {
+  isShellCanvasRequest,
+} from "./builder-host-embed-headers";
 
 type ResponseHook = (res: Response, event: H3Event) => void;
 
@@ -26,80 +22,63 @@ function responseHook(): ResponseHook {
   return registered.get("response")!;
 }
 
-function requestWith({
-  queryToken,
-  cookieToken,
-}: {
-  queryToken?: string;
-  cookieToken?: string;
-}): H3Event {
-  return mockEvent(
-    `/visual-edit/design-1${queryToken ? `?__an_embed_token=${queryToken}` : ""}`,
-    {
-      headers: cookieToken ? { cookie: `an_embed_session=${cookieToken}` } : {},
-    },
-  );
-}
-
 const responseWith = (coep?: string) =>
   new Response("", {
     headers: coep ? { "cross-origin-embedder-policy": coep } : {},
   });
 
-function verifiesAs(scope: string | undefined) {
-  mocks.verifyEmbedSessionToken.mockReturnValue({
-    ok: true,
-    claims: { scope },
-  });
-}
-
 const coepOf = (res: Response) =>
   res.headers.get("cross-origin-embedder-policy");
+const cspOf = (res: Response) => res.headers.get("content-security-policy");
 
-describe("builder-host embed headers", () => {
-  beforeEach(() => {
-    mocks.verifyEmbedSessionToken.mockReset();
+describe("isShellCanvasRequest", () => {
+  it("matches only the shell canvas route", () => {
+    expect(isShellCanvasRequest(mockEvent("/visual-edit/shell"))).toBe(true);
+    expect(
+      isShellCanvasRequest(mockEvent("/visual-edit/shell?embedded=1")),
+    ).toBe(true);
   });
 
-  it("drops COEP for a Builder-host embed so the canvas can frame containers", () => {
-    verifiesAs("builder-host:design:design-1");
+  it("does not match an ordinary design or visual-edit page", () => {
+    expect(isShellCanvasRequest(mockEvent("/visual-edit/abc123"))).toBe(false);
+    expect(isShellCanvasRequest(mockEvent("/design/abc123"))).toBe(false);
+    expect(isShellCanvasRequest(mockEvent("/"))).toBe(false);
+    // A design literally named "shell" still lives under a longer path.
+    expect(isShellCanvasRequest(mockEvent("/visual-edit/shell/extra"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("shell canvas headers", () => {
+  it("drops COEP so the canvas can frame containers", () => {
     const res = responseWith("require-corp");
-    responseHook()(res, requestWith({ queryToken: "tok" }));
+    responseHook()(res, mockEvent("/visual-edit/shell"));
     expect(coepOf(res)).toBe("unsafe-none");
   });
 
-  it("drops COEP when the token arrives by cookie, as it does on reload", () => {
-    verifiesAs("builder-host:design:design-1");
+  it("restricts embedding to Builder, since there is no token to check", () => {
     const res = responseWith("require-corp");
-    responseHook()(res, requestWith({ cookieToken: "tok" }));
-    expect(coepOf(res)).toBe("unsafe-none");
+    responseHook()(res, mockEvent("/visual-edit/shell"));
+    const csp = cspOf(res)!;
+    expect(csp).toContain("frame-ancestors");
+    expect(csp).toContain("https://builder.io");
+    expect(csp).toContain("https://*.builder.io");
   });
 
-  it("keeps COEP for other embed scopes, which COEP hosts require", () => {
-    verifiesAs("capability:read-design");
-    const res = responseWith("require-corp");
-    responseHook()(res, requestWith({ queryToken: "tok" }));
-    expect(coepOf(res)).toBe("require-corp");
+  it("leaves every other route's headers alone", () => {
+    for (const path of ["/visual-edit/abc123", "/design/abc123", "/"]) {
+      const res = responseWith("require-corp");
+      responseHook()(res, mockEvent(path));
+      expect(coepOf(res)).toBe("require-corp");
+      expect(cspOf(res)).toBeNull();
+    }
   });
 
-  it("keeps COEP for a scopeless embed session", () => {
-    verifiesAs(undefined);
-    const res = responseWith("require-corp");
-    responseHook()(res, requestWith({ queryToken: "tok" }));
-    expect(coepOf(res)).toBe("require-corp");
-  });
-
-  it("keeps COEP when the token does not verify", () => {
-    mocks.verifyEmbedSessionToken.mockReturnValue({ ok: false });
-    const res = responseWith("require-corp");
-    responseHook()(res, requestWith({ queryToken: "forged" }));
-    expect(coepOf(res)).toBe("require-corp");
-  });
-
-  it("never verifies a token on responses that carry no COEP", () => {
+  it("sets the headers even when core emitted no COEP for this response", () => {
     const res = responseWith();
-    responseHook()(res, requestWith({ queryToken: "tok" }));
-    expect(mocks.verifyEmbedSessionToken).not.toHaveBeenCalled();
-    expect(coepOf(res)).toBeNull();
+    responseHook()(res, mockEvent("/visual-edit/shell"));
+    expect(coepOf(res)).toBe("unsafe-none");
+    expect(cspOf(res)).toContain("frame-ancestors");
   });
 });

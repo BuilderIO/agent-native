@@ -117,12 +117,19 @@ export interface BuilderChatMessage {
   submit?: boolean;
   mode?: "act" | "plan";
   requestMode?: "act" | "plan";
+  /**
+   * Origin an embedder already verified for itself. `getBuilderParentOrigin()`
+   * needs `?builder.*` params to trust a loopback parent, which a handshake-based
+   * embed never carries — without this the message falls back to `"*"`.
+   */
+  targetOrigin?: string;
 }
 
 export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   if (typeof window === "undefined" || !opts.message?.trim()) return false;
   const hasParentFrame = window.parent !== window;
-  const targetOrigin = getBuilderParentOrigin() ?? "*";
+  const targetOrigin =
+    opts.targetOrigin ?? getBuilderParentOrigin() ?? "*";
   const payload = {
     type: "builder.submitChat",
     data: {

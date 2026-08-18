@@ -25,12 +25,9 @@ export default createAuthPlugin({
   // /api/design-handoff/<id>?token=... while keeping every other /api/* and
   // /_agent-native/* route behind auth. The listed action routes are read-only;
   // review comment mutations remain protected by action auth and resource ACLs.
-  // The Builder handshake runs before any session exists — minting one is its
-  // job. It authenticates itself against BUILDER_DESIGN_PARTNER_SECRET.
   publicPaths: [
     "/api/design-handoff",
     "/__manifest",
-    "/_agent-native/partner/builder/open",
     "/_agent-native/actions/get-design",
     "/_agent-native/actions/list-design-native-assets",
     "/_agent-native/actions/list-review-comments",

@@ -73,6 +73,7 @@ import {
   getBreakpointOverrideState,
   removeBreakpointMediaDeclaration,
 } from "@shared/breakpoint-media";
+import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
 import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
@@ -448,7 +449,6 @@ import {
 } from "@/lib/builder-host-chat";
 import {
   isBuilderHostEmbed,
-  markBuilderHostEmbed,
   rememberBuilderHostOrigin,
 } from "@/lib/builder-host-origin";
 import {
@@ -514,6 +514,11 @@ import {
   PngClipboardError,
 } from "@/lib/png-clipboard";
 import { prettyScreenName } from "@/lib/screen-names";
+import {
+  buildShellDesign,
+  SHELL_DESIGN_ID,
+  type ShellDesignInput,
+} from "@/lib/shell-design";
 import { cn } from "@/lib/utils";
 
 import { actionErrorDetail } from "./design-editor/action-error";
@@ -2284,13 +2289,20 @@ function DesignEditor() {
   const queryClient = useQueryClient();
   const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
-  const embedded = isEmbedAuthActive();
-  const hostOwnsChrome = embedded && !isEmbedChromeRequested();
+  /**
+   * Shell mode: the host drives the whole canvas over `design:init` and nothing
+   * is persisted, so there is no design row to read and no session to hold.
+   */
+  const shellMode = id === SHELL_DESIGN_ID;
+  // The shell route is host-embedded by definition and carries no embed session,
+  // so every `embedded` behaviour below would otherwise read as a standalone
+  // Design page and put our own chrome and agent inside Builder's.
+  const embedded = shellMode || isEmbedAuthActive();
+  // The shell keeps our rails and hands the host only the chat, so it must not
+  // depend on `embedChrome` surviving in the URL Builder builds.
+  const hostOwnsChrome = embedded && !shellMode && !isEmbedChromeRequested();
   // Framed by a host that supplies the chat but not the canvas chrome: our
   // rails stay, our agent surface does not.
-  // The signed embed scope, not `embedChrome` alone: that is a display
-  // preference any embedder can ask for, while this scope is only ever minted
-  // by the Builder partner handshake.
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -2365,6 +2377,7 @@ function DesignEditor() {
   const [builderPreviewUrl, setBuilderPreviewUrl] = useState<string | null>(
     null,
   );
+  const [shellInput, setShellInput] = useState<ShellDesignInput | null>(null);
 
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
@@ -2651,7 +2664,11 @@ function DesignEditor() {
     },
     [],
   );
+  // A handoff the host only prefilled. Its edits stay pending until a host turn
+  // settles, which is the one signal that the prompt was actually run.
+  const stagedSourceHandoffRef = useRef(false);
   const clearPendingLiveEditState = useCallback(() => {
+    stagedSourceHandoffRef.current = false;
     cancelPendingStructureVerification();
     pendingVisualStyleUndoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -2667,6 +2684,10 @@ function DesignEditor() {
     setPendingVisualStyleEdits([]);
     setPendingLiveNonStyleEdits([]);
   }, [cancelPendingStructureVerification]);
+  const clearPendingLiveEditStateRef = useRef(clearPendingLiveEditState);
+  useEffect(() => {
+    clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
+  }, [clearPendingLiveEditState]);
   useEffect(() => {
     if (!pendingVisualStyleRevertRequest) return;
     const timeout = window.setTimeout(() => {
@@ -3248,9 +3269,33 @@ function DesignEditor() {
           parentOriginRef.current = origin;
         }
         rememberBuilderHostOrigin(origin);
-        const { previewUrl } = data.data ?? {};
-        if (typeof previewUrl === "string" && previewUrl) {
+        const { previewUrl, routes, context } = data.data ?? {};
+        // The origin arrives from the parent now rather than a signed claim, so
+        // it is only trusted if it looks like a Builder preview host.
+        if (typeof previewUrl === "string" && isBuilderPreviewUrl(previewUrl)) {
           setBuilderPreviewUrl(previewUrl);
+          const nextShellInput: ShellDesignInput = {
+            previewOrigin: previewUrl,
+            routes: Array.isArray(routes)
+              ? routes.flatMap((route: unknown) => {
+                  const path = (route as { path?: unknown })?.path;
+                  return typeof path === "string" && path ? [{ path }] : [];
+                })
+              : [],
+            projectId: context?.projectId,
+            branchName: context?.branchName,
+            builderOrgId: context?.builderOrgId,
+            contentId: context?.contentId ?? undefined,
+          };
+          // The host resends `design:init` on unrelated changes. Replacing this
+          // state with an equivalent object rebuilds the design, which the canvas
+          // reads as a new document and remounts every frame mid-session.
+          setShellInput((current) =>
+            current &&
+            JSON.stringify(current) === JSON.stringify(nextShellInput)
+              ? current
+              : nextShellInput,
+          );
         }
       }
 
@@ -3264,6 +3309,12 @@ function DesignEditor() {
         // generating, so the container has rebuilt by the time it settles.
         if (hostChatGeneratingRef.current && next !== "generating") {
           reloadRunningAppPreviewFrames();
+          // The reload discards the inline overrides either way, so leaving the
+          // edits pending only offers to re-send a prompt for changes that are
+          // no longer on screen. A failed turn keeps them, so Apply can retry.
+          if (stagedSourceHandoffRef.current && next === "idle") {
+            clearPendingLiveEditStateRef.current();
+          }
         }
         hostChatGeneratingRef.current = next === "generating";
       }
@@ -4149,11 +4200,22 @@ function DesignEditor() {
     "get-design",
     { id: id! },
     {
+      enabled: !shellMode,
       refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
 
-  const design = isDesignData(designResult) ? designResult : null;
+  /** Rebuilt from the host payload; there is no row behind it to fetch. */
+  const shellDesign = useMemo(
+    () => (shellInput ? buildShellDesign(shellInput).design : null),
+    [shellInput],
+  );
+
+  const design = shellMode
+    ? shellDesign
+    : isDesignData(designResult)
+      ? designResult
+      : null;
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -4172,7 +4234,7 @@ function DesignEditor() {
       includeResolved: false,
       limit: 500,
     },
-    { enabled: Boolean(id) },
+    { enabled: Boolean(id) && !shellMode },
   );
   const reviewComments = reviewResult.data?.comments ?? [];
   const reviewOpenThreadIds = useMemo(
@@ -4590,7 +4652,8 @@ function DesignEditor() {
       pending: FileContentSaveRequest,
       expectedVersionHash = pending.expectedVersionHash,
     ) => {
-      if (!id) return null;
+      // The shell has no design row, so a queued save would retry forever.
+      if (!id || shellMode) return null;
       return createDesignSaveOutboxEntry({
         designId: id ?? "",
         actorScope: designSaveActorScope,
@@ -4608,7 +4671,7 @@ function DesignEditor() {
         },
       });
     },
-    [designSaveActorScope, id],
+    [designSaveActorScope, id, shellMode],
   );
 
   const cancelQueuedFileContentSave = useCallback(
@@ -4950,7 +5013,7 @@ function DesignEditor() {
   );
   const createTweakSaveOutboxEntry = useCallback(
     (pending: PendingTweakSave) => {
-      if (!id) return null;
+      if (!id || shellMode) return null;
       return createDesignSaveOutboxEntry({
         designId: id ?? "",
         actorScope: designSaveActorScope,
@@ -4965,7 +5028,7 @@ function DesignEditor() {
         },
       });
     },
-    [designSaveActorScope, id],
+    [designSaveActorScope, id, shellMode],
   );
   const persistTweakSave = useCallback(
     (pending: PendingTweakSave) => {
@@ -5538,7 +5601,8 @@ function DesignEditor() {
   // Trigger migration on design open when boardFileId is absent.
   const migrateBoardTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!id || !canEditDesign) return;
+    // Nothing to migrate for a design that only exists in memory.
+    if (!id || !canEditDesign || shellMode) return;
     if (boardFileId) return; // already migrated
     if (migrateBoardTriggeredRef.current === id) return;
     migrateBoardTriggeredRef.current = id;
@@ -5710,7 +5774,7 @@ function DesignEditor() {
 
   const createFrameGeometryOutboxEntry = useCallback(
     (dataOperations: readonly DesignDataOperation[], revision: number) => {
-      if (!id) return null;
+      if (!id || shellMode) return null;
       const compacted = compactDesignDataOperations(dataOperations);
       if (compacted.length === 0) return null;
       return createDesignSaveOutboxEntry({
@@ -5728,7 +5792,7 @@ function DesignEditor() {
         },
       });
     },
-    [designSaveActorScope, id],
+    [designSaveActorScope, id, shellMode],
   );
 
   const enqueueFrameGeometryDataSave = useCallback(
@@ -9880,10 +9944,7 @@ function DesignEditor() {
     [designDataJson],
   );
   useEffect(() => {
-    // The design's own linkage, not the token: the token leaves the URL after
-    // the server exchanges it, and reading it later reports "not Builder".
     if (fusionApp?.source !== "builder-host") return;
-    markBuilderHostEmbed(true);
     setBuilderHostConfirmed(true);
   }, [fusionApp?.source]);
 
@@ -24790,7 +24851,8 @@ function DesignEditor() {
         // A staged handoff is sitting in the host's composer unsent, so the
         // edits are still pending: clearing them here loses the work if the
         // user edits the prefill or dismisses it.
-        if (!delivery.staged) finalizeWithoutStructureVerification();
+        if (delivery.staged) stagedSourceHandoffRef.current = true;
+        else finalizeWithoutStructureVerification();
         if (delivery.target === "local") setActiveLeftPanel("agent");
         toast.success(t("designEditor.pendingVisualStyles.sentToast"));
         return;
@@ -30702,7 +30764,9 @@ function DesignEditor() {
 
   if (!id) return null;
 
-  if (designLoading || (!design && pendingGenerationActive)) {
+  // A shell with no design yet is waiting for the host's `design:init`, not
+  // looking at a design that does not exist.
+  if (designLoading || (!design && (pendingGenerationActive || shellMode))) {
     return (
       <DesignEditorSkeleton
         embedded={embedded}
@@ -31781,7 +31845,7 @@ function DesignEditor() {
                   activeLeftPanel === "tools" ? "flex" : "hidden",
                 )}
               >
-                {canEditDesign ? (
+                {canEditDesign && !shellMode ? (
                   <DesignExtensionsPanel
                     context={designExtensionContext}
                     hideAssetLibrary
@@ -31802,7 +31866,7 @@ function DesignEditor() {
                   activeLeftPanel === "tokens" ? "flex" : "hidden",
                 )}
               >
-                {id && canEditDesign ? (
+                {id && canEditDesign && !shellMode ? (
                   <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
                     <TokensPanel
                       designId={id}
@@ -31824,7 +31888,7 @@ function DesignEditor() {
                   activeLeftPanel === "code" ? "flex" : "hidden",
                 )}
               >
-                {id ? (
+                {id && !shellMode ? (
                   <CodeWorkbenchLoader
                     designId={id}
                     activeFileId={routeCodeFileId}

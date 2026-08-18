@@ -1634,9 +1634,21 @@ export function DesignCanvas({
   }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
   const installedBridgeKeyRef = useRef<string | null>(null);
   const sendBridgeToContainer = useCallback(() => {
-    if (!containerPreview || !includeLiveEditEditorChrome) return;
+    if (!containerPreview || !includeLiveEditEditorChrome) {
+      console.log("[design:bridge] install skipped", {
+        containerPreview,
+        includeLiveEditEditorChrome,
+      });
+      return;
+    }
     const target = iframeRef.current?.contentWindow;
-    if (!target || !externalPreviewUrl) return;
+    if (!target || !externalPreviewUrl) {
+      console.log("[design:bridge] install skipped", {
+        hasTarget: Boolean(target),
+        externalPreviewUrl,
+      });
+      return;
+    }
     if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
     let origin: string;
     try {
@@ -1656,11 +1668,18 @@ export function DesignCanvas({
         },
         origin,
       );
-    } catch {
+    } catch (error) {
       // Leave the key unmarked: `bridgeReady` drives the real install, and
       // marking a failed attempt disables the bridge for the document's life.
+      console.error("[design:bridge] install post threw", origin, error);
       return;
     }
+    console.log(
+      "[design:bridge] install posted from",
+      window.location.origin,
+      "to",
+      origin,
+    );
     installedBridgeKeyRef.current = liveEditBridgeKey;
   }, [
     containerPreview,
@@ -1685,7 +1704,21 @@ export function DesignCanvas({
         );
         return;
       }
+      if (event.data?.type === "agentNative.bridgeRejected") {
+        installedBridgeKeyRef.current = null;
+        console.error(
+          `[design] the preview container refused the editor bridge from ${window.location.origin}. ` +
+            "Containers install it only for https://design.agent-native.com, so selection " +
+            "and inline editing are dead anywhere else.",
+        );
+        return;
+      }
+      if (event.data?.type === "agentNative.bridgeInstalled") {
+        console.log("[design:bridge] installed", event.data?.key);
+        return;
+      }
       if (event.data?.type !== "agentNative.bridgeReady") return;
+      console.log("[design:bridge] container reported ready");
       installedBridgeKeyRef.current = null;
       sendBridgeToContainer();
     }
@@ -2423,6 +2456,23 @@ export function DesignCanvas({
   // long tasks. Memoizing on the (already-stable) `srcdoc` reference
   // makes unrelated re-renders skip this entirely.
   const srcdocHash = useMemo(() => contentHash(srcdoc ?? ""), [srcdoc]);
+  /**
+   * A container we framed ourselves is cross-origin, so its messages match
+   * neither `parentOrigin` nor the localhost bridge origin. Without its origin
+   * here every selection, hover and layer message from the editor bridge is
+   * dropped as untrusted while the bootstrap handshake still succeeds.
+   */
+  const canvasBridgeAllowedOrigins = useMemo(
+    () =>
+      [
+        sourceType === "localhost" && bridgeUrl
+          ? originFromUrl(bridgeUrl)
+          : null,
+        externalPreviewUrl ? originFromUrl(externalPreviewUrl) : null,
+      ].filter((origin): origin is string => Boolean(origin)),
+    [bridgeUrl, externalPreviewUrl, sourceType],
+  );
+
   const iframeDocumentIdentity = externalPreviewUrl
     ? `src:${externalPreviewUrl}`
     : waitingForLiveEditBridge
@@ -2469,12 +2519,7 @@ export function DesignCanvas({
           origin: e.origin,
           iframeWindow: runtimeVerificationWindow,
           parentOrigin: window.location.origin,
-          allowedOrigins:
-            sourceType === "localhost" && bridgeUrl
-              ? [originFromUrl(bridgeUrl)].filter((origin): origin is string =>
-                  Boolean(origin),
-                )
-              : [],
+          allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
         if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
@@ -2514,12 +2559,7 @@ export function DesignCanvas({
               origin: e.origin,
               iframeWindow,
               parentOrigin: window.location.origin,
-              allowedOrigins:
-                sourceType === "localhost" && bridgeUrl
-                  ? [originFromUrl(bridgeUrl)].filter(
-                      (origin): origin is string => Boolean(origin),
-                    )
-                  : [],
+              allowedOrigins: canvasBridgeAllowedOrigins,
             });
       const trustedLateLiveEditReady =
         sourceType === "localhost" &&
@@ -2530,9 +2570,7 @@ export function DesignCanvas({
           origin: e.origin,
           iframeWindow: lateReadyRecovery.source,
           parentOrigin: window.location.origin,
-          allowedOrigins: [originFromUrl(bridgeUrl)].filter(
-            (origin): origin is string => Boolean(origin),
-          ),
+          allowedOrigins: canvasBridgeAllowedOrigins,
         });
       const trusted = trustedCurrentFrame || trustedLateLiveEditReady;
       if (!trusted) {

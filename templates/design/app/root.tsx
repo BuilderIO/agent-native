@@ -7,6 +7,7 @@ import {
   getBrowserTabId,
   useSession,
 } from "@agent-native/core/client/hooks";
+import { setAgentNativeApiDisabled } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
@@ -44,6 +45,11 @@ import { i18nCatalog } from "./i18n";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
+
+// Builder frames this canvas with no session of its own, so every
+// `/_agent-native/*` call it makes is an unauthorized one that buries real
+// failures in 401 noise.
+if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
 
 configureTracking({
   llmConnectionStatus:
