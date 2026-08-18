@@ -52,14 +52,14 @@ export default defineAction({
     if (
       args.includeSlides === "true" &&
       ctx?.caller === "frontend" &&
-      !ownerEmail
+      normalizedOwnerEmail === null
     ) {
       const err = new Error("Unauthorized") as Error & { statusCode?: number };
       err.statusCode = 401;
       throw err;
     }
 
-    if (args.createdBy === "me" && !ownerEmail) {
+    if (args.createdBy === "me" && normalizedOwnerEmail === null) {
       return { count: 0, decks: [] };
     }
 

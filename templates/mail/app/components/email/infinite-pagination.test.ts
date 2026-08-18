@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   observeNextPage,
+  retryNextPage,
   shouldShowPaginationRetry,
 } from "./infinite-pagination";
 
@@ -124,5 +125,14 @@ describe("infinite filtered pagination", () => {
         isFetchNextPageError: true,
       }),
     ).toBe(false);
+  });
+
+  it("handles a rejected explicit retry without leaking an unhandled promise", async () => {
+    const fetchNextPage = vi.fn(async () => {
+      throw new Error("provider unavailable");
+    });
+
+    await expect(retryNextPage(fetchNextPage)).resolves.toBeUndefined();
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
   });
 });

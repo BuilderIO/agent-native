@@ -64,6 +64,7 @@ import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
 import {
   observeNextPage,
+  retryNextPage,
   shouldShowPaginationRetry,
 } from "./infinite-pagination";
 
@@ -1619,7 +1620,7 @@ export function EmailList({
           }) && (
             <button
               type="button"
-              onClick={() => void fetchNextPage()}
+              onClick={() => void retryNextPage(fetchNextPage)}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
             >
               {t("mail.error.tryAgain")}
@@ -1777,7 +1778,7 @@ export function EmailList({
             }) && (
               <button
                 type="button"
-                onClick={() => void fetchNextPage()}
+                onClick={() => void retryNextPage(fetchNextPage)}
                 className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
               >
                 {t("mail.error.tryAgain")}

@@ -21,6 +21,20 @@ export function shouldShowPaginationRetry({
 }
 
 /**
+ * Run an explicit pagination retry without leaking a rejected provider promise
+ * to the browser. React Query owns the visible error state for the next page.
+ */
+export async function retryNextPage(
+  fetchNextPage: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await fetchNextPage();
+  } catch {
+    // React Query owns the visible error state for the failed page.
+  }
+}
+
+/**
  * Observe a visible infinite-scroll sentinel for one page at a time.
  *
  * The owning effect re-runs when `isFetchingNextPage` changes. That lets the

@@ -13,6 +13,8 @@ const deckRows = [
   },
 ];
 
+let requestUserEmail = "alice@example.com";
+
 const orderByFn = vi.fn(async () => deckRows);
 const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
 const fromFn = vi.fn(() => ({ where: whereFn }));
@@ -36,7 +38,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => "alice@example.com",
+  getRequestUserEmail: () => requestUserEmail,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -54,6 +56,7 @@ import action from "./list-decks";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  requestUserEmail = "alice@example.com";
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
@@ -131,5 +134,15 @@ describe("list-decks", () => {
         },
       ],
     });
+  });
+
+  it("does not bypass Mine filtering for a whitespace-only identity", async () => {
+    requestUserEmail = "   ";
+
+    await expect(action.run({ createdBy: "me" })).resolves.toEqual({
+      count: 0,
+      decks: [],
+    });
+    expect(selectFn).not.toHaveBeenCalled();
   });
 });
