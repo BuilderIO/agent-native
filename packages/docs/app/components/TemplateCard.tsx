@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { IconExternalLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -291,6 +292,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           }}
           className="primary-button template-card-primary-button w-full"
         >
+          <IconExternalLink className="size-4" aria-hidden="true" />
           {t("common.tryIt")}
         </a>
       ) : null}
