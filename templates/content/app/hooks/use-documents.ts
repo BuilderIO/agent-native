@@ -66,6 +66,28 @@ export const LIST_DOCUMENTS_QUERY_KEY = [
   undefined,
 ] as const;
 
+export function restoreListDocumentsSnapshot(
+  queryClient: Pick<QueryClient, "removeQueries" | "setQueryData">,
+  snapshot: unknown,
+) {
+  if (snapshot === undefined) {
+    queryClient.removeQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
+    return;
+  }
+  queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, snapshot);
+}
+
+export function restoreDeletedDocumentSnapshots(
+  queryClient: Pick<QueryClient, "removeQueries" | "setQueryData">,
+  listSnapshot: unknown,
+  documentSnapshots: Array<[readonly unknown[], unknown]>,
+) {
+  restoreListDocumentsSnapshot(queryClient, listSnapshot);
+  for (const [queryKey, data] of documentSnapshots) {
+    queryClient.setQueryData(queryKey, data);
+  }
+}
+
 const DOCUMENT_LIST_PAGE_SIZE = 200;
 
 export async function fetchCompleteDocumentList(

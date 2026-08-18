@@ -205,6 +205,20 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       '["action", "get-document", { id: nextId }],\n          created',
     );
+    expect(sidebar).toContain(
+      "return withDocumentsCacheShape(old, [...docs, tempDoc])",
+    );
+    expect(sidebar).toContain(
+      "restoreListDocumentsSnapshot(queryClient, previousDocuments)",
+    );
+  });
+
+  it("restores deleted list and page snapshots before refetching on failure", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const previousDocumentQueries =");
+    expect(sidebar).toContain("restoreDeletedDocumentSnapshots(");
+    expect(sidebar).toContain("previousDocumentQueries");
   });
 
   it("keeps independently expanded Files lists beneath their workspaces", () => {

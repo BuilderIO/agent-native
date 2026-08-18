@@ -23,6 +23,8 @@ import {
   patchDocumentInDatabaseCache,
   patchDocumentInListDocumentsCache,
   restoreQuerySnapshots,
+  restoreDeletedDocumentSnapshots,
+  restoreListDocumentsSnapshot,
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
@@ -30,6 +32,41 @@ import {
 } from "./use-documents";
 
 describe("complete document discovery", () => {
+  it("restores an existing list snapshot and removes an absent one", () => {
+    const queryClient = new QueryClient();
+    const existing = { documents: [doc("existing", null)] };
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, { documents: [] });
+    restoreListDocumentsSnapshot(queryClient, existing);
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual(
+      existing,
+    );
+
+    restoreListDocumentsSnapshot(queryClient, undefined);
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
+  });
+
+  it("restores the complete list and deleted page snapshots together", () => {
+    const queryClient = new QueryClient();
+    const existing = doc("existing", null);
+    const child = doc("child", "existing");
+    const listSnapshot = { documents: [existing, child] };
+    const existingKey = documentQueryKey("existing");
+    const childKey = documentQueryKey("child");
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, { documents: [] });
+    restoreDeletedDocumentSnapshots(queryClient, listSnapshot, [
+      [existingKey, existing],
+      [childKey, child],
+    ]);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual(
+      listSnapshot,
+    );
+    expect(queryClient.getQueryData(existingKey)).toBe(existing);
+    expect(queryClient.getQueryData(childKey)).toBe(child);
+  });
+
   it("keeps object-shaped optimistic cache writes array-shaped for consumers", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },

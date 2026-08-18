@@ -9,6 +9,7 @@ import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 
 const mocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
+  getQueryData: vi.fn(),
   invalidateQueries: vi.fn(),
   navigate: vi.fn(),
   removeQueries: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({
+    getQueryData: mocks.getQueryData,
     invalidateQueries: mocks.invalidateQueries,
     removeQueries: mocks.removeQueries,
     setQueryData: mocks.setQueryData,
@@ -24,6 +26,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: () => ({ pathname: "/page/existing-page" }),
   useNavigate: () => mocks.navigate,
 }));
 
@@ -36,6 +39,15 @@ vi.mock("@/hooks/use-content-spaces", () => ({
 }));
 
 vi.mock("@/hooks/use-documents", () => ({
+  restoreListDocumentsSnapshot: (queryClient: any, snapshot: unknown) => {
+    if (snapshot === undefined) {
+      queryClient.removeQueries({
+        queryKey: ["action", "list-documents", undefined],
+      });
+      return;
+    }
+    queryClient.setQueryData(["action", "list-documents", undefined], snapshot);
+  },
   useCreateDocument: () => ({ mutateAsync: mocks.createDocument }),
 }));
 
@@ -137,6 +149,67 @@ describe("useCreatePage", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),
+    });
+  });
+
+  it("preserves list metadata and restores the exact snapshot when creation fails", async () => {
+    const previous = {
+      documents: [{ id: "existing-page" }],
+      pagination: { totalItems: 1 },
+    };
+    mocks.getQueryData.mockReturnValue(previous);
+    mocks.createDocument.mockRejectedValue(new Error("create failed"));
+
+    let createPage!: () => Promise<string>;
+    function Probe() {
+      createPage = useCreatePage();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+
+    await act(async () => {
+      await expect(createPage()).rejects.toThrow("create failed");
+    });
+
+    const optimisticUpdater = mocks.setQueryData.mock.calls[0]?.[1] as (
+      old: typeof previous,
+    ) => typeof previous;
+    const optimistic = optimisticUpdater(previous);
+    expect(optimistic.pagination).toBe(previous.pagination);
+    expect(optimistic.documents).toHaveLength(2);
+    expect(mocks.setQueryData).toHaveBeenCalledWith(
+      ["action", "list-documents", undefined],
+      previous,
+    );
+    expect(mocks.removeQueries).toHaveBeenCalledWith({
+      queryKey: ["action", "get-document"],
+      predicate: expect.any(Function),
+    });
+    expect(mocks.navigate).toHaveBeenLastCalledWith("/page/existing-page", {
+      replace: true,
+      flushSync: true,
+    });
+  });
+
+  it("removes an optimistic list when no prior list snapshot existed", async () => {
+    mocks.getQueryData.mockReturnValue(undefined);
+    mocks.createDocument.mockRejectedValue(new Error("create failed"));
+
+    let createPage!: () => Promise<string>;
+    function Probe() {
+      createPage = useCreatePage();
+      return null;
+    }
+    await act(async () => root.render(<Probe />));
+    await act(async () => {
+      await expect(createPage()).rejects.toThrow("create failed");
+    });
+
+    expect(mocks.removeQueries).toHaveBeenCalledWith({
+      queryKey: ["action", "list-documents", undefined],
     });
   });
 });

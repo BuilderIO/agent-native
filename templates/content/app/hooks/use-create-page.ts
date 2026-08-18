@@ -1,7 +1,7 @@
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -10,7 +10,10 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
 } from "@/components/sidebar/select-content-space";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
-import { useCreateDocument } from "@/hooks/use-documents";
+import {
+  restoreListDocumentsSnapshot,
+  useCreateDocument,
+} from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { documentQueryFilter } from "@/lib/document-query";
 import { markDocumentCreationPending } from "@/lib/optimistic-document";
@@ -34,6 +37,7 @@ export function useCreatePage(opts?: {
   awaitPersist?: boolean;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const createDocument = useCreateDocument();
   const contentSpacesQuery = useContentSpaces();
@@ -78,11 +82,19 @@ export function useCreatePage(opts?: {
         createdAt: now,
         updatedAt: now,
       });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousPath = location.pathname;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
-        return { documents: [...docs, tempDoc] };
+        if (Array.isArray(old)) return [...docs, tempDoc];
+        return {
+          ...(old && typeof old === "object" ? old : {}),
+          documents: [...docs, tempDoc],
+        };
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
@@ -111,11 +123,14 @@ export function useCreatePage(opts?: {
       };
 
       const onPersistError = (err: unknown) => {
+        restoreListDocumentsSnapshot(queryClient, previousDocuments);
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         queryClient.removeQueries(documentQueryFilter(id));
-        if (shouldNavigate) navigate("/");
+        if (shouldNavigate) {
+          navigate(previousPath, { replace: true, flushSync: true });
+        }
         toast.error("Failed to create page", {
           description:
             err instanceof Error ? err.message : "Something went wrong",
@@ -137,6 +152,7 @@ export function useCreatePage(opts?: {
     },
     [
       createDocument,
+      location.pathname,
       navigate,
       onAfterNavigate,
       queryClient,

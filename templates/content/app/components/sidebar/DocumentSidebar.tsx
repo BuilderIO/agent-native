@@ -127,6 +127,8 @@ import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
   documentQueryFilter,
+  restoreDeletedDocumentSnapshots,
+  restoreListDocumentsSnapshot,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -1153,12 +1155,15 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
-        return { documents: [...docs, tempDoc] };
+        return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
       if (rootFilesDatabaseId) {
@@ -1207,7 +1212,9 @@ export function DocumentSidebar({
           });
         }
       } catch (err) {
-        // Revert optimistic updates
+        // Restore the exact last complete tree before asking the server to
+        // reconcile it. A refetch alone leaves the sidebar temporarily stale.
+        restoreListDocumentsSnapshot(queryClient, previousDocuments);
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1218,7 +1225,10 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate("/");
+        navigate(activeDocumentId ? `/page/${activeDocumentId}` : "/", {
+          replace: true,
+          flushSync: true,
+        });
         toast.error(t("sidebar.failedCreatePage"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
@@ -1228,6 +1238,7 @@ export function DocumentSidebar({
     [
       createDocument,
       localFileMode,
+      activeDocumentId,
       navigate,
       navigateToDocument,
       onNavigate,
@@ -1284,6 +1295,12 @@ export function DocumentSidebar({
         navigationCandidates.find((doc) => doc.isFavorite) ??
         [...navigationCandidates].sort(compareDocumentsByPosition)[0] ??
         null;
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousDocumentQueries = [...deletedIds].flatMap((deletedId) =>
+        queryClient.getQueriesData(documentQueryFilter(deletedId)),
+      );
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
         const cachedDocs: Document[] =
@@ -1317,6 +1334,11 @@ export function DocumentSidebar({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
+        restoreDeletedDocumentSnapshots(
+          queryClient,
+          previousDocuments,
+          previousDocumentQueries,
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
