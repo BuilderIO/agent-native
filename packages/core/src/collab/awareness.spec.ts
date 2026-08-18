@@ -16,6 +16,8 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 import {
+  emitAwarenessChange,
+  getAwarenessEmitter,
   getDocAwareness,
   cleanExpired,
   postAwareness,
@@ -69,6 +71,58 @@ describe("cleanExpired", () => {
     vi.setSystemTime(30_000); // exactly 30s — boundary is not expired
     cleanExpired(map);
     expect(map.has(1)).toBe(true);
+  });
+});
+
+describe("awareness scope retention", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("expires scopes that stop receiving awareness activity", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const docId = "scope-expiry";
+    const received: Array<{ owner?: string }> = [];
+    const onChange = (event: { owner?: string }) =>
+      received.push({ owner: event.owner });
+    getAwarenessEmitter().on("awareness-change", onChange);
+
+    try {
+      emitAwarenessChange(docId, [], { owner: "owner@example.com" });
+      vi.setSystemTime(35_001);
+      emitAwarenessChange(docId, []);
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+    }
+
+    expect(received).toEqual([{ owner: "owner@example.com" }, {}]);
+  });
+
+  it("keeps a scope alive for scope-less presence heartbeats", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const docId = "scope-heartbeat";
+    const received: Array<{ owner?: string }> = [];
+    const onChange = (event: { owner?: string }) =>
+      received.push({ owner: event.owner });
+    getAwarenessEmitter().on("awareness-change", onChange);
+
+    try {
+      emitAwarenessChange(docId, [], { owner: "owner@example.com" });
+      vi.setSystemTime(10_000);
+      emitAwarenessChange(docId, []);
+      vi.setSystemTime(35_001);
+      emitAwarenessChange(docId, []);
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+    }
+
+    expect(received).toEqual([
+      { owner: "owner@example.com" },
+      { owner: "owner@example.com" },
+      { owner: "owner@example.com" },
+    ]);
   });
 });
 

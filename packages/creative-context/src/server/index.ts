@@ -141,7 +141,7 @@ export * from "./generation-context.js";
 export * from "./enrichment.js";
 export * from "./prompt-provider.js";
 export * from "./retrieval.js";
-export * from "./untrusted-reference.js";
+export * from "../untrusted-reference.js";
 export * from "./media.js";
 export * from "./native-resource-capture.js";
 export * from "./safe-native-preview.js";

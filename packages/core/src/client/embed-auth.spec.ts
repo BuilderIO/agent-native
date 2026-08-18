@@ -11,15 +11,21 @@ import {
 
 const STORAGE_KEY = "agent-native:embed-auth-token";
 const BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
+type EmbedAuthModule = typeof import("./embed-auth.js");
+let lastEmbedAuthModule: EmbedAuthModule | undefined;
 
 async function loadEmbedAuth() {
+  lastEmbedAuthModule?._resetEmbedAuthForTests();
   vi.resetModules();
-  return import("./embed-auth.js");
+  lastEmbedAuthModule = await import("./embed-auth.js");
+  return lastEmbedAuthModule;
 }
 
 describe("embed auth client", () => {
   beforeEach(() => {
+    lastEmbedAuthModule?._resetEmbedAuthForTests();
     vi.resetModules();
+    vi.useRealTimers();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/");
     Object.defineProperty(window, "fetch", {
@@ -241,6 +247,47 @@ describe("embed auth client", () => {
     expect(style?.textContent).toContain("height: 560px !important");
     expect(style?.textContent).toContain("overflow: hidden !important");
     expect(notifyIntrinsicHeight).toHaveBeenCalledWith({ height: 560 });
+  });
+
+  it("dedupes delayed viewport notifications across repeated bridge setup", async () => {
+    vi.useFakeTimers();
+    const notifyIntrinsicHeight = vi.fn();
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0),
+    );
+    Object.defineProperty(window, "openai", {
+      configurable: true,
+      writable: true,
+      value: { notifyIntrinsicHeight },
+    });
+    Object.defineProperty(window, "requestAnimationFrame", {
+      configurable: true,
+      writable: true,
+      value: requestAnimationFrame,
+    });
+    Object.defineProperty(window, "cancelAnimationFrame", {
+      configurable: true,
+      writable: true,
+      value: (id: number) => window.clearTimeout(id),
+    });
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    try {
+      const first = await loadEmbedAuth();
+      first.ensureEmbedAuthFetchInterceptor();
+      first.ensureEmbedAuthFetchInterceptor();
+
+      expect(notifyIntrinsicHeight).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(notifyIntrinsicHeight).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("does not leak a stored MCP chat bridge flag to a different embed token", async () => {
