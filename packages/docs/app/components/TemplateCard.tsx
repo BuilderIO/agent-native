@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
+import { TemplateDocsLink } from "./template-docs";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 export { trackEvent };
@@ -344,6 +345,11 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             )}
           </PopoverContent>
         </Popover>
+        <TemplateDocsLink
+          template={template}
+          location="card"
+          className="secondary-button flex-1 whitespace-nowrap text-xs"
+        />
       </div>
     </div>
   );
