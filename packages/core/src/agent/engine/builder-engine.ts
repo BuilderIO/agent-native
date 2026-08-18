@@ -38,7 +38,6 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import {
-  builderGatewayInternalErrorUserMessage,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
   isBuilderGatewayInternalErrorMessage,
@@ -527,7 +526,7 @@ function gatewayErrorStop(
     ...(creditsLane
       ? gatewayVisitorFacingError(errorCode)
       : {
-          error: builderGatewayInternalErrorUserMessage(error) ?? error,
+          error,
           ...(errorCode ? { errorCode } : {}),
           ...(upgradeUrl ? { upgradeUrl } : {}),
         }),

@@ -2,9 +2,8 @@
 "@agent-native/core": patch
 ---
 
-Name the AI provider in gateway internal-error text, and record what was sent
-when a run errors. A Builder gateway 500 now reads as the model service
-failing rather than the app breaking, keeping its `ERROR ID:` reference, and an
-errored run's capture carries the request's model, payload bytes, tool count,
-and message count alongside `gatewayRequestId` — sizes and counts only, never
-prompt or user content.
+Record what was sent when an agent run errors. An errored run's capture now
+carries the failed request's model, payload bytes, tool count, and message
+count alongside `gatewayRequestId` — sizes and counts only, never prompt or
+user content — so an oversized request and an upstream outage stop producing
+identical, undiagnosable captures.

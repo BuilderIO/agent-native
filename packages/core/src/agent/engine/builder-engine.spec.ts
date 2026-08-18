@@ -1581,7 +1581,7 @@ describe("createBuilderEngine", () => {
   // A gateway 500 says nothing about the request behind it. Without these
   // counts on the stop event, an oversized payload and an upstream outage are
   // the same capture — which is exactly how one analytics turn burned a night.
-  it("carries the request shape and names the provider on a gateway 500", async () => {
+  it("carries the request shape on a gateway 500", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -1618,8 +1618,12 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_internal_error");
-    expect(stop?.error).toContain("AI provider");
-    expect(stop?.error).toContain("ERROR ID: 044be17f44d546c7875a4df879e6749f");
+    // The raw envelope rides through untouched: `normalizeChatError` names the
+    // layer from the CODE and keeps this sentence as the `details` line, which
+    // is the only place the error id reaches the reader.
+    expect(stop?.error).toBe(
+      "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+    );
     expect(stop?.requestShape).toMatchObject({
       model: BASE_OPTS.model,
       toolCount: 1,
