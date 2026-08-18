@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPlaceholderImageTarget,
+  insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
   replaceImageTargetInSlideHtml,
 } from "./slide-image-replacement";
@@ -53,5 +54,53 @@ describe("slide image replacement", () => {
 
     expect(updated).not.toContain("fmd-img-placeholder");
     expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
+  });
+
+  it("adds a positioned background layer when the slide has no placeholder at all", () => {
+    const html = `<div class="fmd-slide"><h1>Slide with no image</h1></div>`;
+    const updated = insertImageIntoSlideHtml(html, "/uploads/drop.png");
+    const doc = new DOMParser().parseFromString(updated, "text/html");
+    const img = doc.querySelector("img");
+    const slideRoot = doc.querySelector(".fmd-slide") as HTMLElement | null;
+
+    expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
+    // Must not become a plain flex-flow sibling of the existing content
+    // (the slide is a flex column), or it visually squishes everything else.
+    expect(img?.getAttribute("style")).toContain("position: absolute");
+    expect(slideRoot?.getAttribute("style")).toContain("position: relative");
+    expect(doc.querySelector("h1")).not.toBeNull();
+  });
+
+  it("inserts a desktop drop as an absolute object at the drop point", () => {
+    const html = `<div class="fmd-slide"><h1>Slide</h1></div>`;
+    const updated = insertDroppedImageIntoSlideHtml(html, "/uploads/drop.png", {
+      alt: "drop.png",
+      position: { x: 640, y: 360 },
+    });
+    const doc = new DOMParser().parseFromString(updated, "text/html");
+    const img = doc.querySelector("img");
+
+    expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
+    expect(img?.getAttribute("alt")).toBe("drop.png");
+    expect(img?.getAttribute("data-slide-object-id")).toBeTruthy();
+    expect(img?.getAttribute("style")).toContain("position: absolute");
+    expect(img?.getAttribute("style")).toContain("left: 480px");
+    expect(img?.getAttribute("style")).toContain("top: 270px");
+    expect(img?.getAttribute("style")).toContain("width: 320px");
+    expect(img?.getAttribute("style")).toContain("height: 180px");
+    expect(img?.getAttribute("style")).toContain("z-index: 1");
+  });
+
+  it("keeps Markdown source intact when inserting a dropped image", () => {
+    const updated = insertDroppedImageIntoSlideHtml(
+      "# Slide title\n\nBody copy",
+      "/uploads/drop.png",
+      { position: { x: 200, y: 120 } },
+    );
+
+    expect(updated).toContain("# Slide title");
+    expect(updated).toContain("Body copy");
+    expect(updated).toContain('src="/uploads/drop.png"');
+    expect(updated).toContain("position: absolute");
   });
 });

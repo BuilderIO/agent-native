@@ -96,8 +96,7 @@ description: "エージェント トレース、評価、フィードバック�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -385,5 +384,5 @@ CLI のハードコードされた DSN は意図的です。公開されたバ�
 ## 次は何ですか
 
 - [**Tracking**](/docs/tracking) — アプリ独自のイベントの製品分析 (PostHog、Mixpanel、Amplitude)
-- [**Actions**](/docs/actions) — トレース内のツール呼び出しとして表示される操作
+- [**Actions**](/docs/actions-overview) — トレース内のツール呼び出しとして表示される操作
 - [**Security**](/docs/security) — データのスコープと資格情報の処理

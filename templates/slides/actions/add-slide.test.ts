@@ -4,7 +4,6 @@ const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
-let mockRunContext: { browserTabId?: string } | undefined;
 // Each test sets this; the helper consults it to decide whether to report
 // overflow, fit, or timeout.
 let mockFitCheckResult:
@@ -29,8 +28,65 @@ const setFn = vi.fn((fields: Record<string, unknown>) => {
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
+const transactionFn = vi.fn(
+  async (callback: (tx: { update: typeof updateFn }) => Promise<unknown>) =>
+    callback({ update: updateFn }),
+);
 
-const mockDb = { select: selectFn, update: updateFn };
+const mockDb = {
+  select: selectFn,
+  update: updateFn,
+  transaction: transactionFn,
+};
+
+const mockGetGenerationCreativeContext = vi.fn(async () => null);
+const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
+const mockValidateGenerationCreativeContext = vi.fn(
+  async (input: {
+    contextPackId?: string;
+    contextModeOverride?: "off";
+    reuseLabels?: Array<Record<string, unknown>>;
+  }) => ({
+    contextMode:
+      input.contextModeOverride === "off"
+        ? ("off" as const)
+        : input.contextPackId
+          ? ("auto" as const)
+          : ("off" as const),
+    contextPackId:
+      input.contextModeOverride === "off"
+        ? null
+        : (input.contextPackId ?? null),
+    reuseLabels: input.reuseLabels ?? [],
+    results: [],
+  }),
+);
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  getGenerationCreativeContext: (...args: unknown[]) =>
+    mockGetGenerationCreativeContext(...args),
+  recordGenerationCreativeContext: (...args: unknown[]) =>
+    mockRecordGenerationCreativeContext(...args),
+  validateGenerationCreativeContext: (...args: unknown[]) =>
+    mockValidateGenerationCreativeContext(...args),
+  validateCreativeContextReuseLabels: (
+    labels: Array<Record<string, unknown>>,
+  ) => labels,
+  mergeCreativeContextReuseLabels: (
+    previous: Array<Record<string, unknown>>,
+    next: Array<Record<string, unknown>>,
+  ) => [...previous, ...next],
+  replaceCreativeContextElementProvenance: (
+    previous: Array<{ elementId: string }>,
+    next: Array<{ elementId: string }>,
+  ) => {
+    const replaced = new Set(next.map((entry) => entry.elementId));
+    return [
+      ...previous.filter((entry) => !replaced.has(entry.elementId)),
+      ...next,
+    ];
+  },
+}));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -73,7 +129,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestRunContext: () => mockRunContext,
+  getRequestRunContext: () => undefined,
 }));
 
 vi.mock("./_await-fit-check.js", () => ({
@@ -86,10 +142,8 @@ import action from "./add-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRunContext = undefined;
-  mockReadAppState.mockResolvedValue(null);
-  mockWriteAppState.mockResolvedValue(undefined);
   mockFitCheckResult = undefined;
+  mockGetGenerationCreativeContext.mockResolvedValue(null);
   deckData = {
     title: "Test deck",
     slides: [
@@ -103,6 +157,26 @@ beforeEach(() => {
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
+  });
+
+  it("repairs an opaque generated title from the first slide", async () => {
+    deckData = {
+      title: "H3sVsnns-TEVUOpz9w",
+      slides: [],
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-title",
+      layout: "title",
+      content:
+        '<div class="fmd-slide"><div style="font-size: 54px;">Agent-Native Strategy</div></div>',
+    });
+
+    expect(updatedFields?.title).toBe("Agent-Native Strategy");
+    expect(JSON.parse(updatedFields!.data as string).title).toBe(
+      "Agent-Native Strategy",
+    );
   });
 
   it("accepts CLI-style string positions and inserts at the requested index", async () => {
@@ -147,18 +221,7 @@ describe("add-slide", () => {
     );
   });
 
-  it("scopes auto-navigation to the requesting browser tab", async () => {
-    mockRunContext = { browserTabId: "slides-tab-a" };
-    mockReadAppState.mockImplementation(async (key) => {
-      if (key === "navigation:slides-tab-a") {
-        return { view: "editor", deckId: "deck-1" };
-      }
-      if (key === "navigation") {
-        return { view: "editor", deckId: "deck-other" };
-      }
-      return null;
-    });
-
+  it("does not auto-navigate the editor to the generated slide", async () => {
     await action.run({
       deckId: "deck-1",
       slideId: "slide-new",
@@ -166,19 +229,8 @@ describe("add-slide", () => {
       position: 1,
     });
 
-    expect(mockReadAppState).toHaveBeenCalledWith("navigation:slides-tab-a");
-    expect(mockReadAppState).not.toHaveBeenCalledWith("navigation");
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "navigate:slides-tab-a",
-      expect.objectContaining({
-        deckId: "deck-1",
-        slideIndex: 1,
-      }),
-    );
-    expect(mockWriteAppState).not.toHaveBeenCalledWith(
-      "navigate",
-      expect.anything(),
-    );
+    expect(mockReadAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("rejects empty string positions", async () => {
@@ -271,5 +323,158 @@ describe("add-slide", () => {
       slideId: "slide-new",
       slideCount: 3,
     });
+  });
+
+  it("inherits the deck pack and appends exact slide provenance", async () => {
+    const existingLabel = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "slide",
+      label: "Title slide",
+      dataRole: "untrusted-reference" as const,
+      elementId: "slide-1",
+      influence: "adapted" as const,
+    };
+    const newLabel = {
+      itemId: "item-2",
+      itemVersionId: "version-2",
+      kind: "slide",
+      label: "Metrics slide",
+      dataRole: "untrusted-reference" as const,
+      influence: "reused" as const,
+    };
+    deckData.creativeContext = {
+      contextMode: "auto",
+      contextPackId: "pack-1",
+      reuseLabels: [existingLabel],
+    };
+    mockGetGenerationCreativeContext.mockResolvedValue({
+      id: "generation-1",
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "auto",
+      contextPackId: "pack-1",
+      elementProvenance: [
+        {
+          elementId: "slide-1",
+          influence: "adapted",
+          itemId: "item-1",
+          itemVersionId: "version-1",
+        },
+      ],
+      createdAt: "2026-07-16T00:00:00.000Z",
+    });
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+      reuseLabels: [newLabel],
+    });
+
+    expect(mockValidateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextPackId: "pack-1",
+        contextPackSource: "inherited",
+        reuseLabels: [newLabel],
+        reuseLabelsSource: "explicit",
+      }),
+    );
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.creativeContext).toMatchObject({
+      contextMode: "auto",
+      contextPackId: "pack-1",
+    });
+    expect(updated.creativeContext.reuseLabels).toHaveLength(2);
+    expect(updated.slides[2].creativeContextReuseLabels).toEqual([
+      { ...newLabel, elementId: "slide-new" },
+    ]);
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactId: "deck-1",
+        contextPackId: "pack-1",
+        elementProvenance: [
+          expect.objectContaining({ elementId: "slide-1" }),
+          expect.objectContaining({
+            elementId: "slide-new",
+            itemId: "item-2",
+            itemVersionId: "version-2",
+            influence: "reused",
+          }),
+        ],
+      }),
+      expect.objectContaining({ db: expect.anything() }),
+    );
+  });
+
+  it("rejects a pack that differs from the deck before mutating", async () => {
+    deckData.creativeContext = {
+      contextMode: "auto",
+      contextPackId: "pack-1",
+      reuseLabels: [],
+    };
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+        contextPackId: "pack-2",
+      }),
+    ).rejects.toThrow(/existing creative-context pack/);
+    expect(updateFn).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("records a one-slide off override without clearing the deck's saved pack", async () => {
+    deckData.creativeContext = {
+      contextMode: "auto",
+      contextPackId: "pack-1",
+      reuseLabels: [
+        {
+          itemId: "item-1",
+          itemVersionId: "version-1",
+          kind: "slide",
+          label: "Prior slide",
+          dataRole: "untrusted-reference",
+          elementId: "slide-1",
+        },
+      ],
+    };
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>Unbranded</div>",
+      contextModeOverride: "off",
+    });
+
+    expect(result).toMatchObject({ contextMode: "off", contextPackId: null });
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.creativeContext).toMatchObject({
+      contextMode: "auto",
+      contextPackId: "pack-1",
+    });
+    expect(mockGetGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [
+          expect.objectContaining({
+            elementId: "slide-new",
+            influence: "generated",
+          }),
+        ],
+        elementProvenance: [
+          expect.objectContaining({
+            elementId: "slide-new",
+            influence: "generated",
+          }),
+        ],
+      }),
+      expect.any(Object),
+    );
   });
 });

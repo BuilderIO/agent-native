@@ -1,11 +1,18 @@
 ---
 title: "Extensions"
-description: "Mini-apps your users build inside your template — a custom KPI tile in Analytics, a meeting-prep checklist in Calendar, a contact CRM widget in Mail. No deploys, no code edits, no schema changes."
+description: "An optional toolkit capability for one-off, sandboxed custom blocks. App code remains the default for durable product behavior."
 ---
 
 # Extensions
 
-Extensions are **mini-apps your users build inside your template**.
+Extensions are an **optional toolkit capability for sandboxed custom blocks**.
+They are disabled by default. A template must opt in before its agent can create
+or manage them; Analytics uses this capability for explicitly requested,
+one-off custom visualizations.
+
+For durable behavior, edit the app code. A custom block is an agent-authored
+patch: useful when speed and local specificity matter, but not the default way
+to add a reusable product feature.
 
 When the agent needs a one-time interactive answer inside the chat itself, use
 [Generative UI](/docs/generative-ui) instead. Generative UI uses the same
@@ -23,9 +30,11 @@ The framing matters: an extension isn't a generic "do whatever you want" sandbox
 its own page or inside a named [slot](#slots) exposed by the template. It
 cannot inject elements into arbitrary native components — for example, beside
 every attendee in Calendar — unless the template exposes a slot there. For
-deeper customization, ask the agent to edit the template's source code. Full
-code customization is a core Agent Native capability; extensions are the
-fast, no-deploy layer.
+deeper customization, change the template in your own repository and
+development workflow. An embedded, development, or Builder frame may assist
+when it is intentionally granted workspace and write tooling; otherwise the
+embedded app agent works through app tools. Extensions remain the fast,
+no-deploy layer for runtime customization.
 
 </Callout>
 
@@ -37,10 +46,12 @@ Three things make extensions work:
 - **Full access to the template's data.** Extensions can call the same actions the agent calls — `list-emails` in Mail, `list-decks` in Slides, `list-recordings` in Clips — so they have everything the host app has.
 - **Built-in storage.** Each extension has its own per-user / per-org key-value store, so it can save state without you adding a new SQL table.
 
-If a template should not expose user-authored extensions, set
-`extensionTools: false` on `createAgentChatPlugin()`. That removes the
-agent-facing extension actions and prompt guidance while leaving the rest of the
-app agent intact.
+Extensions are disabled by default. To expose user-authored extensions, set
+`extensionTools: true` on both `createAgentChatPlugin()` and
+`createCoreRoutesPlugin()`. The first adds the agent-facing actions and prompt
+guidance; the second permits authenticated creation through
+`POST /_agent-native/extensions`. The sandbox runtime and existing read, edit,
+and deep-link routes remain available for compatibility either way.
 
 <Diagram id="doc-block-l8xkep" title="The sandbox bridge" summary={"Extension HTML runs in an isolated iframe and reaches the host only through a fixed set of bridge helpers — every call is scoped and access-checked."}>
 
@@ -133,6 +144,17 @@ A user is reading an email from `priya@acme.com`. What kind of widget would help
 - **CRM enrichment** — pulls the contact's company size, last meeting date, or open deals from your CRM.
 - **Meeting scheduler shortcut** — turns "find a time next week" into a one-click "send these slots" widget.
 
+Once installed into Mail's `mail.contact-sidebar.bottom` slot, the Contact notes widget sits right under the contact card on every thread:
+
+<WireframeBlock id="doc-block-ext1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;min-height:420px;box-sizing:border-box'><div style='flex:1;display:flex;flex-direction:column;gap:10px;padding:16px;border-right:1.4px solid var(--wf-line)'><strong>Re: Q3 renewal</strong><small class='wf-muted'>priya@acme.com &middot; 9:14 AM</small><div class='wf-card'><p style='margin:0'>Hi &mdash; following up on the renewal terms we discussed on the call...</p></div></div><div style='width:220px;display:flex;flex-direction:column;gap:10px;padding:16px'><div class='wf-card'><strong>priya@acme.com</strong><small class='wf-muted' style='display:block'>Acme Inc.</small></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><span class='wf-pill accent'>Extension &middot; Contact notes</span><small class='wf-muted'>Notes about this contact&hellip;</small><div style='border:1.4px solid var(--wf-line);border-radius:var(--wf-radius);padding:8px;min-height:56px'>Renewal call went well. Wants annual billing.</div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
 Sketch — Contact notes (saves a note tied to whoever you're emailing):
 
 ```html
@@ -223,7 +245,7 @@ Pattern across all of these: extensions are about **the moment** the user is in 
 
 The simple path:
 
-1. **Click "New Extension"** in the sidebar (or just ask in chat).
+1. Open **Settings → Extensions** (or just ask in chat), then click **New Extension**.
 2. **Describe what you want in one sentence.** "A sticky-note pad for the contact I'm emailing." "A KPI box for trials started this week."
 3. **The agent writes it and it appears in your Extensions list, ready to use.**
 
@@ -238,31 +260,35 @@ saved versions, inspect the diff from the previous version, and restore an
 older name/description/icon/content snapshot without changing ownership or
 sharing.
 
+## For developers {#for-developers}
+
+Everything from here through [Local File Extensions](#local-file-extensions) is the bridge/data-API reference for template developers — the exact helpers, endpoints, and slot contract an extension can use. Skip ahead to [Sharing](#sharing) if you just want to build and share widgets as an end user.
+
 ## What an extension can do {#capabilities}
 
 Inside the iframe sandbox, every extension has these helpers on `window`:
 
-| Helper                                           | Purpose                                                   | Example                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Call any of the host template's actions, including writes | `appAction('list-emails', { view: 'inbox' })`             |
-| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user; never for writes) | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions     | Prefer `appAction` for app data writes                    |
-| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`           |
-| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`         |
-| `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
-| `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
-| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
-| `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                        |
-| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                    |
-| `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`  |
+| Helper                                           | Purpose                                                   | Example                                                                |
+| ------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `appAction(name, params)`                        | Call any of the host template's actions, including writes | `appAction('list-emails', { view: 'inbox' })`                          |
+| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')`              |
+| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user; never for writes) | `dbQuery('SELECT id, name FROM tools')`                                |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions     | Prefer `appAction` for app data writes                                 |
+| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`                        |
+| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`                      |
+| `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`                        |
+| `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                                 |
+| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                              |
+| `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                                     |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                                 |
+| `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { submit: true, context: { q: 2 } })` |
 
 Three rules of thumb:
 
 - **Prefer `appAction` over raw SQL.** Actions are the template's official surface — they handle access control, scoping, and validation for you. `dbQuery` is read-only; `dbExec` remains for legacy trusted editor/admin extensions, but new app data writes should go through actions.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
-- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
+- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is draft-only unless `{ submit: true }` is passed for a user-triggered submit/apply message. Never call it from polling, refresh, or error handlers.
 
 ```html
 <script>
@@ -451,6 +477,17 @@ Deletes the matching item from the selected scope. The default scope is `user`, 
 
 </Endpoint>
 
+### Agent tools for extension data {#agent-data-tools}
+
+Two agent-facing actions read and write an extension's data store from outside the iframe — for seeding an extension with data, inspecting what it has stored, or updating it without opening the widget:
+
+| Action               | Purpose                                                                                                              | Access required |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `extension-data-set` | Write (upsert) one item to an extension's data store. Refreshes any mounted iframe showing that extension afterward. | Editor          |
+| `extension-data-get` | Read one item, or list a collection, from an extension's data store.                                                 | Viewer          |
+
+These are distinct from the `extensionData.*` bridge helpers above (called from inside the sandboxed iframe) and from the [Authenticated Extension Data API](#authenticated-extension-data-api) (called by another logged-in client over HTTP) — same underlying store (`tool_data`), three different callers.
+
 External APIs go through `extensionFetch`, which proxies the call server-side and substitutes secrets via the `${keys.NAME}` template:
 
 ```html
@@ -617,20 +654,34 @@ Extensions are private to the user who created them by default. To share:
 
 Shared extensions have their own URLs and plug into the same share dialog as documents, decks, and dashboards. Slot installs are always personal — sharing an extension means others _can_ install it; it doesn't auto-pin it to their UI.
 
-## Extensions vs. editing the app code {#vs-app-code}
+## Should I use an extension or the app source workflow? {#vs-app-code}
 
-The framework lets the agent edit the app's source code directly — components, routes, styles. So when should you reach for an extension instead?
+Use this question when either path could solve the request:
 
-|                       | Extension                                         | App code edit                        |
-| --------------------- | ------------------------------------------------- | ------------------------------------ |
-| **Created by**        | Agent (or user) at runtime                        | Agent editing source files           |
-| **Stored in**         | The database                                      | The git repository                   |
-| **Requires a build**  | No                                                | Yes                                  |
-| **Requires a deploy** | No                                                | Yes                                  |
-| **Scope**             | One user (or shared with org)                     | The entire product, every user       |
-| **Best for**          | Personal widgets, custom KPIs, per-team utilities | Core features that ship to all users |
+- **Use the source workflow** for product behavior, native UI, layout, routes,
+  business logic, or anything that should be reused across dashboards or users.
+- **Use a custom block only when the app opts in** and the user explicitly wants
+  a bespoke, one-off visualization or interaction in an existing extension
+  surface. It is fast and requires no build or deploy, but remains a sandboxed
+  agent-authored patch.
+- **Promote durable custom blocks.** If a block becomes useful beyond its
+  original one-off context, use **Promote to app code** to hand it to the normal
+  source-change workflow. Keep the original block in place until the code
+  change is reviewed and deployed.
 
-Rule of thumb: **if it's for one user or one team, it's an extension.** If every user of the template should get it, ship it as a real feature.
+|                       | Extension                      | App source workflow                      |
+| --------------------- | ------------------------------ | ---------------------------------------- |
+| **Created by**        | Agent (or user) at runtime     | User or intentionally code-enabled agent |
+| **Stored in**         | The database                   | The git repository                       |
+| **Requires a build**  | No                             | Yes                                      |
+| **Requires a deploy** | No                             | Yes                                      |
+| **Scope**             | One user (or shared with org)  | The entire product, every user           |
+| **Best for**          | Explicit one-off custom blocks | Durable product behavior                 |
+
+Rule of thumb: **use an extension for runtime customization.** In an app that explicitly enables
+extensions, a one-off custom visualization on a dashboard can be a Custom
+Block; a new pie, multi-bar, or line chart type that should be available across
+dashboards belongs in the template source and normal development workflow.
 
 If what you actually need is a cached, refreshable data source for an existing chart or table — not a new interactive widget — see [Data Programs](/docs/data-programs) instead; it shares this page's sandbox and security posture but has no UI of its own.
 
@@ -665,7 +716,7 @@ You also won't see this in normal use, but the agent has a third related concept
 ## What's next
 
 - [**Templates**](/docs/cloneable-saas) — the host apps extensions extend
-- [**Actions**](/docs/actions) — the operations an extension calls via `appAction`
+- [**Actions**](/docs/actions-overview) — the operations an extension calls via `appAction`
 - [**Data Programs**](/docs/data-programs) — the no-UI sibling primitive for cached, refreshable data sources
 - [**Sharing & Privacy**](/docs/sharing) — how extension visibility, org sharing, and per-user grants work
 - [**Onboarding & API Keys**](/docs/onboarding) — how secrets surface in the settings UI

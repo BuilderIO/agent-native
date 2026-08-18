@@ -13,6 +13,8 @@ registerShareableResource({
   displayName: "Brain Source",
   titleColumn: "title",
   getResourcePath: (source) => `/sources/${source.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
   getDb,
 });
 
@@ -23,6 +25,8 @@ registerShareableResource({
   displayName: "Brain Knowledge",
   titleColumn: "title",
   getResourcePath: (knowledge) => `/knowledge/${knowledge.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
   getDb,
 });
 
@@ -33,5 +37,19 @@ registerShareableResource({
   displayName: "Brain Proposal",
   titleColumn: "title",
   getResourcePath: (proposal) => `/proposals/${proposal.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
+  getDb,
+});
+
+registerShareableResource({
+  type: "brain-project",
+  resourceTable: schema.brainProjects,
+  sharesTable: schema.brainProjectShares,
+  displayName: "Brain Project",
+  titleColumn: "title",
+  getResourcePath: (project) => `/search?projectId=${project.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
   getDb,
 });

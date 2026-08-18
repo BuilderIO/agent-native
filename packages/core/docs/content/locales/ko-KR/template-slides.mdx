@@ -450,6 +450,6 @@ Slides 템플릿은 완전히 포크 가능합니다. 확장 시 살펴봐야 �
 
 `templates/slides/AGENTS.md`는 에이전트가 모든 대화에서 읽는 짧은 라우터입니다. `.agents/skills/` 아래의 skills를 가리키며 핵심 규칙, 애플리케이션 상태 계약 및 기술 인덱스를 배치합니다. 모든 레이아웃에 대한 정확한 슬라이드 HTML 템플릿은 `.agents/skills/create-deck/SKILL.md`에 있습니다. 슬라이드 레이아웃 패턴을 추가하거나 변경할 때마다 해당 기술을 업데이트하세요.
 
-#### API 경로
+#### Actions 및 API 경로
 
-actions가 적합하지 않은 경우(파일 업로드, 스트리밍) 템플릿은 REST 엔드포인트의 작은 집합인 `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`를 노출합니다. `templates/slides/server/routes/api/`를 참조하세요.
+덱과 슬라이드의 생성, 편집, 삭제에는 `create-deck`, `add-slide`, `update-slide`, `delete-deck` 같은 공유 actions를 사용하며 에이전트와 UI 모두에서 호출할 수 있습니다. `templates/slides/server/routes/api/`의 REST 경로는 업로드, 스트리밍, 내보내기 및 기타 경로 전용 흐름에만 사용합니다.

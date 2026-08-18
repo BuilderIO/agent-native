@@ -196,8 +196,7 @@ if (url?.searchParams) {
 當使用者選取、聚焦或多選有意義的物件時，從 UI 寫入：
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import { setClientAppState } from "@agent-native/core/client/hooks";
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -226,8 +225,7 @@ async function syncSelection(selection: unknown | null) {
 當自訂編輯器的選取不由本機瀏覽器選取表示時，可以編寫相同的鍵：
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import { setClientAppState } from "@agent-native/core/client/hooks";
 await setClientAppState(
   "pending-selection-context",
   {
@@ -289,8 +287,7 @@ await setClientAppState(
 有時脈絡不應該僅僅處於應用程式狀態。使用者點選按鈕、放下評論圖釘、選取專案並選取“詢問代理”，或者按下工具列中的 AI 指令。那次點選是一個指令。在瀏覽器 UI 中，將其交給帶有`sendToAgentChat()`的代理。
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -373,7 +370,7 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {

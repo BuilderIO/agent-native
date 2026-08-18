@@ -62,9 +62,9 @@ export const createRecordingSchema = z.object({
     .describe("Height of the recording in pixels (may be 0 until finalized)"),
   visibility: z
     .enum(["private", "org", "public"])
-    .default("public")
+    .optional()
     .describe(
-      "Initial share visibility for the recording (defaults to public)",
+      "Initial share visibility for the recording. When omitted, uses the organization default and falls back to public.",
     ),
   mimeType: z
     .string()

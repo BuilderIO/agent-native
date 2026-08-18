@@ -15,7 +15,11 @@ SQL 設定で言語を選択し、actions として公開し、
 `AppProviders` を通じてプロバイダーを使用します:
 
 ```tsx
-import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import {
+  AppProviders,
+} from "@agent-native/core/client/hooks"import {
+  getLocaleInitScript,
+} from "@agent-native/core/client/i18n"
 import { i18nCatalog } from "./i18n";
 
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
@@ -42,8 +46,7 @@ React が水和する前の `window.__AGENT_NATIVE_LOCALE__`。パブリック S
 ```ts
 // app/i18n/index.ts
 import enUS from "./en-US";
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
-
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 export const i18nCatalog = {
   sourceLocale: "en-US",
   messages: enUS,
@@ -71,10 +74,10 @@ export const i18nCatalog = {
 ```tsx
 import {
   LanguagePicker,
-  openAgentSettings,
   useT,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/i18n"import {
+  openAgentSettings,
+} from "@agent-native/core/client/navigation"
 function SettingsPage() {
   const t = useT();
   return (

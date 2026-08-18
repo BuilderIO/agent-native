@@ -24,7 +24,7 @@ const LEGACY_LOCAL_COPY_MAGIC = new Uint8Array([
 
 function unsupportedFigImport(): never {
   throw new Error(
-    "Legacy .fig helpers no longer process files locally. Connect Builder and use the design system indexing flow instead.",
+    "Legacy .fig helpers no longer process files locally. Connect Builder (free tier available) and use the design system indexing flow instead.",
   );
 }
 

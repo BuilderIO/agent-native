@@ -1,7 +1,8 @@
 /**
  * Durable background agent-chat runs (Netlify background functions).
  *
- * Off by default. When enabled, a long in-app agent-chat turn is dispatched
+ * Enabled by default on deployed Netlify apps. When enabled, a long in-app
+ * agent-chat turn is dispatched
  * into a Netlify *background* function (15-min budget) instead of completing
  * synchronously under the ~40s soft-timeout. The foreground POST claims the
  * run slot, inserts the run row, fires an HMAC-signed self-dispatch to
@@ -18,18 +19,17 @@
  * GUARDRAIL: when `isAgentChatDurableBackgroundEnabled()` returns false, the
  * agent-chat handler must behave byte-for-byte like the current synchronous
  * path. The gate is true only when ALL of these hold:
- *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled, or a
- *      workspace app's agent-chat plugin opts in with `durableBackgroundRuns`
- *      where the workspace deploy emits a per-app background function by
- *      default. Single-template Netlify deploys must set the env flag because
- *      that same flag controls whether `server-agent-background` is emitted.
+ *   1. The runtime is a deployed Netlify app and
+ *      `AGENT_CHAT_DURABLE_BACKGROUND` is not explicitly disabled, or the
+ *      existing env/app opt-in path is used on another hosted platform. Netlify
+ *      deploys emit the background function by default; `false`, `0`, `no`, or
+ *      `off` disables it.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
  *      stays a single live stream and no second function is needed).
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
  *      the background dispatch; without it the dispatch can't be trusted).
  *
- * Opt-in keeps the blast radius small while the worker path is still being
- * proven. And even when enabled, a *dispatch failure degrades to an inline run*:
+ * Even when enabled, a *dispatch failure degrades to an inline run*:
  * if the self-dispatch self-POST can't be delivered (fast connection error or
  * fast non-2xx), the foreground handler runs the turn synchronously instead of
  * erroring (see `production-agent.ts` — the inline fallback claims the run row
@@ -41,6 +41,7 @@ import {
   hasConfiguredA2ASecret,
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   extractBearerToken,
   verifyInternalToken,
@@ -85,6 +86,7 @@ export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_B
  */
 export const AGENT_BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor";
 export const AGENT_BACKGROUND_PROCESSOR_A2A = "a2a";
+export const AGENT_BACKGROUND_PROCESSOR_INTEGRATION = "integration";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE = "route";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
   "__agentNativeProcessorRoute";
@@ -99,8 +101,8 @@ export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
  * app id is configured (single-template deploy).
  */
 function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
-  const raw = process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
-  if (typeof raw !== "string") return null;
+  const raw = getAppConfig().app.workspaceId;
+  if (raw === undefined) return null;
   // Mirror the workspace app-id normalization (resources/store.ts): take the
   // first path segment and accept only the safe slug shape used for function
   // names. Anything else falls back to the single-template name.
@@ -113,10 +115,15 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
-  // Netlify sets AWS Lambda runtime env on deployed Functions, but the build-time
-  // NETLIFY flag is not always present in the runtime isolate. Treat Lambda as
-  // Netlify here unless Netlify was explicitly disabled above; non-Netlify AWS
-  // falls back inline if the /.netlify/functions dispatch fast-fails.
+  // NETLIFY is a build-only read-only variable. In deployed Functions Netlify
+  // documents URL, SITE_NAME, and SITE_ID as the runtime read-only variables;
+  // SITE_ID is the unambiguous host marker. Lambda compatibility mode also
+  // exposes AWS runtime variables, so keep the function-name fallback for older
+  // deploys. Without either check a modern Netlify Function silently selects the
+  // portable framework route even though the emitted background function exists.
+  if (process.env.SITE_ID) return true; // guard:allow-env-credential - Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+  // Non-Netlify AWS falls back inline if the /.netlify/functions dispatch
+  // fast-fails.
   return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 
@@ -180,8 +187,9 @@ export function dispatchPathTargetsNetlifyBackgroundFunction(
 }
 
 /**
- * Env flag for durable background runs. DEFAULT-OFF (opt-in): unset means
- * disabled; an app opts IN with an explicit truthy value (`true`/`1`/`yes`/`on`).
+ * Env flag for durable background runs. On Netlify, unset means enabled and an
+ * explicit falsy value opts out. On other hosted platforms, apps still opt in
+ * with an explicit truthy value (`true`/`1`/`yes`/`on`).
  */
 export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
   "AGENT_CHAT_DURABLE_BACKGROUND";
@@ -201,6 +209,9 @@ export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
  * what "hosted" means.
  */
 export function isHostedRuntimeForDurableBackground(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  if (process.env.SITE_ID) return true; // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
   if (
     process.env.NETLIFY &&
     process.env.NETLIFY !== "false" &&
@@ -221,6 +232,20 @@ export function isHostedRuntimeForDurableBackground(): boolean {
     process.env.RENDER ||
     process.env.FLY_APP_NAME ||
     process.env.K_SERVICE,
+  );
+}
+
+/**
+ * Netlify is the only host with the emitted 15-minute background function.
+ * Keep the framework-wide default scoped to deployed Netlify rather than
+ * silently enabling it on other hosted runtimes that may not have that worker.
+ */
+export function isNetlifyHostedRuntimeForDurableBackground(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  return Boolean(
+    (process.env.NETLIFY && process.env.NETLIFY !== "false") ||
+    process.env.SITE_ID, // guard:allow-env-credential - Netlify's read-only public site identifier is a runtime host marker, not a user credential.
   );
 }
 
@@ -293,30 +318,61 @@ export function shouldUseBackgroundFunctionTimeoutForWorker(
 }
 
 export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {
-  return [
+  const detail = [
     `markerExpected=${backgroundRunMarkerExpectsBackgroundRuntime(marker)}`,
     `runtimeDetected=${isInBackgroundFunctionRuntime()}`,
     `globalMarker=${(globalThis as Record<string, unknown>).__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true}`,
     `lambdaNameEndsBackground=${typeof process.env.AWS_LAMBDA_FUNCTION_NAME === "string" && process.env.AWS_LAMBDA_FUNCTION_NAME.toLowerCase().endsWith("-background")}`,
     `forceEnv=${typeof process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME === "string" && process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME.trim().length > 0}`,
   ].join(" ");
+  reportMissingBackgroundFunctionOnce(marker, detail);
+  return detail;
 }
 
-function isFlagEnabled(): boolean {
+export const BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY =
+  "__AGENT_NATIVE_BACKGROUND_UNREACHABLE_NOTICE__";
+
+/**
+ * The foreground targeted the `-background` function's default url, yet this
+ * worker is NOT running in that function: the deploy is missing the artifact (or
+ * Netlify routed the url to the synchronous function). The turn still completes
+ * on the 40s-clamped path, so nothing else ever surfaces it — an app can lose
+ * the 15-min budget for its whole lifetime in silence (agent-native-plan did:
+ * zero background runs ever, every turn pinned to the ~60s wall). Announce it
+ * once per isolate; the same detail is already recorded on the run row by the
+ * caller, so this only adds the server-side signal a deploy owner can grep.
+ */
+function reportMissingBackgroundFunctionOnce(
+  marker: unknown,
+  detail: string,
+): void {
+  if (!backgroundRunMarkerExpectsBackgroundRuntime(marker)) return;
+  if (isInBackgroundFunctionRuntime()) return;
+  const scope = globalThis as Record<string, unknown>;
+  if (scope[BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY] === true) return;
+  scope[BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY] = true;
+  console.error(
+    `[agent-chat] durable background is enabled but the "${AGENT_BACKGROUND_FUNCTION_NAME}" ` +
+      "function is unreachable — this worker is running on the synchronous function " +
+      "with the 40s clamp instead of the 15-min budget. Check that the deploy emitted " +
+      `it (build log: "Emitted durable-background function"). ${detail}`,
+  );
+}
+
+/**
+ * Env flag parse, shared by the runtime gate and the deploy-time emit gates so
+ * they can never drift apart (they did: the workspace deploy copy defaulted ON
+ * while this one defaulted OFF).
+ */
+export function isDurableBackgroundFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
   //
-  // DEFAULT-OFF (opt-in): durable background runs are still being hardened. A
-  // premature fleet-wide default-on caused real-user incidents (Assets/Analytics
-  // hit "Failed to dispatch" + stalls, 2026-06-24) because the async background
-  // worker path is not yet proven end-to-end and the deploy-time env opt-out is
-  // not reliably baked into a given deploy. So an unset/empty/unknown flag means
-  // OFF; an app opts IN only with an explicit truthy value
-  // (AGENT_CHAT_DURABLE_BACKGROUND=true). This still composes with the hosted +
-  // A2A_SECRET gates below. Flip back to default-on only after the 15-min
-  // background-function worker is verified live in production (see the
-  // project_durable_bg_prod_verified memory).
+  // This parses only the explicit opt-in signal. Netlify's default-on behavior
+  // is composed separately in isAgentChatDurableBackgroundEnabled, while other
+  // hosted runtimes still require this truthy value. Empty and unknown values
+  // remain false so an explicit host opt-in cannot be inferred accidentally.
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
@@ -328,7 +384,7 @@ function isFlagEnabled(): boolean {
   );
 }
 
-function isFlagExplicitlyDisabled(): boolean {
+export function isDurableBackgroundFlagExplicitlyDisabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
@@ -341,40 +397,48 @@ function isFlagExplicitlyDisabled(): boolean {
 }
 
 /**
- * The single gate. True when the env flag is explicitly enabled, or a workspace
- * app opted in and has a per-app background-function target, AND the runtime is
- * hosted AND A2A_SECRET is configured. False otherwise — and false means the
- * current synchronous behavior is used unchanged. Single-template Netlify app
- * opt-ins deliberately require the env flag too because that flag controls
- * whether the `server-agent-background` function exists in the deploy output.
+ * The single gate. On deployed Netlify, durable runs are enabled unless the env
+ * flag is explicitly falsy. Other hosted runtimes retain the explicit env/app
+ * opt-in path. In every case the runtime must be hosted and have A2A_SECRET.
+ * False means the current synchronous behavior is used unchanged.
  */
 export function isAgentChatDurableBackgroundEnabled(options?: {
   appOptIn?: boolean;
 }): boolean {
-  const envOptIn = isFlagEnabled();
+  // An app-level opt-out must win over a stale deploy-wide env flag. Netlify
+  // environment variables can outlive the source config that originally set
+  // them; allowing that flag to re-enable a worker an app explicitly disabled
+  // recreates the missing-background-function failure this gate is meant to
+  // prevent.
+  if (options?.appOptIn === false) return false;
+  const envOptIn = isDurableBackgroundFlagEnabled();
+  const netlifyDefaultOptIn =
+    isNetlifyHostedRuntimeForDurableBackground() &&
+    !isDurableBackgroundFlagExplicitlyDisabled();
   const workspaceAppOptIn =
     options?.appOptIn === true &&
-    !isFlagExplicitlyDisabled() &&
+    !isDurableBackgroundFlagExplicitlyDisabled() &&
     resolveWorkspaceBackgroundFunctionUrlPath() !== null;
   return (
-    (envOptIn || workspaceAppOptIn) &&
+    (envOptIn || netlifyDefaultOptIn || workspaceAppOptIn) &&
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );
 }
 
 /**
- * Env flag for the FOREGROUND server-driven self-chain. DEFAULT-ON for hosted
- * deployments with `A2A_SECRET`: unset/empty/unknown means enabled, and an app
- * opts OUT with an explicit falsy value (`false`/`0`/`no`/`off`). Deliberately
- * kept separate from `AGENT_CHAT_DURABLE_BACKGROUND` so this narrower
- * capability can be disabled independently of the full durable-background
- * worker path.
+ * Env flag for the FOREGROUND server-driven self-chain. DEFAULT-OFF: a hosted
+ * app must explicitly opt in with a truthy value (`true`/`1`/`yes`/`on`). A
+ * regular Netlify function has a fixed 60-second wall, and a self-dispatched
+ * successor can otherwise be killed before it persists its next continuation.
+ * Keep this separate from `AGENT_CHAT_DURABLE_BACKGROUND` so the experimental
+ * regular-function chain can be enabled independently after its deployment is
+ * proven safe.
  */
 export const AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV =
   "AGENT_CHAT_FOREGROUND_SELF_CHAIN";
 
-function isForegroundSelfChainExplicitlyDisabled(): boolean {
+function isForegroundSelfChainExplicitlyEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV.
@@ -382,10 +446,10 @@ function isForegroundSelfChainExplicitlyDisabled(): boolean {
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
   return (
-    normalized === "0" ||
-    normalized === "false" ||
-    normalized === "no" ||
-    normalized === "off"
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
   );
 }
 
@@ -395,10 +459,9 @@ function isForegroundSelfChainExplicitlyDisabled(): boolean {
  * server-side self-dispatch on the REGULAR function (not a Netlify
  * `-background` function) instead of depending on the client to re-POST
  * `auto_continue`. Composes exactly like `isAgentChatDurableBackgroundEnabled`:
- * true when the runtime is hosted AND `A2A_SECRET` is configured (the HMAC
- * handoff authenticates the self-dispatch), unless the env flag is explicitly
- * falsy. False otherwise — and false means the existing client-driven
- * `auto_continue` re-POST path is used unchanged, byte-for-byte.
+ * true only when the env flag is explicitly truthy, the runtime is hosted, and
+ * `A2A_SECRET` is configured (the HMAC handoff authenticates the dispatch).
+ * False means the existing client-driven `auto_continue` re-POST path is used.
  *
  * Deliberately independent of `isAgentChatDurableBackgroundEnabled`: an app can
  * use this narrower capability without opting into the full 15-min
@@ -410,7 +473,7 @@ function isForegroundSelfChainExplicitlyDisabled(): boolean {
  */
 export function isAgentChatForegroundSelfChainEnabled(): boolean {
   return (
-    !isForegroundSelfChainExplicitlyDisabled() &&
+    isForegroundSelfChainExplicitlyEnabled() &&
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );

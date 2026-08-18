@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BuiltinCapability } from "./use-builtin-capabilities.js";
 import {
+  resourceDownloadUrl,
   withAgentScratchFolder,
   withMcpServersFolder,
   type TreeNode,
@@ -33,6 +34,14 @@ function fileNode(
     },
   };
 }
+
+describe("resourceDownloadUrl", () => {
+  it("constructs an attachment URL without exposing the resource id as query syntax", () => {
+    expect(resourceDownloadUrl("resource/with?query")).toBe(
+      "/_agent-native/resources/resource%2Fwith%3Fquery?download=1",
+    );
+  });
+});
 
 describe("withAgentScratchFolder", () => {
   it("hides top-level scratch folders when show is false", () => {

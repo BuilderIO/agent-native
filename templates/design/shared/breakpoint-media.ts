@@ -200,8 +200,8 @@ export function extractManagedBreakpointCss(html: string): string | null {
 
 /**
  * Inject or replace the managed block. Inserts before `</head>` when no
- * managed block exists, or at the top of the document when there is no
- * `<head>`. Passing empty CSS removes the block entirely.
+ * managed block exists, or just inside `<html>` when there is no `<head>`.
+ * Passing empty CSS removes the block entirely.
  */
 export function injectManagedBreakpointCss(html: string, css: string): string {
   const openMatch = OPEN_RE.exec(html);
@@ -231,6 +231,13 @@ export function injectManagedBreakpointCss(html: string, css: string): string {
   const headClose = html.lastIndexOf("</head>");
   if (headClose !== -1) {
     return html.slice(0, headClose) + block + "\n" + html.slice(headClose);
+  }
+  // Prepending would put the block outside `<html>`, which the design HTML
+  // integrity check rejects — discarding the whole write.
+  const htmlOpen = /<html\b[^>]*>/i.exec(html);
+  if (htmlOpen) {
+    const afterOpen = htmlOpen.index + htmlOpen[0].length;
+    return html.slice(0, afterOpen) + "\n" + block + html.slice(afterOpen);
   }
   return block + "\n" + html;
 }

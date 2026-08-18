@@ -540,14 +540,16 @@ Slack、Granola 和 GitHub 源可以选择进入后台 `autoSync`
   路由、过滤器和选定的 ID 镜像到代理的 `application_state`
   上下文。
 
-要求代理为您进行更改 - 它可以编辑自己的源。请参阅
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+请在代码库开发流程中进行这些更改。只有当主机有意授予
+repository/workspace 写入工具时，嵌入式代理才能协助编辑源代码；否则，
+它通过 actions 和数据工作。请参阅
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## 下一步是什么
 
 - [**Dispatch**](/docs/dispatch) — 工作区控制平面
 - [**Dispatch template**](/docs/template-dispatch) — 脚手架协调应用
-- [**Workspace**](/docs/workspace) — 跨应用共享资源
+- [**代理资源**](/docs/agent-resources) — 跨应用共享资源
 - [**A2A Protocol**](/docs/a2a-protocol) — 跨应用委托
 - [**模板**](/docs/cloneable-saas) — 克隆并拥有的模型，以及可作为起点的所有其他领域模板
 - [**入门**](/docs/getting-started) — 框架基础：actions、应用程序状态和实时同步

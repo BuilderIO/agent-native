@@ -9,7 +9,7 @@ import {
   type BlockRenderContext,
   type NestedBlock,
 } from "@agent-native/core/blocks";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useEffect, useRef, useState } from "react";
 
 import { uploadImageFile } from "@/components/editor/image-upload";

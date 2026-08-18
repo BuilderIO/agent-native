@@ -2,6 +2,10 @@
 
 Scheduling primitives for agent-native apps.
 
+Scheduling is a Toolkit capability module installed on demand. It lives in its
+own npm package so apps only take the domain model, actions, UI, and lifecycle
+metadata they need.
+
 Powers the `calendar` template and custom scheduling surfaces. Provides:
 
 - **Drizzle schemas** — event types, schedules, availability rules, bookings, teams, workflows, routing forms

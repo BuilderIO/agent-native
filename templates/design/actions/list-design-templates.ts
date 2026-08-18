@@ -15,7 +15,7 @@ const PREVIEW_MAX_BYTES = 50_000;
 
 export default defineAction({
   description:
-    "List reusable Design templates, including built-in starters plus templates the user can access or publicly discover.",
+    "List reusable Design templates, including built-in templates plus templates the user can access or publicly discover.",
   schema: z.object({
     category: designTemplateCategorySchema.optional(),
     includePreview: z.enum(["true", "false"]).optional().default("false"),
@@ -25,10 +25,11 @@ export default defineAction({
   run: async ({ category, includePreview }) => {
     const db = getDb();
     const userEmail = getRequestUserEmail();
+    const orgId = getRequestOrgId();
     const access = accessFilter(
       schema.designTemplates,
       schema.designTemplateShares,
-      { userEmail, orgId: getRequestOrgId() },
+      { userEmail, orgId },
       "viewer",
       { includePublic: true },
     );
@@ -41,6 +42,7 @@ export default defineAction({
         width: schema.designTemplates.width,
         height: schema.designTemplates.height,
         lockedLayerCount: schema.designTemplates.lockedLayerCount,
+        designSystemId: schema.designTemplates.designSystemId,
         visibility: schema.designTemplates.visibility,
         ownerEmail: schema.designTemplates.ownerEmail,
         createdAt: schema.designTemplates.createdAt,
@@ -54,31 +56,68 @@ export default defineAction({
       )
       .orderBy(desc(schema.designTemplates.updatedAt));
 
-    const previews = new Map<string, string>();
-    if (includePreview === "true" && rows.length > 0) {
-      const files = await db
-        .select({
-          templateId: schema.designTemplateFiles.templateId,
-          filename: schema.designTemplateFiles.filename,
-          fileType: schema.designTemplateFiles.fileType,
-          content: sql<string>`substr(${schema.designTemplateFiles.content}, 1, ${PREVIEW_MAX_BYTES})`,
-        })
-        .from(schema.designTemplateFiles)
-        .where(
-          inArray(
-            schema.designTemplateFiles.templateId,
-            rows.map((row) => row.id),
+    const linkedDesignSystemIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.designSystemId)
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
           ),
-        );
+      ),
+    );
+    const [files, accessibleDesignSystems] = await Promise.all([
+      includePreview === "true" && rows.length > 0
+        ? db
+            .select({
+              templateId: schema.designTemplateFiles.templateId,
+              filename: schema.designTemplateFiles.filename,
+              fileType: schema.designTemplateFiles.fileType,
+              content: sql<string>`substr(${schema.designTemplateFiles.content}, 1, ${PREVIEW_MAX_BYTES})`,
+            })
+            .from(schema.designTemplateFiles)
+            .where(
+              and(
+                inArray(
+                  schema.designTemplateFiles.templateId,
+                  rows.map((row) => row.id),
+                ),
+                eq(schema.designTemplateFiles.fileType, "html"),
+              ),
+            )
+        : Promise.resolve([]),
+      linkedDesignSystemIds.length > 0
+        ? db
+            .select({ id: schema.designSystems.id })
+            .from(schema.designSystems)
+            .where(
+              and(
+                inArray(schema.designSystems.id, linkedDesignSystemIds),
+                accessFilter(
+                  schema.designSystems,
+                  schema.designSystemShares,
+                  { userEmail, orgId },
+                  "viewer",
+                  { includePublic: true },
+                ),
+              ),
+            )
+        : Promise.resolve([]),
+    ]);
+
+    const previews = new Map<string, string>();
+    if (includePreview === "true") {
       for (const file of files) {
-        if (!previews.has(file.templateId) && file.fileType === "html") {
+        if (!previews.has(file.templateId)) {
           previews.set(file.templateId, file.content);
         }
-        if (file.filename === "index.html" && file.fileType === "html") {
+        if (file.filename === "index.html") {
           previews.set(file.templateId, file.content);
         }
       }
     }
+    const accessibleDesignSystemIds = new Set(
+      accessibleDesignSystems.map((system) => system.id),
+    );
 
     const presets = DESIGN_TEMPLATE_PRESETS.filter(
       (preset) => !category || preset.category === category,
@@ -90,18 +129,25 @@ export default defineAction({
       width: preset.width,
       height: preset.height,
       lockedLayerCount: 2,
+      designSystemId: null,
       visibility: "public" as const,
       isOwner: false,
+      isBuiltIn: true,
       source: "starter" as const,
       createdAt: null,
       updatedAt: null,
       ...(includePreview === "true" ? { previewHtml: preset.content } : {}),
     }));
 
-    const saved = rows.map(({ ownerEmail, ...row }) => ({
+    const saved = rows.map(({ ownerEmail, designSystemId, ...row }) => ({
       ...row,
+      designSystemId:
+        designSystemId && accessibleDesignSystemIds.has(designSystemId)
+          ? designSystemId
+          : null,
       isOwner:
         !!userEmail && ownerEmail.toLowerCase() === userEmail.toLowerCase(),
+      isBuiltIn: false,
       source: "saved" as const,
       ...(includePreview === "true"
         ? { previewHtml: previews.get(row.id) ?? null }
@@ -110,9 +156,11 @@ export default defineAction({
 
     return {
       count: presets.length + saved.length,
+      builtInCount: presets.length,
+      userCount: saved.length,
       starterCount: presets.length,
       savedCount: saved.length,
-      templates: [...presets, ...saved],
+      templates: [...saved, ...presets],
     };
   },
 });

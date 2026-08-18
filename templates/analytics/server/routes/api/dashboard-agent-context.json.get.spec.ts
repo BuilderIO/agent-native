@@ -68,6 +68,8 @@ vi.mock("../../lib/dashboard-seeds.js", () => ({
   loadDashboardSeed: (...args: unknown[]) => mockLoadDashboardSeed(...args),
 }));
 
+import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "../../lib/canonical-first-party-dashboard-repair";
+import { FIRST_PARTY_DASHBOARD_ID } from "../../lib/first-party-metric-catalog";
 import handler from "./dashboard-agent-context.json.get";
 
 function dashboardRow(visibility: "public" | "private" | "org") {
@@ -154,5 +156,34 @@ describe("dashboard agent context route", () => {
       id: "node-exporter-full",
       seedName: "Seed dashboard",
     });
+  });
+
+  it("repairs persisted first-party dashboard SQL before serving agent context", async () => {
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    const row = dashboardRow("public");
+    row.id = FIRST_PARTY_DASHBOARD_ID;
+    row.config = JSON.stringify({
+      name: "Agent Native Templates (First-party)",
+      panels: [
+        {
+          id: "new-vs-recurring-users",
+          source: "first-party",
+          sql: LEGACY_NEW_VS_RECURRING_USERS_SQL,
+        },
+      ],
+    });
+    resultQueue.current = [[row]];
+
+    await (handler as any)({
+      query: { id: FIRST_PARTY_DASHBOARD_ID, agent_access: "tok+1" },
+    });
+
+    const dashboard = mockBuildDashboardAgentContext.mock.calls[
+      mockBuildDashboardAgentContext.mock.calls.length - 1
+    ]?.[0] as { config: { panels: Array<{ sql?: string }> } };
+    expect(dashboard.config.panels[0]?.sql).not.toBe(
+      LEGACY_NEW_VS_RECURRING_USERS_SQL,
+    );
+    expect(dashboard.config.panels[0]?.sql).toContain("<> 'www'");
   });
 });

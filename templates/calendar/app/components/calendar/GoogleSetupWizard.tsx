@@ -1,8 +1,6 @@
-import {
-  agentNativePath,
-  oauthRedirectUri,
-  useT,
-} from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconExternalLink,
   IconAlertTriangle,

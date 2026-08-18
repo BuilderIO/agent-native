@@ -1,23 +1,5 @@
-import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
-import { StyleSheet } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
-import AppWebView from "@/components/AppWebView";
-import { getAppUrl } from "@/lib/get-app-url";
-
-const content = TEMPLATE_APPS.find((a) => a.id === "content")!;
+import WorkspaceAppTab from "@/components/WorkspaceAppTab";
 
 export default function ContentTab() {
-  return (
-    <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(content)} />
-    </SafeAreaView>
-  );
+  return <WorkspaceAppTab appId="content" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-});

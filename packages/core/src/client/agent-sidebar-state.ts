@@ -2,10 +2,16 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
 } from "../shared/agent-sidebar-url.js";
+import { hasChatThreadDeepLink } from "./chat-thread-url.js";
+
+export { hasChatThreadDeepLink } from "./chat-thread-url.js";
 
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 export const SIDEBAR_URL_CHANGE_EVENT = "agent-panel:url-change";
+export const AGENT_SIDEBAR_MIN_WIDTH = 280;
+export const AGENT_SIDEBAR_DEFAULT_MAX_WIDTH = 700;
+export const AGENT_SIDEBAR_WIDE_WIDTH_RATIO = 0.75;
 
 const HISTORY_PATCHED_KEY = "__agentNativeSidebarHistoryPatched";
 
@@ -19,6 +25,47 @@ export interface AgentSidebarStateChangeDetail {
   source: AgentSidebarStateSource;
   /** Frame protocol mode: "code" is parent-owned, "app" is app-owned. */
   mode: AgentSidebarStateMode;
+}
+
+function resolveViewportWidth(viewportWidth?: number): number {
+  const resolved =
+    viewportWidth ??
+    (typeof window === "undefined"
+      ? AGENT_SIDEBAR_DEFAULT_MAX_WIDTH
+      : window.innerWidth);
+  if (!Number.isFinite(resolved)) {
+    throw new TypeError("Agent sidebar viewport width must be finite");
+  }
+  return Math.max(0, resolved);
+}
+
+export function getAgentSidebarWideWidth(viewportWidth?: number): number {
+  return Math.max(
+    AGENT_SIDEBAR_MIN_WIDTH,
+    Math.round(
+      resolveViewportWidth(viewportWidth) * AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
+    ),
+  );
+}
+
+export function getAgentSidebarMaxWidth(viewportWidth?: number): number {
+  return Math.max(
+    AGENT_SIDEBAR_DEFAULT_MAX_WIDTH,
+    getAgentSidebarWideWidth(viewportWidth),
+  );
+}
+
+export function clampAgentSidebarWidth(
+  width: number,
+  viewportWidth?: number,
+): number {
+  if (!Number.isFinite(width)) {
+    throw new TypeError("Agent sidebar width must be finite");
+  }
+  return Math.min(
+    getAgentSidebarMaxWidth(viewportWidth),
+    Math.max(AGENT_SIDEBAR_MIN_WIDTH, width),
+  );
 }
 
 export function getAgentSidebarOpenPreferenceKey(
@@ -139,6 +186,7 @@ export function getInitialAgentSidebarOpen(
 ): boolean {
   const urlOverride = getAgentSidebarUrlOpenOverride();
   if (urlOverride !== null) return urlOverride;
+  if (hasChatThreadDeepLink()) return true;
 
   // On mobile viewports the sidebar would cover most of the screen, so
   // always start closed regardless of any persisted desktop preference.

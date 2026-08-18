@@ -1,13 +1,6 @@
-import {
-  agentNativePath,
-  appApiPath,
-  callAction,
-  useChangeVersions,
-  ChangelogDialog,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
-import { extensionPath } from "@agent-native/core/client/extensions";
+import { ChangelogDialog } from "@agent-native/core/client/changelog";
+import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconFlask,
@@ -17,7 +10,7 @@ import {
   IconSun,
   IconMoon,
   IconHistory,
-  IconLanguage,
+  IconHierarchy2,
   IconRefresh,
   IconSettings,
 } from "@tabler/icons-react";
@@ -39,6 +32,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import {
   CommandDialog,
   CommandInput,
@@ -46,15 +40,9 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
+import { dashboardCacheScope } from "@/lib/prefetch-keys";
 import { dashboards } from "@/pages/adhoc/registry";
 import {
   buildAnalyticsGeneralSettingsSearchEntries,
@@ -79,12 +67,6 @@ interface ExplorerDashboard {
   hiddenAt?: string | null;
 }
 
-interface ExtensionSearchItem {
-  id: string;
-  name: string;
-  description?: string;
-}
-
 const defaultTools = [
   {
     id: "agents",
@@ -94,15 +76,19 @@ const defaultTools = [
       "agent monitoring",
       "observability",
       "evals",
-      "experiments",
       "feedback",
       "database",
       "db admin",
       "dashboard usage",
       "dashboard audit",
-      "ab testing",
       "llm",
     ],
+  },
+  {
+    id: "feature-flags",
+    nameKey: "agents.featureFlags",
+    href: "/agents?view=flags",
+    keywords: ["flags", "rollout", "release", "targeting"],
   },
   {
     id: "explorer",
@@ -258,46 +244,17 @@ async function fetchSqlDashboards(
   );
 }
 
-async function fetchExtensions(): Promise<ExtensionSearchItem[]> {
-  const res = await fetch(agentNativePath("/_agent-native/extensions"));
-  if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
-  const data = await res.json();
-  return uniqueCommandItems(
-    (Array.isArray(data) ? data : [])
-      .filter((extension: any) => {
-        return (
-          extension &&
-          typeof extension.id === "string" &&
-          extension.id.length > 0 &&
-          typeof extension.name === "string" &&
-          extension.name.trim().length > 0
-        );
-      })
-      .map((extension: any) => ({
-        id: extension.id,
-        name: extension.name,
-        description:
-          typeof extension.description === "string"
-            ? extension.description
-            : undefined,
-      })),
-  );
-}
-
 function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
+  callAction("set-theme", { theme }).catch(() => {});
 }
 
 export function CommandPalette() {
   const t = useT();
   const { canManageOrg } = useOrgRole();
+  const { auth } = useAuth();
+  const dashboardScope = dashboardCacheScope(auth);
   const [open, setOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCommand, setSelectedCommand] = useState("");
   const commandListRef = useRef<HTMLDivElement>(null);
@@ -323,48 +280,34 @@ export function CommandPalette() {
   const dashboardsSync = useChangeVersions(["dashboards", "action"]);
 
   const explorerDashboardsQuery = useQuery({
-    queryKey: ["explorer-dashboards-palette", dashboardsSync],
+    queryKey: ["explorer-dashboards-palette", dashboardScope, dashboardsSync],
     queryFn: fetchExplorerDashboards,
     staleTime: 30_000,
     enabled: open,
-    placeholderData: (prev) => prev,
   });
 
   const sqlDashboardsQuery = useQuery({
-    queryKey: ["sql-dashboards-palette", dashboardsSync],
+    queryKey: ["sql-dashboards-palette", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
     staleTime: 30_000,
     enabled: open,
-    placeholderData: (prev) => prev,
-  });
-
-  const extensionsQuery = useQuery<ExtensionSearchItem[]>({
-    queryKey: ["extensions"],
-    queryFn: fetchExtensions,
-    staleTime: 30_000,
-    enabled: open,
-    placeholderData: (prev) => prev,
   });
 
   const savedCharts = savedChartsQuery.data ?? [];
   const explorerDashboards = explorerDashboardsQuery.data ?? [];
   const sqlDashboards = sqlDashboardsQuery.data ?? [];
-  const extensions = extensionsQuery.data ?? [];
   const savedChartsLoading = savedChartsQuery.isLoading;
   const explorerDashboardsLoading = explorerDashboardsQuery.isLoading;
   const sqlDashboardsLoading = sqlDashboardsQuery.isLoading;
-  const extensionsLoading = extensionsQuery.isLoading;
   const asyncGroupsErrored =
     savedChartsQuery.isError ||
     explorerDashboardsQuery.isError ||
-    sqlDashboardsQuery.isError ||
-    extensionsQuery.isError;
+    sqlDashboardsQuery.isError;
   const retryAsyncGroups = () => {
     void Promise.all([
       savedChartsQuery.refetch(),
       explorerDashboardsQuery.refetch(),
       sqlDashboardsQuery.refetch(),
-      extensionsQuery.refetch(),
     ]);
   };
 
@@ -378,9 +321,11 @@ export function CommandPalette() {
     const openHandler = () => setOpen(true);
     document.addEventListener("keydown", handler);
     window.addEventListener("analytics:open-command-palette", openHandler);
+    window.addEventListener("agent-native:open-command-menu", openHandler);
     return () => {
       document.removeEventListener("keydown", handler);
       window.removeEventListener("analytics:open-command-palette", openHandler);
+      window.removeEventListener("agent-native:open-command-menu", openHandler);
     };
   }, []);
 
@@ -402,7 +347,6 @@ export function CommandPalette() {
   const asyncGroupsLoading =
     (explorerDashboardsLoading && explorerDashboards.length === 0) ||
     (sqlDashboardsLoading && sqlDashboards.length === 0) ||
-    (extensionsLoading && extensions.length === 0) ||
     (savedChartsLoading && savedCharts.length === 0);
   const showHiddenResults = searchQuery.trim().length > 0;
   const visibleExplorerDashboards = showHiddenResults
@@ -519,32 +463,6 @@ export function CommandPalette() {
               </CommandGroup>
             )}
 
-            {extensions.length > 0 && (
-              <CommandGroup
-                key="extensions"
-                heading={t("commandPalette.groupExtensions")}
-              >
-                {extensions.map((extension) => (
-                  <CommandItem
-                    key={`extension-${extension.id}`}
-                    value={`extension:${extension.id}:${extension.name}`}
-                    onSelect={() =>
-                      go(extensionPath(extension.id, extension.name))
-                    }
-                    keywords={commandPaletteKeywords(
-                      extension.name,
-                      extension.description,
-                      "extension",
-                      "tool",
-                    )}
-                  >
-                    <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
-                    {extension.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-
             <CommandGroup
               key="dashboards"
               heading={t("commandPalette.groupDashboards")}
@@ -564,7 +482,11 @@ export function CommandPalette() {
 
             <CommandGroup key="tools" heading={t("commandPalette.groupTools")}>
               {defaultTools
-                .filter((tool) => tool.id !== "agents" || canManageOrg)
+                .filter((tool) =>
+                  ["agents", "feature-flags"].includes(tool.id)
+                    ? canManageOrg
+                    : true,
+                )
                 .map((tool) => (
                   <CommandItem
                     key={`tool-${tool.id}`}
@@ -584,6 +506,22 @@ export function CommandPalette() {
 
             {showHiddenResults && (
               <CommandGroup key="settings" heading={t("navigation.settings")}>
+                <CommandItem
+                  value={`setting:agent-page:${t("settings.agentTitle")}`}
+                  onSelect={() => go("/settings/agent")}
+                  keywords={commandPaletteKeywords(
+                    t("settings.agentTitle"),
+                    "agent",
+                    "context",
+                    "files",
+                    "connections",
+                    "jobs",
+                    "access",
+                  )}
+                >
+                  <IconHierarchy2 className="me-2 h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{t("settings.agentTitle")}</span>
+                </CommandItem>
                 {settingsCommands.map((setting) => (
                   <CommandItem
                     key={`setting-${setting.id}`}
@@ -606,25 +544,6 @@ export function CommandPalette() {
               key="appearance"
               heading={t("commandPalette.groupAppearance")}
             >
-              <CommandItem
-                value={`appearance:language:${t("settings.languageTitle")}`}
-                onSelect={() => {
-                  setOpen(false);
-                  setLanguageOpen(true);
-                }}
-                keywords={commandPaletteKeywords(
-                  t("settings.languageTitle"),
-                  t("settings.languageLabel"),
-                  "language",
-                  "locale",
-                  "translation",
-                  "internationalization",
-                  "i18n",
-                )}
-              >
-                <IconLanguage className="me-2 h-4 w-4 text-muted-foreground" />
-                {t("settings.languageTitle")}
-              </CommandItem>
               <CommandItem
                 value={`appearance:theme:${
                   isDark
@@ -717,14 +636,6 @@ export function CommandPalette() {
             />
           )}
 
-          {extensionsLoading && extensions.length === 0 && (
-            <CommandLoadingGroup
-              key="extensions-loading"
-              heading={t("commandPalette.groupExtensions")}
-              rows={3}
-            />
-          )}
-
           {savedChartsLoading && savedCharts.length === 0 && (
             <CommandLoadingGroup
               key="saved-charts-loading"
@@ -739,17 +650,6 @@ export function CommandPalette() {
         onOpenChange={setChangelogOpen}
         markdown={changelog}
       />
-      <Dialog open={languageOpen} onOpenChange={setLanguageOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t("settings.languageTitle")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1.5">
-            <Label>{t("settings.languageLabel")}</Label>
-            <LanguagePicker label={t("settings.languageLabel")} />
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

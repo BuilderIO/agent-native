@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockUpdate = vi.hoisted(() => vi.fn());
+const mockInvalidatePublicFormCache = vi.hoisted(() => vi.fn());
 const state = vi.hoisted(() => ({
   existing: {
     id: "form-example",
@@ -34,6 +35,10 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+}));
+
+vi.mock("../server/lib/public-form-ssr.js", () => ({
+  invalidatePublicFormCache: mockInvalidatePublicFormCache,
 }));
 
 vi.mock("drizzle-orm", () => ({

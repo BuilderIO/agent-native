@@ -1,6 +1,9 @@
 ---
 name: ship
-description: Commit and push all local current-branch work, open a ready PR, babysit it, merge when clean, then create a fresh branch
+description: >-
+  Commit and push the current agent's owned current-branch work, open a ready
+  PR, babysit it, merge when clean, then create a fresh branch. Use when the
+  user asks to ship, publish, or hand off the current agent's changes.
 user-invocable: true
 scope: dev
 metadata:
@@ -9,22 +12,54 @@ metadata:
 
 # Ship
 
-Ship the current branch end-to-end: commit and push all local work, open a
-ready PR, run `/babysit-pr`, merge when the babysit merge gates are satisfied,
-then run `/new-branch` after the merge lands.
+Ship the current agent's owned work end-to-end: commit and push only those
+paths, open or update a ready PR, run `/babysit-pr`, merge when its normal gates
+are satisfied, then run `/new-branch` after the merge lands.
+
+`/ship` means this agent's owned work only. “Ship my latest local changes”
+does not turn every dirty path into this PR: record the shared-checkout
+ownership baseline, and leave unfamiliar or peer-created paths untouched and
+uncommitted. Re-check ownership before every stage, commit, and push.
 
 ## Non-Negotiable Shipping Invariant
 
-`/ship` ships the **branch**, not just the agent's own edits. Commit and push
-all non-gitignored local changes that are present on the current branch,
-including work created by the user or other concurrent agents. Do not leave
-local changes behind because you did not author them. The only routine
-exceptions are `learnings.md` and ignored/personal files.
+`/ship` ships the current agent's **owned work**, not every dirty path in a
+shared checkout. At the start of the flow, record the status and ownership
+baseline. Commit and push only paths changed for this invocation. If another
+agent changes or adds a path during the flow, leave it untouched and
+uncommitted for that agent; never revert, stash, overwrite, or absorb it. A
+path appearing in `git status` is not ownership evidence and never authorizes
+staging it.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
+
+## Owned-Path Push
+
+A worktree is a valid publishing checkout. When `/ship` is authorized from a
+worktree, use that worktree's current branch and cwd for validation, commit,
+push, and PR creation or update. Do not copy its changes into the shared
+checkout; the same owned-path and no-second-PR rules apply.
+
+```bash
+git add -- <owned-paths>
+git commit -m "<message>"
+git push origin HEAD
+```
+
+Stage explicit owned paths only. Do not use `pnpm ship:push`, `git add -A`, or
+another whole-worktree helper when peer changes are present: those commands
+publish other agents' local work. Verify the push landed on the current branch
+and read the remote sha back. A dirty worktree containing only peer paths is
+allowed during the flow and is not a reason to stage them.
+
+Treat these as an immediate call to it: `/ship`, "ship our latest local
+changes", or "push up my local changes". Push the first owned safe slice before
+long validation so CI and review can start, then push later owned slices as
+they become coherent. A live file lease means preserve that path, not publish
+it: if it is peer-owned or unexpectedly changed, leave it out of the commit.
 
 If the branch updates templates or publishable packages, shipping does not stop
 at merge. Treat the work as shipped only after the affected templates are live in
@@ -56,76 +91,98 @@ Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix or a concise reply and that no new evidence has been left
 without a disposition.
 
-## Worktree and base setup
+## Worktree and branch setup
 
 A detached HEAD is a valid shipping context. Codex and platform-managed
-worktrees may intentionally start detached, and `/ship` authorizes creating a
-shipping branch in that worktree before committing or pushing. Do not stop or
-ask for confirmation just because `git branch --show-current` is empty.
+worktrees may intentionally start detached, and `/ship` explicitly authorizes
+creating a shipping branch in that worktree before committing or pushing. Do
+not stop or ask for confirmation just because `git branch --show-current` is
+empty.
 
 If this worktree is detached:
 
 1. Inspect `git worktree list --porcelain` and existing `changes-*` refs.
 2. Create an unused `changes-N` branch (N at least 50) at the current HEAD in
-   this worktree. Never attach or switch a branch checked out by another
-   worktree, use `main`, overwrite an existing ref, or move another worktree.
+   this worktree, for example `git switch -c changes-N`. Never attach or switch
+   a branch that is checked out by another worktree, use `main`, overwrite an
+   existing ref, or move another worktree.
 3. Continue the normal ship flow on that new branch.
 
-Before committing or pushing, fetch `origin/main` and check that the shipping
-base is current. If the worktree is behind, reapply the logical local changes
-onto current `origin/main`; do not ship a stale snapshot that can revert work
-landed since this worktree was created. Never reset, rebase, stash, or
-force-push to accomplish this.
+This is the one pre-PR branch operation that `/ship` authorizes for a detached
+worktree. Do not reset, rebase, stash, or force-push. If already on a named
+branch, stay on it.
 
 ## Steps
 
 1. **Stay in the current worktree and branch**: if already on a named branch,
    never create, switch, rebase, reset, or stash before opening the PR. If the
-   worktree is detached, follow the Worktree and base setup section and create
-   the shipping branch before opening the PR. This repo uses
+   worktree is detached, follow the Worktree and branch setup section and
+   create the shipping branch before opening the PR. This repo uses
    shared/platform-managed worktrees; ship the branch belonging to this
    worktree.
 
 2. **Check local changes**: run `git status --short` and `git diff --stat` to
-   understand all modified/untracked files. Multiple agents may have added work;
-   include all non-gitignored local files in shipment instead of stashing,
-   skipping, or reverting them. Then run `git fetch origin main --quiet` and
-   `git rev-list --count HEAD..origin/main`; a non-zero result requires
-   reapplying the logical work onto current `origin/main` before pushing.
+   establish the owned-path baseline. Multiple agents may have added work;
+   preserve those paths, but do not stage or push them automatically. If you
+   cannot establish ownership, leave the path out of this ship.
+
+   Then confirm the base is current, before validating or pushing anything. A
+   worktree can be created from a stale ref, and its local `main` ref is stale
+   too, so `git log main..HEAD` comes back empty and the branch reports itself
+   current while being weeks behind. The fetch is required: without it the
+   count reads a stale remote ref and returns 0, which is the same
+   confidently-wrong clean answer this check exists to catch.
+
+   ```bash
+   git fetch origin main --quiet
+   git rev-list --count HEAD..origin/main
+   ```
+
+   Non-zero means reapply the work onto current `origin/main` before pushing —
+   shipping from a stale base conflicts with or reverts whatever landed in the
+   gap. Measured 2026-08-18: four live Codex worktrees sat 1,144 commits behind
+   `origin/main` while reporting themselves clean from the inside.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
-   changed area. Run `pnpm run prep` when it is practical. If prep is slow,
+   changed area. Push the first safe slice before running `pnpm run prep` or
+   another long validation. Run prep when it is practical, but if prep is slow,
    flaky, or contaminated by concurrent in-flight edits, do not stall shipment:
-   push and let GitHub Actions be the validation gate that `/babysit-pr`
-   monitors.
+   record the exact failure, keep pushing stable slices, and let GitHub Actions
+   be the validation gate that `/babysit-pr` monitors.
 
-4. **Stage and commit**: stage all changed/untracked files except `learnings.md`
-   or gitignored personal files. Write a concise, descriptive commit message
-   based on the actual diff. Never add `Co-Authored-By` or other agent
-   attribution.
+4. **Publish the owned snapshot**: stage only the paths owned by this agent,
+   commit, and push the current branch. Never add `Co-Authored-By` or other
+   agent attribution.
 
-5. **Push**: push the current branch. If the branch has no upstream, set it with
-   `git push -u origin <branch>`.
+   The first successful push is the review handoff point: open or update the
+   ready PR immediately, before waiting on `pnpm prep`, a stability window, or
+   additional concurrent work. Later commits update that same PR and let CI
+   and review run in parallel with the rest of the ship workflow. Push each
+   later owned slice as soon as it is coherent; do not wait for peer files to
+   become commit-ready, and do not include them in an owned slice.
 
-6. **Open or update a ready PR**: use the current branch. PRs are ready for
-   review by default, not drafts. Do not put `codex`, `[codex]`, or similar
-   agent labels in the title/body.
+5. **Open or update a ready PR immediately after the first push**: use the
+   current branch. PRs are ready for review by default, not drafts. Do not put
+   `codex`, `[codex]`, or similar agent labels in the title/body.
 
-7. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
+   For every later safe slice, update this same PR immediately after pushing;
+   do not create a second PR or wait for prep to finish before handing the
+   slice to CI and review.
+
+6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR; do not duplicate, shorten, or invent a lighter monitoring loop. Its
-   Step 0 is authoritative: every tick starts by committing and pushing all local
-   files and any unpushed commits, then checking mergeability, every unaddressed
+   the PR. Its Step 0 checks ownership first, pushes only owned paths and
+   already-created owned commits, then checks mergeability, every unaddressed
    review comment by reply state, and CI. Keep going until the PR is either
    merged/closed or the user explicitly tells you to stop.
 
-8. **Merge when allowed**: because `/ship` includes merge authorization, merge
+7. **Merge when allowed**: because `/ship` includes merge authorization, merge
    with `gh pr merge <number> --squash --admin` only after `/babysit-pr`’s merge
    requirements are simultaneously true for 10 consecutive minutes:
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
 
-9. **Verify production is live when needed**: if the branch changed
+8. **Verify production is live when needed**: if the branch changed
    `templates/*`, docs/sites that publish templates, or any deployment config
    that affects templates, verify the affected template production deploys finish
    successfully and the live site is serving the new build. If a deploy fails
@@ -138,21 +195,22 @@ force-push to accomplish this.
    package host. Retrigger transient publish failures; fix and ship code/config
    failures.
 
-10. **Create the next branch after merge**: after the PR is merged and `origin/main`
+9. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
    stash gate, branch naming, and stash-reporting rules. This is the only branch
    movement in the ship flow.
 
-11. **Report**: summarize the PR URL, merge result, new branch name, validation,
+10. **Report**: summarize the PR URL, merge result, new branch name, validation,
     production deploy/publish verification when applicable, and any feedback/CI
     fixes handled.
 
 ## Important
 
 - **Multiple agents run concurrently.** There will often be locally changed
-  files you didn't generate. This is normal. Include everything and move
-  forward. Don't revert other agents' work; fix real bugs if CI or review
-  feedback flags them.
+  files you didn't generate. This is normal. Preserve those paths and move
+  forward with explicit owned-path commits. Don't revert other agents' work or
+  publish it as part of this ship; fix real bugs if CI or review feedback flags
+  them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.

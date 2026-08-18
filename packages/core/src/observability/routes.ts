@@ -8,7 +8,7 @@
  *   GET    /traces/:runId              — get trace detail (spans + summary)
  *   GET    /traces/:runId/evals        — get evals for a run
  *   POST   /feedback                   — submit feedback
- *   GET    /feedback?since=N&limit=N   — list feedback entries
+ *   GET    /feedback?since=N&limit=N&feedbackType=text — list feedback entries
  *   GET    /feedback/stats?since=N     — feedback aggregation stats
  *   GET    /satisfaction?since=N       — satisfaction scores
  *   GET    /evals/stats?since=N        — eval stats
@@ -30,7 +30,9 @@ import {
 
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { getRequestContext } from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
+import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
   getObservabilityOverview,
   getTraceSummaries,
@@ -50,6 +52,20 @@ import {
 } from "./store.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { FeedbackType, ExperimentStatus } from "./types.js";
+
+const FEEDBACK_TYPES = [
+  "thumbs_up",
+  "thumbs_down",
+  "category",
+  "text",
+] as const satisfies readonly FeedbackType[];
+
+function isFeedbackType(value: unknown): value is FeedbackType {
+  return (
+    typeof value === "string" &&
+    (FEEDBACK_TYPES as readonly string[]).includes(value)
+  );
+}
 
 function nanoid(size = 21): string {
   const alphabet =
@@ -180,11 +196,8 @@ export function createObservabilityHandler() {
         setResponseStatus(event, 400);
         return { error: "Invalid JSON body" };
       }
-      const feedbackType = body?.feedbackType as FeedbackType | undefined;
-      if (
-        !feedbackType ||
-        !["thumbs_up", "thumbs_down", "category", "text"].includes(feedbackType)
-      ) {
+      const feedbackType = body?.feedbackType;
+      if (!isFeedbackType(feedbackType)) {
         setResponseStatus(event, 400);
         return { error: "feedbackType is required" };
       }
@@ -207,11 +220,11 @@ export function createObservabilityHandler() {
         userId: owner,
         createdAt: Date.now(),
       });
-      // Emit one content-free analytics event for the explicit thumb itself.
-      // Category follow-ups intentionally do not emit: a thumbs-down followed
-      // by a category would otherwise double-count the same negative signal.
-      if (feedbackType === "thumbs_up" || feedbackType === "thumbs_down") {
+      {
         const runId = body.runId ? String(body.runId) : null;
+        const threadId = body.threadId ? String(body.threadId) : null;
+        const isThumb =
+          feedbackType === "thumbs_up" || feedbackType === "thumbs_down";
         let model: string | undefined;
         if (runId) {
           try {
@@ -223,13 +236,21 @@ export function createObservabilityHandler() {
           }
         }
 
-        const threadId = body.threadId ? String(body.threadId) : null;
+        // Every submission is reported, including `category` and `text`, which
+        // previously emitted nothing at all. Only thumbs carry `sentiment` —
+        // a category follow-up to a thumbs-down is extra detail about the same
+        // vote, so counting it as a second negative would inflate the metric.
         track(
           "$ai_feedback",
           {
             ...trackingIdentityProperties(),
             source: "agent_observability",
-            sentiment: feedbackType === "thumbs_up" ? "positive" : "negative",
+            ...(isThumb
+              ? {
+                  sentiment:
+                    feedbackType === "thumbs_up" ? "positive" : "negative",
+                }
+              : {}),
             feedback_type: feedbackType,
             run_id: runId,
             thread_id: threadId,
@@ -240,6 +261,19 @@ export function createObservabilityHandler() {
           },
           { userId: owner },
         );
+
+        // PostHog shows feedback in LLM analytics only via `survey sent`.
+        // No-ops unless a survey id is configured.
+        emitAiFeedbackSurveyEvent({
+          runId,
+          threadId,
+          userId: owner,
+          feedbackType,
+          value: isThumb ? feedbackType : value,
+          submissionId: id,
+          model,
+          browserSessionId: getRequestContext()?.browserSessionId,
+        });
       }
       // Fire-and-forget: recompute satisfaction score for the thread.
       if (body.threadId) {
@@ -260,6 +294,9 @@ export function createObservabilityHandler() {
       return getFeedback({
         sinceMs: parseSince(q),
         limit: parseLimit(q),
+        feedbackType: isFeedbackType(q.feedbackType)
+          ? q.feedbackType
+          : undefined,
         userId: owner,
       });
     }

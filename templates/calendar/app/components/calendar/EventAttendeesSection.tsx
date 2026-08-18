@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
 import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
@@ -194,6 +194,12 @@ function RsvpControls({
     doRsvp(status, undefined, "");
   };
 
+  const savePendingResponse = () => {
+    if (!pendingStatus || mutation.isPending) return;
+    doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
+    closePopover();
+  };
+
   return (
     <Popover
       open={!!pendingStatus}
@@ -255,6 +261,13 @@ function RsvpControls({
         className="w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            savePendingResponse();
+          }
+        }}
       >
         {pendingStatus && (
           <div>
@@ -336,8 +349,7 @@ function RsvpControls({
                 disabled={mutation.isPending}
                 onClick={(e) => {
                   e.stopPropagation();
-                  doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
-                  closePopover();
+                  savePendingResponse();
                 }}
               >
                 {t("eventForm.saveResponse")}

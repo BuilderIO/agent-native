@@ -1,0 +1,205 @@
+---
+title: "Resumen"
+description: "Los directorios app/ y public/: dónde se construye la visualización de una aplicación nativa del agente, y las API del navegador que usa para mantenerse sincronizada con el agente."
+---
+
+# Resumen
+
+`app/` es donde se construye la visualización real de una aplicación nativa del agente: páginas, layout, componentes, estilos. `public/` contiene los activos estáticos que se sirven junto a ella (iconos, manifest, marcas de marca). Esta es una aplicación típica de React Router v8, no una superficie especial solo para el agente, y es donde se invierte la mayor parte del tiempo de desarrollo.
+
+La única diferencia arquitectónica respecto a un frontend típico: esta capa no tiene su propio backend-for-frontend. Lee y escribe datos a través de las mismas acciones que llama el agente, así que cualquier cosa que se conecte aquí es automáticamente algo que el agente también puede hacer.
+
+<Diagram id="doc-block-client-overview-1" title="Frontend tradicional frente a Agent Native" summary="Un frontend tradicional llama a su propia capa de API, a la que solo él puede acceder. En Agent Native, app/ y el agente llaman ambos a las mismas acciones, por lo que toda capacidad creada aquí queda disponible para el agente sin coste adicional.">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Tradicional</div>
+    <div class="diagram-node">app/ (frontend de React)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Capa de API</strong>
+      <small class="diagram-muted">solo el frontend la llama</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Base de datos</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (frontend de React)</div>
+      <div class="diagram-node">Agente</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Acciones</span
+      ><small class="diagram-muted">socios iguales, mismas operaciones</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Base de datos SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Dónde encaja el cliente {#role}
+
+Las solicitudes del navegador, el bucle del agente y los clientes de API externos resuelven todos hacia las mismas acciones y la misma base de datos SQL: no existe un "backend de la app" aparte al que hable esta capa y que el agente no pueda alcanzar también. Construir una funcionalidad aquí significa construir una UI sobre una operación que el agente ya tiene, o definir una acción nueva y obtener una UI para ella al mismo tiempo. Consulta [Actions](/docs/actions-overview) para el lado de la operación de ese contrato.
+
+Esta página cubre los directorios en los que trabajas y las piezas del runtime del navegador que no documenta ningún otro lugar (`root.tsx`, `public/`). Los hooks de React que conectan tus componentes con las acciones y con el agente viven en sus propias páginas dedicadas:
+
+| Página                                                    | Qué cubre                                                                                                                                          |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[Datos y sincronización](/docs/client-data)**           | `useActionQuery`, `useActionMutation`, `callAction` y `useDbSync`                                                                                  |
+| **[Chat del Agent](/docs/client-agent-chat)**             | `sendToAgentChat`, `askUserQuestion`, `openAgentSettings`, sugerencias dinámicas y el estado de contexto de chat del agente preparado              |
+| **[Avanzado](/docs/client-advanced)**                     | Acceso directo a `application_state`, envíos de chat en segundo plano, chips de sugerencias personalizadas y el puente de host de aplicaciones MCP |
+| **[Sincronización interna](/docs/client-sync-internals)** | `useChangeVersion`/`useChangeVersions` para sincronizar un `useQuery` sin procesar                                                                 |
+| **[Puntos de entrada](/docs/client-entry-points)**        | `app/entry.client.tsx`/`app/entry.server.tsx` y personalización de SSR                                                                             |
+
+## Qué hay en app/ y public/ {#project-directories}
+
+| Ruta                                                | Qué cubre                                                                                                                                           |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`app/root.tsx`**                                  | El shell HTML y la pila de providers — consulta [El shell del navegador](#app-shell) más abajo                                                      |
+| **`app/entry.client.tsx` / `app/entry.server.tsx`** | Hidratación y arranque de SSR — consulta [Puntos de entrada](/docs/client-entry-points)                                                             |
+| **`app/routes.ts` + `app/routes/`**                 | Páginas basadas en archivos y navegación — consulta [Enrutamiento](/docs/client-routing)                                                            |
+| **`app/components/`**                               | Tu UI: primitivos de estilo shadcn más componentes específicos de la app — consulta [shadcn/ui](/docs/toolkit-ui)                                   |
+| **`app/hooks/`**                                    | Hooks de datos, sincronización y chat del agente — consulta [Datos y sincronización](/docs/client-data) y [Chat del Agent](/docs/client-agent-chat) |
+| **`app/lib/`**                                      | Utilidades compartidas del cliente (configuración de la app, id de pestaña, `cn`) — consulta [Utilidades](#utilities) más abajo                     |
+| **`app/design-system.ts`**                          | Adaptador opcional de sistema de diseño personalizado — consulta [Sistemas de diseño personalizados](/docs/custom-design-system)                    |
+| **`app/i18n/`**                                     | Catálogos de textos de UI localizados — consulta [Internacionalización](/docs/internationalization)                                                 |
+| **`app/global.css`**                                | Estilos base y el punto de entrada de Tailwind                                                                                                      |
+| **`public/`**                                       | Activos estáticos servidos tal cual — consulta [Activos estáticos](#public-directory) más abajo                                                     |
+
+## El shell del navegador: root.tsx y AppProviders {#app-shell}
+
+`app/root.tsx` es la parte superior del árbol de React: el shell del documento HTML (`<html>`, `<head>`, `<Meta>`, `<Links>`, `<Scripts>`) más la pila de providers dentro de la cual se renderiza cada ruta.
+
+```tsx filename="app/root.tsx"
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { useState } from "react";
+import { Outlet } from "react-router";
+import { i18nCatalog } from "./i18n";
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+
+  return (
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <Outlet />
+    </AppProviders>
+  );
+}
+```
+
+`AppProviders` es el único wrapper que conecta:
+
+- El cliente de React Query usado por `useActionQuery`/`useActionMutation` (consulta [Datos y sincronización](/docs/client-data#fetching-mutating)).
+- El catálogo de i18n pasado como `i18n.catalog` (consulta [Internacionalización](/docs/internationalization)).
+- Comprobaciones de sesión del lado del cliente: en una ruta privada, un visitante anónimo es redirigido a iniciar sesión antes de que se monte cualquier UI privada. Pasa `isPublicPath` para rutas públicas/SEO, o `sessionBypass` para una superficie que se autentica de otra forma, como un token de inserción MCP. Consulta [Autenticación](/docs/authentication).
+
+La mayoría de las apps también montan aquí `<AgentSidebar>` o `<AgentPanel>` para que cada ruta obtenga el panel del agente sin esfuerzo adicional. Consulta [Agente sin cita previa](/docs/drop-in-agent#sidebar).
+
+## Activos estáticos: public/ {#public-directory}
+
+Todo lo que hay en `public/` se sirve tal cual desde la raíz del sitio, sin procesar por el build. Cada plantilla incluye:
+
+```text
+public/
+  favicon.svg           -> browser tab icon
+  icon-180.svg           -> apple-touch-icon
+  icon-192.svg, icon-512.svg -> PWA icons referenced from manifest.json
+  manifest.json          -> web app manifest (name, theme color, icons)
+  *-logo-*.svg, *-icon-*.svg -> brand marks used in the default UI
+```
+
+`manifest.json` controla qué aparece si un visitante instala la app en la pantalla de inicio o el dock: nombre, nombre corto, color de tema/fondo y el conjunto de iconos:
+
+```json filename="public/manifest.json"
+{
+  "name": "My App",
+  "short_name": "My App",
+  "theme_color": "#18181B",
+  "icons": [
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }
+  ]
+}
+```
+
+Rebrandea una app reemplazando estos archivos y actualizando `manifest.json` y las etiquetas `<link rel="icon">`/`<link rel="apple-touch-icon">` en `root.tsx` que los referencian; no hay un paso de registro aparte. Para importar un sistema de marca completo (colores, fuentes, favicon) desde un sitio existente en lugar de editar estos archivos a mano, consulta [Sistemas de marca y Figma](/docs/template-design-brand-and-figma).
+
+## Utilidades: cn {#utilities}
+
+```ts
+import { cn } from "@agent-native/toolkit/utils";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```
+
+`cn` combina nombres de clase (clsx + tailwind-merge) y es la forma estándar de componer clases condicionales de Tailwind en `app/components/`.
+
+## ¿Qué sigue?
+
+- [**Datos y sincronización**](/docs/client-data) — hooks de acciones y `useDbSync`
+- [**Chat del Agent**](/docs/client-agent-chat) — `sendToAgentChat`, `askUserQuestion` y sugerencias dinámicas
+- [**Avanzado**](/docs/client-advanced) — estado de la aplicación, envíos de chat en segundo plano y el puente de host de aplicaciones MCP
+- [**Sincronización interna**](/docs/client-sync-internals) — `useChangeVersion` para sincronizar un `useQuery` sin procesar
+- [**Enrutamiento**](/docs/client-routing) — páginas basadas en archivos, parámetros dinámicos y navegación
+- [**Actions**](/docs/actions-overview) — la superficie `defineAction` detrás de cada hook de datos
+- [**Sistemas de diseño personalizados**](/docs/custom-design-system) — cómo sustituir tu propia librería de componentes a través de `app/design-system.ts`
+- [**Autenticación**](/docs/authentication) — las comprobaciones de sesión que `AppProviders` ejecuta en rutas privadas

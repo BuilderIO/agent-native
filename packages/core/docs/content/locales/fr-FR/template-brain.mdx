@@ -544,14 +544,17 @@ la zone correspondante, et l'agent peut effectuer ces modifications pour vous :
   l'itinéraire, les filtres et les ID sélectionnés sont mis en miroir dans `application_state` pour l'agent
   contexte.
 
-Demandez à l'agent d'apporter des modifications à votre place : il peut modifier sa propre source. Voir
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Effectuez ces changements dans le flux de développement du dépôt. L'agent
+intégré ne peut participer aux modifications de source que si l'hôte accorde
+intentionnellement des outils d'écriture repository/workspace ; sinon, il agit
+via les actions et les données. Voir
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## Quelle est la prochaine étape
 
 - [**Dispatch**](/docs/dispatch) — le plan de contrôle de l'espace de travail
 - [**Dispatch template**](/docs/template-dispatch) — l'application de coordination d'échafaudage
-- [**Workspace**](/docs/workspace) – ressources partagées entre les applications
+- [**Ressources de l'agent**](/docs/agent-resources) – ressources partagées entre les applications
 - [**A2A Protocol**](/docs/a2a-protocol) – délégation inter-applications
 - [**Modèles**](/docs/cloneable-saas) — le modèle de clonage et de propriété, ainsi que tous les autres modèles de domaine pour commencer
 - [**Premiers pas**](/docs/getting-started) — les principes fondamentaux du framework : actions, état de l'application et synchronisation en direct

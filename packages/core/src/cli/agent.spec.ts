@@ -56,11 +56,19 @@ describe("agent CLI", () => {
     expect(result).toContain("node_modules/@agent-native/core/docs");
   });
 
+  it("exposes the unified framework-search tool to the headless agent loop", async () => {
+    const actions = await createHeadlessBuiltinActions();
+    const entry = actions["framework-search"];
+
+    expect(entry.readOnly).toBe(true);
+    expect(entry.tool.description).toContain("Core");
+  });
+
   it("exposes source-search to the headless agent loop", async () => {
     const actions = await createHeadlessBuiltinActions();
     const entry = actions["source-search"];
 
     expect(entry.readOnly).toBe(true);
-    expect(entry.tool.description).toContain("source corpus");
+    expect(entry.tool.description).toContain("Core");
   });
 });

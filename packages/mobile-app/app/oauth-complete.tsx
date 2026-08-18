@@ -1,47 +1,26 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 
-const SESSION_TOKEN_KEY = "agent-native:session-token";
-const OAUTH_STATE_KEY = "agent-native:oauth-state";
+import { useMobileThemeColors } from "../lib/mobile-colors";
 
 /**
- * Handles the agentnative://oauth-complete?token=xyz deep link after Google OAuth.
- * Stores the session token so the WebView can inject it as a cookie, then
- * redirects back to the main tabs.
+ * Transient screen shown if the agentnative://oauth-complete deep link happens
+ * to route here. The real work — applying the token and navigating back to the
+ * originating app — is owned by OAuthDeepLinkHandler at the app root, so this
+ * screen must not touch the stored token/state/return keys (that would race the
+ * root handler and consume them first).
  */
 export default function OAuthComplete() {
-  const { token, state } = useLocalSearchParams<{
-    token?: string;
-    state?: string;
-  }>();
+  const { foreground } = useMobileThemeColors();
 
   useEffect(() => {
-    (async () => {
-      if (token) {
-        const expectedState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
-        await AsyncStorage.removeItem(OAUTH_STATE_KEY);
-        if (expectedState && state === expectedState) {
-          await AsyncStorage.setItem(SESSION_TOKEN_KEY, token);
-        }
-      }
-      router.replace("/(tabs)");
-    })();
-  }, [state, token]);
-
+    console.log(
+      "[oauth] oauth-complete ROUTE mounted (expo-router routed here)",
+    );
+  }, []);
   return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color="#ffffff" />
+    <View className="flex-1 justify-center items-center bg-background-dark">
+      <ActivityIndicator size="large" color={foreground} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-  },
-});

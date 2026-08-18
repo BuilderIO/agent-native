@@ -1,0 +1,429 @@
+---
+title: "資料與同步"
+description: "app/ 用來讀取、寫入，並與代理所呼叫的相同 actions 保持即時同步的 action 掛鉤。"
+---
+
+# 資料與同步
+
+從用戶端應用程式讀取和寫入應用資料的主要方式是透過 [action](/docs/actions-overview) 掛鉤。透過將請求嵌入到 actions 中，您的用戶端和代理都能以相同的方式與您的應用程式互動。
+
+在下方的範例中，一張工單先透過下拉選單手動指派給目前使用者，然後再透過聊天代理指派。UI 和代理存取的是同一個 action。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="UI action 與 agent action 產生相同結果的範例。"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="UI action 與 agent action 產生相同結果的範例。"
+/>
+
+## 取得與修改資料 {#fetching-mutating}
+
+典型的應用程式會建置自己的 API 層並透過手寫的 `fetch` 請求呼叫它。Agent-native 應用程式省去了那一層：`app/` 呼叫代理已經擁有的相同 actions，透過下方的掛鉤進行。
+
+<Diagram id="doc-block-client-data-fm-1" title="典型的 fetch vs. action 掛鉤" summary="典型元件呼叫一個只有自己能存取的路由。Agent-native 元件呼叫代理也能呼叫的 action。">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">典型做法</div>
+    <div class="diagram-node">元件</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>您的 API 路由</strong>
+      <small class="diagram-muted">只有前端能呼叫它</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>資料庫</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">vs</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">元件</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">get-lead action</span>
+      <small class="diagram-muted">同時也是代理工具</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 資料庫</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Action 掛鉤 {#action-hooks}
+
+最常用到的兩個 action 掛鉤是 `useActionQuery()` 和 `useActionMutation()`。這兩個掛鉤提供了存取您應用程式 actions 的方式。
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "此 action 已註冊的名稱。",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description: "此 action 的輸入，型別來自其 `defineAction()` 架構。",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "來自 [useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 的所有內容，除了 `queryKey` 和 `queryFn`，這兩者由此掛鉤自行設定。",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      '快取於 `["action", name, params]` 之下。每當一個變異 action 完成時就會自動重新取得，不需要手動失效。',
+  }}
+/>
+
+此掛鉤旨在用於唯讀 actions。它是 [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 函式的簡單包裝。
+
+在下方的範例中，呼叫了 `list-tickets` action。這類似於為所有工單發出一個 GET 請求。
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+以下範例展示透過 `get-ticket` action 取得單一工單的請求。傳入 `ticketId` 以將查詢範圍限定為只回傳特定工單。額外的 `enabled` 選項用於確保查詢不會自動執行，而只在 `ticketId` 存在時才執行。
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "此 action 已註冊的名稱。",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "來自 [useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 的所有內容，除了 `mutationFn`，此項由此掛鉤自行設定。",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "覆蓋預設的請求方法。",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "選擇退出成功後的自動快取重新整理。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      '成功後會發出 `source: "action"` 的變更事件，因此每個讀取受影響資料的 `useActionQuery()` 都會自動重新取得。不需要手動失效。',
+  }}
+/>
+
+此掛鉤旨在用於變更資料的 actions，例如建立、更新或傳送某項內容。它是 [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 函式的簡單包裝。
+
+與 `useActionQuery()` 不同，此 action 的輸入不會傳給掛鉤本身，而是在您準備執行變異時傳給 `mutate()` 或 `mutateAsync()`。
+
+在下方的範例中，呼叫了 `send-ticket-reply` action 來對一則工單發布回覆。從事件處理常式（例如按鈕的 `onClick`）呼叫 `mutate()`。
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+以下範例展示帶有 `onSuccess` 選項的相同變異。快取失效在每次變異後都會自動發生，因此 `onSuccess` 只在需要本機副作用時才需要，例如在回覆傳送後清空回覆編輯器。
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "此 action 已註冊的名稱。",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description: "此 action 的輸入，型別來自其 `defineAction()` 架構。",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "以下所有項目都是選用的。",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "覆蓋預設的請求方法。",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "取消請求。",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "覆蓋預設的 60 秒逾時，適用於合理需要更長時間的 actions。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "與上方的掛鉤不同，這裡沒有快取也沒有自動重新取得。若其他 UI 依賴此結果，請搭配手動失效。",
+  }}
+/>
+
+此函式用於 React 渲染流程之外的指令式一次性 action 呼叫，例如純粹的事件處理常式、腳本，或任何其他非 React 程式碼路徑。它直接回傳一個 promise，而不是掛鉤結果。
+
+在下方的範例中，`update-ticket` action 從一個鍵盤快速鍵處理常式中被呼叫，該處理常式位於 React 的渲染流程之外，將工單指派給一位代表。
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+以下範例展示帶有 `timeoutMs` 選項的相同呼叫，適用於合理需要超過預設 60 秒逾時的 actions。
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+每個 `useActionQuery()`、`useActionMutation()` 和 `callAction()` 請求都受限於 60 秒逾時，逾時會以錯誤形式呈現，而不會靜默重試。`useActionQuery()` 也會使用 React Query 的中止信號自動取消被取代的請求。
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "每個欄位都是選用的。",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description: "用於快取失效的 React Query 用戶端。",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "輪詢端點 URL。",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description: "SSE 端點 URL。傳入 `false` 可只使用輪詢。",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "輪詢間隔（毫秒）。",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "SSE 已連線時的輪詢間隔，作為漏接事件時的備援。已斷線的分頁會以較快的 `interval`（或固定的閒置節奏）輪詢。",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "當瀏覽器分頁隱藏時暫停輪詢。隱藏的分頁會保持 SSE 連線，並在活動時最多每 10 秒輪詢一次，閒置後每 60 秒一次。",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "要忽略的每個分頁請求來源，以便分頁不會因自己的寫入而重新取得。",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description: "當 SSE 或輪詢收到變更事件時的選用回呼。",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "篩選一個 action 事件觸發的廣泛失效範圍。極少需要用到。用它讓某個昂貴的活動查詢維持明確重新整理的語意，而一般的來源版本化查詢仍透過 `useChangeVersion` 反應。",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "其同步事件不應使所有 action 查詢失效的 action 名稱。僅適用於已自行執行窄範圍失效的高流量背景 actions。",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description: "已淘汰並被忽略。為舊的呼叫端保留。",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+此掛鉤旨在讓 UI 與發生在您自己的 actions 之外的資料庫變更保持同步，例如代理的寫入、webhook，或來自另一個瀏覽器分頁的變更。它透過伺服器傳送事件監聽變更，並在伺服器傳送事件不可用時回退為輪詢。
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+對於一般的 CRUD，優先使用 `useActionQuery()` 和 `useActionMutation()`。變異 actions 會發出 `source: "action"`，因此這些掛鉤會立即重新取得。來自代理、webhook 或另一個分頁的變更則透過 `useDbSync()` 到來，經由 SSE 或輪詢備援。若原始的 `useQuery()` 呼叫需要以自訂鍵同步，請參閱[同步內部機制](/docs/client-sync-internals)。若您需要直接寫入 `application_state`，請參閱[進階](/docs/client-advanced)。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/client-overview) — 此頁面掛鉤所在的 `app/` 和 `public/` 目錄配置
+- [**Agent 聊天**](/docs/client-agent-chat) — 傳送提示與為代理暫存脈絡
+- [**Actions**](/docs/actions-overview) — 本頁每個掛鉤背後的 `defineAction` 介面
+- [**進階**](/docs/client-advanced) — 直接存取 `application_state`
+- [**同步內部機制**](/docs/client-sync-internals) — 用 `useChangeVersion` 同步原始 `useQuery`
+- [**即時同步**](/docs/key-concepts#polling-sync) — `useDbSync` 如何讓 UI 保持最新

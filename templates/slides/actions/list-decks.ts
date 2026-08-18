@@ -22,7 +22,9 @@ export default defineAction({
     includeSlides: z
       .enum(["true", "false"])
       .optional()
-      .describe("Set to 'true' for full frontend deck payloads"),
+      .describe(
+        "Set to 'true' for full frontend deck payloads; omitted returns metadata only",
+      ),
     light: z
       .enum(["true", "false"])
       .optional()
@@ -94,6 +96,39 @@ export default defineAction({
       };
     }
 
+    if (args.includeSlides !== "true") {
+      // The deck body is an opaque JSON blob containing every slide's HTML.
+      // Metadata callers must opt into it explicitly; the frontend opens one
+      // deck at a time through get-deck instead of downloading every body.
+      const rows = await db
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+          ownerEmail: schema.decks.ownerEmail,
+          designSystemId: schema.decks.designSystemId,
+          createdAt: schema.decks.createdAt,
+          updatedAt: schema.decks.updatedAt,
+          visibility: schema.decks.visibility,
+        })
+        .from(schema.decks)
+        .where(where)
+        .orderBy(desc(schema.decks.updatedAt));
+
+      return {
+        count: rows.length,
+        decks: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          url: getDeckUrl(row.id),
+          visibility: row.visibility,
+          designSystemId: row.designSystemId ?? null,
+          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        })),
+      };
+    }
+
     const rows = await db
       .select()
       .from(schema.decks)
@@ -130,6 +165,7 @@ export default defineAction({
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
+          starred: data?.starred === true,
         };
       }
       return {
@@ -139,6 +175,7 @@ export default defineAction({
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        starred: data?.starred === true,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

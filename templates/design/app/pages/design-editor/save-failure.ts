@@ -1,4 +1,7 @@
-import { isDesignHtmlIntegrityError } from "@shared/html-integrity";
+import {
+  DESIGN_HTML_INTEGRITY_SUMMARY,
+  isDesignHtmlIntegrityError,
+} from "@shared/html-integrity";
 
 export type DesignSaveFailureKind =
   | "offline"
@@ -14,6 +17,9 @@ function errorField(error: unknown, field: string): unknown {
 }
 
 export function designSaveErrorMessage(error: unknown): string | null {
+  // Integrity errors carry located, agent-facing guidance in `message`. Toasts
+  // get the summary instead; the two audiences need different text.
+  if (isDesignHtmlIntegrityError(error)) return DESIGN_HTML_INTEGRITY_SUMMARY;
   const message = errorField(error, "message");
   if (typeof message !== "string" || !message.trim()) return null;
   return message.replace(/^DESIGN_HTML_INTEGRITY:\s*/, "");

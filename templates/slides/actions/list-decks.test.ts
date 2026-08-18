@@ -26,6 +26,8 @@ vi.mock("../server/db/index.js", () => ({
       id: "id_col",
       title: "title_col",
       ownerEmail: "owner_email_col",
+      designSystemId: "design_system_id_col",
+      createdAt: "created_at_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
     },
@@ -63,16 +65,36 @@ describe("list-decks", () => {
       id: "deck_123",
       title: "Roadmap",
       url: "https://slides.agent.test/deck/deck_123",
-      slideCount: 1,
     });
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      ownerEmail: "owner_email_col",
+      designSystemId: "design_system_id_col",
+      createdAt: "created_at_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slideCount");
   });
 
-  it("includes URLs in compact output too", async () => {
+  it("keeps compact output metadata-only", async () => {
     const result = await action.run({ compact: "true" });
 
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",
       url: "https://slides.agent.test/deck/deck_123",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slideCount");
+  });
+
+  it("only reads deck bodies when full slides are explicitly requested", async () => {
+    const result = await action.run({ includeSlides: "true" });
+
+    expect(selectFn).toHaveBeenCalledWith();
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      slides: [{ id: "slide-1" }],
     });
   });
 

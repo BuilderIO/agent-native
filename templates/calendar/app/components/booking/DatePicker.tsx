@@ -1,4 +1,5 @@
 import type { AvailabilityConfig } from "@shared/api";
+import { getWeekdayOrder } from "@shared/calendar-week";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -31,6 +32,7 @@ interface DatePickerProps {
   availabilityLoading?: boolean;
   viewMonth: Date;
   onViewMonthChange: (month: Date) => void;
+  weekStartsOn?: 0 | 1;
 }
 
 const WEEKDAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -53,12 +55,16 @@ export function DatePicker({
   availabilityLoading = false,
   viewMonth,
   onViewMonthChange,
+  weekStartsOn = 0,
 }: DatePickerProps) {
   const monthStart = startOfMonth(viewMonth);
   const monthEnd = endOfMonth(viewMonth);
-  const calendarStart = startOfWeek(monthStart);
-  const calendarEnd = endOfWeek(monthEnd);
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn });
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn });
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  const weekdayHeaders = getWeekdayOrder(weekStartsOn).map(
+    (day) => WEEKDAY_HEADERS[day],
+  );
   const availableDateSet = useMemo(
     () => new Set(availableDates),
     [availableDates],
@@ -103,7 +109,7 @@ export function DatePicker({
 
       {/* Weekday headers */}
       <div className="grid grid-cols-7 mb-1">
-        {WEEKDAY_HEADERS.map((d) => (
+        {weekdayHeaders.map((d) => (
           <div
             key={d}
             className="py-1 text-center text-xs font-medium text-muted-foreground"

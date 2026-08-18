@@ -23,7 +23,7 @@ const messages: Record<string, string> = {
     "Restore the design change you just undid",
 };
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     messages[key] ?? key.split(".").slice(-1)[0] ?? key,
 }));
@@ -58,11 +58,7 @@ describe("KeyboardShortcutsPanel Essential tutorial", () => {
       first
         .querySelector("[data-shortcut-bindings]")
         ?.getAttribute("aria-label"),
-    ).toBe(
-      /Mac|iPhone|iPad/.test(navigator.platform)
-        ? "Command Backslash"
-        : "Control Backslash",
-    );
+    ).toBe("shift Backslash");
     expect(first.querySelector("kbd")?.getAttribute("aria-hidden")).toBe(
       "true",
     );

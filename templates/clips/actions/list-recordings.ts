@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -17,6 +16,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  agentRecordingAccessFilter,
+  isAgentRecordingCaller,
+} from "../server/lib/agent-recording-access.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import {
+  countedViewCondition,
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
@@ -26,9 +31,67 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+type RecordingMediaFields = {
+  id: string;
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
+  videoUrl?: string | null;
+  videoFormat?: string | null;
+};
+
+export function resolveListRecordingMedia(
+  recording: RecordingMediaFields,
+  includeMedia: boolean,
+): { videoUrl: string | null; videoFormat: "webm" | "mp4" | null } {
+  if (!includeMedia) {
+    return { videoUrl: null, videoFormat: null };
+  }
+
+  return {
+    videoUrl: resolvePlayerVideoUrl(
+      {
+        id: recording.id,
+        sourceAppName: recording.sourceAppName,
+        sourceWindowTitle: recording.sourceWindowTitle,
+        videoUrl: recording.videoUrl,
+      },
+      { proxyRemoteMedia: true },
+    ),
+    videoFormat:
+      recording.videoFormat === "webm" || recording.videoFormat === "mp4"
+        ? recording.videoFormat
+        : null,
+  };
+}
+
+type ViewCountRow = { recordingId: string; count: number | string | null };
+
+/**
+ * `recording_views` only exists from migration v46, so pre-migration clips have
+ * no log rows and must fall back to their counted-viewer count instead of
+ * dropping to 0. Same floor as `countRecordingViews`, so a library card and the
+ * clip page always agree.
+ */
+export function mergeViewCounts(
+  countedViewerRows: ViewCountRow[],
+  viewLogRows: ViewCountRow[],
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const row of countedViewerRows) {
+    merged[row.recordingId] = Number(row.count ?? 0);
+  }
+  for (const row of viewLogRows) {
+    merged[row.recordingId] = Math.max(
+      merged[row.recordingId] ?? 0,
+      Number(row.count ?? 0),
+    );
+  }
+  return merged;
+}
+
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. The shared view returns accessible recordings owned by someone else.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else.",
   schema: z.object({
     view: z
       .enum(["library", "shared", "space", "archive", "trash", "all"])
@@ -67,13 +130,28 @@ export default defineAction({
       )
       .default(false)
       .describe("Return only the total count, skipping the row payload"),
+    includeMedia: z
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean(),
+      )
+      .default(false)
+      .describe("Include playable media fields for editor workflows"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
 
     const whereClauses = [
-      accessFilter(schema.recordings, schema.recordingShares),
+      agentRecordingAccessFilter(
+        schema.recordings,
+        schema.recordingShares,
+        schema.recordingViewers,
+        {
+          agentOnly: isAgentRecordingCaller(ctx?.caller),
+          userEmail: ctx?.userEmail,
+        },
+      ),
     ];
 
     const orgId = await getActiveOrganizationId();
@@ -177,11 +255,26 @@ export default defineAction({
     }
 
     // Sort
-    const viewCountOrder = sql<number>`(
+    const countedViewerCount = sql<number>`(
       SELECT COUNT(1)
       FROM ${schema.recordingViewers}
       WHERE ${schema.recordingViewers.recordingId} = ${schema.recordings.id}
-        AND ${eq(schema.recordingViewers.countedView, true)}
+        AND ${countedViewCondition()}
+    )`;
+    const viewLogCount = sql<number>`(
+      SELECT COUNT(1)
+      FROM ${schema.recordingViews}
+      WHERE ${schema.recordingViews.recordingId} = ${schema.recordings.id}
+    )`;
+    // Same floor as `countRecordingViews`: `recording_views` only exists from
+    // migration v46, so pre-migration clips have no log rows and must fall back
+    // to the counted-viewer count instead of sorting as zero. CASE rather than
+    // MAX()/GREATEST() — the two-argument spelling differs across dialects.
+    const viewCountOrder = sql<number>`(
+      CASE WHEN ${viewLogCount} > ${countedViewerCount}
+        THEN ${viewLogCount}
+        ELSE ${countedViewerCount}
+      END
     )`;
     const orderBy =
       args.sort === "oldest"
@@ -225,6 +318,12 @@ export default defineAction({
           hasCamera: schema.recordings.hasCamera,
           width: schema.recordings.width,
           height: schema.recordings.height,
+          videoUrl: args.includeMedia
+            ? schema.recordings.videoUrl
+            : sql<string | null>`NULL`,
+          videoFormat: args.includeMedia
+            ? schema.recordings.videoFormat
+            : sql<string | null>`NULL`,
         },
         transcriptStatus: schema.recordingTranscripts.status,
         // Compute the has-text signal in SQL instead of shipping the full
@@ -263,25 +362,48 @@ export default defineAction({
       }
     }
 
-    // Count views per recording
+    // Count views per recording — set-wide grouped reads, never one per
+    // recording.
     let viewsByRec: Record<string, number> = {};
+    let agentViewsByRec: Record<string, number> = {};
     if (ids.length) {
-      const viewRows = await db
-        .select({
-          recordingId: schema.recordingViewers.recordingId,
-          count: sql<number>`COUNT(1)`,
-        })
-        .from(schema.recordingViewers)
-        .where(
-          and(
-            inArray(schema.recordingViewers.recordingId, ids),
-            eq(schema.recordingViewers.countedView, true),
-          ),
-        )
-        .groupBy(schema.recordingViewers.recordingId);
-      for (const v of viewRows) {
-        viewsByRec[v.recordingId] = Number(v.count ?? 0);
-      }
+      const [countedViewerRows, viewLogRows, agentViewRows] = await Promise.all(
+        [
+          db
+            .select({
+              recordingId: schema.recordingViewers.recordingId,
+              count: sql<number>`COUNT(1)`,
+            })
+            .from(schema.recordingViewers)
+            .where(
+              and(
+                inArray(schema.recordingViewers.recordingId, ids),
+                countedViewCondition(),
+              ),
+            )
+            .groupBy(schema.recordingViewers.recordingId),
+          db
+            .select({
+              recordingId: schema.recordingViews.recordingId,
+              count: sql<number>`COUNT(1)`,
+            })
+            .from(schema.recordingViews)
+            .where(inArray(schema.recordingViews.recordingId, ids))
+            .groupBy(schema.recordingViews.recordingId),
+          db
+            .select({
+              recordingId: schema.recordingAgentViews.recordingId,
+              count: sql<number>`COUNT(1)`,
+            })
+            .from(schema.recordingAgentViews)
+            .where(inArray(schema.recordingAgentViews.recordingId, ids))
+            .groupBy(schema.recordingAgentViews.recordingId),
+        ],
+      );
+      viewsByRec = mergeViewCounts(countedViewerRows, viewLogRows);
+      agentViewsByRec = Object.fromEntries(
+        agentViewRows.map((r) => [r.recordingId, Number(r.count ?? 0)]),
+      );
     }
 
     const recordings = rows.map((row) => {
@@ -305,6 +427,7 @@ export default defineAction({
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],
         viewCount: viewsByRec[r.id] ?? 0,
+        agentViewCount: agentViewsByRec[r.id] ?? 0,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
         archivedAt: r.archivedAt,
@@ -313,6 +436,7 @@ export default defineAction({
         hasCamera: Boolean(r.hasCamera),
         width: r.width,
         height: r.height,
+        ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
       };

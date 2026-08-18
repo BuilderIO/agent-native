@@ -117,4 +117,19 @@ describe("chat-shell sync guard", () => {
       ).toBe(true);
     }
   });
+
+  it("keeps the custom design-system seam load-bearing in both starters", () => {
+    for (const directory of [SCAFFOLD_DIR, CHAT_TEMPLATE_DIR]) {
+      const designSystem = readFile(directory, "design-system.ts");
+      const provider = readFile(
+        directory,
+        "components/ui/toolkit-provider.tsx",
+      );
+      const root = readFile(directory, "root.tsx");
+
+      expect(designSystem).toContain("defineDesignSystem({})");
+      expect(provider).toContain("designSystem={designSystem}");
+      expect(root).toContain("<AppToolkitProvider>");
+    }
+  });
 });

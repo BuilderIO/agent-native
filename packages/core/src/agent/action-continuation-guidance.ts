@@ -21,8 +21,9 @@ export function incrementalActionGuidance(tool: string): string | undefined {
     case "create-prototype-plan":
       return "create the plan with its core sections or first screen, then expand it with `update-visual-plan`/`patch-visual-plan-source` follow-up edits";
     case "update-visual-plan":
+      return "apply one or a few small `update-visual-plan` `contentPatches` such as `append-block`, `update-rich-text`, or a text patch; do not resend the full plan or switch to a source-control workflow";
     case "patch-visual-plan-source":
-      return "apply smaller, targeted `patch-visual-plan-source` edits rather than rewriting the whole plan in one call";
+      return "apply small targeted `patch-visual-plan-source` MDX AST edits; do not use `replace-file`, and do not use this source action for a live plan edit";
     case "update-dashboard":
       return "save a small dashboard first, then add panels one at a time with `update-dashboard` incremental `ops` edits instead of authoring the whole config in one call";
     default:
