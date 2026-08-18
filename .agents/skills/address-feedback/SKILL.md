@@ -167,7 +167,9 @@ evidence:
    - For resource visibility or lifecycle changes, verify both the screen and
      shared action/tool behavior, including owner versus non-owner access when
      relevant.
-   - If you cannot run a useful verification, say why.
+   - If you cannot run a useful verification, record the reason internally. In
+     the user-facing reply, use only "Verification pending. Timing not
+     confirmed yet." unless the user explicitly asks why.
 
 ## User-Facing Reply
 
@@ -175,12 +177,18 @@ Keep the outward reply to a status update, not an implementation report. The
 technical investigation, reproduction details, test results, file names, and
 internal reasoning stay internal unless the user explicitly asks for them.
 
-For every actionable item, say only:
+For every actionable item, use a plain-language label and one short status:
 
-- **Fixed** or **Not fixed yet**.
-- When it is expected to be live. If the current ship is expected to finish
-  that day, use "Expected live by EOD." If timing is not confirmed, say
-  "Timing not confirmed yet." Do not invent a release date.
+- For a requested change: **Fixed** or **Not fixed yet**.
+- For an unclear request: **Needs clarification**.
+- For a declined, skipped, or out-of-scope request: **Not planned** or **Not in
+  scope**.
+- For any item that still needs verification: **Verification pending**.
+
+Add one timing phrase to every status. If the current ship is expected to
+finish that day, use "Expected live by EOD." If timing is not confirmed, use
+"Timing not confirmed yet." For items that are not planned or in scope, use
+"No live date." Do not invent a release date.
 
 Use this format:
 
@@ -188,6 +196,8 @@ Use this format:
 ## Feedback Status
 - [plain-language item] - Fixed. Expected live by EOD.
 - [plain-language item] - Not fixed yet. Timing not confirmed yet.
+- [plain-language item] - Needs clarification. Timing not confirmed yet.
+- [plain-language item] - Not planned. No live date.
 ```
 
 Do not include implementation details, technical explanations, file paths,
