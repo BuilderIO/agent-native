@@ -517,7 +517,7 @@ function DesktopAppsGrid({
                     },
                     {
                       id: "pin",
-                      label: pinned ? "Unpin from top" : "Pin to top",
+                      label: pinned ? "Unpin this app" : "Pin this app",
                       icon: (
                         <IconPin size={14} strokeWidth={pinned ? 2.2 : 1.6} />
                       ),

@@ -24,6 +24,35 @@ import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 
 const SESSION_FILTER_KEYS = new Set(["range", "app", "q"]);
 const REPLAY_RANGES = new Set(["24h", "7d", "30d", "90d", "all"]);
+const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
+
+function dashboardIdFromPathname(pathname: string): string | null {
+  const match = pathname.match(DASHBOARD_PATH_RE);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function normalizedDashboardId(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isAskPathname(pathname: string): boolean {
+  return (
+    pathname === "" ||
+    pathname === "/" ||
+    pathname === "/ask" ||
+    pathname === "/overview"
+  );
+}
 
 export default defineAction({
   description:
@@ -38,10 +67,47 @@ export default defineAction({
       search?: string;
       searchParams?: Record<string, string>;
     } | null;
-    const selectedObject = await readAppStateForCurrentTab("selected-object");
+    const rawNav = navigation as any;
+    const pathname = typeof url?.pathname === "string" ? url.pathname : "";
+    const hasAuthoritativePathname = pathname.length > 0;
+    const pathnameDashboardId = hasAuthoritativePathname
+      ? dashboardIdFromPathname(pathname)
+      : null;
+    const navigationDashboardId = normalizedDashboardId(rawNav?.dashboardId);
+    // The URL is authoritative during route transitions in both directions.
+    // A stale Ask navigation object must not hide the dashboard selection or
+    // trigger Ask-only behavior after the URL has moved to a dashboard.
+    const isAskView = hasAuthoritativePathname
+      ? isAskPathname(pathname)
+      : rawNav?.view === "ask";
+    const hasStaleAskNavigation =
+      hasAuthoritativePathname && !isAskView && rawNav?.view === "ask";
+    const hasStaleDashboardNavigation =
+      hasAuthoritativePathname &&
+      rawNav?.view === "adhoc" &&
+      (pathnameDashboardId === null ||
+        navigationDashboardId !== pathnameDashboardId);
+    const effectiveNavigation = isAskView
+      ? { view: "ask" }
+      : pathnameDashboardId !== null
+        ? {
+            ...(rawNav?.view === "adhoc" &&
+            navigationDashboardId === pathnameDashboardId
+              ? rawNav
+              : {}),
+            view: "adhoc",
+            dashboardId: pathnameDashboardId,
+          }
+        : hasStaleAskNavigation || hasStaleDashboardNavigation
+          ? null
+          : navigation;
+    const nav = effectiveNavigation as any;
+    const selectedObject = isAskView
+      ? null
+      : await readAppStateForCurrentTab("selected-object");
 
     const screen: Record<string, unknown> = {};
-    if (navigation) screen.navigation = navigation;
+    if (effectiveNavigation) screen.navigation = effectiveNavigation;
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
 
@@ -64,8 +130,6 @@ export default defineAction({
         screen.activeFilters = activeFilters;
       }
     }
-
-    const nav = navigation as any;
 
     if (nav?.view === "adhoc" && nav?.dashboardId) {
       try {
