@@ -22,16 +22,22 @@ export function shouldShowPaginationRetry({
 
 /**
  * Run an explicit pagination retry without leaking a rejected provider promise
- * to the browser. React Query owns the visible error state for the next page.
+ * to the browser. The shared state closes the synchronous double-click window
+ * before React Query has reflected isFetchingNextPage.
  */
 export async function retryNextPage(
   fetchNextPage: () => Promise<unknown>,
+  inFlightState: { current: boolean },
 ): Promise<void> {
+  if (inFlightState.current) return;
+  inFlightState.current = true;
   try {
     await fetchNextPage();
-    // coercion-ok: React Query owns the error; catch prevents an unhandled retry rejection.
   } catch {
+    // coercion-ok: React Query owns the error; catch prevents an unhandled retry rejection.
     // React Query owns the visible error state for the failed page.
+  } finally {
+    inFlightState.current = false;
   }
 }
 

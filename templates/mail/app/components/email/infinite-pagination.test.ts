@@ -131,8 +131,32 @@ describe("infinite filtered pagination", () => {
     const fetchNextPage = vi.fn(async () => {
       throw new Error("provider unavailable");
     });
+    const inFlightState = { current: false };
 
-    await expect(retryNextPage(fetchNextPage)).resolves.toBeUndefined();
+    await expect(
+      retryNextPage(fetchNextPage, inFlightState),
+    ).resolves.toBeUndefined();
     expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    expect(inFlightState.current).toBe(false);
+  });
+
+  it("coalesces rapid explicit retries before React updates query state", async () => {
+    let resolveRequest: (() => void) | undefined;
+    const fetchNextPage = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    const inFlightState = { current: false };
+
+    const firstRetry = retryNextPage(fetchNextPage, inFlightState);
+    const secondRetry = retryNextPage(fetchNextPage, inFlightState);
+
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    expect(inFlightState.current).toBe(true);
+    resolveRequest?.();
+    await Promise.all([firstRetry, secondRetry]);
+    expect(inFlightState.current).toBe(false);
   });
 });

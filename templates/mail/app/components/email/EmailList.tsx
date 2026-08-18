@@ -64,7 +64,7 @@ import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
 import {
   observeNextPage,
-  retryNextPage,
+  retryNextPage as runPaginationRetry,
   shouldShowPaginationRetry,
 } from "./infinite-pagination";
 
@@ -420,6 +420,11 @@ export function EmailList({
     isFetchingNextPageProp ?? fetchedEmailsFetchingNextPage;
   const isFetchNextPageError =
     isFetchNextPageErrorProp ?? fetchedEmailsFetchNextPageError;
+  const paginationRetryInFlightRef = useRef(false);
+  const retryNextPage = useCallback(
+    () => runPaginationRetry(fetchNextPage, paginationRetryInFlightRef),
+    [fetchNextPage],
+  );
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
@@ -1620,7 +1625,7 @@ export function EmailList({
           }) && (
             <button
               type="button"
-              onClick={() => void retryNextPage(fetchNextPage)}
+              onClick={() => void retryNextPage()}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
             >
               {t("mail.error.tryAgain")}
@@ -1778,7 +1783,7 @@ export function EmailList({
             }) && (
               <button
                 type="button"
-                onClick={() => void retryNextPage(fetchNextPage)}
+                onClick={() => void retryNextPage()}
                 className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
               >
                 {t("mail.error.tryAgain")}

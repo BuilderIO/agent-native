@@ -35,7 +35,7 @@ describe("Inbox pagination", () => {
     const populatedState = source.indexOf("const virtualItems");
     expect(populatedState).toBeGreaterThan(-1);
     expect(source.slice(populatedState)).toContain("mail.error.tryAgain");
-    expect(source).toContain("retryNextPage(fetchNextPage)");
+    expect(source).toContain("runPaginationRetry(fetchNextPage");
     expect(inboxSource()).toContain("shouldShowInboxZero");
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
   });
