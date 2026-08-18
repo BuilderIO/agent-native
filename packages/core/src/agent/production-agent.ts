@@ -17,6 +17,7 @@ import {
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
+  stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -3501,19 +3502,40 @@ function extractToolSearchResultNamesFromMessages(
   return names;
 }
 
+/**
+ * Every tool the model is offered passes through here -- `defineAction`
+ * schemas, the hand-written ones in extensions/mcp/context tools, and whatever
+ * a third-party MCP server advertises. `defineAction` already sanitizes at
+ * construction, but nothing else did, so `extension-data-set` shipped a `data`
+ * property with a description and no `type` and OpenAI 400'd the entire
+ * request -- every tool in the payload, not just that one. Sanitizing here
+ * instead of at each definition site is what makes that unrepresentable.
+ *
+ * Sanitized on a clone: the hand-written schemas are module constants, and
+ * rewriting them in place would mutate shared state on first use.
+ */
 function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
   if (schema.type !== "object") return null;
+  let cloned: ActionTool["parameters"];
+  try {
+    cloned = JSON.parse(JSON.stringify(schema)) as ActionTool["parameters"];
+  } catch {
+    // A schema that will not round-trip is not one we can safely rewrite, and
+    // shipping it unsanitized is how this class of 400 reaches the provider.
+    return null;
+  }
+  const safe = stripUnsupportedSchemaKeywords(cloned);
   return {
-    ...schema,
+    ...safe,
     type: "object",
     properties:
-      schema.properties && typeof schema.properties === "object"
-        ? schema.properties
+      safe.properties && typeof safe.properties === "object"
+        ? safe.properties
         : {},
-    required: Array.isArray(schema.required) ? schema.required : [],
+    required: Array.isArray(safe.required) ? safe.required : [],
   };
 }
 

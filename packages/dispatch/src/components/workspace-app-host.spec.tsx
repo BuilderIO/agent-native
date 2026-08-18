@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientState = vi.hoisted(() => {
@@ -13,8 +14,19 @@ const clientState = vi.hoisted(() => {
   }));
   const legacyErrorMutateAsync = vi.fn();
   const actionNames: string[] = [];
+  const actionQueryParams: Array<{
+    name: string;
+    params?: unknown;
+  }> = [];
+  const actionQueryOptions: Array<{
+    name: string;
+    options?: Record<string, unknown>;
+  }> = [];
   return {
     actionNames,
+    actionQueryParams,
+    actionQueryOptions,
+    workspaceApps: null as Array<Record<string, unknown>> | null,
     grantedApps: [
       {
         id: "analytics.agent-native.com",
@@ -98,44 +110,54 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             : clientState.legacyMutateAsync,
     };
   },
-  useActionQuery: (name: string) => ({
-    data:
-      name === "list_apps"
-        ? { apps: clientState.grantedApps }
-        : [
-            {
-              id: "mail",
-              name: "Mail",
-              path: "/mail",
-              url: null,
-              status: "ready",
-            },
-            {
-              id: "calendar",
-              name: "Calendar",
-              path: "/calendar",
-              url: null,
-              status: "ready",
-            },
-            {
-              id: "documents",
-              name: "Documents",
-              path: "/documents",
-              url: null,
-              status: "ready",
-            },
-            {
-              id: "settings",
-              name: "Settings",
-              path: "/settings",
-              url: null,
-              status: "ready",
-            },
-          ],
-    isError: false,
-    isLoading: false,
-    refetch: vi.fn(),
-  }),
+  useActionQuery: (name: string, params?: unknown, options?: unknown) => {
+    clientState.actionQueryParams.push({ name, params });
+    clientState.actionQueryOptions.push({
+      name,
+      options:
+        options && typeof options === "object"
+          ? (options as Record<string, unknown>)
+          : undefined,
+    });
+    return {
+      data:
+        name === "list_apps"
+          ? { apps: clientState.grantedApps }
+          : (clientState.workspaceApps ?? [
+              {
+                id: "mail",
+                name: "Mail",
+                path: "/mail",
+                url: null,
+                status: "ready",
+              },
+              {
+                id: "calendar",
+                name: "Calendar",
+                path: "/calendar",
+                url: null,
+                status: "ready",
+              },
+              {
+                id: "documents",
+                name: "Documents",
+                path: "/documents",
+                url: null,
+                status: "ready",
+              },
+              {
+                id: "settings",
+                name: "Settings",
+                path: "/settings",
+                url: null,
+                status: "ready",
+              },
+            ]),
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -158,6 +180,9 @@ describe("WorkspaceAppKeepAlive", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     clientState.actionNames.length = 0;
+    clientState.actionQueryParams.length = 0;
+    clientState.actionQueryOptions.length = 0;
+    clientState.workspaceApps = null;
     clientState.legacyMutateAsync.mockClear();
     clientState.legacyMutateError = null;
     clientState.legacyErrorMutateAsync.mockReset();
@@ -212,6 +237,15 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(calendarEntry?.classList.contains("hidden")).toBe(false);
     expect(calendarEntry?.querySelector("iframe")).not.toBeNull();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
+    expect(
+      clientState.actionQueryParams.find(
+        (query) => query.name === "list-workspace-apps",
+      )?.params,
+    ).toEqual({ includeAgentCards: false, includeArchived: true });
+    expect(
+      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
+        ?.options?.enabled,
+    ).toBe(false);
   });
 
   it("resolves a granted external app instead of showing app not found", async () => {
@@ -236,6 +270,38 @@ describe("WorkspaceAppKeepAlive", () => {
       url: "https://analytics.agent-native.com",
       chrome: "minimal",
     });
+    expect(
+      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
+        ?.options?.enabled,
+    ).toBe(true);
+  });
+
+  it("does not resolve archived workspace apps from granted discovery", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "analytics.agent-native.com",
+        name: "Hidden app",
+        path: "/hidden-app",
+        url: null,
+        status: "ready",
+        archived: true,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-chat-first-app-status="ready"]'),
+    ).toBeNull();
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
   });
 
   it("uses the app-scoped workspace session action when the rollout is enabled", async () => {

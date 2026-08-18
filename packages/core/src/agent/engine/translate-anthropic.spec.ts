@@ -592,7 +592,6 @@ describe("redacted thinking blocks survive the round trip", () => {
     ).toEqual([{ type: "thinking", thinking: "step one", signature: "sig-1" }]);
   });
 });
-
 describe("unsendable thinking blocks", () => {
   it("drops an unsigned thinking block rather than sending an empty signature", () => {
     // An empty signature is rejected by the native API, which kills the whole

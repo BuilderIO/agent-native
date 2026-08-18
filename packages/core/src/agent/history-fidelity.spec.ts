@@ -209,7 +209,6 @@ describe("history fidelity: the replayed prefix is stable across turns", () => {
     expect(JSON.stringify(body.structuredHistory)).toContain("answer 19");
   });
 });
-
 /**
  * Reducing a long thread belongs to Observational Memory, which cannot help
  * with turns the client already dropped before the request left the browser.
