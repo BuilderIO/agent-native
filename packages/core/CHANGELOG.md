@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.161.4
+
+### Patch Changes
+
+- e0b883d: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
+- e0b883d: Record what was sent when an agent run errors. An errored run's capture now
+  carries the failed request's model, payload bytes, tool count, and message
+  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
+  user content — so an oversized request and an upstream outage stop producing
+  identical, undiagnosable captures.
+
+## 0.161.3
+
+### Patch Changes
+
+- 1e7ce6a: Bound durable-event pruning to one atomic Postgres statement so interrupted serverless workers cannot leave idle transactions behind.
+- 1e7ce6a: Re-arm Neon idle-transaction cleanup and bound concurrent agent-run pruning.
+
 ## 0.161.2
 
 ### Patch Changes
