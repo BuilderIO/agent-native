@@ -1345,7 +1345,7 @@ export class DesktopIdentityBroker {
     // Status notifications can arrive again after the child reloads. Keep a
     // matching session in place instead of minting another one-time ticket
     // and reloading the same WebView forever.
-    if (await this.hasMatchingIdentitySession(app).catch(() => false)) {
+    if (await this.hasMatchingIdentitySession(app)) {
       return true;
     }
     if (await this.hasAppSession(app)) {
