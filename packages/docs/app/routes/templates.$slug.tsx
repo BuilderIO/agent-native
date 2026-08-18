@@ -23,6 +23,12 @@ const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
   chat: 3,
 };
 
+const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
+  brain:
+    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc7547ae7a7c24af182de88207ed09ceb?format=webp&width=800&height=1200",
+  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc9d5591a45434fb6aaee85edc7ac7a8f?format=webp&width=800&height=1200",
+};
+
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);
 }
@@ -57,10 +63,13 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
 
 function TemplateFallbackArt({ template }: { template: Template }) {
   const t = useT();
-  if (template.screenshot) {
+  const screenshot =
+    genericHeroScreenshots[template.slug] ?? template.screenshot;
+
+  if (screenshot) {
     return (
       <img
-        src={template.screenshot}
+        src={screenshot}
         crossOrigin="anonymous"
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"

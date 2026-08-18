@@ -116,7 +116,7 @@ export default function DispatchTemplate() {
         }
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F928046e4a43348b493632048cb54c65b?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.dispatch.s001")}
             loading="lazy"

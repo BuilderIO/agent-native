@@ -108,7 +108,7 @@ export default function FormsTemplate() {
         description={<p className="m-0">{t("templateLanding.forms.s007")}</p>}
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdaf28ec63fc94830b6994fb4e5170551?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.forms.s001")}
             loading="lazy"

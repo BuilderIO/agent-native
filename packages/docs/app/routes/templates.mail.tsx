@@ -125,7 +125,7 @@ export default function MailTemplate() {
         }
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa687bc2aba5f4a609f284a91be01ddad?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.mail.s001")}
             loading="lazy"

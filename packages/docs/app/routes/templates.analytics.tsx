@@ -151,7 +151,7 @@ export default function AnalyticsTemplate() {
         }
         media={
           <img
-            src={template.screenshot}
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3f4ccd08294fc8adf06c02959886c8?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.analytics.s001")}
             loading="lazy"
