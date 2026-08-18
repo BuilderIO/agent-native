@@ -392,6 +392,37 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
+  it("preserves a chat-first deep route in the top window when embedded", async () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    const embedPath = "/emails?status=failed#latest";
+    const expectedUrl = new URL(
+      "/mail/emails?status=failed#latest",
+      window.location.href,
+    ).href;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{ id: "mail", name: "Mail", path: "/mail" }}
+          embedPath={embedPath}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(topWindow.location.href).toBe(expectedUrl);
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
   it("opens the app in the top window for a Builder webview", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
     const expectedUrl = new URL("/mail", window.location.href).href;

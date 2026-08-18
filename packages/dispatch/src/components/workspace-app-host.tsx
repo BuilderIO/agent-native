@@ -304,12 +304,19 @@ export function WorkspaceAppFrame({
     url: app.url,
   });
   const topWindowHref = useMemo(() => {
+    if (embedPath !== undefined) {
+      return workspaceAppDirectHref(
+        { path: app.path, url: app.url },
+        embedPath,
+      );
+    }
+
     const target = workspaceAppEmbedTarget({
       path: app.path ?? "",
       url: app.url,
     });
     return target.url ?? target.path ?? null;
-  }, [app.path, app.url]);
+  }, [app.path, app.url, embedPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
