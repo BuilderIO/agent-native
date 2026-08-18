@@ -7193,6 +7193,100 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
 export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 
 /**
+ * Consecutive chunks allowed to end on the SAME terminal error code having
+ * produced nothing before the chain stops.
+ *
+ * Two, because two independent recovery layers multiply here and neither can
+ * see the other: the engine already retried this identical request 3x with
+ * backoff before the error was ever emitted, and a recoverable error is also a
+ * continuation boundary, so every chunk that fails costs 4 gateway attempts
+ * and dispatches a fresh one. A production turn spent 27 background runs and
+ * 15 minutes on one message this way. The first repeat is the retry this path
+ * exists for; a second identical failure that moved nothing is evidence the
+ * retrying itself is what is broken, not the request.
+ */
+export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
+
+/**
+ * Forward progress inside ONE chunk, read from the events it actually emitted:
+ * assistant text or tool activity. Same evidence the agent-teams no-progress
+ * budget counts (`agent-teams.ts`), and the same events
+ * `endsAfterCompletedToolWithoutAssistantFinal` reads to tell an unfinished
+ * turn from a finished one.
+ */
+function chunkMadeForwardProgress(run: ActiveRun): boolean {
+  return run.events.some(
+    ({ event }) =>
+      (event.type === "text" && event.text.trim().length > 0) ||
+      event.type === "tool_start" ||
+      event.type === "tool_done",
+  );
+}
+
+/** Consecutive-identical-failure state for one chunk of a background chain. */
+export interface BackgroundNoProgressRepeat {
+  /** This chunk's terminal error code, when it ended having produced nothing. */
+  errorCode?: string;
+  /** Chunks in a row that ended on that code with no forward progress. */
+  count: number;
+  /** True once the streak reaches `MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`. */
+  tripped: boolean;
+}
+
+/**
+ * Advance the no-progress streak across a chunk boundary. A chunk that emitted
+ * any text or tool activity resets it even when it still ended in an error —
+ * that turn IS moving, and cutting it off is what would weaken recovery for
+ * truncated streams. So does a different error code, and so does a boundary
+ * with no error at all (a soft-timeout `auto_continue` is the run-manager's
+ * no-progress backstop to bound, not this one).
+ */
+export function resolveBackgroundNoProgressRepeat(opts: {
+  run: ActiveRun;
+  priorErrorCode?: string;
+  priorCount?: number;
+}): BackgroundNoProgressRepeat {
+  const last = opts.run.events.at(-1)?.event;
+  const errorCode = last?.type === "error" ? (last.errorCode ?? "").trim() : "";
+  if (!errorCode || chunkMadeForwardProgress(opts.run)) {
+    return { count: 0, tripped: false };
+  }
+  const prior =
+    opts.priorErrorCode === errorCode &&
+    typeof opts.priorCount === "number" &&
+    Number.isFinite(opts.priorCount)
+      ? Math.max(0, Math.floor(opts.priorCount))
+      : 0;
+  const count = prior + 1;
+  return {
+    errorCode,
+    count,
+    tripped: count >= MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  };
+}
+
+/**
+ * The single honest failure the breaker leaves behind. Keeps the underlying
+ * code and the gateway's own message (which carries its `ERROR ID:` reference)
+ * so the failure stays diagnosable, and marks it non-recoverable so neither
+ * this chain nor the client's continuation path re-enters it.
+ */
+export function backgroundNoProgressTerminalEvent(
+  run: ActiveRun,
+  repeat: BackgroundNoProgressRepeat,
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  const last = run.events.at(-1)?.event;
+  if (last?.type !== "error") return null;
+  return {
+    ...last,
+    error:
+      `${last.error}\n\nThis failed ${repeat.count} times in a row without ` +
+      `making any progress, so I stopped instead of retrying again.`,
+    recoverable: false,
+  };
+}
+
+/**
  * Whether this run should self-fire the next server-driven continuation chunk
  * instead of depending on the client to re-POST `auto_continue`. True for
  * either of two independently-gated cases, both requiring a recoverable
@@ -7206,7 +7300,9 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
  *     the durable background worker (`dispatchedToBackground` false) — a run
  *     already headed to the durable background path chains via the
  *     `isBackgroundWorker` branch above, never both.
- * Aborted / user-stopped runs do NOT chain either way.
+ * Aborted / user-stopped runs do NOT chain either way, and neither does a run
+ * whose no-progress streak has tripped
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`).
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -7227,6 +7323,10 @@ export function shouldChainBackgroundContinuation(opts: {
    * owned by the background circuit-breaker, not this path.
    */
   dispatchedToBackground?: boolean;
+  /** Streak state carried on the continuation marker — see
+   *  `resolveBackgroundNoProgressRepeat`. Absent on the first chunk. */
+  priorNoProgressErrorCode?: string;
+  priorNoProgressCount?: number;
 }): boolean {
   const eligible =
     opts.isBackgroundWorker ||
@@ -7236,7 +7336,12 @@ export function shouldChainBackgroundContinuation(opts: {
     eligible &&
     opts.run.status !== "aborted" &&
     endsAtContinuationBoundary(opts.run) &&
-    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
+    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS &&
+    !resolveBackgroundNoProgressRepeat({
+      run: opts.run,
+      priorErrorCode: opts.priorNoProgressErrorCode,
+      priorCount: opts.priorNoProgressCount,
+    }).tripped
   );
 }
 
@@ -7735,6 +7840,9 @@ export async function chainServerDrivenContinuation(opts: {
    *  is derived from it (marker stripped, `internalContinuation` set). */
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
+  /** This chunk's no-progress streak, carried to the successor so the breaker
+   *  can see a repeat across the invocation boundary. */
+  noProgressRepeat?: BackgroundNoProgressRepeat;
   /**
    * Input tokens this logical turn has consumed across every chunk so far,
    * carried on the successor's body so the per-turn token ceiling is a real
@@ -7869,6 +7977,12 @@ export async function chainServerDrivenContinuation(opts: {
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
+    ...(opts.noProgressRepeat?.errorCode
+      ? {
+          noProgressErrorCode: opts.noProgressRepeat.errorCode,
+          noProgressCount: opts.noProgressRepeat.count,
+        }
+      : {}),
     backgroundFunctionRuntimeExpected:
       continuationExpectsNetlifyBackgroundFunction,
   };
@@ -8316,6 +8430,17 @@ export function createProductionAgentHandler(
       typeof backgroundRunMarker?.continuationCount === "number" &&
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
+        : 0;
+    // No-progress streak so far, carried on the marker: this invocation has no
+    // other memory of what the previous chunk failed with.
+    const priorNoProgressErrorCode =
+      typeof backgroundRunMarker?.noProgressErrorCode === "string"
+        ? backgroundRunMarker.noProgressErrorCode
+        : undefined;
+    const priorNoProgressCount =
+      typeof backgroundRunMarker?.noProgressCount === "number" &&
+      Number.isFinite(backgroundRunMarker.noProgressCount)
+        ? Math.max(0, Math.floor(backgroundRunMarker.noProgressCount))
         : 0;
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
@@ -9617,6 +9742,12 @@ export function createProductionAgentHandler(
       typeof threadId === "string" &&
       threadId.trim().length > 0 &&
       isAgentChatForegroundSelfChainEnabled();
+    const noProgressRepeatForRun = (run: ActiveRun) =>
+      resolveBackgroundNoProgressRepeat({
+        run,
+        priorErrorCode: priorNoProgressErrorCode,
+        priorCount: priorNoProgressCount,
+      });
     const willChainBackgroundContinuation = (run: ActiveRun) =>
       shouldChainBackgroundContinuation({
         isBackgroundWorker,
@@ -9624,6 +9755,8 @@ export function createProductionAgentHandler(
         continuationCount: backgroundContinuationCount,
         foregroundSelfChainEligible,
         dispatchedToBackground: dispatchToBackground,
+        priorNoProgressErrorCode,
+        priorNoProgressCount,
       });
 
     const completeTrackedProgressRun = async (
@@ -9763,7 +9896,33 @@ export function createProductionAgentHandler(
             // succeeded — a dispatch fast-fail degrades to the inline
             // foreground fallback, which is not a worker and rides the
             // connected client's auto_continue instead.)
-            if (willChainBackgroundContinuation(run)) {
+            const noProgressRepeat = noProgressRepeatForRun(run);
+            if (noProgressRepeat.tripped) {
+              // The two recovery layers on this path multiply and cannot see
+              // each other: the engine retried this exact request 3x before
+              // emitting the error, and the error is itself a continuation
+              // boundary, so an unfixable failure buys 4 gateway attempts and
+              // then dispatches a fresh run to buy 4 more. Replace the chain
+              // with one non-recoverable terminal error carrying the original
+              // code and gateway reference.
+              const terminalEvent = backgroundNoProgressTerminalEvent(
+                run,
+                noProgressRepeat,
+              );
+              if (terminalEvent) {
+                run.continuationTerminalEvent = terminalEvent;
+                console.error(
+                  `[agent-chat] stopping background chain: ${noProgressRepeat.errorCode} ` +
+                    `failed ${noProgressRepeat.count}x with no progress`,
+                  run.runId,
+                );
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
+                ).catch(() => {});
+              }
+            } else if (willChainBackgroundContinuation(run)) {
               // Full handoff discipline lives in
               // `chainServerDrivenContinuation` (exported + unit-tested):
               // per-turn SQL run budget, successor row PRE-INSERTED before
@@ -9776,6 +9935,7 @@ export function createProductionAgentHandler(
                 effectiveTurnId,
                 requestBody: body as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
+                noProgressRepeat,
                 turnInputTokens,
                 // Re-evaluate the durable gate rather than keying off
                 // isBackgroundWorker: a successor chunk of a FOREGROUND

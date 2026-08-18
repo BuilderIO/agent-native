@@ -54,14 +54,17 @@ export interface ActiveRun {
   abort: AbortController;
   abortReason?: string;
   /**
-   * Terminal event to emit when a server-driven continuation has been handed
-   * off successfully. The continuation runs outside this process, so the
-   * normal loop-level auto_continue event is not sent through this run's
-   * `send` callback.
+   * Terminal event the completion callback installs in place of the one the
+   * loop stashed: `auto_continue` when a server-driven continuation has been
+   * handed off successfully (that continuation runs outside this process, so
+   * the loop-level auto_continue never goes through this run's `send`), or
+   * `error` when the callback decided the turn must stop here instead — the
+   * stashed error is recoverable by construction, so leaving it in place
+   * re-enters the very chain the callback just refused to continue.
    */
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
-    { type: "auto_continue" }
+    { type: "auto_continue" } | { type: "error" }
   >;
   startedAt: number;
 }
@@ -1619,6 +1622,13 @@ export function startRun(
                 }
               : run;
           await onComplete(completionRun);
+          // `completionRun` is a shallow COPY whenever the loop stashed a
+          // terminal event, so a callback that installs its own terminal
+          // event writes it to the copy and `resolveTerminalEventForCompletion`
+          // below never sees it — the run then emits the pre-callback event
+          // the callback was overriding.
+          run.continuationTerminalEvent ??=
+            completionRun.continuationTerminalEvent;
         } catch (err) {
           completionError = err;
           captureRunError(err, "completion");
