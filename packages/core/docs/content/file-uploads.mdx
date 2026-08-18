@@ -1,11 +1,11 @@
 ---
 title: "File Uploads"
-description: "Configure durable file upload storage — Builder.io or custom object storage for production."
+description: "Configure durable file upload storage with Builder.io or a custom object storage provider for production."
 ---
 
 # File Uploads
 
-The framework provides a file upload abstraction that routes uploads through a configurable provider. Templates call `uploadFile()` and get back a URL — the storage backend is swappable without changing application code.
+The framework provides a file upload abstraction that routes uploads through a configurable provider. Templates call `uploadFile()` and get back a URL. The storage backend is swappable without changing application code.
 
 ## How It Works {#how-it-works}
 
@@ -13,9 +13,9 @@ Upload requests go to `POST /_agent-native/file-upload`, which dispatches to the
 
 The provider resolution order is:
 
-1. **User-registered providers** — custom providers registered via `registerFileUploadProvider()`
-2. **Builder.io provider** — built-in, activates automatically when Builder.io is connected
-3. **No provider** — the upload is rejected and the chat renders a storage setup CTA; binary data is never persisted in SQL
+1. **User-registered providers**: custom providers registered via `registerFileUploadProvider()`.
+2. **Builder.io provider**: built-in, and it activates automatically when Builder.io is connected.
+3. **No provider**: the upload is rejected and the chat renders a storage setup CTA. Binary data is never persisted in SQL.
 
 Among user-registered providers, the first one registered that reports
 itself configured wins. `registerFileUploadProvider()` is idempotent per
@@ -44,7 +44,7 @@ uploads through it would succeed.
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         User-registered<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >registerFileUploadProvider() for S3, R2, GCS…</small
         >
       </div>
     </div>
@@ -52,7 +52,7 @@ uploads through it would succeed.
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >auto when connected — CDN-served</small
+          >auto when connected, CDN-served</small
         >
       </div>
     </div>
@@ -60,7 +60,7 @@ uploads through it would succeed.
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
         No provider<br /><small class="diagram-muted"
-          >setup CTA — no binary persistence</small
+          >setup CTA, no binary persistence</small
         >
       </div>
     </div>
@@ -98,7 +98,7 @@ uploads through it would succeed.
 }} responses={[
   {
     "status": "201",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "description": "`{ url, id?, provider }`: the public URL and which provider handled it."
   },
   {
     "status": "401",
@@ -214,15 +214,15 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // No provider configured — show the storage setup CTA, or skip
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
 
 ## Resumable / Streaming Uploads {#resumable}
 
-A provider can optionally implement a `resumable` block on `FileUploadProvider` for uploads that need to stream to storage as data arrives instead of buffering the whole file first — the Clips template uses this to relay a recording to storage chunk-by-chunk while it is still being recorded, rather than assembling the full blob after the recorder stops.
+A provider can optionally implement a `resumable` block on `FileUploadProvider` for uploads that need to stream to storage as data arrives instead of buffering the whole file first. The Clips template uses this to relay a recording to storage chunk-by-chunk while it is still being recorded, rather than assembling the full blob after the recorder stops.
 
 ```ts
 interface FileUploadProvider {
@@ -262,7 +262,7 @@ interface ResumableChunkResult {
 }
 ```
 
-When `resumable` is present, callers that stream data in (like a recorder) call `startSession` once, `relayChunk` repeatedly as bytes arrive, and `completeSession` when the stream ends — instead of the single buffered `upload()` call. A provider with no `resumable` block only ever sees the buffered path; implement it only when your storage backend has a native chunked/resumable upload API (S3 multipart, GCS resumable uploads, etc.) worth exposing.
+When `resumable` is present, callers that stream data in (like a recorder) call `startSession` once, `relayChunk` repeatedly as bytes arrive, and `completeSession` when the stream ends. This replaces the single buffered `upload()` call. A provider with no `resumable` block only ever sees the buffered path. Implement it only when your storage backend has a native chunked/resumable upload API (S3 multipart, GCS resumable uploads, etc.) worth exposing.
 
 ## What's next
 
