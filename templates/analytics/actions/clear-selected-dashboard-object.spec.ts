@@ -4,11 +4,18 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 
-const readAppState = vi.fn();
+const appStateKeyForBrowserTab = vi.fn(
+  (key: string, browserTabId: string | null) =>
+    browserTabId ? `${key}:${browserTabId}` : key,
+);
 const compareAndSetAppState = vi.fn();
+const getCurrentRequestBrowserTabId = vi.fn(() => "test-tab");
+const readAppStateForCurrentTab = vi.fn();
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateKeyForBrowserTab,
   compareAndSetAppState,
-  readAppState,
+  getCurrentRequestBrowserTabId,
+  readAppStateForCurrentTab,
 }));
 
 const action = (await import("./clear-selected-dashboard-object.js")).default;
@@ -17,6 +24,8 @@ describe("clear-selected-dashboard-object", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     compareAndSetAppState.mockResolvedValue(true);
+    getCurrentRequestBrowserTabId.mockReturnValue("test-tab");
+    readAppStateForCurrentTab.mockResolvedValue(null);
   });
 
   it.each([
@@ -34,21 +43,24 @@ describe("clear-selected-dashboard-object", () => {
       ...selection,
       __agentNativeSelectedObjectSource: "test-tab",
     };
-    readAppState.mockResolvedValue(current);
+    readAppStateForCurrentTab.mockResolvedValue(current);
 
     await expect(
       action.run({ dashboardId: "dash-1", source: "test-tab" }),
     ).resolves.toEqual({ cleared: true });
 
     expect(compareAndSetAppState).toHaveBeenCalledWith(
-      "selected-object",
+      "selected-object:test-tab",
       current,
       null,
     );
+    expect(readAppStateForCurrentTab).toHaveBeenCalledWith("selected-object", {
+      fallbackToGlobal: false,
+    });
   });
 
   it("does not clear a selection owned by another tab", async () => {
-    readAppState.mockResolvedValue({
+    readAppStateForCurrentTab.mockResolvedValue({
       type: "dashboard",
       id: "dash-1",
       __agentNativeSelectedObjectSource: "other-tab",
@@ -61,7 +73,7 @@ describe("clear-selected-dashboard-object", () => {
   });
 
   it("does not let an old dashboard cleanup clear the next dashboard", async () => {
-    readAppState.mockResolvedValue({
+    readAppStateForCurrentTab.mockResolvedValue({
       type: "dashboard",
       id: "dash-2",
       __agentNativeSelectedObjectSource: "test-tab",
@@ -79,7 +91,7 @@ describe("clear-selected-dashboard-object", () => {
       id: "dash-1",
       __agentNativeSelectedObjectSource: "test-tab",
     };
-    readAppState.mockResolvedValue(current);
+    readAppStateForCurrentTab.mockResolvedValue(current);
     compareAndSetAppState.mockResolvedValue(false);
 
     await expect(
@@ -99,7 +111,7 @@ describe("clear-selected-dashboard-object", () => {
       panelId: "panel-2",
       __agentNativeSelectedObjectSource: "test-tab",
     };
-    readAppState.mockResolvedValue(newerSelection);
+    readAppStateForCurrentTab.mockResolvedValue(newerSelection);
     compareAndSetAppState.mockResolvedValue(false);
 
     await expect(
@@ -110,7 +122,7 @@ describe("clear-selected-dashboard-object", () => {
     ).resolves.toEqual({ cleared: false });
 
     expect(compareAndSetAppState).toHaveBeenCalledWith(
-      "selected-object",
+      "selected-object:test-tab",
       originalSelection,
       null,
     );
