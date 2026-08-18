@@ -319,7 +319,7 @@ describe("dev server mounted path helpers", () => {
 
     const request: any = {
       url: "/_agent-native/speculation-rules.json",
-      headers: { accept: "application/json", "sec-fetch-dest": "empty" },
+      headers: { accept: "application/json" },
     };
     const next = vi.fn();
     middleware?.(request, {}, next);
@@ -333,6 +333,36 @@ describe("dev server mounted path helpers", () => {
     };
     middleware?.(assetRequest, {}, vi.fn());
     expect(assetRequest.headers.accept).toBe("image/png");
+  });
+
+  it("preserves document and iframe destinations for embed-start", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+
+    for (const destination of ["document", "iframe"]) {
+      const request: any = {
+        url: "/_agent-native/embed/start",
+        headers: {
+          accept: "text/html",
+          "sec-fetch-dest": destination,
+        },
+      };
+      const next = vi.fn();
+
+      middleware?.(request, {}, next);
+
+      expect(request.headers["sec-fetch-dest"]).toBe(destination);
+      expect(next).toHaveBeenCalledOnce();
+    }
   });
 
   it("serves base-prefixed Vite module requests for embed sessions", async () => {

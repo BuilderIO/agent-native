@@ -1962,7 +1962,12 @@ function frameworkDevDynamicForwarder(): Plugin {
               ? `text/html,${accept}`
               : "text/html";
           }
-          req.headers["sec-fetch-dest"] = "empty";
+          // Embed-start uses document/iframe to select its transplant response.
+          // Only supply the classifier hint when the browser did not provide a
+          // destination; never overwrite the request's original intent.
+          if (req.headers["sec-fetch-dest"] === undefined) {
+            req.headers["sec-fetch-dest"] = "empty";
+          }
         }
         next();
       });
