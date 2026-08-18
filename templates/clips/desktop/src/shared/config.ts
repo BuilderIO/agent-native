@@ -129,7 +129,6 @@ export interface FeatureConfig {
   showInScreenCapture: boolean;
   regionGuides: RegionGuidesConfig;
   screenMemory: ScreenMemoryConfig;
-  onboardingComplete: boolean;
   whisperModelEnabled: boolean;
   whisperModelId: string;
 }

@@ -36,9 +36,13 @@ import {
   setClientAppState,
   useReconciledState,
   useChangeVersion,
+  useChangeVersions,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import {
+  getBuilderParentOrigin,
+  isEmbedAuthActive,
+} from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
@@ -53,7 +57,13 @@ import {
   normalizeDocumentTitle,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareTab,
+  parseCreativeContexts,
+  useCreativeContexts,
+  useCreativeContextState,
+  readCreativeContextState,
+} from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
   RemoteSelectionRings,
@@ -70,6 +80,10 @@ import {
   getBreakpointOverrideState,
   removeBreakpointMediaDeclaration,
 } from "@shared/breakpoint-media";
+import {
+  builderPreviewOrigin,
+  isBuilderPreviewUrl,
+} from "@shared/builder-preview-url";
 import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
@@ -138,7 +152,10 @@ import {
 } from "@shared/responsive-classes";
 import { createElementReviewAnchor } from "@shared/review-anchor";
 import { readDesignReviewSummary } from "@shared/review-summary";
-import { normalizeDesignSourceType } from "@shared/source-mode";
+import {
+  isRunningAppSourceType,
+  normalizeDesignSourceType,
+} from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import {
   IconArrowLeft,
@@ -437,6 +454,14 @@ import {
   sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
+  builderSelectionChip,
+  sendBuilderSelectionContext,
+} from "@/lib/builder-host-chat";
+import {
+  isBuilderHostEmbed,
+  rememberBuilderHostOrigin,
+} from "@/lib/builder-host-origin";
+import {
   acknowledgeClipboardContentMutation,
   publishClipboardContentMutation,
   type ClipboardContentLineage,
@@ -473,6 +498,7 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
+import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import {
   canCopyFigmaSvgToClipboard,
@@ -498,6 +524,12 @@ import {
   PngClipboardError,
 } from "@/lib/png-clipboard";
 import { prettyScreenName } from "@/lib/screen-names";
+import {
+  SHELL_DESIGN_ID,
+  buildShellDesign,
+  shellContextChanged,
+  type ShellDesignInput,
+} from "@/lib/shell-design";
 import { cn } from "@/lib/utils";
 
 import { actionErrorDetail } from "./design-editor/action-error";
@@ -561,6 +593,8 @@ import {
   isClientRenderedMountShell,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
+  liveNudgeReorderHandoff,
+  nudgeBaseContentForScreen,
   preferredCodeLayerSelector,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
@@ -568,6 +602,7 @@ import {
   renameFilenamePreservingExtension,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
+  resolveSelectedCodeLayerNode,
   runtimeLayerStateHandoffMode,
   type SelectedLayerTarget,
   shouldDeleteThroughLiveScreen,
@@ -578,6 +613,10 @@ import {
   shouldRebaseCollabDocFromStoredContent,
 } from "./design-editor/collab-sync";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
+import {
+  designPrecedentDirectives,
+  loadCreativeContextPrecedent,
+} from "./design-editor/creative-context-precedent";
 import {
   adaptAutoTextColorForCrossScreenNode,
   BOARD_TEXT_AUTO_COLOR_MARKER,
@@ -895,6 +934,7 @@ import {
   isSingleScreenAnnotationTool,
   MOVE_GROUP_TOOL_PRESENTATIONS,
   normalizeDesignLeftPanel,
+  normalizeDesignMode,
   normalizeDesignTool,
   resolveModeChangeView,
   shouldAutoEnableDrawOverlay,
@@ -918,6 +958,7 @@ import {
   type ShapeTool,
   FOCUSED_SCREEN_ZOOM,
   SHOW_DESIGN_CODE_LEFT_PANEL,
+  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
 
 // Selection is tab-scoped (like navigation) so a second editor tab cannot
@@ -1017,6 +1058,8 @@ interface PendingStructureVerificationSession {
 }
 
 const PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS = 60_000;
+/** Auto-submitted turns report `generating` within a second; this is the giveup. */
+const HOST_TURN_START_TIMEOUT_MS = 15_000;
 const PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS = 15_000;
 const PENDING_STRUCTURE_SOURCE_POLL_MS = 750;
 const PENDING_STRUCTURE_RUNTIME_POLL_MS = 150;
@@ -1162,9 +1205,74 @@ const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "code",
 ]);
 
+/**
+ * What the host's chat should call the selected element. Prefers the source
+ * component name, since that is what the coding agent has to go find.
+ */
+function describeSelectionForHost(element: ElementInfo): {
+  label: string;
+  detail: string;
+} {
+  const text = element.textContent?.trim();
+  const label =
+    element.provenance?.component ||
+    element.componentName ||
+    (text ? text.slice(0, 60) : "") ||
+    element.tagName.toLowerCase();
+  // A minted runtime node id means nothing to a coding agent, so it is the
+  // last resort behind anything that points at source.
+  const provenance = element.provenance;
+  const sourceFile = provenance?.sourceFile
+    ? `${provenance.sourceFile}${provenance.line ? `:${provenance.line}` : ""}`
+    : null;
+  const classSelector = element.classes?.length
+    ? `${element.tagName.toLowerCase()}.${element.classes.slice(0, 2).join(".")}`
+    : null;
+  const detail =
+    sourceFile ??
+    classSelector ??
+    element.selector ??
+    element.tagName.toLowerCase();
+  return { label, detail };
+}
+
+/**
+ * The host renders its own chat over this panel's box, so the panel reserves
+ * the space and reports where it landed rather than rendering a chat itself.
+ */
+const HOST_CHAT_SLOT_MESSAGE = "agentNative.chatSlot";
+
+/**
+ * Repaint the running-app frames once the coding agent finishes a turn.
+ *
+ * The container is framed cross-origin, so this asks its bridge bootstrap to
+ * reload itself — reading or reloading the frame from here would throw. The
+ * bootstrap restores scroll, which this side can no longer measure.
+ */
+function reloadRunningAppPreviewFrames(): void {
+  if (typeof document === "undefined") return;
+  const frames = document.querySelectorAll<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  for (const frame of frames) {
+    const src = frame.getAttribute("src");
+    if (!src) continue;
+    let origin: string;
+    try {
+      origin = new URL(src, window.location.href).origin;
+      // coercion-ok: an unparsable src names no container to reload.
+    } catch {
+      continue;
+    }
+    if (origin === window.location.origin) continue;
+    frame.contentWindow?.postMessage({ type: "agentNative.reload" }, origin);
+  }
+}
+
 function DesignWorkspaceRail({
   activePanel,
   disabledPanels,
+  hiddenPanels,
   motionOpen,
   motionDisabled,
   projectMenu,
@@ -1173,6 +1281,7 @@ function DesignWorkspaceRail({
 }: {
   activePanel: DesignLeftPanel;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  hiddenPanels?: ReadonlySet<DesignLeftPanel>;
   motionOpen?: boolean;
   motionDisabled?: boolean;
   projectMenu: ReactNode;
@@ -1196,26 +1305,34 @@ function DesignWorkspaceRail({
       label: t("designEditor.leftRail.agent"),
       icon: <IconMessage className="size-[15px]" />,
     },
-    {
-      panel: "assets",
-      label: t("designEditor.leftRail.assets"),
-      icon: <IconPhoto className="size-[15px]" />,
-    },
+    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? [
+          {
+            panel: "assets" as const,
+            label: t("designEditor.leftRail.assets"),
+            icon: <IconPhoto className="size-[15px]" />,
+          },
+        ]
+      : []),
     {
       panel: "import",
       label: t("designEditor.leftRail.import"),
       icon: <IconFileImport className="size-[15px]" />,
     },
-    {
-      panel: "tools",
-      label: t("designEditor.leftRail.tools"),
-      icon: <IconPuzzle className="size-[15px]" />,
-    },
-    {
-      panel: "tokens",
-      label: t("designEditor.leftRail.tokens"),
-      icon: <IconAssembly className="size-[15px]" />,
-    },
+    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? [
+          {
+            panel: "tools" as const,
+            label: t("designEditor.leftRail.tools"),
+            icon: <IconPuzzle className="size-[15px]" />,
+          },
+          {
+            panel: "tokens" as const,
+            label: t("designEditor.leftRail.tokens"),
+            icon: <IconAssembly className="size-[15px]" />,
+          },
+        ]
+      : []),
     ...(SHOW_DESIGN_CODE_LEFT_PANEL
       ? [
           {
@@ -1239,6 +1356,7 @@ function DesignWorkspaceRail({
       <div className="mb-5 h-px w-8 bg-border/70" />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
         {items.map((item) => {
+          if (hiddenPanels?.has(item.panel)) return null;
           const active = item.panel === activePanel;
           const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
@@ -2195,9 +2313,76 @@ function DesignEditor() {
     return value === "save" || value === "share" ? value : null;
   }, [searchParams]);
   const queryClient = useQueryClient();
-  const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
-  const embedded = isEmbedAuthActive();
+  /**
+   * Shell mode: the host drives the whole canvas over `design:init` and nothing
+   * is persisted, so there is no design row to read and no session to hold.
+   */
+  const shellMode = id === SHELL_DESIGN_ID;
+  // The shell route is host-embedded by definition and carries no embed session,
+  // so every `embedded` behaviour below would otherwise read as a standalone
+  // Design page and put our own chrome and agent inside Builder's.
+  const embedded = shellMode || isEmbedAuthActive();
+  // The shell keeps our rails and hands the host only the chat, so it must not
+  // depend on `embedChrome` surviving in the URL Builder builds.
+  const hostOwnsChrome = embedded && !shellMode && !isEmbedChromeRequested();
+  // Framed by a host that supplies the chat but not the canvas chrome: our
+  // rails stay, our agent surface does not.
+  const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
+    isBuilderHostEmbed(),
+  );
+  const hostEmbeddedEditor =
+    embedded && !hostOwnsChrome && builderHostConfirmed;
+  const hostChatSlotRef = useRef<HTMLDivElement | null>(null);
+  const hostChatGeneratingRef = useRef(false);
+  const hostChatSlotObserverRef = useRef<ResizeObserver | null>(null);
+  const postHostChatSlotRect = useCallback(() => {
+    if (!hostEmbeddedEditor) return;
+    const box = hostChatSlotRef.current?.getBoundingClientRect();
+    // A hidden panel measures 0x0. That is "not on screen", so the host hides
+    // its chat instead of pinning it to a degenerate box.
+    const rect =
+      box && box.width > 0 && box.height > 0
+        ? {
+            x: Math.round(box.left),
+            y: Math.round(box.top),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          }
+        : null;
+    window.parent.postMessage(
+      { type: HOST_CHAT_SLOT_MESSAGE, data: { rect } },
+      getBuilderParentOrigin() ?? "*",
+    );
+  }, [hostEmbeddedEditor]);
+  // A callback ref, not an effect: the slot unmounts with the whole sidebar,
+  // and switching panels only changes its box, which the observer already sees.
+  const attachHostChatSlot = useCallback(
+    (node: HTMLDivElement | null) => {
+      hostChatSlotRef.current = node;
+      hostChatSlotObserverRef.current?.disconnect();
+      hostChatSlotObserverRef.current = null;
+      if (node && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => postHostChatSlotRect());
+        observer.observe(node);
+        hostChatSlotObserverRef.current = observer;
+      }
+      postHostChatSlotRect();
+    },
+    [postHostChatSlotRect],
+  );
+  useEffect(() => {
+    if (!hostEmbeddedEditor) return;
+    window.addEventListener("resize", postHostChatSlotRect);
+    return () => {
+      window.removeEventListener("resize", postHostChatSlotRect);
+      window.parent.postMessage(
+        { type: HOST_CHAT_SLOT_MESSAGE, data: { rect: null } },
+        getBuilderParentOrigin() ?? "*",
+      );
+    };
+  }, [hostEmbeddedEditor, postHostChatSlotRect]);
+
   const designChatScope = useMemo(
     () => (id ? ({ type: "design" as const, id } as const) : null),
     [id],
@@ -2217,6 +2402,7 @@ function DesignEditor() {
   const [builderPreviewUrl, setBuilderPreviewUrl] = useState<string | null>(
     null,
   );
+  const [shellInput, setShellInput] = useState<ShellDesignInput | null>(null);
 
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
@@ -2279,6 +2465,22 @@ function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  // The host's chat is the only chat here, so a canvas selection has to reach
+  // its composer to be usable as context.
+  const hostSelectionChipRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hostEmbeddedEditor) return;
+    if (!selectedElement) {
+      hostSelectionChipRef.current = null;
+      return;
+    }
+    const chip = builderSelectionChip(
+      describeSelectionForHost(selectedElement),
+    );
+    if (hostSelectionChipRef.current === chip) return;
+    hostSelectionChipRef.current = chip;
+    sendBuilderSelectionContext(describeSelectionForHost(selectedElement));
+  }, [hostEmbeddedEditor, selectedElement]);
   // Committed selection for synchronous reads in the echo-loop guard. Synced
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
@@ -2487,7 +2689,22 @@ function DesignEditor() {
     },
     [],
   );
+  // A handoff the host only prefilled. Its edits stay pending until a host turn
+  // settles, which is the one signal that the prompt was actually run.
+  // "awaiting-start" until the host reports generating: a turn that was already
+  // running when Apply was clicked would otherwise settle and be read as ours.
+  const stagedSourceHandoffRef = useRef<"idle" | "awaiting-start" | "running">(
+    "idle",
+  );
+  const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
+  const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
+    stagedSourceHandoffRef.current = "idle";
+    setApplyingViaHost(false);
+    if (stagedHandoffStartTimerRef.current !== undefined) {
+      window.clearTimeout(stagedHandoffStartTimerRef.current);
+      stagedHandoffStartTimerRef.current = undefined;
+    }
     cancelPendingStructureVerification();
     pendingVisualStyleUndoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -2503,6 +2720,10 @@ function DesignEditor() {
     setPendingVisualStyleEdits([]);
     setPendingLiveNonStyleEdits([]);
   }, [cancelPendingStructureVerification]);
+  const clearPendingLiveEditStateRef = useRef(clearPendingLiveEditState);
+  useEffect(() => {
+    clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
+  }, [clearPendingLiveEditState]);
   useEffect(() => {
     if (!pendingVisualStyleRevertRequest) return;
     const timeout = window.setTimeout(() => {
@@ -3011,7 +3232,7 @@ function DesignEditor() {
   // effect OR via this tab's OWN setActiveBreakpointMutation write (every
   // local breakpoint-bar handler seeds this ref immediately, before the
   // mutation even resolves). Without this, the UI's own write would bump
-  // `appStateVersion`, the effect would read back the exact value this tab
+  // targeted app-state counter, the effect would read back the exact value this tab
   // just wrote, and needlessly re-run every local state setter on every local
   // breakpoint chip click — this ref short-circuits that echo. Mirrors the
   // "ignoreSource" convention `useDbSync({ ignoreSource: getBrowserTabId() })`
@@ -3042,13 +3263,21 @@ function DesignEditor() {
   const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
   const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
 
+  // Two ways in: the legacy `design_host=builder` preview, and the shell route,
+  // which carries no such param. Builder waits on `appReady` before sending the
+  // preview URL, so gating on the param alone left the shell permanently
+  // unsynced.
+  const builderHostProtocolActive = isBuilderDesignEmbed || hostEmbeddedEditor;
   useEffect(() => {
-    if (!isBuilderDesignEmbed) return;
+    if (!builderHostProtocolActive) return;
     // Announce ready to Builder. The trusted origin is not yet known at this
     // point so we use "*" — this message carries no user data.
     window.parent.postMessage({ type: "agentNative.appReady" }, "*");
 
     function handleDesignHostMessage(event: MessageEvent) {
+      // The host is the embedder, so anything else — a sibling frame, a popup —
+      // is not it, even from an allowed origin.
+      if (event.source !== window.parent) return;
       // Only accept messages from builder.io origins
       const origin = event.origin ?? "";
       try {
@@ -3075,27 +3304,101 @@ function DesignEditor() {
         if (!parentOriginRef.current) {
           parentOriginRef.current = origin;
         }
-        const { previewUrl, themeVars } = data.data ?? {};
-        // Apply theme vars
-        if (themeVars && typeof themeVars === "object") {
-          const root = document.documentElement;
-          for (const [key, value] of Object.entries(
-            themeVars as Record<string, string>,
-          )) {
-            if (typeof value === "string") {
-              root.style.setProperty(key, value);
+        rememberBuilderHostOrigin(origin);
+        const { previewUrl, routes, context } = data.data ?? {};
+        // The origin arrives from the parent now rather than a signed claim, so
+        // it is only trusted if it looks like a Builder preview host.
+        if (typeof previewUrl === "string" && isBuilderPreviewUrl(previewUrl)) {
+          setBuilderPreviewUrl(previewUrl);
+          const nextShellInput: ShellDesignInput = {
+            previewOrigin: builderPreviewOrigin(previewUrl),
+            routes: Array.isArray(routes)
+              ? routes.flatMap((route: unknown) => {
+                  const path = (route as { path?: unknown })?.path;
+                  return typeof path === "string" && path ? [{ path }] : [];
+                })
+              : [],
+            projectId: context?.projectId,
+            branchName: context?.branchName,
+            builderOrgId: context?.builderOrgId,
+            contentId: context?.contentId ?? undefined,
+          };
+          // The host resends `design:init` on unrelated changes. Replacing this
+          // state with an equivalent object rebuilds the design, which the canvas
+          // reads as a new document and remounts every frame mid-session.
+          setShellInput((current) => {
+            if (
+              current &&
+              JSON.stringify(current) === JSON.stringify(nextShellInput)
+            ) {
+              return current;
             }
+            // Edits describe elements in the previous branch's running app, so
+            // handing them to the new branch's agent would apply them to the
+            // wrong source.
+            if (current && shellContextChanged(current, nextShellInput)) {
+              clearPendingLiveEditStateRef.current();
+            }
+            return nextShellInput;
+          });
+        }
+      }
+
+      if (data.type === "design:previewUrlChanged") {
+        const nextPreviewUrl = data.data?.previewUrl;
+        if (
+          typeof nextPreviewUrl === "string" &&
+          isBuilderPreviewUrl(nextPreviewUrl)
+        ) {
+          setBuilderPreviewUrl(nextPreviewUrl);
+          const previewOrigin = builderPreviewOrigin(nextPreviewUrl);
+          setShellInput((current) => {
+            if (!current || current.previewOrigin === previewOrigin) {
+              return current;
+            }
+            clearPendingLiveEditStateRef.current();
+            return { ...current, previewOrigin };
+          });
+        }
+      }
+
+      if (data.type === "design:showChat") {
+        setActiveLeftPanel("agent");
+      }
+
+      if (data.type === "design:chatState") {
+        const next = data.data?.state;
+        // Fires once per turn, not per file write: the agent edits source while
+        // generating, so the container has rebuilt by the time it settles.
+        if (
+          next === "generating" &&
+          stagedSourceHandoffRef.current === "awaiting-start"
+        ) {
+          stagedSourceHandoffRef.current = "running";
+          if (stagedHandoffStartTimerRef.current !== undefined) {
+            window.clearTimeout(stagedHandoffStartTimerRef.current);
+            stagedHandoffStartTimerRef.current = undefined;
           }
         }
-        if (typeof previewUrl === "string" && previewUrl) {
-          setBuilderPreviewUrl(previewUrl);
+        if (hostChatGeneratingRef.current && next !== "generating") {
+          reloadRunningAppPreviewFrames();
+          if (stagedSourceHandoffRef.current === "running") {
+            stagedSourceHandoffRef.current = "idle";
+            // Released on failure too, or the only control left in the shell
+            // stays disabled with nothing to retry with.
+            setApplyingViaHost(false);
+            // The reload discarded the inline overrides either way, so keeping
+            // the edits only helps when the run failed and Apply can retry.
+            if (next === "idle") clearPendingLiveEditStateRef.current();
+          }
         }
+        hostChatGeneratingRef.current = next === "generating";
       }
     }
 
     window.addEventListener("message", handleDesignHostMessage);
     return () => window.removeEventListener("message", handleDesignHostMessage);
-  }, [isBuilderDesignEmbed]);
+  }, [builderHostProtocolActive]);
 
   const focusDesignInspectorForSelection = useCallback(() => {
     setActiveInspectorTab("design");
@@ -3973,11 +4276,50 @@ function DesignEditor() {
     "get-design",
     { id: id! },
     {
+      enabled: !shellMode,
       refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
 
-  const design = isDesignData(designResult) ? designResult : null;
+  /** Rebuilt from the host payload; there is no row behind it to fetch. */
+  const shellDesign = useMemo(
+    () => (shellInput ? buildShellDesign(shellInput).design : null),
+    [shellInput],
+  );
+
+  const design = shellMode
+    ? shellDesign
+    : isDesignData(designResult)
+      ? designResult
+      : null;
+  const activeBreakpointStateVersion = useChangeVersion(
+    id ? `app-state:design-active-breakpoint:${id}` : "",
+  );
+  const localhostConsentStateVersion = useChangeVersion(
+    id ? `app-state:design-localhost-write-consent-request:${id}` : "",
+  );
+  const designEditorCommandKeys = useMemo(
+    () =>
+      browserTabId
+        ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
+        : [designEditorCommandKey()],
+    [browserTabId],
+  );
+  const designEditorCommandVersion = useChangeVersions(
+    designEditorCommandKeys.map((key) => `app-state:${key}`),
+  );
+  const pendingNodeRewriteStateKeys = useMemo(
+    () =>
+      id
+        ? (design?.files.map((file) =>
+            designRepromptPendingStateKey(id, file.id),
+          ) ?? [])
+        : [],
+    [design?.files, id],
+  );
+  const pendingNodeRewriteStateVersion = useChangeVersions(
+    pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
+  );
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -3996,7 +4338,7 @@ function DesignEditor() {
       includeResolved: false,
       limit: 500,
     },
-    { enabled: Boolean(id) },
+    { enabled: Boolean(id) && !shellMode },
   );
   const reviewComments = reviewResult.data?.comments ?? [];
   const reviewOpenThreadIds = useMemo(
@@ -4412,7 +4754,8 @@ function DesignEditor() {
       pending: FileContentSaveRequest,
       expectedVersionHash = pending.expectedVersionHash,
     ) => {
-      if (!id) return null;
+      // The shell has no design row, so a queued save would retry forever.
+      if (!id || shellMode) return null;
       return createDesignSaveOutboxEntry({
         designId: id ?? "",
         actorScope: designSaveActorScope,
@@ -4430,7 +4773,7 @@ function DesignEditor() {
         },
       });
     },
-    [designSaveActorScope, id],
+    [designSaveActorScope, id, shellMode],
   );
 
   const cancelQueuedFileContentSave = useCallback(
@@ -4772,7 +5115,7 @@ function DesignEditor() {
   );
   const createTweakSaveOutboxEntry = useCallback(
     (pending: PendingTweakSave) => {
-      if (!id) return null;
+      if (!id || shellMode) return null;
       return createDesignSaveOutboxEntry({
         designId: id ?? "",
         actorScope: designSaveActorScope,
@@ -4787,7 +5130,7 @@ function DesignEditor() {
         },
       });
     },
-    [designSaveActorScope, id],
+    [designSaveActorScope, id, shellMode],
   );
   const persistTweakSave = useCallback(
     (pending: PendingTweakSave) => {
@@ -5033,6 +5376,32 @@ function DesignEditor() {
     t,
   ]);
 
+  const creativeContextsQuery = useCreativeContexts();
+  const creativeContextState = useCreativeContextState();
+  const creativeContextOptions = useMemo(
+    () =>
+      parseCreativeContexts(creativeContextsQuery.data)
+        .filter((context) => context.memberCount > 0)
+        .map((context) => ({ id: context.id, name: context.name })),
+    [creativeContextsQuery.data],
+  );
+  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
+  const handleCreativeContextChange = useCallback(
+    (contextId: string | null) => {
+      creativeContextPersistRef.current = creativeContextState
+        .setState({
+          ...creativeContextState.state,
+          contextMode: "auto",
+          selectedContextId: contextId,
+          pinnedPackId: null,
+        })
+        .catch((error) => {
+          toast.error(t("creativeContext.stateSaveFailed"));
+          throw error;
+        });
+    },
+    [creativeContextState, t],
+  );
   const resolvePromptDesignSystemId = useCallback(
     () =>
       design?.designSystemId ??
@@ -5254,7 +5623,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, id, proposalFileIds]);
+  }, [pendingNodeRewriteStateVersion, id, proposalFileIds]);
   const pendingNodeRewriteByFile = useMemo(
     () =>
       new Map(
@@ -5353,7 +5722,8 @@ function DesignEditor() {
   // Trigger migration on design open when boardFileId is absent.
   const migrateBoardTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!id || !canEditDesign) return;
+    // Nothing to migrate for a design that only exists in memory.
+    if (!id || !canEditDesign || shellMode) return;
     if (boardFileId) return; // already migrated
     if (migrateBoardTriggeredRef.current === id) return;
     migrateBoardTriggeredRef.current = id;
@@ -5525,7 +5895,7 @@ function DesignEditor() {
 
   const createFrameGeometryOutboxEntry = useCallback(
     (dataOperations: readonly DesignDataOperation[], revision: number) => {
-      if (!id) return null;
+      if (!id || shellMode) return null;
       const compacted = compactDesignDataOperations(dataOperations);
       if (compacted.length === 0) return null;
       return createDesignSaveOutboxEntry({
@@ -5543,7 +5913,7 @@ function DesignEditor() {
         },
       });
     },
-    [designSaveActorScope, id],
+    [designSaveActorScope, id, shellMode],
   );
 
   const enqueueFrameGeometryDataSave = useCallback(
@@ -6083,6 +6453,10 @@ function DesignEditor() {
     let cancelled = false;
     void (async () => {
       const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+      const precedent = await loadCreativeContextPrecedent(
+        (await readCreativeContextState()).selectedContextId,
+      );
+      if (cancelled) return;
       // A reference screenshot already answers the questions the intake flow
       // asks. Spending the one turn that can see the image on a questionnaire
       // means the turn that writes HTML never sees it.
@@ -6090,7 +6464,8 @@ function DesignEditor() {
       const shouldSkipQuestions =
         pending.skipQuestions === true ||
         shouldExploreVariants ||
-        hasReferenceImages;
+        hasReferenceImages ||
+        precedent?.status === "strong";
       const designSystemContext = await loadDesignSystemGenerationContext(
         pendingDesignSystemId,
       );
@@ -6115,11 +6490,20 @@ function DesignEditor() {
           : shouldExploreVariants
             ? designVariantGenerationDirectives(id, pendingDesignSystemId)
             : shouldSkipQuestions
-              ? designGenerationDirectives(
-                  id,
-                  pendingDesignSystemId,
-                  images.length,
-                )
+              ? [
+                  ...designGenerationDirectives(
+                    id,
+                    pendingDesignSystemId,
+                    images.length,
+                  ),
+                  ...(precedent?.status === "strong"
+                    ? designPrecedentDirectives(
+                        precedent.contextId,
+                        precedent.matches,
+                        id,
+                      )
+                    : []),
+                ]
               : designIntakeQuestionDirectives(
                   id,
                   pendingDesignSystemId,
@@ -6408,9 +6792,8 @@ function DesignEditor() {
   // application state so the agent and UI agree on the active edit scope;
   // this effect is the UI half that was previously missing — the BreakpointBar
   // chip/viewport-width only ever changed from the UI's own chip clicks.
-  // Polls the same way the `design-editor-command` ("navigate") consumption
-  // effect above does: react to `appStateVersion` (bumped by useDbSync on ANY
-  // app-state write, including this tab's own), read the key, and apply it —
+  // React to the targeted active-breakpoint app-state counter, read the key,
+  // and apply it -
   // except this key is a durable "current scope" value (not a one-shot
   // command), so unlike that effect this one does NOT null the key out after
   // reading; it just dedupes against the last-applied breakpointId so the
@@ -6456,7 +6839,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, designBreakpoints, id, isSignedIn]);
+  }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
 
   // Agent→UI: open the write-consent dialog when the agent requests local file
   // write access via request-localhost-write-consent (granting stays human-only).
@@ -6500,7 +6883,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, canEditDesign, id]);
+  }, [localhostConsentStateVersion, canEditDesign, id]);
 
   // §6.4 — The active screen's primary-frame width (the BASE editing
   // context). Overrides written at a narrower active breakpoint apply below
@@ -6868,7 +7251,9 @@ function DesignEditor() {
         setActiveTool("move");
         setDrawMode(false);
         setPinMode(false);
-        setMode("interact");
+        // Single view is the Interact surface unless the caller names another
+        // mode, which is how a host opens a screen with editing chrome live.
+        setMode(normalizeDesignMode(command.mode) ?? "interact");
         if (commandZoom === null) {
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
         }
@@ -6932,7 +7317,7 @@ function DesignEditor() {
       cancelled = true;
     };
   }, [
-    appStateVersion,
+    designEditorCommandVersion,
     applyDesignEditorCommand,
     browserTabId,
     canEditDesign,
@@ -9234,7 +9619,7 @@ function DesignEditor() {
       const screen = overviewScreens.find(
         (candidate) => candidate.id === owner.fileId,
       );
-      if (resolveOverviewScreenSourceType(screen) !== "localhost") {
+      if (!isRunningAppSourceType(resolveOverviewScreenSourceType(screen))) {
         return false;
       }
       const info = elementInfoFromCodeLayerNode(owner.node);
@@ -9463,6 +9848,40 @@ function DesignEditor() {
     () => buildCodeLayerProjection(activeProjectionContent),
     [activeProjectionContent],
   );
+  /**
+   * The active screen's live-DOM projection, or null when the screen carries
+   * its own source. Mirrors the eligibility rule `codeLayerModelsByFile` uses
+   * to decide which tree the Layers panel renders, so selection resolution and
+   * the panel agree on one set of node ids.
+   */
+  const activeRuntimeCodeLayerProjection = useMemo(() => {
+    const fileId = activeFile?.id;
+    if (!fileId) return null;
+    const snapshot = runtimeLayerSnapshotsById[fileId];
+    if (!snapshot) return null;
+    // Derived locally rather than from `designSourceType`/`overviewScreenById`,
+    // which are declared further down this component and would be in the
+    // temporal dead zone here.
+    const eligible = shouldUseRuntimeLayerProjection({
+      screen: overviewScreens.find((screen) => screen.id === fileId),
+      fallbackSourceType:
+        normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
+        normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
+        "inline",
+      // Eligibility follows the persisted route URL, not the projection
+      // content, which may already be a live snapshot.
+      content: files.find((file) => file.id === fileId)?.content ?? "",
+    });
+    if (!eligible) return null;
+    const projection = buildCodeLayerProjection(snapshot.html);
+    return projection.nodes.length > 0 ? projection : null;
+  }, [
+    activeFile?.id,
+    designDataJson,
+    files,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
+  ]);
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -9520,13 +9939,19 @@ function DesignEditor() {
     motionTracksDirty,
   ]);
 
-  const selectedCodeLayerNode = useMemo(() => {
-    if (!selectedElement) return null;
-    return resolveCodeLayerNodeFromElementInfo(
+  const selectedCodeLayerNode = useMemo(
+    () =>
+      resolveSelectedCodeLayerNode({
+        selectedElement,
+        sourceProjection: activeCodeLayerProjection,
+        runtimeProjection: activeRuntimeCodeLayerProjection,
+      }),
+    [
       activeCodeLayerProjection,
+      activeRuntimeCodeLayerProjection,
       selectedElement,
-    );
-  }, [activeCodeLayerProjection, selectedElement]);
+    ],
+  );
   const selectedElementLayerId = selectedCodeLayerNode?.id ?? null;
   // Shared node-id resolution for the current selection's motion tracks —
   // used by "Copy animation" (item 2d), motionKeyframeState (item 11), and
@@ -9652,6 +10077,11 @@ function DesignEditor() {
     () => readFusionApp(designDataJson),
     [designDataJson],
   );
+  useEffect(() => {
+    if (fusionApp?.source !== "builder-host") return;
+    setBuilderHostConfirmed(true);
+  }, [fusionApp?.source]);
+
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
@@ -13647,7 +14077,7 @@ function DesignEditor() {
       // into the live DOM and queue it, exactly like a canvas gesture
       // (handleVisualStyleChange delegates here with runtimeApplied set
       // because its gesture already moved the live DOM).
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
         // Breakpoint-scoped writes are excluded for the same reason as the
         // base path below (Item 5, edit-flash): the agent persists them as a
@@ -14554,7 +14984,7 @@ function DesignEditor() {
       );
       if (entries.length === 0) return false;
       const nodeId = selectedElement.sourceId;
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         recordPendingVisualStyleEdit(
           activeFile.id,
           selectedCanvasSelector ?? selectedElement.selector ?? "",
@@ -15011,7 +15441,7 @@ function DesignEditor() {
       });
       if (!canEditDesign) return false;
       if (!activeFile) return false;
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         recordPendingLiveStructureEdit(
           activeFile.id,
           selector,
@@ -15287,7 +15717,7 @@ function DesignEditor() {
     ) => {
       if (!canEditDesign) return;
       if (!activeFile) return;
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         recordPendingLiveTextEdit(
           activeFile.id,
           selector,
@@ -15431,7 +15861,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         recordPendingVisualStyleEdit(
           screenId,
           selector,
@@ -15541,7 +15971,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         recordPendingLiveStructureEdit(
           screenId,
           selector,
@@ -15793,7 +16223,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         recordPendingLiveTextEdit(
           screenId,
           selector,
@@ -19103,7 +19533,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(screen.sourceType) ?? designSourceType;
 
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         const snapshot = runtimeLayerSnapshotsById[screenId];
         if (!snapshot) {
           toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
@@ -21131,8 +21561,23 @@ function DesignEditor() {
         : selectedLayerTargetsRef.current[0]?.elementInfo;
       if (!nudgeTarget?.selector) return;
 
+      // A running-app screen's stored content is its route URL, not markup, so
+      // projecting it finds no nodes and every arrow key degrades to a blind
+      // translate — the wrong operation on a flow child, and the exact case
+      // resolveElementNudgeIntent exists to catch.
+      const nudgeBaseContent = nudgeBaseContentForScreen({
+        isRunningApp: isRunningAppSourceType(activeCanvasSourceType),
+        runtimeSnapshotHtml: activeFile?.id
+          ? runtimeLayerSnapshotsById[activeFile.id]?.html
+          : null,
+        liveSnapshotHtml: activeFile?.id
+          ? liveScreenSnapshotsById[activeFile.id]?.html
+          : null,
+        sourceContent: activeFile ? getFreshActiveContent() : "",
+      });
+
       const intent = resolveElementNudgeIntent({
-        content: activeFile ? getFreshActiveContent() : "",
+        content: nudgeBaseContent,
         selectedElement: nudgeTarget,
         direction,
         largeStep,
@@ -21140,6 +21585,32 @@ function DesignEditor() {
       });
       if (intent.kind === "none") return;
       if (intent.kind === "reorder") {
+        // The stored content is a URL for a running-app screen, so patching it
+        // would overwrite the screen's route with markup. Queue the move as a
+        // pending edit for the Apply pass instead, exactly like a live
+        // drag-reorder, which needs the anchor as a SELECTOR rather than the
+        // projection node id the intent carries.
+        if (isRunningAppSourceType(activeCanvasSourceType)) {
+          if (!activeFile?.id) return;
+          const handoff = liveNudgeReorderHandoff({
+            content: intent.content,
+            anchorNodeId: intent.anchorNodeId,
+            placement: intent.placement,
+          });
+          if (!handoff) return;
+          recordPendingLiveStructureEdit(
+            activeFile.id,
+            nudgeTarget.selector,
+            handoff.anchorSelector,
+            handoff.placement,
+            nudgeTarget,
+            {
+              sourceId: nudgeTarget.sourceId,
+              anchorSourceId: handoff.anchorSourceId,
+            },
+          );
+          return;
+        }
         const patch = applyVisualEdit(intent.content, {
           kind: "moveNode",
           target: { nodeId: intent.targetNodeId },
@@ -21158,10 +21629,7 @@ function DesignEditor() {
               node.dataAttributes["data-agent-native-node-id"] ===
                 intent.targetNodeId,
           ) ??
-          resolveCodeLayerNodeFromElementInfo(
-            patch.projection,
-            selectedElement,
-          );
+          resolveCodeLayerNodeFromElementInfo(patch.projection, nudgeTarget);
         if (movedNode) {
           setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
           setSelectedLayerIdsState([movedNode.id]);
@@ -21182,6 +21650,7 @@ function DesignEditor() {
       });
     },
     [
+      activeCanvasSourceType,
       activeFile,
       applyLocalContentUpdate,
       boardFileId,
@@ -21193,8 +21662,11 @@ function DesignEditor() {
       getFreshActiveContent,
       handleGeometryCommit,
       hideSelectionChromeForNudge,
+      liveScreenSnapshotsById,
       overviewScreens,
       overviewSelectedScreenIds,
+      recordPendingLiveStructureEdit,
+      runtimeLayerSnapshotsById,
       selectedElement,
       selectedLayerIdsState,
     ],
@@ -22826,7 +23298,9 @@ function DesignEditor() {
   const enterSingleScreen = useCallback(
     // Focusing a screen means the responsive interactive view — there is no
     // single-screen Edit view. The infinite canvas is where editing happens.
-    (fileId?: string | null) => {
+    // An embedding host that drives the editor can name a different mode.
+    (fileId?: string | null, options?: { mode?: EditorMode }) => {
+      const entryMode = options?.mode ?? "interact";
       const targetFileId = fileId ?? activeFileId;
       const targetScreen = targetFileId
         ? overviewScreens.find((screen) => screen.id === targetFileId)
@@ -22871,7 +23345,7 @@ function DesignEditor() {
         // The early return used to swallow a requested mode change, so
         // re-clicking a screen after closing Interact left it in whatever
         // mode it had drifted to instead of reopening the responsive view.
-        setMode("interact");
+        setMode(entryMode);
         setInteractDeviceName(nextInteractDevice.name);
         setInteractDeviceSize({
           width: nextInteractDevice.width,
@@ -22904,7 +23378,7 @@ function DesignEditor() {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
         setPinMode(false);
-        setMode("interact");
+        setMode(entryMode);
         setSelectedElement(null);
         setHoveredElement(null);
         setActiveTool("move");
@@ -23161,12 +23635,16 @@ function DesignEditor() {
       setSelectedLayerIdsState([]);
       // Only two views exist: the infinite canvas (editing) and the responsive
       // interactive view. Picking a screen from the Screens list means "go look
-      // at this running screen", so it lands in the responsive view.
-      enterSingleScreen(screenId);
+      // at this running screen", so it lands in the responsive view — except
+      // for a host-embedded editor, where switching screens must not silently
+      // drop the user out of editing.
+      enterSingleScreen(screenId, hostEmbeddedEditor ? { mode } : undefined);
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       enterSingleScreen,
+      hostEmbeddedEditor,
+      mode,
       overviewSelectedScreenIds,
     ],
   );
@@ -23914,7 +24392,7 @@ function DesignEditor() {
 
   useDesignHotkeys({
     enabled:
-      !embedded &&
+      !hostOwnsChrome &&
       !responsiveInteractActive &&
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
@@ -23985,9 +24463,10 @@ function DesignEditor() {
     onShowLayersPanel: initialGenerationChromeLimited
       ? undefined
       : handleShowLayersPanel,
-    onShowAssetsPanel: initialGenerationChromeLimited
-      ? undefined
-      : handleShowAssetsPanel,
+    onShowAssetsPanel:
+      initialGenerationChromeLimited || !SHOW_DESIGN_SECONDARY_LEFT_PANELS
+        ? undefined
+        : handleShowAssetsPanel,
     onGroup: canEditDesign ? handleGroupSelection : undefined,
     onUngroup: canEditDesign ? handleUngroupSelection : undefined,
     onFrameSelection: canEditDesign ? handleFrameSelection : undefined,
@@ -24345,6 +24824,18 @@ function DesignEditor() {
       ),
     [designSourceType, overviewScreens],
   );
+  const screenRoutesById = useMemo(() => {
+    const metadataByFileId = getDesignDataRecord(
+      designDataJson,
+      "screenMetadata",
+    );
+    const routes: Record<string, string> = {};
+    for (const [fileId, entry] of Object.entries(metadataByFileId ?? {})) {
+      const path = (entry as { path?: unknown })?.path;
+      if (typeof path === "string" && path) routes[fileId] = path;
+    }
+    return routes;
+  }, [designDataJson]);
   const showPendingVisualStyleApply = useMemo(
     () =>
       shouldShowPendingVisualStyleApply({
@@ -24375,15 +24866,19 @@ function DesignEditor() {
         localhostConnectionId: activeOverviewScreen?.connectionId,
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
+        audience: hostEmbeddedEditor ? "coding-agent" : "design-agent",
+        screenRoutes: screenRoutesById,
       }),
     [
       activeFile?.filename,
       activeFile?.id,
       activeOverviewScreen?.connectionId,
       design?.title,
+      hostEmbeddedEditor,
       id,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
+      screenRoutesById,
     ],
   );
   const handleApplyPendingVisualStylesWithAgent = useCallback(async () => {
@@ -24418,7 +24913,18 @@ function DesignEditor() {
       const structureEdits = pendingLiveNonStyleEdits.filter(
         (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
       );
-      const structureAcks = structureEdits
+      // Source verification rewrites local files over the localhost bridge, so
+      // it needs a connection id a fusion screen never has — without this split
+      // one nudge refuses the whole Apply, style and text edits included.
+      const locallyVerifiableStructureEdits = structureEdits.filter((edit) =>
+        Boolean(
+          overviewScreens.find((screen) => screen.id === edit.screenId)
+            ?.connectionId,
+        ),
+      );
+      // Acks answer the localhost bridge that raised the request, so they only
+      // cover edits that went through it.
+      const structureAcks = locallyVerifiableStructureEdits
         .filter((edit) => Boolean(edit.requestId))
         .map((edit) => ({
           screenId: edit.screenId,
@@ -24440,7 +24946,7 @@ function DesignEditor() {
         }, 50);
       };
 
-      if (structureEdits.length === 0) {
+      if (locallyVerifiableStructureEdits.length === 0) {
         const delivery = await sendDesignSourceHandoffAndConfirm(
           {
             message: t("designEditor.pendingVisualStyles.agentMessage"),
@@ -24456,7 +24962,23 @@ function DesignEditor() {
           );
           return;
         }
-        finalizeWithoutStructureVerification();
+        // The host is running the turn, so the edits stay pending until it
+        // settles: clearing them now would discard the work on a failed run.
+        if (delivery.awaitingHostTurn) {
+          stagedSourceHandoffRef.current = "awaiting-start";
+          setApplyingViaHost(true);
+          // A posted handoff is not an acknowledged one, so release the control
+          // if the host never starts a turn — the edits stay for a retry.
+          stagedHandoffStartTimerRef.current = window.setTimeout(() => {
+            stagedHandoffStartTimerRef.current = undefined;
+            if (stagedSourceHandoffRef.current !== "awaiting-start") return;
+            stagedSourceHandoffRef.current = "idle";
+            setApplyingViaHost(false);
+            toast.error(
+              t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
+            );
+          }, HOST_TURN_START_TIMEOUT_MS);
+        } else finalizeWithoutStructureVerification();
         if (delivery.target === "local") setActiveLeftPanel("agent");
         toast.success(t("designEditor.pendingVisualStyles.sentToast"));
         return;
@@ -24468,7 +24990,7 @@ function DesignEditor() {
       const session: PendingStructureVerificationSession = {
         requestId,
         cancelled: false,
-        edits: structureEdits,
+        edits: locallyVerifiableStructureEdits,
         sources: [],
       };
       pendingStructureVerificationSessionRef.current = session;
@@ -24479,7 +25001,7 @@ function DesignEditor() {
         string,
         { connectionId: string; path: string }
       >();
-      for (const edit of structureEdits) {
+      for (const edit of locallyVerifiableStructureEdits) {
         const connectionId = overviewScreens.find(
           (screen) => screen.id === edit.screenId,
         )?.connectionId;
@@ -24541,8 +25063,10 @@ function DesignEditor() {
           return;
         }
 
+        // Only the edits this branch actually verifies: waiting on a snapshot
+        // for a screen with no verification path times the whole batch out.
         const screenIds = Array.from(
-          new Set(structureEdits.map((edit) => edit.screenId)),
+          new Set(locallyVerifiableStructureEdits.map((edit) => edit.screenId)),
         );
         setPendingStructureVerificationStatus("awaiting-source");
         if (delivery.target === "local") setActiveLeftPanel("agent");
@@ -24562,7 +25086,7 @@ function DesignEditor() {
           ) {
             const runtimeResult = verifyPendingStructuresRuntime(
               runtimeSnapshots,
-              structureEdits,
+              locallyVerifiableStructureEdits,
             );
             if (runtimeResult.ok) {
               if (structureAcks.length > 0) {
@@ -27314,16 +27838,15 @@ function DesignEditor() {
       inScreenGradientEditNodeId,
     );
     if (!target) return null;
-    const pendingStateEdit =
-      activeCanvasSourceType === "localhost"
-        ? pendingVisualStyleEdits.find(
-            (edit) =>
-              edit.screenId === target.screenId &&
-              edit.interactionState === target.state &&
-              (edit.sourceId === target.nodeId ||
-                edit.selector === selectedCanvasSelector),
-          )
-        : undefined;
+    const pendingStateEdit = isRunningAppSourceType(activeCanvasSourceType)
+      ? pendingVisualStyleEdits.find(
+          (edit) =>
+            edit.screenId === target.screenId &&
+            edit.interactionState === target.state &&
+            (edit.sourceId === target.nodeId ||
+              edit.selector === selectedCanvasSelector),
+        )
+      : undefined;
     return {
       ...target,
       selector: selectedCanvasSelector,
@@ -29051,19 +29574,53 @@ function DesignEditor() {
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
       if (!owner || !node) return;
+      // Same case as BUG-LOCK-HIDE-LIVE-SNAPSHOT in handleToggleLayerLocked:
+      // for a running-app screen the stored content is a bare route URL, and
+      // `node` came from the RUNTIME projection. Writing into the URL is worse
+      // than a no-op here — setCodeLayerAttributeInHtml indexes by raw source
+      // offsets, so it splices the attribute into the middle of the URL and
+      // destroys the screen's src. Re-resolve against the live snapshot by the
+      // one id that is stable across both projections.
+      const renameLiveSnapshot = liveScreenSnapshotsById[owner.fileId];
+      const renameNodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
+      const renameLiveNode =
+        renameLiveSnapshot && renameNodeIdAttr
+          ? buildCodeLayerProjection(renameLiveSnapshot.html).nodes.find(
+              (candidate) =>
+                candidate.dataAttributes["data-agent-native-node-id"] ===
+                renameNodeIdAttr,
+            )
+          : undefined;
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
-        owner.fileId === activeFile?.id
+        renameLiveSnapshot?.html ??
+        (owner.fileId === activeFile?.id
           ? getFreshActiveContent()
-          : (sourceFile?.content ?? "");
-      if (!sourceContent) return;
+          : (sourceFile?.content ?? ""));
+      const renameTargetNode = renameLiveSnapshot ? renameLiveNode : node;
+      if (!sourceContent || !renameTargetNode) return;
+      // A running-app screen with no live snapshot leaves `sourceContent` as the
+      // route URL. Splicing an attribute into that by source offset destroys the
+      // screen's src, so refuse instead — a fusion screen never populates
+      // `liveScreenSnapshotsById`, only the runtime projection.
+      if (isStandaloneHttpUrl(sourceContent)) {
+        toast.error(t("designEditor.patchProof.snapshotNotLoaded"), {
+          duration: 4000,
+        });
+        return;
+      }
       const nextContent = setCodeLayerAttributeInHtml(
         sourceContent,
-        node,
+        renameTargetNode,
         "data-agent-native-layer-name",
         name,
       );
       if (!nextContent || nextContent === sourceContent) return;
+      if (renameLiveSnapshot) {
+        updateLiveScreenSnapshotContent(owner.fileId, nextContent);
+        syncLiveScreenSnapshotPreview(owner.fileId, nextContent);
+        return;
+      }
       applyFileContentUpdate(owner.fileId, nextContent, {
         refreshPreview: false,
       });
@@ -29079,11 +29636,14 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       id,
+      liveScreenSnapshotsById,
       overviewScreens,
       queryClient,
       renameScreenMutation,
       serverFiles,
+      syncLiveScreenSnapshotPreview,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -29159,6 +29719,15 @@ function DesignEditor() {
           ? getFreshActiveContent()
           : (sourceFile?.content ?? ""));
       const targetNode = liveSnapshot ? liveNode : node;
+      // A running-app screen with no live snapshot leaves `sourceContent` as
+      // the route URL. setCodeLayerAttributeInHtml splices by source offset, so
+      // writing into it destroys the screen's src (same case as
+      // handleLayerRename). Keep the state as a client-side override — the same
+      // outcome as the unresolved-node paths above — rather than corrupt it.
+      if (isStandaloneHttpUrl(sourceContent)) {
+        applyLayerStatePreview(layerScreenId, layerId, "locked", locked);
+        return;
+      }
       if (sourceContent && targetNode) {
         const nextContent = setCodeLayerAttributeInHtml(
           sourceContent,
@@ -29262,6 +29831,11 @@ function DesignEditor() {
           ? getFreshActiveContent()
           : (sourceFile?.content ?? ""));
       const targetNode = liveSnapshot ? liveNode : node;
+      // Same URL-corruption guard as handleToggleLayerLocked above.
+      if (isStandaloneHttpUrl(sourceContent)) {
+        applyLayerStatePreview(layerScreenId, layerId, "hidden", hidden);
+        return;
+      }
       if (sourceContent && targetNode) {
         const nextContent = setCodeLayerAttributeInHtml(
           sourceContent,
@@ -30306,7 +30880,9 @@ function DesignEditor() {
 
   if (!id) return null;
 
-  if (designLoading || (!design && pendingGenerationActive)) {
+  // A shell with no design yet is waiting for the host's `design:init`, not
+  // looking at a design that does not exist.
+  if (designLoading || (!design && (pendingGenerationActive || shellMode))) {
     return (
       <DesignEditorSkeleton
         embedded={embedded}
@@ -30876,12 +31452,14 @@ function DesignEditor() {
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
       <div className="flex min-h-8 items-center gap-1">
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <DesignCollaboratorsMenu
-            collaborators={designCollaborators}
-            followingEmail={followingEmail}
-            label={t("designEditor.collaborators")}
-            onAvatarClick={handleAvatarClick}
-          />
+          {hostEmbeddedEditor ? null : (
+            <DesignCollaboratorsMenu
+              collaborators={designCollaborators}
+              followingEmail={followingEmail}
+              label={t("designEditor.collaborators")}
+              onAvatarClick={handleAvatarClick}
+            />
+          )}
         </div>
 
         {/* Not shrink-0: the signed-out CTA ("Sign up free to save") is a
@@ -30910,7 +31488,7 @@ function DesignEditor() {
             </Button>
           ) : null}
           <Popover
-            open={publishWaitlistPopoverOpen}
+            open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
               setPublishWaitlistPopoverOpen(open);
               setPublishWaitlistPopoverView("actions");
@@ -30925,7 +31503,10 @@ function DesignEditor() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground"
+                    className={cn(
+                      "h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground",
+                      hostEmbeddedEditor && "hidden",
+                    )}
                     aria-label={"Preview or publish app" /* i18n-ignore */}
                   >
                     <IconPlayerPlay className="size-5" />
@@ -31028,7 +31609,7 @@ function DesignEditor() {
             </PopoverContent>
           </Popover>
 
-          {canRenderAuthenticatedShare ? (
+          {hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
             <ShareButton
               resourceType="design"
               resourceId={id}
@@ -31194,7 +31775,7 @@ function DesignEditor() {
       )}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!embedded && !uiHidden ? (
+        {!hostOwnsChrome && !uiHidden ? (
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
@@ -31205,7 +31786,7 @@ function DesignEditor() {
               }
               motionOpen={motionDockOpen}
               motionDisabled={!activeFile}
-              projectMenu={projectMenu}
+              projectMenu={hostEmbeddedEditor ? null : projectMenu}
               onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
               onPanelChange={setActiveLeftPanel}
             />
@@ -31281,7 +31862,9 @@ function DesignEditor() {
                   activeLeftPanel === "agent" ? "flex" : "hidden",
                 )}
               >
-                {canEditDesign ? (
+                {hostEmbeddedEditor ? (
+                  <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
+                ) : canEditDesign ? (
                   <AgentChatSurface
                     mode="panel"
                     className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
@@ -31318,31 +31901,33 @@ function DesignEditor() {
                   />
                 )}
               </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "assets" ? "flex" : "hidden",
-                )}
-              >
-                <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
-                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-                    {t("designEditor.leftRail.assets")}
-                  </h3>
+              {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
+                <div
+                  className={cn(
+                    "min-h-0 flex-1 flex-col overflow-hidden",
+                    activeLeftPanel === "assets" ? "flex" : "hidden",
+                  )}
+                >
+                  <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                    <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                      {t("designEditor.leftRail.assets")}
+                    </h3>
+                  </div>
+                  {canEditDesign ? (
+                    <AssetLibraryPanel
+                      context={designExtensionContext}
+                      resolveScreenPoint={resolveAssetScreenPoint}
+                    />
+                  ) : (
+                    <ReadOnlyEditorPanel
+                      title={"Assets require editor access" /* i18n-ignore */}
+                      description={
+                        "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
+                      }
+                    />
+                  )}
                 </div>
-                {canEditDesign ? (
-                  <AssetLibraryPanel
-                    context={designExtensionContext}
-                    resolveScreenPoint={resolveAssetScreenPoint}
-                  />
-                ) : (
-                  <ReadOnlyEditorPanel
-                    title={"Assets require editor access" /* i18n-ignore */}
-                    description={
-                      "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
-                    }
-                  />
-                )}
-              </div>
+              ) : null}
               <div
                 className={cn(
                   "min-h-0 flex-1 flex-col overflow-hidden",
@@ -31370,71 +31955,77 @@ function DesignEditor() {
                   />
                 )}
               </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "tools" ? "flex" : "hidden",
-                )}
-              >
-                {canEditDesign ? (
-                  <DesignExtensionsPanel
-                    context={designExtensionContext}
-                    hideAssetLibrary
-                    title={t("designEditor.leftRail.tools")}
-                  />
-                ) : (
-                  <ReadOnlyEditorPanel
-                    title={"Tools require editor access" /* i18n-ignore */}
-                    description={
-                      "Ask an owner for edit access before running tools for this design." /* i18n-ignore */
-                    }
-                  />
-                )}
-              </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "tokens" ? "flex" : "hidden",
-                )}
-              >
-                {id && canEditDesign ? (
-                  <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                    <TokensPanel
-                      designId={id}
-                      onTokensApplied={handleTokensApplied}
-                    />
+              {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
+                <>
+                  <div
+                    className={cn(
+                      "min-h-0 flex-1 flex-col overflow-hidden",
+                      activeLeftPanel === "tools" ? "flex" : "hidden",
+                    )}
+                  >
+                    {canEditDesign && !shellMode ? (
+                      <DesignExtensionsPanel
+                        context={designExtensionContext}
+                        hideAssetLibrary
+                        title={t("designEditor.leftRail.tools")}
+                      />
+                    ) : (
+                      <ReadOnlyEditorPanel
+                        title={"Tools require editor access" /* i18n-ignore */}
+                        description={
+                          "Ask an owner for editor access before running tools for this design." /* i18n-ignore */
+                        }
+                      />
+                    )}
                   </div>
-                ) : (
-                  <ReadOnlyEditorPanel
-                    title={"Tokens require editor access" /* i18n-ignore */}
-                    description={
-                      "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
-                    }
-                  />
-                )}
-              </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "code" ? "flex" : "hidden",
-                )}
-              >
-                {id ? (
-                  <CodeWorkbenchLoader
-                    designId={id}
-                    activeFileId={routeCodeFileId}
-                    activeFilename={routeCodeFilename}
-                    selectedNodeId={selectedElementLayerId}
-                    selectedSelector={selectedCanvasSelector}
-                    canEdit={canEditDesign}
-                    onActiveFileChange={setActiveCodeFile}
-                    localhostConnections={workbenchLocalhostConnections}
-                    onRequestLocalWriteConsent={
-                      handleWorkbenchLocalWriteConsent
-                    }
-                  />
-                ) : null}
-              </div>
+                  <div
+                    className={cn(
+                      "min-h-0 flex-1 flex-col overflow-hidden",
+                      activeLeftPanel === "tokens" ? "flex" : "hidden",
+                    )}
+                  >
+                    {id && canEditDesign && !shellMode ? (
+                      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                        <TokensPanel
+                          designId={id}
+                          onTokensApplied={handleTokensApplied}
+                        />
+                      </div>
+                    ) : (
+                      <ReadOnlyEditorPanel
+                        title={"Tokens require editor access" /* i18n-ignore */}
+                        description={
+                          "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
+                        }
+                      />
+                    )}
+                  </div>
+                  {SHOW_DESIGN_CODE_LEFT_PANEL ? (
+                    <div
+                      className={cn(
+                        "min-h-0 flex-1 flex-col overflow-hidden",
+                        activeLeftPanel === "code" ? "flex" : "hidden",
+                      )}
+                    >
+                      {id && !shellMode ? (
+                        <CodeWorkbenchLoader
+                          designId={id}
+                          activeFileId={routeCodeFileId}
+                          activeFilename={routeCodeFilename}
+                          selectedNodeId={selectedElementLayerId}
+                          selectedSelector={selectedCanvasSelector}
+                          canEdit={canEditDesign}
+                          onActiveFileChange={setActiveCodeFile}
+                          localhostConnections={workbenchLocalhostConnections}
+                          onRequestLocalWriteConsent={
+                            handleWorkbenchLocalWriteConsent
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </div>
             <div
               role="separator"
@@ -31450,7 +32041,7 @@ function DesignEditor() {
             Escape hotkey gate): its canvas tools and mode tabs belong to the
             infinite canvas, and ResponsiveInteractBar's Close is the way
             back. */}
-        {!embedded &&
+        {!hostOwnsChrome &&
           !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
@@ -31479,7 +32070,7 @@ function DesignEditor() {
             />
           )}
 
-        {!embedded && keyboardShortcutsOpen ? (
+        {!hostOwnsChrome && keyboardShortcutsOpen ? (
           <KeyboardShortcutsPanel
             onClose={handleCloseKeyboardShortcuts}
             nudgeAmounts={editorPreferences.nudge}
@@ -31808,7 +32399,7 @@ function DesignEditor() {
                     <ReadOnlyDesignBanner
                       pinMode={pinMode}
                       onCommentPin={
-                        !embedded && !uiHidden && canCommentDesign
+                        !hostOwnsChrome && !uiHidden && canCommentDesign
                           ? handlePinToolToggle
                           : undefined
                       }
@@ -31836,64 +32427,82 @@ function DesignEditor() {
                     >
                       <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto">
                         <Button
-                          className="h-9 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          className={cn(
+                            // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
+                            "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
+                            !shellMode && "rounded-r-none",
+                          )}
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
                           disabled={
+                            applyingViaHost ||
                             pendingAgentHandoffBusy ||
                             pendingStructureVerificationBusy
                           }
                           onClick={handleApplyPendingVisualStylesWithAgent}
                         >
+                          {applyingViaHost ? (
+                            <Spinner className="mr-2 h-4 w-4 shrink-0" />
+                          ) : null}
                           <span className="truncate">
                             {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyDesignUpdates",
+                              applyingViaHost
+                                ? "designEditor.pendingVisualStyles.applying"
+                                : pendingStructureVerificationBusy
+                                  ? "designEditor.pendingVisualStyles.verifying"
+                                  : pendingStructureVerificationStatus ===
+                                      "conflict"
+                                    ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                    : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
                           </span>
                         </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
-                              aria-label={t(
-                                "designEditor.pendingVisualStyles.previewLabel",
-                              )}
+                        {/* The host runs the turn and owns the chat, so copying
+                            the prompt or aborting into interact mode have no
+                            meaning here. */}
+                        {shellMode ? null : (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                // guard:allow-raw-color — translucent divider on the branded blue Apply button
+                                className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                                aria-label={t(
+                                  "designEditor.pendingVisualStyles.previewLabel",
+                                )}
+                              >
+                                <IconChevronDown className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="design-editor-app-menu-content w-64"
                             >
-                              <IconChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            className="design-editor-app-menu-content w-64"
-                          >
-                            <DropdownMenuLabel className="text-xs text-muted-foreground">
-                              {t(
-                                "designEditor.pendingVisualStyles.previewLabel",
-                              )}
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={handleCopyPendingVisualStylePrompt}
-                            >
-                              <IconClipboard className="mr-2 h-4 w-4" />
-                              {t("designEditor.pendingVisualStyles.copyPrompt")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={handleAbortPendingVisualStyles}
-                            >
-                              <IconX className="mr-2 h-4 w-4" />
-                              {t(
-                                "designEditor.pendingVisualStyles.abortPreview",
-                              )}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                {t(
+                                  "designEditor.pendingVisualStyles.previewLabel",
+                                )}
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={handleCopyPendingVisualStylePrompt}
+                              >
+                                <IconClipboard className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.copyPrompt",
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={handleAbortPendingVisualStyles}
+                              >
+                                <IconX className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.abortPreview",
+                                )}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -32464,7 +33073,7 @@ function DesignEditor() {
         )}
 
         {/* Right rail */}
-        {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
+        {!hostOwnsChrome && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
@@ -32545,7 +33154,11 @@ function DesignEditor() {
                     canEditDesign ? handleAlignSelection : undefined
                   }
                   onInteractionStateChange={handleInteractionStateChange}
-                  onEditCode={handleShaderEditCode}
+                  onEditCode={
+                    SHOW_DESIGN_CODE_LEFT_PANEL
+                      ? handleShaderEditCode
+                      : undefined
+                  }
                 />
               </div>
             ) : (
@@ -32555,7 +33168,7 @@ function DesignEditor() {
         ) : null}
       </div>
 
-      {!embedded &&
+      {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
@@ -32644,7 +33257,9 @@ function DesignEditor() {
                   canEditDesign ? handleAlignSelection : undefined
                 }
                 onInteractionStateChange={handleInteractionStateChange}
-                onEditCode={handleShaderEditCode}
+                onEditCode={
+                  SHOW_DESIGN_CODE_LEFT_PANEL ? handleShaderEditCode : undefined
+                }
               />
             </div>
           </SheetContent>
@@ -32738,7 +33353,7 @@ function DesignEditor() {
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
-      {!embedded && activeFile && motionDockMounted ? (
+      {!hostOwnsChrome && activeFile && motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}
@@ -32789,7 +33404,16 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const shouldSkipQuestions = shouldExploreVariants;
+          const precedent = shouldExploreVariants
+            ? null
+            : await (async () => {
+                await creativeContextPersistRef.current?.catch(() => {});
+                return loadCreativeContextPrecedent(
+                  (await readCreativeContextState()).selectedContextId,
+                );
+              })();
+          const shouldSkipQuestions =
+            shouldExploreVariants || precedent?.status === "strong";
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -32800,7 +33424,16 @@ function DesignEditor() {
             ...(shouldExploreVariants
               ? designVariantGenerationDirectives(id, designSystemId)
               : shouldSkipQuestions
-                ? designGenerationDirectives(id, designSystemId)
+                ? [
+                    ...designGenerationDirectives(id, designSystemId),
+                    ...(precedent?.status === "strong"
+                      ? designPrecedentDirectives(
+                          precedent.contextId,
+                          precedent.matches,
+                          id,
+                        )
+                      : []),
+                  ]
                 : designIntakeQuestionDirectives(id, designSystemId)),
           ].join("\n");
           clearGenerationCompleteTimer();
@@ -32847,6 +33480,12 @@ function DesignEditor() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}
+        creativeContexts={creativeContextOptions}
+        creativeContextsLoading={creativeContextsQuery.isLoading}
+        selectedCreativeContextId={
+          creativeContextState.state.selectedContextId ?? null
+        }
+        onCreativeContextChange={handleCreativeContextChange}
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
           navigate("/design-systems/setup");

@@ -54,6 +54,29 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("accepts boolean-style workspace flags from the config layer", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(agentNativePath("/_agent-native/poll")).toBe(
+      "/diagrams/_agent-native/poll",
+    );
+  });
+
+  it("uses projected workspace state when only the server flag is configured", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(agentNativePath("/_agent-native/poll")).toBe(
+      "/diagrams/_agent-native/poll",
+    );
+  });
+
   it("uses the live workspace route segment for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
@@ -121,6 +144,35 @@ describe("oauthRedirectUri", () => {
 
     expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
       "https://workspace.example/_agent-native/google/callback",
+    );
+  });
+
+  it("uses projected workspace state for browser OAuth relay", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://workspace.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://workspace.example/_agent-native/google/callback",
+    );
+  });
+
+  it("uses the current origin when projected workspace config has no origin", () => {
+    vi.stubEnv("VITE_WORKSPACE_OAUTH_ORIGIN", "https://stale.example");
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://current.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://current.example/_agent-native/google/callback",
     );
   });
 

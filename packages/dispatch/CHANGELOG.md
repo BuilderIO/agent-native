@@ -1,5 +1,29 @@
 # @agent-native/dispatch
 
+## 0.29.4
+
+### Patch Changes
+
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
+## 0.29.3
+
+### Patch Changes
+
+- 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
+
+## 0.29.2
+
+### Patch Changes
+
+- 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
+
+## 0.29.1
+
+### Patch Changes
+
+- 96ecc13: Use compact app search and pin labels that stay on one line.
+
 ## 0.29.0
 
 ### Minor Changes

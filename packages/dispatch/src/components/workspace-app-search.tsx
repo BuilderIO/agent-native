@@ -21,7 +21,7 @@ export function WorkspaceAppSearch({
     defaultValue: "Search apps",
   });
   const placeholder = t("dispatch.pages.searchAppsPlaceholder", {
-    defaultValue: "Search by name or description",
+    defaultValue: "Search apps",
   });
 
   return (

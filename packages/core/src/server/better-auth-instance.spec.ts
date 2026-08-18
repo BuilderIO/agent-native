@@ -129,6 +129,16 @@ describe("resolveAuthSecret", () => {
     expect(getAuthSecret()).not.toBe("workspace-root-secret");
   });
 
+  it("derives a production workspace auth secret for boolean workspace flags", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(getAuthSecret()).toBe(
+      deriveServerSecret("workspace-root-secret", "better-auth"),
+    );
+  });
+
   it("includes a sample value and openssl command in the prod error", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);

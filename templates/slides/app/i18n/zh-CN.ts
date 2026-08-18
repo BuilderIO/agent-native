@@ -439,6 +439,12 @@ const messages = {
     pasteStyle: "粘贴样式",
     copy: "复制",
     paste: "粘贴",
+    insertRowAbove: "在上方插入行",
+    insertRowBelow: "在下方插入行",
+    deleteRow: "删除行",
+    insertColumnLeft: "在左侧插入列",
+    insertColumnRight: "在右侧插入列",
+    deleteColumn: "删除列",
   },
   animations: {
     appear: "出现",

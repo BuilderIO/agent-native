@@ -183,6 +183,8 @@ export interface VideoPlayerProps {
   defaultSpeed?: number;
   /** Autoplay on mount. */
   autoPlay?: boolean;
+  /** Persist resume position for an authenticated viewer. */
+  persistPlaybackPosition?: boolean;
   /** Start time in ms. */
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
@@ -247,6 +249,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailUrl,
       defaultSpeed = 1.2,
       autoPlay,
+      persistPlaybackPosition = true,
       startMs,
       editsJson,
       comments,
@@ -520,6 +523,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       recordingId,
       videoEl: playbackVideoEl,
       durationMs,
+      enabled: persistPlaybackPosition,
       explicitStartMs: startMs,
       allowRestoreWhilePlaying: autoPlay,
       onRestore: restorePlaybackPosition,
@@ -2031,7 +2035,7 @@ function CenterPlaybackOverlay({
               }}
               className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
-              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
+              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
             </button>
 
             <div

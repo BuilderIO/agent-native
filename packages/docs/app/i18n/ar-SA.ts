@@ -77,6 +77,7 @@ const arSA = {
     suggestionDeploy: "كيف أنشر إلى الإنتاج؟",
   },
   errors: {
+    loadingLatest: "جار تحميل أحدث إصدار...",
     notFoundTitle: "الصفحة غير موجودة",
     notFoundBody: "الصفحة التي تبحث عنها غير موجودة أو تم نقلها.",
     goHome: "اذهب للرئيسية",

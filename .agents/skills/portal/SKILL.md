@@ -61,6 +61,22 @@ also verify the target transcript contains the imported event count and the
 continuation turn. A queued command is not proof that the remote runner
 started; inspect the remote result or event readback.
 
+## Operator recovery
+
+When a host is present but a handoff stalls:
+
+1. Confirm the connector's `relayUrl` is the same deployment origin used for
+   pairing. A device paired against another origin can return `401` with a
+   fresh-looking token because the row is in a different database.
+2. After repairing a pairing, restart the connector. It reads
+   `remote-device.json` once at startup and will not adopt a new token or relay
+   URL in an existing process.
+3. Confirm the host is heartbeating and connected, then retry one bounded run.
+   Read the remote result and transcript; enqueue success alone is not proof.
+4. Keep tokens and environment values out of logs, prompts, metadata, and
+   transcripts. Report source, published-runtime, and live-relay evidence
+   separately.
+
 ## Don't
 
 - Do not copy `.env` contents or credentials to the source branch or relay.

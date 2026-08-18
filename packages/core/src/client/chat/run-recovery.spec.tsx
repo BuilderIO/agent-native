@@ -157,6 +157,27 @@ describe("run recovery surfaces", () => {
     expect(document.body.textContent).toContain("Ollama");
   });
 
+  it("keeps sidebar provider actions in a horizontal row", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent layout="sidebar" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const actions = container.querySelector(
+      ".agent-builder-setup-card__actions",
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.className).toContain("flex-row");
+    expect(actions?.className).not.toContain("flex-col");
+  });
+
   it("formats the step limit with the selected locale", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 

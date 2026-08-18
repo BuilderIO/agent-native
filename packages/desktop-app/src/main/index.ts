@@ -772,9 +772,11 @@ function resolveDesktopIdentityApp(
     `${betterAuthPrefix}.session_data`,
     `__Secure-${betterAuthPrefix}.session_data`,
   ];
+  const workspaceSso = isCanonical || configured?.workspaceSso === true;
   const cookieNames = [
     primaryCookieName,
     ...(primaryCookieName === "an_session" ? [] : ["an_session"]),
+    ...(workspaceSso ? ["an_session_workspace", "an_embed_session"] : []),
     ...betterAuthCookieNames,
   ];
   return {
@@ -792,7 +794,7 @@ function resolveDesktopIdentityApp(
       ]),
     ],
     identityAuthority: appId === "dispatch",
-    workspaceSso: isCanonical || configured?.workspaceSso === true,
+    workspaceSso,
   };
 }
 

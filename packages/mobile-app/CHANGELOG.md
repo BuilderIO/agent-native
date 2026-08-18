@@ -1,5 +1,128 @@
 # @agent-native/mobile-app
 
+## 0.1.32
+
+### Patch Changes
+
+- Updated dependencies [112547e]
+  - @agent-native/core@0.161.23
+
+## 0.1.31
+
+### Patch Changes
+
+- Updated dependencies [8a7ba01]
+  - @agent-native/core@0.161.22
+
+## 0.1.30
+
+### Patch Changes
+
+- Updated dependencies [0d81f46]
+- Updated dependencies [0b0085f]
+  - @agent-native/core@0.161.21
+
+## 0.1.29
+
+### Patch Changes
+
+- Updated dependencies [814f0ad]
+- Updated dependencies [c54d918]
+  - @agent-native/core@0.161.20
+
+## 0.1.28
+
+### Patch Changes
+
+- Updated dependencies [efc5f92]
+- Updated dependencies [9fed363]
+  - @agent-native/core@0.161.19
+
+## 0.1.27
+
+### Patch Changes
+
+- Updated dependencies [9dd50a0]
+- Updated dependencies [f294ae3]
+  - @agent-native/core@0.161.18
+
+## 0.1.26
+
+### Patch Changes
+
+- Updated dependencies [34496d7]
+  - @agent-native/core@0.161.17
+
+## 0.1.25
+
+### Patch Changes
+
+- Updated dependencies [c940f4c]
+  - @agent-native/core@0.161.16
+
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [551b583]
+- Updated dependencies [551b583]
+- Updated dependencies [00025b1]
+  - @agent-native/core@0.161.15
+
+## 0.1.23
+
+### Patch Changes
+
+- Updated dependencies [96ecc13]
+- Updated dependencies [96ecc13]
+- Updated dependencies [96ecc13]
+  - @agent-native/core@0.161.14
+
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [a269cc8]
+  - @agent-native/core@0.161.13
+
+## 0.1.21
+
+### Patch Changes
+
+- Updated dependencies [610103f]
+- Updated dependencies [610103f]
+- Updated dependencies [2a7736a]
+  - @agent-native/core@0.161.12
+
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [1e90670]
+  - @agent-native/core@0.161.11
+
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [bee7146]
+  - @agent-native/core@0.161.10
+
+## 0.1.18
+
+### Patch Changes
+
+- Updated dependencies [3c54d4e]
+- Updated dependencies [3c54d4e]
+  - @agent-native/core@0.161.9
+
+## 0.1.17
+
+### Patch Changes
+
+- Updated dependencies [adf5cb0]
+  - @agent-native/core@0.161.8
+
 ## 0.1.16
 
 ### Patch Changes

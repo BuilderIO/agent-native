@@ -291,6 +291,9 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
+    expect(
+      container.querySelector('input[placeholder="Search apps"]'),
+    ).not.toBeNull();
     const viewAllLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.trim() === "View all",
     );

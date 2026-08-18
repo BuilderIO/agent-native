@@ -23,6 +23,7 @@ Read the relevant skill before deeper work:
   resources; persist only URLs, ids, or handles.
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
   configuration and fake placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for deck lifecycle, slide edits, imports, exports, images, design
   systems, and sharing. Do not write deck/slide rows directly. Read the action
   schema if a parameter is unclear.
@@ -44,7 +45,7 @@ Read the relevant skill before deeper work:
   within tolerance; hold Cmd/Ctrl to bypass snapping. With 2+ compatible
   selected objects, use the contextual toolbar to align to selection bounds;
   distribute only when 3+ objects are selected.
-- Follow linked design-system tokens; read `design-systems` for per-source actions.
+- Follow linked design-system tokens.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage

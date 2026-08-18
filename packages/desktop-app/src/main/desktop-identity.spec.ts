@@ -1376,6 +1376,127 @@ describe("DesktopIdentityBroker", () => {
     );
   });
 
+  it("retries a transient 502 from the exchange gateway instead of failing the ceremony", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore();
+    const identityFetch = vi
+      .fn<() => Promise<Response>>()
+      // The gateway/runtime in front of the exchange route, not the route
+      // itself, returns this — a bare gateway error page, not JSON.
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token: "desktop-session",
+            email: "steve@example.com",
+          }),
+          { status: 200 },
+        ),
+      );
+    const webContents = { on: vi.fn(), setWindowOpenHandler: vi.fn() };
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation: vi.fn(() => true),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1] as (event: { preventDefault: () => void }, url: string) => void;
+    const state = `${Buffer.from(JSON.stringify({ f: "desktop-flow" })).toString("base64url")}.signature`;
+    navigationHandler(
+      { preventDefault: vi.fn() },
+      `https://accounts.google.com/o/oauth2/v2/auth?state=${state}&verifier=magic-link-verifier`,
+    );
+
+    await vi.waitFor(() => expect(identityFetch).toHaveBeenCalledTimes(2));
+    closedListener?.();
+
+    await expect(signIn).resolves.toBe(true);
+    expect(identityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "desktop-session",
+      }),
+    );
+  });
+
+  it("still fails the ceremony on a real application error from the exchange route", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore();
+    const identityFetch = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: "Invalid desktop exchange verifier." }),
+          { status: 403 },
+        ),
+      );
+    const webContents = { on: vi.fn(), setWindowOpenHandler: vi.fn() };
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation: vi.fn(() => true),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1] as (event: { preventDefault: () => void }, url: string) => void;
+    const state = `${Buffer.from(JSON.stringify({ f: "desktop-flow" })).toString("base64url")}.signature`;
+    navigationHandler(
+      { preventDefault: vi.fn() },
+      `https://accounts.google.com/o/oauth2/v2/auth?state=${state}&verifier=magic-link-verifier`,
+    );
+
+    await vi.waitFor(() => expect(identityFetch).toHaveBeenCalledTimes(1));
+    closedListener?.();
+
+    await expect(signIn).resolves.toBe(false);
+    expect(identityFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the system browser and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
@@ -1592,6 +1713,148 @@ describe("DesktopIdentityBroker", () => {
           "/_agent-native/actions/create-workspace-app-embed-session",
       ),
     ).toHaveLength(embedSessionRequestCount);
+    expect(reloadApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes a completed workspace embed session", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    mail.cookieNames = [
+      ...mail.cookieNames,
+      "an_session_workspace",
+      "an_embed_session",
+    ];
+    mail.cookieNamesToClear = [
+      ...mail.cookieNamesToClear,
+      "an_session_workspace",
+      "an_embed_session",
+    ];
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
+    ]);
+    const mailCookies = cookieStore();
+    const identityFetch = vi.fn(async (input: string) => {
+      const url = new URL(input);
+      if (url.pathname === "/_agent-native/auth/session") {
+        return sessionResponse("owner@example.com");
+      }
+      if (
+        url.pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session"
+      ) {
+        return new Response(
+          JSON.stringify({
+            startUrl:
+              "https://mail.agent-native.com/_agent-native/embed/start?ticket=mail-ticket",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    mail.session = {
+      cookies: mailCookies,
+      fetch: vi.fn(async (input: string) =>
+        (() => {
+          const url = new URL(input);
+          if (url.pathname === "/_agent-native/auth/session") {
+            return sessionResponse("owner@example.com");
+          }
+          if (url.pathname === "/_agent-native/embed/start") {
+            void mailCookies.set({
+              url: mail.origin,
+              name: "an_embed_session",
+              value: "workspace-embed-session",
+            });
+            return new Response("<html></html>", { status: 200 });
+          }
+          return new Response(null, { status: 404 });
+        })(),
+      ),
+    } as unknown as Electron.Session;
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      openExternal: vi.fn(async () => {}),
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+      createWindow: vi.fn() as never,
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+
+    expect(
+      identityFetch.mock.calls.filter(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toHaveLength(1);
+    expect(reloadApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads a matching child session adopted before its WebView mounts", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    mail.cookieNames = [...mail.cookieNames, "an_embed_session"];
+    mail.cookieNamesToClear = [...mail.cookieNamesToClear, "an_embed_session"];
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
+    ]);
+    const mailCookies = cookieStore([
+      sessionCookie("an_embed_session", mail.origin, "workspace-embed-session"),
+    ]);
+    const identityFetch = vi.fn(async (input: string) => {
+      const url = new URL(input);
+      if (url.pathname === "/_agent-native/auth/session") {
+        return sessionResponse("owner@example.com");
+      }
+      return new Response(null, { status: 404 });
+    });
+    mail.session = {
+      cookies: mailCookies,
+      fetch: vi.fn(async (input: string) =>
+        new URL(input).pathname === "/_agent-native/auth/session"
+          ? sessionResponse("owner@example.com")
+          : new Response(null, { status: 404 }),
+      ),
+    } as unknown as Electron.Session;
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      openExternal: vi.fn(async () => {}),
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+      createWindow: vi.fn() as never,
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+
+    expect(
+      identityFetch.mock.calls.filter(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toHaveLength(0);
     expect(reloadApp).toHaveBeenCalledTimes(1);
   });
 

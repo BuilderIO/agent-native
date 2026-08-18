@@ -16,6 +16,10 @@ const authPlugin = createAuthPlugin({
     "/status",
     "/_agent-native/actions/get-public-status-page",
   ],
+  // These browser-ingest routes validate their public key and payload at the
+  // handler boundary. Allow their preflights even when the deployment-wide
+  // CORS allowlist is intentionally empty.
+  publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",
     tagline:

@@ -7,7 +7,7 @@ import {
   IconArrowUpRight,
   IconClockHour4,
 } from "@tabler/icons-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Link,
   Navigate,
@@ -24,6 +24,7 @@ import { Button } from "../../components/ui/button";
 import { Spinner } from "../../components/ui/spinner";
 import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
+  navigateToWorkspaceApp,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -111,12 +112,18 @@ export default function WorkspaceAppCatchAllRoute() {
   );
   const href = app ? workspaceAppHref(app) : null;
   const isSelfReference = appId === "dispatch";
+  const hasApp = app !== null;
+  const appIsPending = app?.status === "pending";
+  const [navigationFailed, setNavigationFailed] = useState(false);
 
   useEffect(() => {
     if (isSelfReference) return;
-    if (!app || app.status === "pending" || !href) return;
-    window.location.assign(href);
-  }, [app, href, isSelfReference]);
+    if (!hasApp || appIsPending || !href) {
+      setNavigationFailed(false);
+      return;
+    }
+    setNavigationFailed(!navigateToWorkspaceApp(href));
+  }, [appIsPending, hasApp, href, isSelfReference]);
 
   if (isSelfReference) {
     return <Navigate to={appPath("/overview")} replace />;
@@ -136,7 +143,23 @@ export default function WorkspaceAppCatchAllRoute() {
     );
   }
 
-  if ((isLoading && !app) || (app && app.status !== "pending" && href)) {
+  if (navigationFailed && href) {
+    return (
+      <DispatchShell
+        title={t("dispatch.pages.dataLoadFailed")}
+        description={t("dispatch.pages.pageNotFoundDescription")}
+      >
+        <ActionQueryError
+          onRetry={() => setNavigationFailed(!navigateToWorkspaceApp(href))}
+        />
+      </DispatchShell>
+    );
+  }
+
+  if (
+    (isLoading && !app) ||
+    (app && app.status !== "pending" && href && !navigationFailed)
+  ) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <Spinner className="size-8" />
