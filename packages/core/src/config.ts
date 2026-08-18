@@ -662,11 +662,11 @@ export function inferAgentNativeDeploymentEnvironment(
   const context = env.CONTEXT?.trim().toLowerCase();
   const branch = env.BRANCH?.trim().toLowerCase();
 
-  if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
-    return "beta";
-  }
   if (branch === "production" || context === "production") {
     return "production";
+  }
+  if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
+    return "beta";
   }
   if (
     context === "deploy-preview" ||

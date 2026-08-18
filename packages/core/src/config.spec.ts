@@ -97,6 +97,7 @@ describe("agent-native app config", () => {
   it.each([
     [{ BRANCH: "beta", CONTEXT: "branch-deploy" }, "beta"],
     [{ BRANCH: "main", CONTEXT: "branch-deploy" }, "beta"],
+    [{ BRANCH: "beta", CONTEXT: "production" }, "production"],
     [{ BRANCH: "production", CONTEXT: "production" }, "production"],
     [{ BRANCH: "feature/auth", CONTEXT: "deploy-preview" }, "preview"],
     [{}, "local"],

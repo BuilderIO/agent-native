@@ -1659,6 +1659,23 @@ mod macos {
         }
 
         #[test]
+        fn rnnoise_vad_rejects_steady_ambient_noise() {
+            let mut vad = super::MicVoiceActivity::new();
+            let samples: Vec<f32> = (0..(nnnoiseless::DenoiseState::FRAME_SIZE * 8))
+                .map(|index| {
+                    let value = index.wrapping_mul(1_103_515_245usize).wrapping_add(12_345);
+                    (((value >> 16) & 0x7fff) as f32 / 16_384.0 - 1.0) * 0.012
+                })
+                .collect();
+
+            let probability = vad.observe(&samples, 48_000.0).unwrap();
+            assert!(
+                probability < super::MIN_MIC_VAD_PROBABILITY,
+                "ambient noise was classified as speech: {probability:.3}"
+            );
+        }
+
+        #[test]
         fn filters_multilingual_caption_hallucinations() {
             assert_eq!(clean_transcript("ご視聴ありがとうございました"), None);
             assert_eq!(
