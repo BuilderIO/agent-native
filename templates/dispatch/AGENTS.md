@@ -17,6 +17,7 @@ Read the relevant skill before deeper work:
   persist URLs, ids, or handles instead of base64, media, documents, archives,
   screenshots, thumbnails, or replay chunks.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Treat Dispatch as workspace infrastructure. Prefer actions over raw SQL for
   vault, integrations, resource grants, messaging, routing, and approvals.
 - Do not expose secret values. Vault stores references and encrypted values; apps
@@ -24,11 +25,10 @@ Read the relevant skill before deeper work:
 - Workspace integrations own provider identity, readiness, metadata, and grants.
   Domain apps still own provider-specific readers and interpretation.
 - Integration grants are not provider capability limits. For ad hoc provider
-  inspection, querying, reporting, or troubleshooting, call
-  `provider-api-catalog` / `provider-api-docs`, then `provider-api-request`
-  against the provider's real HTTP API. Use `connectionId` for a specific shared
-  grant and `accountId` for a specific OAuth account. Do not expose secret
-  values or silently widen app access while doing this.
+  analysis, call `provider-api-catalog` / `provider-api-docs`, then
+  `provider-api-request` against the provider's HTTP API. Use `connectionId` for
+  a shared grant and `accountId` for an OAuth account. Never expose secrets or
+  widen app access.
 - Use `view-screen` when the current integration, resource, approval, route, or
   setup item is unclear.
 - Use `import-agent` to normalize safe Claude Markdown or JSON into an

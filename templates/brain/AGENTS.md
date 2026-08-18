@@ -29,6 +29,7 @@ Read the matching skill before deeper work:
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private
   Builder/internal data, customer data, or credential-looking literals. Use
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use Brain actions for ingestion, search, retrieval, distillation, capture,
   review, and connector work. Do not bypass access checks or ownable scopes.
 - **Call `get-brain-settings` before answering, searching broadly, or
