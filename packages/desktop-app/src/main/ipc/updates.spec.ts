@@ -68,6 +68,7 @@ import { IPC } from "@shared/ipc-channels";
 
 let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
+let isInstallingDownloadedUpdate: typeof import("./updates.js").isInstallingDownloadedUpdate;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
@@ -85,8 +86,12 @@ describe("desktop updates", () => {
     updaterState.quitAndInstall.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
-    ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
-      await import("./updates.js"));
+    ({
+      checkForAppUpdates,
+      getCurrentUpdateStatus,
+      isInstallingDownloadedUpdate,
+      registerUpdatesIpc,
+    } = await import("./updates.js"));
   });
 
   it("shows a clear result when a manual check finds no update", async () => {
@@ -204,6 +209,7 @@ describe("desktop updates", () => {
     await installHandler?.();
 
     expect(prepareForUpdate).toHaveBeenCalledOnce();
+    expect(isInstallingDownloadedUpdate()).toBe(true);
     expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 

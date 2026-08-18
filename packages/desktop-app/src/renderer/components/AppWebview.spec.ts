@@ -12,7 +12,19 @@ import {
   isDesktopIdentityGateEligible,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
+  resolveDesktopIdentityLazySyncStatus,
 } from "./AppWebview.js";
+
+describe("Desktop identity lazy child synchronization", () => {
+  it("does not demote a verified workspace session when child sync fails", () => {
+    expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
+      "signed-in",
+    );
+    expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
+      "signed-in",
+    );
+  });
+});
 
 describe("Desktop identity gate eligibility", () => {
   it("covers canonical production apps but not browser surfaces", () => {

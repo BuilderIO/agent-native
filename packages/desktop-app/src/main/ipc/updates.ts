@@ -121,6 +121,11 @@ export async function installDownloadedUpdate(): Promise<void> {
   }
 }
 
+/** Whether the updater owns the next app quit lifecycle. */
+export function isInstallingDownloadedUpdate(): boolean {
+  return updateInstallInFlight;
+}
+
 function broadcastUpdateStatus(status: UpdateStatus) {
   currentUpdateStatus = status;
   getDeps().refreshApplicationMenu();

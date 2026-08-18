@@ -254,8 +254,10 @@ describe("desktop passive-access regressions", () => {
     expect(closeLifecycle).toContain("browserBridge.close()");
     expect(closeLifecycle).toContain("Promise.allSettled(closePromises)");
     expect(closeLifecycle).not.toContain("} else {");
+    expect(closeLifecycle).toContain("prepareForUpdate: async () => {");
+    expect(closeLifecycle).toContain("await closeDesktopComputerMcpBridge();");
     expect(closeLifecycle).toContain(
-      "prepareForUpdate: closeDesktopComputerMcpBridge",
+      "await disposeMultiFrontierAppIntegration();",
     );
     expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
   });

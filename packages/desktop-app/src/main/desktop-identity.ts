@@ -547,9 +547,26 @@ export class DesktopIdentityBroker {
       }
       if (available) this.availability = "available";
     }
-    const verifiedEmail = await this.verifyIdentitySession(authorityApp).catch(
-      () => null,
-    );
+    let verifiedEmail: string | null;
+    try {
+      verifiedEmail = await this.verifyIdentitySession(authorityApp);
+    } catch (error) {
+      // A transient network or session-partition read failure must not turn a
+      // verified workspace into a sign-in screen. An explicit non-OK response
+      // still returns null below and correctly requires sign-in.
+      console.warn("[desktop identity] session status refresh failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      if (
+        this.status !== observedStatus ||
+        this.ceremonyGeneration !== observedGeneration ||
+        this.signOutOperation
+      ) {
+        return;
+      }
+      if (observedStatus !== "signed-in") this.setStatus("sign-in-required");
+      return;
+    }
     if (
       this.status !== observedStatus ||
       this.ceremonyGeneration !== observedGeneration ||

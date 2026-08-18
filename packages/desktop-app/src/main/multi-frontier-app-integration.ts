@@ -149,10 +149,12 @@ export function initializeMultiFrontierAppIntegration(
 export function createMultiFrontierQuitGuard(options: {
   dispose(): Promise<void>;
   reissueQuit(): void;
+  shouldAllowQuit?: () => boolean;
 }): (event: MultiFrontierQuitEvent) => boolean {
   let reissued = false;
   let disposing: Promise<void> | undefined;
   return (event) => {
+    if (options.shouldAllowQuit?.()) return false;
     if (reissued) return false;
     event.preventDefault();
     if (!disposing) {

@@ -142,6 +142,16 @@ export function shouldSuppressDesktopSignInPrompt(
   return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
 }
 
+export function resolveDesktopIdentityLazySyncStatus(
+  status: DesktopIdentityStatus,
+  synchronized: boolean,
+): DesktopIdentityStatus {
+  // Lazy child fan-out is best-effort. It must not demote a verified
+  // workspace session; the child app owns its fallback login surface.
+  if (status === "signed-in") return "signed-in";
+  return synchronized ? status : "failed";
+}
+
 interface AppWebviewProps {
   app: AppDefinition;
   /** Full app config with URL overrides (optional for backward compat) */
@@ -464,8 +474,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             synchronized = null;
           }
           if (!active || request !== statusRequest) return;
-          setDesktopIdentitySessionReady(synchronized === true);
-          if (synchronized !== true) setDesktopIdentityStatus("failed");
+          setDesktopIdentitySessionReady(true);
+          setDesktopIdentityStatus(
+            resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
+          );
           return;
         }
         setDesktopIdentitySessionReady(status !== "signing-in");

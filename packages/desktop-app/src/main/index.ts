@@ -244,6 +244,7 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  isInstallingDownloadedUpdate,
   installDownloadedUpdate,
   registerUpdatesIpc,
 } from "./ipc/updates";
@@ -1269,7 +1270,10 @@ async function closeDesktopComputerMcpBridge(): Promise<void> {
 registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
-  prepareForUpdate: closeDesktopComputerMcpBridge,
+  prepareForUpdate: async () => {
+    await closeDesktopComputerMcpBridge();
+    await disposeMultiFrontierAppIntegration();
+  },
 });
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
@@ -2101,6 +2105,7 @@ let multiFrontierDisposePromise: Promise<void> | undefined;
 const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   dispose: () => disposeMultiFrontierAppIntegration(),
   reissueQuit: () => app.quit(),
+  shouldAllowQuit: () => isInstallingDownloadedUpdate(),
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([

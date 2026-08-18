@@ -886,6 +886,33 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("sign-in-required");
   });
 
+  it("preserves a verified session across a transient status refresh failure", async () => {
+    const authority = authorityFixture();
+    const identityFetch = vi
+      .fn()
+      .mockResolvedValueOnce(sessionResponse())
+      .mockRejectedValueOnce(new Error("temporary network failure"));
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await broker.refreshStatus(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+
+    await broker.refreshStatus(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+  });
+
   it("leaves ordinary per-app sign-out alone after rollout availability turns off", async () => {
     const app = appFixture();
     const authority = authorityFixture();
