@@ -488,9 +488,8 @@ export async function resolveA2ARecoverableArtifactSecret(
       const { getOrgA2ASecret } = await import("../org/context.js");
       const orgSecret = (await getOrgA2ASecret(orgId))?.trim();
       if (orgSecret) return orgSecret;
-    } catch {
-      // The deployment secret remains the recoverability fallback when organization lookup is unavailable.
-    }
+      // coercion-ok: failed organization lookup falls back to the deployment secret or undefined below
+    } catch {}
   }
   return globalSecret || undefined;
 }
