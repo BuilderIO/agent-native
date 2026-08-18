@@ -3,7 +3,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconLoader2,
-  IconRefresh,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -174,19 +173,12 @@ export function CodeProviderSettings({
   const [providerSavingId, setProviderSavingId] =
     useState<CodeAgentProviderId | null>(null);
   const [builderConnecting, setBuilderConnecting] = useState(false);
-  const [codexConnecting, setCodexConnecting] = useState(false);
-  const [codexRefreshing, setCodexRefreshing] = useState(false);
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
   const builderProvider = settings.providers.find(
     (provider) => provider.id === "builder",
   );
-  const codexProvider = settings.providers.find(
-    (provider) => provider.id === "codex",
-  );
   const builderConnected = Boolean(builderProvider?.configured);
-  const codexAvailable = Boolean(codexProvider);
-  const codexConnected = Boolean(codexProvider?.configured);
   const builderSavedKeys = Boolean(builderProvider?.savedKeys.length);
   const selectedProviderDefinition =
     CODE_AGENT_PROVIDER_FIELDSETS.find(
@@ -255,50 +247,6 @@ export function CodeProviderSettings({
     },
     [onProvidersChanged, onSettingsChanged],
   );
-
-  const handleConnectCodex = useCallback(async () => {
-    const api = window.electronAPI?.codeAgents;
-    if (!api?.openCodexLogin) {
-      setProviderMessage(
-        "Open Agent Native Desktop to sign in to your ChatGPT subscription.",
-      );
-      return;
-    }
-    setCodexConnecting(true);
-    setProviderMessage(
-      "Terminal opened. Finish `codex login`, then refresh this status.",
-    );
-    try {
-      const result = await api.openCodexLogin();
-      if (!result.ok)
-        setProviderMessage(result.error ?? "Terminal was not opened.");
-    } catch (err) {
-      setProviderMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCodexConnecting(false);
-    }
-  }, []);
-
-  const refreshCodexStatus = useCallback(async () => {
-    const api = window.electronAPI?.codeAgents;
-    if (!api?.getProviderSettings) return;
-    setCodexRefreshing(true);
-    try {
-      const nextSettings = await api.getProviderSettings();
-      onSettingsChanged(nextSettings);
-      onProvidersChanged?.();
-      setProviderMessage(
-        nextSettings.providers.find((provider) => provider.id === "codex")
-          ?.configured
-          ? "ChatGPT subscription is ready on this computer."
-          : "Codex is not signed in yet. Finish `codex login` in Terminal.",
-      );
-    } catch (err) {
-      setProviderMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCodexRefreshing(false);
-    }
-  }, [onProvidersChanged, onSettingsChanged]);
 
   useEffect(() => {
     if (!consumePendingBuilderConnectReload()) return;
@@ -407,60 +355,6 @@ export function CodeProviderSettings({
                   disabled={providerSavingId === "builder"}
                 >
                   Remove
-                </button>
-              ) : null}
-            </div>
-          }
-        />
-
-        <SettingsRow
-          label="ChatGPT subscription"
-          description={
-            codexConnected
-              ? "Ready to run Agent tasks on this computer through Codex."
-              : codexAvailable
-                ? "Use your ChatGPT subscription locally through Codex."
-                : "Install the OpenAI Codex CLI to use your ChatGPT subscription locally."
-          }
-          control={
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <span
-                className={`settings-codex-status${
-                  codexConnected ? " settings-codex-status--ok" : ""
-                }`}
-              >
-                {codexConnected
-                  ? "Ready"
-                  : codexAvailable
-                    ? "Not signed in"
-                    : "Install"}
-              </span>
-              {codexAvailable && !codexConnected ? (
-                <button
-                  type="button"
-                  className="settings-btn settings-btn--primary"
-                  onClick={() => void handleConnectCodex()}
-                  disabled={codexConnecting}
-                >
-                  {codexConnecting ? (
-                    <IconLoader2 size={14} className="settings-update-spin" />
-                  ) : null}
-                  Sign in
-                </button>
-              ) : null}
-              {codexAvailable ? (
-                <button
-                  type="button"
-                  className="settings-btn settings-btn--ghost"
-                  onClick={() => void refreshCodexStatus()}
-                  disabled={codexRefreshing}
-                >
-                  {codexRefreshing ? (
-                    <IconLoader2 size={14} className="settings-update-spin" />
-                  ) : (
-                    <IconRefresh size={14} />
-                  )}
-                  Refresh
                 </button>
               ) : null}
             </div>
@@ -725,7 +619,8 @@ function SubscriptionSettings() {
       description="Reuse local ChatGPT/Codex and Claude Code logins."
     >
       {SUBSCRIPTION_PROVIDERS.map((providerId) => {
-        const label = providerId === "codex" ? "ChatGPT / Codex" : "Claude";
+        const label =
+          providerId === "codex" ? "ChatGPT subscription" : "Claude";
         const status = hasSubscriptionBridge
           ? subscriptionLabel(statuses[providerId])
           : {

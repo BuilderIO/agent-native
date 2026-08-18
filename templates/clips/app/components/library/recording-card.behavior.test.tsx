@@ -19,7 +19,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("react-router", () => ({
-  Link: ({ children, to, ...props }: React.ComponentProps<"a">) => (
+  Link: ({
+    children,
+    to,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
     <a href={to} {...props}>
       {children}
     </a>
@@ -145,6 +149,7 @@ describe("RecordingCard delete menu", () => {
     expect(onTrash).not.toHaveBeenCalled();
 
     await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
