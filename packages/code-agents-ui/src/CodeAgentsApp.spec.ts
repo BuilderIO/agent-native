@@ -202,6 +202,18 @@ describe("CodeAgentsApp project folder picker", () => {
   });
 });
 
+describe("CodeAgentsApp Portal transfer actions", () => {
+  it("offers bulk and per-chat handoff controls", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain("Move local chats to Portal");
+    expect(source).toContain("Move to Portal");
+    expect(source).toContain("transferAll");
+    expect(source).toContain("transferRun");
+    expect(source).toContain("full text context");
+  });
+});
+
 describe("CodeAgentsApp unread run state", () => {
   const run = (id: string, status: CodeAgentRun["status"]) =>
     ({ id, status }) as CodeAgentRun;

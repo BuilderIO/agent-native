@@ -1,5 +1,9 @@
 import type { CalendarEvent } from "@shared/api";
-import { addDays, parseISO, startOfDay } from "date-fns";
+
+import {
+  getBrowserTimezone,
+  getEventSegmentForCalendarDay,
+} from "@/lib/calendar-timezone";
 
 export interface TimedEventLayout {
   left: number;
@@ -35,21 +39,23 @@ function overlaps(a: EventBounds, b: EventBounds): boolean {
 export function computeTimedEventLayout(
   dayEvents: readonly CalendarEvent[],
   day: Date,
+  timezone: string = getBrowserTimezone(),
 ): Map<string, TimedEventLayout> {
   const result = new Map<string, TimedEventLayout>();
   if (dayEvents.length === 0) return result;
 
-  const dayStartMs = startOfDay(day).getTime();
-  const dayEndMs = addDays(startOfDay(day), 1).getTime();
   const entries = dayEvents.map<EventEntry>((event, inputOrder) => {
-    const rawStart = parseISO(event.start).getTime();
-    const rawEnd = parseISO(event.end).getTime();
-    const start = Math.min(dayEndMs, Math.max(dayStartMs, rawStart));
+    const segment = getEventSegmentForCalendarDay(event, day, timezone);
+    const start = segment?.startMinutes ?? 0;
     // Match the card renderer's minimum height so tiny adjacent events get
     // collision-aware placement even when their raw times barely overlap.
     const end = Math.min(
-      dayEndMs,
-      Math.max(start, rawEnd, start + MIN_VISIBLE_EVENT_MINUTES * 60 * 1000),
+      24 * 60,
+      Math.max(
+        start,
+        segment?.endMinutes ?? start,
+        start + MIN_VISIBLE_EVENT_MINUTES,
+      ),
     );
 
     return { event, bounds: { start, end }, inputOrder };

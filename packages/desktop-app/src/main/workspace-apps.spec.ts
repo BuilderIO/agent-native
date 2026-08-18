@@ -13,8 +13,9 @@ function response(payload: unknown, status = 200) {
 
 function sessionFor(
   fetch: ReturnType<typeof vi.fn>,
+  cookies?: ReturnType<typeof vi.fn>,
 ): Parameters<typeof loadDesktopWorkspaceApps>[0]["identitySession"] {
-  return { fetch } as never;
+  return { fetch, ...(cookies ? { cookies: { get: cookies } } : {}) } as never;
 }
 
 describe("loadDesktopWorkspaceApps", () => {
@@ -68,12 +69,62 @@ describe("loadDesktopWorkspaceApps", () => {
           enabled: true,
           isBuiltIn: false,
           mode: "prod",
+          workspaceSso: true,
         }),
       ],
     });
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1]?.[0]).toContain(
       "includeAgentCards=false&audience=all",
+    );
+  });
+
+  it("passes the authenticated session cookies to the rollout and inventory requests", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ [WORKSPACE_APP_LIST_FLAG_KEY]: true }))
+      .mockResolvedValueOnce(response({ apps: [] }));
+    const cookies = vi.fn().mockResolvedValue([
+      {
+        domain: "dispatch.example.com",
+        hostOnly: true,
+        name: "an_session_dispatch",
+        value: "parent-session",
+      },
+      {
+        domain: "other.example.com",
+        hostOnly: true,
+        name: "unrelated",
+        value: "must-not-leak",
+      },
+    ]);
+
+    await loadDesktopWorkspaceApps({
+      identitySession: sessionFor(fetch, cookies),
+      dispatchOrigin: "https://dispatch.example.com",
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("/_agent-native/actions/get-feature-flags"),
+      expect.objectContaining({
+        credentials: "include",
+        headers: {
+          accept: "application/json",
+          Cookie: "an_session_dispatch=parent-session",
+        },
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/_agent-native/actions/list-workspace-apps"),
+      expect.objectContaining({
+        credentials: "include",
+        headers: {
+          accept: "application/json",
+          Cookie: "an_session_dispatch=parent-session",
+        },
+      }),
     );
   });
 

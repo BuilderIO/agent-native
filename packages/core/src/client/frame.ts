@@ -206,7 +206,18 @@ function runtimeEnvValue(name: string): string | boolean | undefined {
 }
 
 function workspaceOAuthOrigin(): string | null {
+  // The shell carries the server's declared values, so it answers first. The
+  // env lookups below are the pre-shell fallback and are kept for deployments
+  // built before the projection existed: in a browser only the `VITE_`
+  // spellings can ever resolve, and on the server only the plain ones are
+  // guaranteed — which is why the chain lists both and why it is not the
+  // primary path any more.
+  const shell =
+    typeof window !== "undefined" ? window.__AGENT_NATIVE_CONFIG__ : undefined;
   const raw =
+    shell?.workspaceOAuthOrigin ||
+    shell?.appUrl ||
+    shell?.workspaceGatewayUrl ||
     runtimeEnvValue("VITE_WORKSPACE_OAUTH_ORIGIN") ||
     runtimeEnvValue("WORKSPACE_OAUTH_ORIGIN") ||
     runtimeEnvValue("VITE_APP_URL") ||

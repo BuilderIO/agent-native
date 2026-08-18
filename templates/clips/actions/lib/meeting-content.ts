@@ -1,9 +1,20 @@
 /**
- * Whether a persisted meeting contains something a user can reopen.
+ * What makes a meeting worth showing in history.
  *
- * Calendar events are materialized before they are recorded, so the meetings
- * table also contains empty calendar rows. History should keep notes and
- * completed meeting rows even when no recording was linked.
+ * A calendar-sourced `clips_meetings` row is created as soon as the user
+ * records or edits an event, so the table also holds bare husks that carry
+ * nothing a user would ever reopen. Two places need that distinction and they
+ * MUST agree:
+ *
+ *   1. this predicate, for rows already in memory, and
+ *   2. `meetingHasContentFilter()` in `../list-meetings.ts`, its SQL mirror.
+ *
+ * The same rule decides which rows the history list returns AND which
+ * persisted rows a live calendar event may supersede. Let the two drift and
+ * history rows start vanishing behind their own calendar events — which is the
+ * bug that made `recordedOnly` look like a reasonable filter in the first
+ * place. `recordingId` alone is NOT the rule: desktop live notes produce a
+ * meeting with a summary and no linked recording.
  */
 export interface MeetingContentFields {
   recordingId?: string | null;

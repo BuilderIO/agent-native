@@ -447,7 +447,7 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("thread-1")).toBe(false);
   });
 
-  it("keeps a saved missing thread active so the chat can surface a restore error", async () => {
+  it("starts a fresh chat when a saved home thread no longer exists", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
       "empty-sidebar-tab",
@@ -495,9 +495,13 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
-    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(false);
-    expect(hook!.threads.map((thread) => thread.id)).toEqual(["real-thread"]);
+    expect(hook!.activeThreadId).not.toBe("empty-sidebar-tab");
+    expect(hook!.activeThreadId).not.toBeNull();
+    expect(hook!.isNewThread(hook!.activeThreadId!)).toBe(true);
+    expect(hook!.threads.map((thread) => thread.id)).toContain("real-thread");
+    expect(hook!.threads.map((thread) => thread.id)).not.toContain(
+      "empty-sidebar-tab",
+    );
   });
 
   it("keeps a saved missing thread active when auto-create is disabled", async () => {

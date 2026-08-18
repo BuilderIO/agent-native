@@ -46,7 +46,6 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useSelectAllOnEdit } from "@/hooks/use-select-all-on-edit";
 import { getIdToken } from "@/lib/auth";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
@@ -151,6 +150,7 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -493,7 +493,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
-  const renameInputRef = useSelectAllOnEdit<HTMLInputElement>(isRenaming);
+  const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);

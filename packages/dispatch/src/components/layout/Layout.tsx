@@ -112,6 +112,7 @@ import {
   workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
+import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
 import {
@@ -124,6 +125,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
+  WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
@@ -215,7 +217,6 @@ const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
-const CHAT_FIRST_PANE_STATE_KEY = "chat-first-pane";
 
 interface DispatchChatFirstPane {
   appId: string;
@@ -2349,28 +2350,14 @@ export function Layout({
     "Workspace app";
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
-      <AgentSidebar
-        position="left"
-        defaultOpen
-        openStorageKey="dispatch-app-chat"
-        storageKey={`dispatch-app-chat:${workspaceAppId}`}
-        scope={{
-          type: "workspace-app",
-          id: workspaceAppId,
-          label: workspaceAppChatName,
-          contextKey: `workspace-app:${workspaceAppId}`,
-        }}
-        agentChatSurface="app"
-        showTabBar
-        suppressInlineOpenApp
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={`Ask about ${workspaceAppChatName}`}
+      <WorkspaceAppChatRail
+        appId={workspaceAppId}
+        appName={workspaceAppChatName}
         agentPageHref={agentPageHref}
         onFullscreenRequest={openAskAgentFullscreen}
       >
         <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
-      </AgentSidebar>
+      </WorkspaceAppChatRail>
     ) : (
       <WorkspaceAppKeepAlive
         activeAppId={workspaceAppRouteActive ? workspaceAppId : null}

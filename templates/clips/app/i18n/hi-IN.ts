@@ -1578,7 +1578,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
     transcriptPending: "Transcript pending (स्थानीयकृत)",
     notesPending: "Notes pending (स्थानीयकृत)",
     pastRecordings: "Past recordings (स्थानीयकृत)",
-    loadOlder: "पुराने लोड करें",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
@@ -1606,7 +1605,14 @@ Clips में उपयोगकर्ताओं को दिखने व�
     title: "Meetings (स्थानीयकृत)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (स्थानीयकृत)",
-    searchPlaceholder: "Search meetings... (स्थानीयकृत)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (स्थानीयकृत)",
+    agendaTab: "Agenda (स्थानीयकृत)",
+    pastTab: "Past (स्थानीयकृत)",
+    now: "Now (स्थानीयकृत)",
+    noPastMeetings: "No past meetings yet (स्थानीयकृत)",
+    loadOlder: "Load older (स्थानीयकृत)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
     clearSearch: "Clear search (स्थानीयकृत)",
     noMeetingsYet: "No meetings yet (स्थानीयकृत)",
     noMeetingsDescription:

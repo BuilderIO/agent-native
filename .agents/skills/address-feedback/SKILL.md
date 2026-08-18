@@ -15,6 +15,24 @@ Use this skill when the user shares a feedback document, issue, thread, or paste
 
 The default posture is judgment plus action: fix clear, verified bugs you agree with; propose UX changes with rationale; skip or flag low-signal, unclear, or out-of-scope items.
 
+## Choose the fix altitude
+
+Before coding, name the smallest invariant that explains the report and the
+boundary that owns it. Use the evidence to choose the altitude:
+
+- One isolated report -> fix the local seam and add a focused regression check.
+- Repeated or cross-surface reports -> consider the shared primitive or
+  contract, but only after confirming the reports share the same failure mode.
+- Missing capability or wrong tool -> fix discovery, the registry, or the
+  action contract rather than coaching the agent around the gap.
+- Source behavior differs from the reported live behavior -> check the build,
+  deploy, and version state before changing code.
+
+Do not turn one data point into a global agent rule. For subjective feedback,
+state the underlying invariant and wait for repeated evidence before broadening
+it. Keep a concrete local fix when it solves the reported boundary; the goal is
+the right abstraction, not the most general one.
+
 ## Prerequisites
 
 - If no link or feedback text is provided, ask for it.
@@ -92,6 +110,21 @@ The default posture is judgment plus action: fix clear, verified bugs you agree 
    - Default org is `builder-io` unless the user specifies another.
    - Cite issue IDs or links when you find a match.
    - If nothing matches, say that plainly.
+
+## Fix-altitude gate
+
+Before editing a verified bug, choose the narrowest seam supported by the
+evidence:
+
+- One isolated report -> fix the owning local seam and add a regression check.
+- Repeated or cross-surface evidence -> inspect the shared primitive or
+  contract before patching a leaf.
+- Missing capability or wrong tool -> fix discovery, registry, or action-contract
+  wiring.
+- Source-vs-live mismatch -> diagnose build/deploy state before changing source.
+- Do not turn one data point into a global agent instruction. For subjective
+  feedback, name the invariant and require repeated evidence before broadening
+  it.
 
 6. Fix only the clear bugs you agree with.
 

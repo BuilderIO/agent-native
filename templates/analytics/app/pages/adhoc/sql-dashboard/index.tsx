@@ -71,6 +71,7 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -110,7 +111,6 @@ import {
   useRestoreDashboardRevision,
 } from "@/hooks/use-dashboard-revisions";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
-import { useSelectAllOnEdit } from "@/hooks/use-select-all-on-edit";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
   DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
@@ -129,6 +129,7 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
@@ -149,6 +150,7 @@ import { createDashboardSaveQueue } from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
 } from "./dashboard-sync";
@@ -597,11 +599,11 @@ function SqlDashboardPageContent({
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const nameInputRef = useSelectAllOnEdit<HTMLInputElement>(editingName);
+  const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionInput, setDescriptionInput] = useState("");
   const descriptionInputRef =
-    useSelectAllOnEdit<HTMLTextAreaElement>(editingDescription);
+    useAutoFocusSelect<HTMLTextAreaElement>(editingDescription);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
@@ -2072,6 +2074,23 @@ function SqlDashboardPageContent({
       <DashboardReportCaptureSurface phase="error" error={dashboardQuery.error}>
         <DashboardSkeleton />
       </DashboardReportCaptureSurface>
+    );
+  }
+
+  if (
+    shouldShowDashboardLoadError({
+      dashboardId,
+      isError: dashboardQuery.isError,
+      loaded,
+      hasDashboard: !!dashboard,
+    })
+  ) {
+    return (
+      <ResourceLoadError
+        message={t("sidebar.dashboardsLoadFailed")}
+        retryLabel={t("sidebar.retry")}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
     );
   }
 

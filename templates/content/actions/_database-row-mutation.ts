@@ -64,7 +64,7 @@ type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type DefinitionRow = typeof schema.documentPropertyDefinitions.$inferSelect;
 type Db = ReturnType<typeof getDb>;
 
-interface MutationContext {
+export interface MutationContext {
   database: DatabaseRow;
   databaseDocument: typeof schema.documents.$inferSelect;
   definitions: DefinitionRow[];
@@ -72,7 +72,7 @@ interface MutationContext {
   schemaRevision: string;
 }
 
-interface RowSnapshot {
+export interface RowSnapshot {
   item: typeof schema.contentDatabaseItems.$inferSelect;
   document: typeof schema.documents.$inferSelect;
   values: Map<string, string>;
@@ -111,7 +111,7 @@ function canonical(value: unknown): string {
     .join(",")}}`;
 }
 
-function digest(value: unknown): string {
+export function digest(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonical(value)).digest("hex")}`;
 }
 
@@ -210,7 +210,7 @@ function acceptedShape(type: DocumentPropertyType): string {
   }
 }
 
-async function loadContext(
+export async function loadContext(
   target: DatabaseMutationTarget,
   role: "viewer" | "editor",
   db: Db = getDb(),
@@ -631,7 +631,7 @@ async function ensureNaturalKeyClaim(
   }
 }
 
-async function rowSnapshot(
+export async function rowSnapshot(
   db: Db,
   databaseId: string,
   itemId: string,
@@ -683,7 +683,7 @@ async function rowSnapshot(
   return { ...row, values: valueMap, revision };
 }
 
-function revisionPropertyIds(context: MutationContext) {
+export function revisionPropertyIds(context: MutationContext) {
   return new Set(
     context.definitions
       .filter(
@@ -851,7 +851,7 @@ async function insertReceipt(
   });
 }
 
-function assertSchema(context: MutationContext, expected: string) {
+export function assertSchema(context: MutationContext, expected: string) {
   if (context.schemaRevision !== expected) {
     conflict("SCHEMA_REVISION_CONFLICT", "The database schema changed.", {
       expected,

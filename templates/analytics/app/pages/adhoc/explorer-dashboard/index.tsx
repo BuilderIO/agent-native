@@ -88,12 +88,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
-import { useSelectAllOnEdit } from "@/hooks/use-select-all-on-edit";
 import {
   resourceCanEdit,
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import { DashboardChartCard } from "./ChartCard";
@@ -207,7 +207,7 @@ export default function ExplorerDashboardPage() {
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const nameInputRef = useSelectAllOnEdit<HTMLInputElement>(editingName);
+  const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);

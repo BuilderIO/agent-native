@@ -38,7 +38,8 @@ import {
 } from "../voice/index.js";
 import { getSession } from "./auth.js";
 import {
-  resolveHasBuilderPrivateKey,
+  gatewayLaneUnavailableMessage,
+  resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -187,8 +188,8 @@ export function createTranscribeVoiceHandler() {
       requestContext.userEmail
         ? runWithRequestContext(requestContext, fn)
         : fn();
-    const hasBuilderPrivateKey = async () =>
-      withRequestContext(() => resolveHasBuilderPrivateKey());
+    const hasBuilderCredential = async () =>
+      withRequestContext(() => resolveHasBuilderGatewayCredential());
     const transcribeWithBuilderForRequest = (
       opts: Parameters<typeof transcribeWithBuilder>[0],
     ) => withRequestContext(() => transcribeWithBuilder(opts));
@@ -260,7 +261,7 @@ export function createTranscribeVoiceHandler() {
         instructions: voiceGuidance,
         contextPack: voiceContext,
         providerPref,
-        hasBuilderPrivateKey,
+        hasBuilderCredential,
         withRequestContext,
         resolveApiKey,
         clientAbortSignal: clientAbort,
@@ -325,10 +326,12 @@ export function createTranscribeVoiceHandler() {
         providerPref === "builder-gemini"
           ? "Builder Gemini Flash-Lite"
           : "Builder";
-      if (!(await hasBuilderPrivateKey())) {
+      if (!(await hasBuilderCredential())) {
         setResponseStatus(event, 400);
         return {
-          error: `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`,
+          error: gatewayLaneUnavailableMessage(
+            `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`,
+          ),
         };
       }
       try {
@@ -347,10 +350,14 @@ export function createTranscribeVoiceHandler() {
         const message = (err as Error)?.message ?? String(err);
         if (message.includes("credits exhausted")) {
           setResponseStatus(event, 402);
-          return { error: message };
+          return { error: gatewayLaneUnavailableMessage(message) };
         }
         setResponseStatus(event, 502);
-        return { error: `${label} transcription failed: ${message}` };
+        return {
+          error: gatewayLaneUnavailableMessage(
+            `${label} transcription failed: ${message}`,
+          ),
+        };
       }
     }
 
@@ -385,7 +392,7 @@ export function createTranscribeVoiceHandler() {
     // ── Builder Gemini Flash-Lite path ─────────────────────────────────
     // First-priority in auto mode when Builder is connected. This lets users
     // try Gemini 3.1 Flash-Lite without bringing their own Google key.
-    if (providerPref !== "openai" && (await hasBuilderPrivateKey())) {
+    if (providerPref !== "openai" && (await hasBuilderCredential())) {
       try {
         const result = await transcribeWithBuilderForRequest({
           audioBytes,
@@ -401,7 +408,7 @@ export function createTranscribeVoiceHandler() {
         // a specific upgrade prompt.
         if (message.includes("credits exhausted")) {
           setResponseStatus(event, 402);
-          return { error: message };
+          return { error: gatewayLaneUnavailableMessage(message) };
         }
         builderError = message;
       }
@@ -478,9 +485,11 @@ export function createTranscribeVoiceHandler() {
     if (!provider) {
       setResponseStatus(event, builderError ? 502 : 400);
       return {
-        error: builderError
-          ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-          : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+        error: gatewayLaneUnavailableMessage(
+          builderError
+            ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+            : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+        ),
       };
     }
 
@@ -596,7 +605,7 @@ async function cleanupTranscriptText({
   instructions,
   contextPack,
   providerPref,
-  hasBuilderPrivateKey,
+  hasBuilderCredential,
   withRequestContext,
   resolveApiKey,
   clientAbortSignal,
@@ -606,7 +615,7 @@ async function cleanupTranscriptText({
   instructions?: string;
   contextPack?: VoiceContextPack;
   providerPref?: string;
-  hasBuilderPrivateKey: () => Promise<boolean>;
+  hasBuilderCredential: () => Promise<boolean>;
   withRequestContext: <T>(fn: () => Promise<T>) => Promise<T>;
   resolveApiKey: (key: string) => Promise<string | undefined>;
   clientAbortSignal?: AbortSignal;
@@ -621,11 +630,12 @@ async function cleanupTranscriptText({
   }
 
   if (providerPref === "builder" || providerPref === "builder-gemini") {
-    if (!(await hasBuilderPrivateKey())) {
+    if (!(await hasBuilderCredential())) {
       setResponseStatus(event, 400);
       return {
-        error:
+        error: gatewayLaneUnavailableMessage(
           "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.",
+        ),
       };
     }
     try {
@@ -644,7 +654,9 @@ async function cleanupTranscriptText({
     } catch (err) {
       setResponseStatus(event, 502);
       return {
-        error: `Builder.io cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+        error: gatewayLaneUnavailableMessage(
+          `Builder.io cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+        ),
       };
     }
   }
@@ -701,7 +713,7 @@ async function cleanupTranscriptText({
     }
   }
 
-  if (await hasBuilderPrivateKey()) {
+  if (await hasBuilderCredential()) {
     try {
       const cleaned = await withRequestContext(() =>
         cleanupWithBuilder({ text: original, instructions, clientAbortSignal }),

@@ -17,7 +17,7 @@ description: "用於仍在推出中的 action 的功能旗標閘控，以及為�
 
 ```ts
 // shared/feature-flags.ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",

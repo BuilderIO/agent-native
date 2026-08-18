@@ -61,7 +61,21 @@ export const NEVER_STANDARDIZED = [
   "changelog/ entries",
 ] as const;
 
-/** Directory names under templates/ that ship a package.json (real, buildable templates). */
+/**
+ * A retired host project may still point at a template directory after the
+ * product has moved. Keep that directory buildable without treating its
+ * compatibility package as a live first-party template.
+ */
+export function isRetiredCompatibilityTemplate(template: string): boolean {
+  const packagePath = join(TEMPLATES_DIR, template, "package.json");
+  if (!existsSync(packagePath)) return false;
+  const packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as {
+    agentNativeRetiredCompatibility?: unknown;
+  };
+  return packageJson.agentNativeRetiredCompatibility === true;
+}
+
+/** Directory names under templates/ that ship a live package.json. */
 export function listTemplates(): string[] {
   if (!existsSync(TEMPLATES_DIR)) return [];
   return readdirSync(TEMPLATES_DIR, { withFileTypes: true })
@@ -70,7 +84,10 @@ export function listTemplates(): string[] {
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }
-      return existsSync(join(TEMPLATES_DIR, entry.name, "package.json"));
+      return (
+        existsSync(join(TEMPLATES_DIR, entry.name, "package.json")) &&
+        !isRetiredCompatibilityTemplate(entry.name)
+      );
     })
     .map((entry) => entry.name)
     .sort();

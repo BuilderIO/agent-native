@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.16.4
+
+### Patch Changes
+
+- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
+
 ## 0.16.3
 
 ### Patch Changes

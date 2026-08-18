@@ -14,6 +14,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -2734,6 +2735,19 @@ function createAuthGuardFn(
       return;
     }
 
+    // Remote hosts authenticate these relay calls with their device token,
+    // not a browser session. Keep this list exact: sibling remote routes such
+    // as register, enqueue, and computer controls are session-authenticated.
+    if (
+      p === "/_agent-native/integrations/remote/unregister" ||
+      p === "/_agent-native/integrations/remote/heartbeat" ||
+      p === "/_agent-native/integrations/remote/poll" ||
+      p === "/_agent-native/integrations/remote/result" ||
+      p === "/_agent-native/integrations/remote/run-events"
+    ) {
+      return;
+    }
+
     // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Both the
     // `/login` entry point and the `/callback` (hit by a user who is, by
     // definition, NOT yet signed in to THIS app) must bypass the blanket
@@ -3577,7 +3591,7 @@ function isHttpsRequest(event: H3Event): boolean {
     const req: any = (event as any).req ?? event.node?.req;
     const url: string | undefined = req?.url;
     if (typeof url === "string" && url.startsWith("https://")) return true;
-    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    const appUrl = getAppConfig().app.url ?? "";
     if (appUrl.startsWith("https://")) return true;
   } catch {
     // ignore

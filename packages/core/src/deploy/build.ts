@@ -387,6 +387,14 @@ export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
     "export default { CanvasFactory, getData };",
     "",
   ].join("\n"),
+  "pdfjs-dist/legacy/build/pdf.mjs": [
+    "const unavailable = () => { throw new Error('pdfjs-dist unavailable in Cloudflare Pages worker'); };",
+    "export const OPS = new Proxy({}, { get: unavailable });",
+    "export const Util = new Proxy({}, { get: unavailable });",
+    "export const getDocument = unavailable;",
+    "export default { OPS, Util, getDocument };",
+    "",
+  ].join("\n"),
 };
 
 export function cloudflareWorkerStubAliasArgs(stubDir: string): string[] {
@@ -1222,6 +1230,41 @@ function getRealtimeClientConfigScript() {
   );
 }
 
+function getAppOriginClientConfigScript() {
+  // MUST stay consistent with resolvePublicAppOriginConfig in
+  // server/app-origin-config.ts, and with the alias order declared on
+  // app.url / workspace.* in app-config (worker bundles a string copy; it
+  // can't import them). Impersonal values only — this ships into the
+  // CDN-cached shell.
+  const env = globalThis.process?.env || {};
+  const appUrl = firstNonEmpty(
+    env.APP_URL,
+    env.VITE_APP_URL,
+    env.BETTER_AUTH_URL,
+    env.VITE_BETTER_AUTH_URL,
+  );
+  const workspaceGatewayUrl = firstNonEmpty(
+    env.WORKSPACE_GATEWAY_URL,
+    env.VITE_WORKSPACE_GATEWAY_URL,
+  );
+  const workspaceOAuthOrigin = firstNonEmpty(
+    env.WORKSPACE_OAUTH_ORIGIN,
+    env.VITE_WORKSPACE_OAUTH_ORIGIN,
+  );
+  const config = {
+    ...(appUrl ? { appUrl } : {}),
+    ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
+    ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
+  };
+  if (Object.keys(config).length === 0) return null;
+  return (
+    '<script data-agent-native-app-origin-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -1377,6 +1420,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       getSentryClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
+      getAppOriginClientConfigScript(),
     ]
       .filter(Boolean)
       .join("") || null;
@@ -3562,7 +3606,7 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   if (unsupportedSubpathImports.length > 0) {
     throw new Error(
-      `[deploy] Serverless output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
+      `[deploy] Node/server output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
     );
   }
   if (bareImports.length === 0) return [];
@@ -3620,6 +3664,17 @@ export function bundleYjsRuntimeForServerlessOutput(
   });
 
   return bareImports;
+}
+
+/** Presets whose Node-style output needs the emitted Yjs runtime bundle. */
+export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
+  return (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    targetPreset === "aws-lambda" ||
+    targetPreset === "node" ||
+    targetPreset === "node-server"
+  );
 }
 
 // Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
@@ -4519,8 +4574,8 @@ export function createCloudflareModuleStubPlugin() {
 }
 
 /**
- * Dependencies Nitro itself must bundle outside the controlled serverless
- * output pass. Netlify, Vercel, and Lambda keep Yjs external through Nitro;
+ * Dependencies Nitro itself must bundle outside the controlled Yjs output pass.
+ * Node and controlled serverless presets keep Yjs external through Nitro;
  * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
  */
 export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
@@ -4541,8 +4596,8 @@ export function resolveNitroBundledYjsEntry(): string {
 }
 
 /**
- * Edge runtimes have no node_modules, while Node/serverless outputs only need
- * the small set above bundled to keep their package manifests traceable.
+ * Edge runtimes have no node_modules, while Node/serverless outputs receive the
+ * small set above through the controlled post-build pass.
  */
 export function nitroNoExternalsForPreset(
   targetPreset: string,
@@ -4552,7 +4607,9 @@ export function nitroNoExternalsForPreset(
     ? true
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
-        targetPreset === "aws-lambda"
+        targetPreset === "aws-lambda" ||
+        targetPreset === "node" ||
+        targetPreset === "node-server"
       ? []
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
@@ -4742,10 +4799,14 @@ export default bundle;
     rollupConfig: {
       // Nitro treats the intermediate React Router SSR files as prebuilt
       // chunks, while core's server collaboration files participate in the
-      // final Rolldown graph. Externalize Yjs consistently on serverless so
+      // final Rolldown graph. Externalize Yjs consistently on Node/serverless so
       // both graphs retain their public import shapes; the controlled
       // post-build pass below bundles and rewrites them to one module.
-      ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
+      ...(preset === "netlify" ||
+      preset === "vercel" ||
+      preset === "aws-lambda" ||
+      preset === "node" ||
+      preset === "node-server"
         ? { external: ["yjs"] }
         : {}),
       plugins: [
@@ -4760,9 +4821,9 @@ export default bundle;
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // Edge presets (cloudflare, deno) bundle all deps because node_modules are
-    // unavailable at runtime. Ordinary Node presets bundle Yjs through Nitro.
-    // Controlled serverless presets externalize it above, then emit one full
-    // runtime module after Nitro has preserved every consumer's public imports.
+    // unavailable at runtime. Node and controlled serverless presets
+    // externalize Yjs above, then emit one full runtime module after Nitro has
+    // preserved every consumer's public imports.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
@@ -4788,6 +4849,9 @@ export default bundle;
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
+  }
+
+  if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
