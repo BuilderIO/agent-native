@@ -233,6 +233,16 @@ export default defineAction({
     // "thisAndFollowing" would have those occurrences race to rewrite the same
     // master RRULE. Either way the dry-run preview would understate what
     // happens, so a filtered selection is restricted to the matched occurrences.
+    // A series scope acts on the series master, so batching several ids under it
+    // is incoherent: two occurrences of one series would either race to rewrite
+    // the same RRULE cutoff or have the second call 404 on an already-deleted
+    // master, and the per-event report would be wrong either way. One id per
+    // series operation removes the race by construction.
+    if (hasIds && args.scope !== "single" && args.ids!.length > 1) {
+      throw new Error(
+        `scope "${args.scope}" acts on a whole recurring series, so it takes exactly one id. Call it once per series, or use scope single to remove specific occurrences.`,
+      );
+    }
     if (!hasIds && args.scope !== "single") {
       throw new Error(
         `scope "${args.scope}" acts on a whole recurring series, which a filtered bulk delete cannot preview. Use scope single here, or pass the specific event as ids (or call delete-event) to change a series.`,

@@ -388,7 +388,14 @@ A filtered selection only ever removes the matched occurrences, so it accepts
 `--scope single`. `all` and `thisAndFollowing` act on a whole recurring series —
 which for a daily series would also delete the weekdays the user kept, and would
 not match the dry-run preview — so they require explicit `--ids` or
-`delete-event`.
+`delete-event`, and take exactly one id per call because they mutate the series
+master.
+
+The commit re-reads the calendar, so it acts on the user's intent ("the weekend
+is clear") rather than a frozen list — an event that moved onto a Saturday
+between preview and confirmation is still removed. When the user should get
+exactly the reviewed set and nothing else, pass the `--ids` from the dry-run
+result instead of repeating the filter.
 
 The result is a per-event report, not a boolean. Read `deleted`, `failed`, and
 `skipped` and give the user the counts; a `failed` entry carries the provider

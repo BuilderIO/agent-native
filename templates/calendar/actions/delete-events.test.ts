@@ -476,6 +476,20 @@ describe("delete-events", () => {
     );
   });
 
+  it("takes exactly one id for a whole-series scope", async () => {
+    await expect(
+      run({ ids: ["google-a", "google-b"], scope: "all", sendUpdates: "none" }),
+    ).rejects.toThrow(/exactly one id/i);
+    expect(deleteEventMock).not.toHaveBeenCalled();
+
+    const result = await run({
+      ids: ["google-a", "google-b"],
+      scope: "single",
+      sendUpdates: "none",
+    });
+    expect(result.deleted).toBe(2);
+  });
+
   it("requires both range bounds so a one-sided request cannot widen the delete", async () => {
     await expect(
       run({
