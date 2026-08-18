@@ -293,6 +293,7 @@ export default defineAction({
               accessFilter(schema.documents, schema.documentShares),
               isNull(schema.documents.trashedAt),
               isNull(schema.contentDatabases.deletedAt),
+              isNull(schema.contentSpaces.archivedAt),
               isNotNull(schema.contentDatabases.systemRole),
               eq(schema.contentDatabases.spaceId, args.spaceId!),
             ),

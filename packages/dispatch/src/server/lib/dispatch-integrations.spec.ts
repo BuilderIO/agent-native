@@ -497,6 +497,39 @@ describe("beforeDispatchProcess", () => {
       expectedOrgId: "org-managed",
     });
   });
+
+  it("does not consume a managed Slack link token when identity verification fails", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false })),
+    );
+    const incoming = slackIncoming({
+      text: "/link token-unverified",
+      senderId: "U-MANAGED-UNVERIFIED",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await resolveDispatchExecutionContext(incoming);
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+    expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("managed Slack execution identity", () => {

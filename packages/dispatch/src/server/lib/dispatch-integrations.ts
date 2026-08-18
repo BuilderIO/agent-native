@@ -609,31 +609,31 @@ export async function beforeDispatchProcess(
   const commandText =
     contextString(incoming.platformContext.rawText) || trimmed;
   const match = commandText.match(/^\/link(?:@\w+)?\s+([a-zA-Z0-9_-]+)$/);
+  if (
+    incoming.platform === "slack" &&
+    incoming.triggerKind === "dm" &&
+    incoming.platformContext.identityVerificationFailed === true
+  ) {
+    return {
+      handled: true,
+      responseText: formatSlackIdentityVerificationFailedMessage(),
+    };
+  }
+  if (
+    incoming.platform === "slack" &&
+    incoming.triggerKind === "dm" &&
+    incoming.platformContext.identityAccessDenied === true
+  ) {
+    return {
+      handled: true,
+      responseText: formatSlackIdentityDeniedMessage(),
+    };
+  }
   if (!match) {
     const routedIncoming = incoming as IncomingMessage & {
       routingHint?: DispatchIntegrationRoutingHint;
     };
     routedIncoming.routingHint ??= dispatchIntegrationRoutingHint(trimmed);
-    if (
-      incoming.platform === "slack" &&
-      incoming.triggerKind === "dm" &&
-      incoming.platformContext.identityVerificationFailed === true
-    ) {
-      return {
-        handled: true,
-        responseText: formatSlackIdentityVerificationFailedMessage(),
-      };
-    }
-    if (
-      incoming.platform === "slack" &&
-      incoming.triggerKind === "dm" &&
-      incoming.platformContext.identityAccessDenied === true
-    ) {
-      return {
-        handled: true,
-        responseText: formatSlackIdentityDeniedMessage(),
-      };
-    }
     if (
       incoming.platform === "slack" &&
       incoming.triggerKind === "dm" &&

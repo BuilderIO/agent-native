@@ -598,4 +598,33 @@ describe("list-content-databases", () => {
       },
     );
   });
+
+  it("does not inventory system collections from an archived space", async () => {
+    const spaceId = "content-space-archived-system-inventory";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Archived Personal",
+      filesDatabaseId: "archived-files-database",
+    });
+    await createDatabaseDocument({
+      documentId: "archived-files-document",
+      databaseId: "archived-files-database",
+      title: "Archived Personal",
+      spaceId,
+      systemRole: "files",
+      hideFromSearch: true,
+    });
+    await getDb()
+      .update(schema.contentSpaces)
+      .set({ archivedAt: new Date().toISOString() })
+      .where(eq(schema.contentSpaces.id, spaceId));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        spaceId,
+        includeSystemCollections: true,
+      });
+      expect(inventory.systemCollections).toEqual([]);
+    });
+  });
 });
