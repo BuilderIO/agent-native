@@ -1102,9 +1102,13 @@ export function embedApp(
       } catch {}
     }
 
+    function clearFallbackOverlay() {
+      stage.querySelector("[data-fallback-overlay]")?.remove();
+    }
+
     function renderFallbackOverlay({ title, copyHtml, retryLabel, onRetry }) {
       if (!appFrame || appFrame.parentElement !== stage) return false;
-      stage.querySelector("[data-fallback-overlay]")?.remove();
+      clearFallbackOverlay();
       const overlay = document.createElement("div");
       overlay.className = "fallback-overlay";
       overlay.dataset.fallbackOverlay = "1";
@@ -1555,6 +1559,7 @@ export function embedApp(
       const data = event.data.data || {};
       if (event.data.type === "agentNative.embeddedAppReady") {
         appFrameReady = true;
+        clearFallbackOverlay();
         embedSessionRefreshAttempts = 0;
         clearFrameLoadTimer();
         clearFrameReadyTimer();

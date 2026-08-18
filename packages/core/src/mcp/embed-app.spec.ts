@@ -248,6 +248,7 @@ describe("embedApp", () => {
 
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("renderFrameFallback");
+    expect(html).toContain("function clearFallbackOverlay");
     expect(html).toContain("function renderFallbackOverlay");
     expect(html).toContain(".fallback-overlay");
     expect(html).toContain("data-fallback-overlay");
