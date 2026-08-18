@@ -69,6 +69,7 @@ import { IPC } from "@shared/ipc-channels";
 let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
 let isInstallingDownloadedUpdate: typeof import("./updates.js").isInstallingDownloadedUpdate;
+let isPreparingDownloadedUpdate: typeof import("./updates.js").isPreparingDownloadedUpdate;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
@@ -90,6 +91,7 @@ describe("desktop updates", () => {
       checkForAppUpdates,
       getCurrentUpdateStatus,
       isInstallingDownloadedUpdate,
+      isPreparingDownloadedUpdate,
       registerUpdatesIpc,
     } = await import("./updates.js"));
   });
@@ -209,6 +211,35 @@ describe("desktop updates", () => {
     await installHandler?.();
 
     expect(prepareForUpdate).toHaveBeenCalledOnce();
+    expect(isInstallingDownloadedUpdate()).toBe(true);
+    expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
+  });
+
+  it("does not own user quits while helper preparation is still pending", async () => {
+    let resolvePreparation!: () => void;
+    const prepareForUpdate = vi.fn(
+      () => new Promise<void>((resolve) => (resolvePreparation = resolve)),
+    );
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    const install = installHandler?.();
+    await vi.waitFor(() => expect(prepareForUpdate).toHaveBeenCalledOnce());
+    expect(isPreparingDownloadedUpdate()).toBe(true);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+
+    resolvePreparation();
+    await install;
+    expect(isPreparingDownloadedUpdate()).toBe(false);
     expect(isInstallingDownloadedUpdate()).toBe(true);
     expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
   });

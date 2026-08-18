@@ -46,6 +46,7 @@ let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
 let updateInstallInFlight = false;
+let updateQuitOwned = false;
 let installingUpdateForRetry: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -98,11 +99,16 @@ export async function installDownloadedUpdate(): Promise<void> {
     // Native helpers can outlive the Electron window. Close them before
     // Squirrel checks whether the old app is still running.
     await getDeps().prepareForUpdate?.();
+    // The updater owns quit only after preparation has completed and the
+    // installer handoff is about to happen. A normal user quit remains
+    // guarded while preparation is in flight.
+    updateQuitOwned = true;
     // isSilent=false so any installer UI shows; isForceRunAfter=true so the
     // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);
   } catch (err) {
     updateInstallInFlight = false;
+    updateQuitOwned = false;
     const retryUpdate = installingUpdateForRetry;
     installingUpdateForRetry = null;
     if (retryUpdate) {
@@ -123,7 +129,12 @@ export async function installDownloadedUpdate(): Promise<void> {
 
 /** Whether the updater owns the next app quit lifecycle. */
 export function isInstallingDownloadedUpdate(): boolean {
-  return updateInstallInFlight;
+  return updateQuitOwned;
+}
+
+/** Whether the updater is still preparing helpers before taking over quit. */
+export function isPreparingDownloadedUpdate(): boolean {
+  return updateInstallInFlight && !updateQuitOwned;
 }
 
 function broadcastUpdateStatus(status: UpdateStatus) {

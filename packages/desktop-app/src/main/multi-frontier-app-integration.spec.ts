@@ -114,6 +114,22 @@ describe("multi-frontier app integration", () => {
     expect(reissueQuit).not.toHaveBeenCalled();
   });
 
+  it("holds a user quit while the updater prepares helper disposal", () => {
+    const dispose = vi.fn(async () => undefined);
+    const reissueQuit = vi.fn();
+    const guard = createMultiFrontierQuitGuard({
+      dispose,
+      reissueQuit,
+      shouldDeferQuit: () => true,
+    });
+    const event = { preventDefault: vi.fn() };
+
+    expect(guard(event)).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(reissueQuit).not.toHaveBeenCalled();
+  });
+
   it("stores an immutable private patch with actual diff-check evidence and no all-zero hash", async () => {
     const workspace = root();
     fs.writeFileSync(

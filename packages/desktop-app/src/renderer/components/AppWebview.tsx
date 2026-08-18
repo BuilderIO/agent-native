@@ -152,13 +152,29 @@ export function resolveDesktopIdentityLazySyncStatus(
   return synchronized ? status : "failed";
 }
 
+const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 let rememberedDesktopIdentityStatus: DesktopIdentityStatus | null = null;
+let rememberedDesktopIdentityStatusAt = 0;
+
+export function rememberDesktopIdentityStatus(
+  status: DesktopIdentityStatus,
+  observedAt = Date.now(),
+): void {
+  rememberedDesktopIdentityStatus = status;
+  rememberedDesktopIdentityStatusAt = observedAt;
+}
 
 export function shouldReuseRememberedDesktopIdentitySession(
   status: DesktopIdentityStatus | null,
   nextStatus?: DesktopIdentityStatus,
+  statusVerifiedAt = Date.now(),
+  now = Date.now(),
 ): boolean {
-  return nextStatus === undefined && status === "signed-in";
+  return (
+    nextStatus === undefined &&
+    status === "signed-in" &&
+    now - statusVerifiedAt < DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS
+  );
 }
 
 interface AppWebviewProps {
@@ -456,19 +472,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       const identity = window.electronAPI?.identity;
       if (!identity || !desktopIdentityGateEligible || !isActive) {
-        setDesktopIdentityEnabled(false);
-        setDesktopIdentityStatus(
-          rememberedDesktopIdentityStatus === "signed-in"
-            ? "signed-in"
-            : "idle",
+        const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
+          rememberedDesktopIdentityStatus,
+          undefined,
+          rememberedDesktopIdentityStatusAt,
         );
+        setDesktopIdentityEnabled(false);
+        setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
         setDesktopIdentitySessionReady(true);
         return;
       }
       let active = true;
       let statusRequest = 0;
-      const rememberedSignedIn =
-        rememberedDesktopIdentityStatus === "signed-in";
+      const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
+        rememberedDesktopIdentityStatus,
+        undefined,
+        rememberedDesktopIdentityStatusAt,
+      );
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
       setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
       setDesktopIdentitySessionReady(rememberedSignedIn);
@@ -479,7 +499,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         preserveVisibleSession = false,
       ) => {
         if (!active || request !== statusRequest) return;
-        rememberedDesktopIdentityStatus = status;
+        rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
           if (!preserveVisibleSession) setDesktopIdentitySessionReady(false);
@@ -511,12 +531,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           shouldReuseRememberedDesktopIdentitySession(
             rememberedDesktopIdentityStatus,
             nextStatus,
+            rememberedDesktopIdentityStatusAt,
           );
         try {
           const settings = await identity.getSettings();
           if (!active || request !== statusRequest) return;
           if (!settings.ssoEnabled) {
-            rememberedDesktopIdentityStatus = "idle";
+            rememberDesktopIdentityStatus("idle");
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
             setDesktopIdentitySessionReady(true);
@@ -537,7 +558,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
           if (active && request === statusRequest) {
-            if (rememberedDesktopIdentityStatus === "signed-in") {
+            if (
+              shouldReuseRememberedDesktopIdentitySession(
+                rememberedDesktopIdentityStatus,
+                undefined,
+                rememberedDesktopIdentityStatusAt,
+              )
+            ) {
               setDesktopIdentityEnabled(true);
               setDesktopIdentityStatus("signed-in");
               setDesktopIdentitySessionReady(true);

@@ -244,6 +244,7 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  isPreparingDownloadedUpdate,
   isInstallingDownloadedUpdate,
   installDownloadedUpdate,
   registerUpdatesIpc,
@@ -1291,8 +1292,6 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   }
   if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
-  const cachedStatus = broker?.getStatus() ?? "idle";
-  if (cachedStatus === "signed-in") return cachedStatus;
   await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
   return broker?.getStatus() ?? "idle";
 });
@@ -2109,6 +2108,7 @@ const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   dispose: () => disposeMultiFrontierAppIntegration(),
   reissueQuit: () => app.quit(),
   shouldAllowQuit: () => isInstallingDownloadedUpdate(),
+  shouldDeferQuit: () => isPreparingDownloadedUpdate(),
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([

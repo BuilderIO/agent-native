@@ -150,11 +150,16 @@ export function createMultiFrontierQuitGuard(options: {
   dispose(): Promise<void>;
   reissueQuit(): void;
   shouldAllowQuit?: () => boolean;
+  shouldDeferQuit?: () => boolean;
 }): (event: MultiFrontierQuitEvent) => boolean {
   let reissued = false;
   let disposing: Promise<void> | undefined;
   return (event) => {
     if (options.shouldAllowQuit?.()) return false;
+    if (options.shouldDeferQuit?.()) {
+      event.preventDefault();
+      return true;
+    }
     if (reissued) return false;
     event.preventDefault();
     if (!disposing) {

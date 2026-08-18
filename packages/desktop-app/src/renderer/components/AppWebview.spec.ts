@@ -34,6 +34,20 @@ describe("Desktop identity lazy child synchronization", () => {
     expect(
       shouldReuseRememberedDesktopIdentitySession("signed-in", "signed-in"),
     ).toBe(false);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession(
+        "signed-in",
+        undefined,
+        Date.now() - 60_000,
+      ),
+    ).toBe(true);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession(
+        "signed-in",
+        undefined,
+        Date.now() - 10 * 60_000,
+      ),
+    ).toBe(false);
   });
 });
 

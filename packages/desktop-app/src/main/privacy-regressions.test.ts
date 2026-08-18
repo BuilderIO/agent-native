@@ -29,15 +29,16 @@ describe("desktop passive-access regressions", () => {
   });
 
   it("does not revalidate a verified desktop identity on tab status reads", () => {
-    const main = source("./index.ts");
-    const handler = between(
-      main,
-      "ipcMain.handle(IPC.IDENTITY_STATUS_GET",
-      "ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET",
+    const identity = source("./desktop-identity.ts");
+    const refreshStatus = between(
+      identity,
+      "async refreshStatus(authorityApp: DesktopIdentityApp | null)",
+      "private ensureAppSessionInternal(",
     );
 
-    expect(handler).toContain("const cachedStatus = broker?.getStatus()");
-    expect(handler).toContain('if (cachedStatus === "signed-in")');
+    expect(refreshStatus).toContain('this.status === "signed-in"');
+    expect(refreshStatus).toContain("statusRevalidationIntervalMs");
+    expect(identity).toContain("statusTimeoutMs");
   });
 
   it("keeps remembered Content folder discovery metadata-only", () => {

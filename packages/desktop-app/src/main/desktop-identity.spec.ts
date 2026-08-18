@@ -904,6 +904,7 @@ describe("DesktopIdentityBroker", () => {
       createWindow: vi.fn() as never,
       reloadApp: vi.fn(),
       clearLocalBroker: vi.fn(),
+      statusRevalidationIntervalMs: 0,
     });
 
     await broker.refreshStatus(authority);
@@ -911,7 +912,69 @@ describe("DesktopIdentityBroker", () => {
 
     await broker.refreshStatus(authority);
     expect(broker.getStatus()).toBe("signed-in");
-    expect(identityFetch).toHaveBeenCalledOnce();
+    expect(identityFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves a verified session through server and malformed responses", async () => {
+    const authority = authorityFixture();
+    for (const response of [
+      new Response(null, { status: 500 }),
+      new Response("{", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ]) {
+      const identityFetch = vi
+        .fn()
+        .mockResolvedValueOnce(sessionResponse())
+        .mockResolvedValueOnce(response);
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie("an_session_dispatch", authority.origin),
+          ]),
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+        statusRevalidationIntervalMs: 0,
+      });
+
+      await broker.refreshStatus(authority);
+      await broker.refreshStatus(authority);
+      expect(broker.getStatus()).toBe("signed-in");
+    }
+  });
+
+  it("bounds a stalled identity session status request", async () => {
+    vi.useFakeTimers();
+    try {
+      const authority = authorityFixture();
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie("an_session_dispatch", authority.origin),
+          ]),
+          fetch: vi.fn(() => new Promise<Response>(() => {})),
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+        statusTimeoutMs: 100,
+      });
+
+      const refresh = broker.refreshStatus(authority);
+      await vi.advanceTimersByTimeAsync(100);
+      await refresh;
+      expect(broker.getStatus()).toBe("sign-in-required");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("leaves ordinary per-app sign-out alone after rollout availability turns off", async () => {
