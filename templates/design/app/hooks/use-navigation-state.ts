@@ -12,6 +12,7 @@ export interface NavigationState {
   designSystemId?: string;
   templateId?: string;
   editorView?: "single" | "overview";
+  mode?: "edit" | "annotate" | "interact";
   inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
   inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
   leftPanel?:
@@ -152,6 +153,14 @@ function normalizeLeftPanel(
     : undefined;
 }
 
+function normalizeEditorMode(
+  value: unknown,
+): "edit" | "annotate" | "interact" | undefined {
+  return value === "edit" || value === "annotate" || value === "interact"
+    ? value
+    : undefined;
+}
+
 function normalizeDesignTool(value: unknown): string | undefined {
   return typeof value === "string" &&
     DESIGN_EDITOR_TOOLS.includes(value as (typeof DESIGN_EDITOR_TOOLS)[number])
@@ -166,7 +175,7 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   const params = new URLSearchParams();
   const editorView = normalizeEditorView(cmd.editorView);
   if (editorView) params.set("view", editorView);
-  if (editorView === "single") params.set("mode", "interact");
+  if (editorView === "single") params.set("mode", cmd.mode ?? "interact");
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
   if (inspectorTab) params.set("inspector", inspectorTab);
   const leftPanel = normalizeLeftPanel(cmd.leftPanel ?? cmd.panel);
@@ -202,7 +211,7 @@ export function editorCommandFromNavigate(
     path,
   };
   if (editorView) command.editorView = editorView;
-  if (editorView === "single") command.mode = "interact";
+  if (editorView === "single") command.mode = cmd.mode ?? "interact";
   if (inspectorTab) command.inspectorTab = inspectorTab;
   if (leftPanel) command.leftPanel = leftPanel;
   if (cmd.fileId) command.fileId = cmd.fileId;
@@ -244,6 +253,8 @@ export function useNavigationState(enabled = true) {
         state.designId = params.id;
         const editorView = normalizeEditorView(searchParams.get("view"));
         if (editorView) state.editorView = editorView;
+        const mode = normalizeEditorMode(searchParams.get("mode"));
+        if (mode) state.mode = mode;
         const inspectorTab = normalizeInspectorTab(
           searchParams.get("inspector"),
         );
