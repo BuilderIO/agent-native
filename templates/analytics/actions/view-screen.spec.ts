@@ -40,6 +40,8 @@ vi.mock("../server/lib/error-capture.js", () => ({
   listErrorIssues,
 }));
 
+const getDashboard = vi.fn(async () => null);
+
 // The remaining server libs are imported at module load but never exercised by
 // the monitoring branch under test - stub them so the action loads in isolation.
 vi.mock("../server/lib/analytics-alerts", () => ({
@@ -50,7 +52,7 @@ vi.mock("../server/lib/dashboard-catalog", () => ({
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
   getAnalysis: vi.fn(async () => null),
-  getDashboard: vi.fn(async () => null),
+  getDashboard,
 }));
 vi.mock("../server/lib/first-party-analytics.js", () => ({
   listAnalyticsPublicKeys: vi.fn(async () => []),
@@ -80,6 +82,8 @@ describe("view-screen monitoring status-pages branch", () => {
     listStatusPages.mockReset();
     getStatusPagePreview.mockReset();
     listMonitors.mockClear();
+    getDashboard.mockReset();
+    getDashboard.mockResolvedValue(null);
     userEmail = "user@example.test";
     selectedObjectState.current = null;
   });
@@ -90,16 +94,29 @@ describe("view-screen monitoring status-pages branch", () => {
       id: "dash-1",
       title: "Revenue",
     };
-    setScreen(
-      { view: "dashboard", dashboardId: "dash-1" },
-      { pathname: "/ask" },
-    );
+    setScreen({ view: "adhoc", dashboardId: "dash-1" }, { pathname: "/ask" });
 
     const out = await runScreen();
 
     expect(out.selectedObject).toBeUndefined();
     expect(out.navigation).toEqual({ view: "ask" });
     expect(out.dashboard).toBeUndefined();
+    expect(getDashboard).not.toHaveBeenCalled();
+  });
+
+  it("does not let stale Ask navigation mask a dashboard URL", async () => {
+    selectedObjectState.current = {
+      type: "dashboard",
+      id: "dash-1",
+      title: "Revenue",
+    };
+    setScreen({ view: "ask" }, { pathname: "/dashboards/dash-1" });
+
+    const out = await runScreen();
+
+    expect(out.pathname).toBe("/dashboards/dash-1");
+    expect(out.navigation).toBeUndefined();
+    expect(out.selectedObject).toEqual(selectedObjectState.current);
   });
 
   it("lists status pages in the monitoring surfaces catalog", async () => {

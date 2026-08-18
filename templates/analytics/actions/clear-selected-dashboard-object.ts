@@ -24,9 +24,10 @@ export default defineAction({
     "Clear the current browser tab's Analytics dashboard selection when it still belongs to that tab.",
   schema: z.object({
     dashboardId: z.string().min(1).optional(),
+    expectedSelection: z.record(z.string(), z.unknown()).optional(),
     source: z.string().min(1).max(96),
   }),
-  run: async ({ dashboardId, source }) => {
+  run: async ({ dashboardId, expectedSelection, source }) => {
     const current = await readAppState(SELECTED_OBJECT_STATE_KEY);
     if (!current || current[SELECTED_OBJECT_SOURCE_FIELD] !== source) {
       return { cleared: false };
@@ -41,7 +42,7 @@ export default defineAction({
     return {
       cleared: await compareAndSetAppState(
         SELECTED_OBJECT_STATE_KEY,
-        current,
+        expectedSelection ?? current,
         null,
       ),
     };

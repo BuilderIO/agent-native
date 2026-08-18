@@ -7,7 +7,10 @@ import { CreativeContextComposerChip } from "@agent-native/creative-context/clie
 import { useEffect, useMemo } from "react";
 
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
-import { clearSelectedDashboardObjectIfOwned } from "@/lib/selected-object";
+import {
+  clearSelectedDashboardObjectIfOwned,
+  readSelectedDashboardObject,
+} from "@/lib/selected-object";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DASHBOARD_CONTEXT_KEYS = new Set([
@@ -33,7 +36,20 @@ export default function AskPage() {
   }, [removeChatContextItem, staleDashboardContextKey]);
 
   useEffect(() => {
-    void clearSelectedDashboardObjectIfOwned();
+    let mounted = true;
+    const pathnameAtMount = window.location.pathname;
+
+    void readSelectedDashboardObject().then((selection) => {
+      // If the user already navigated away, this Ask instance no longer owns
+      // cleanup. The action also CASes the captured selection, covering a
+      // selection change that happens after this read but before the write.
+      if (!mounted || window.location.pathname !== pathnameAtMount) return;
+      if (selection) void clearSelectedDashboardObjectIfOwned(selection);
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return (

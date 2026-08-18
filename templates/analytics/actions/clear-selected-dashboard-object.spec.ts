@@ -86,4 +86,33 @@ describe("clear-selected-dashboard-object", () => {
       action.run({ dashboardId: "dash-1", source: "test-tab" }),
     ).resolves.toEqual({ cleared: false });
   });
+
+  it("uses the Ask mount selection as the compare-and-set expectation", async () => {
+    const originalSelection = {
+      type: "dashboard",
+      id: "dash-1",
+      __agentNativeSelectedObjectSource: "test-tab",
+    };
+    const newerSelection = {
+      type: "dashboard-panel",
+      dashboardId: "dash-1",
+      panelId: "panel-2",
+      __agentNativeSelectedObjectSource: "test-tab",
+    };
+    readAppState.mockResolvedValue(newerSelection);
+    compareAndSetAppState.mockResolvedValue(false);
+
+    await expect(
+      action.run({
+        expectedSelection: originalSelection,
+        source: "test-tab",
+      }),
+    ).resolves.toEqual({ cleared: false });
+
+    expect(compareAndSetAppState).toHaveBeenCalledWith(
+      "selected-object",
+      originalSelection,
+      null,
+    );
+  });
 });

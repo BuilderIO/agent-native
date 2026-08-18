@@ -39,10 +39,21 @@ export default defineAction({
       searchParams?: Record<string, string>;
     } | null;
     const rawNav = navigation as any;
-    const isAskView = rawNav?.view === "ask" || url?.pathname === "/ask";
-    // The URL is authoritative during route transitions. Do not let a stale
-    // dashboard navigation object enrich the standalone Ask screen.
-    const effectiveNavigation = isAskView ? { view: "ask" } : navigation;
+    const hasAuthoritativePathname =
+      typeof url?.pathname === "string" && url.pathname.length > 0;
+    // The URL is authoritative during route transitions in both directions.
+    // A stale Ask navigation object must not hide the dashboard selection or
+    // trigger Ask-only behavior after the URL has moved to a dashboard.
+    const isAskView = hasAuthoritativePathname
+      ? url.pathname === "/ask"
+      : rawNav?.view === "ask";
+    const hasStaleAskNavigation =
+      hasAuthoritativePathname && !isAskView && rawNav?.view === "ask";
+    const effectiveNavigation = isAskView
+      ? { view: "ask" }
+      : hasStaleAskNavigation
+        ? null
+        : navigation;
     const nav = effectiveNavigation as any;
     const selectedObject = isAskView
       ? null

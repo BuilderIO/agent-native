@@ -30,9 +30,10 @@ decisions, feedback, agent runs, and provider audit records.
   the complete diff/review/check evidence, never approve external or
   unverified authors, and keep ultra-scary security, auth, tenant-isolation,
   secrets, data-loss, execution, payment, and deployment risks manual. The
-  verified internal-author exception permits ordinary failed or unresolved
-  checks and feedback only when their exact states remain visible; it never
-  makes them clean and never waives membership or the ultra-scary gate.
+  verified internal-author evidence does not waive ordinary failed or
+  unresolved checks or feedback; those gates remain required and their exact
+  states must stay visible. It never waives membership or the ultra-scary
+  gate.
   Product/UX ownership still needs the verified owner, with the documented Sid
   exception. Auto-merge also requires a verified Factory Builder run.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
