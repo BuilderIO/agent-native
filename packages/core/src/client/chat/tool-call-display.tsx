@@ -703,7 +703,7 @@ export function ToolCallDisplay({
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
   isActiveTail?: boolean;
@@ -816,7 +816,7 @@ function ToolCallDisplayGeneric({
   outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
 }) {
   const t = useT();
@@ -1090,6 +1090,15 @@ function ToolCallDisplayGeneric({
       )}
       {approval && (
         <ApprovalAffordance
+          // A changed `askId` means the server re-emitted approval_required
+          // for this same call (e.g. a failed resume never consumed the
+          // prior grant) rather than the same ask re-rendering. Keying on it
+          // forces a fresh mount so a stale local "approved" state from the
+          // earlier ask can't linger and hide Approve/Deny with no way to
+          // retry. Falls back to approvalKey when askId is absent (older
+          // events, non-production-agent approval sources) to keep the
+          // existing remount-safe behavior unchanged there.
+          key={approval.askId ?? approval.approvalKey}
           toolName={toolName}
           toolCallId={toolCallId}
           approval={approval}
@@ -1315,7 +1324,7 @@ export function ToolCallFallback({
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
   outcome?: "unknown";
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;
