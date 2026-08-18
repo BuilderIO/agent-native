@@ -357,8 +357,9 @@ finishing" — and a partial loop leaves the calendar half-cleaned with no recor
 of which events survived. See the `reliable-mutations` skill.
 
 Select by range plus `--daysOfWeek` and/or `--query`, or pass explicit `--ids`.
-Preview with `--dryRun true`, show the user the matched list, then repeat the
-same call without `--dryRun`.
+A filtered selection needs **both** `--from` and `--to` — a one-sided range would
+silently widen or shrink a destructive request. Preview with `--dryRun true`,
+show the user the matched list, then repeat the same call without `--dryRun`.
 
 ```bash
 # What would go?
@@ -377,23 +378,32 @@ pnpm action delete-events --ids google-a,google-b --accountEmail secondary@examp
 ```
 
 `--daysOfWeek` accepts full or 3-letter day names, `weekend`, or `weekdays`, and
-resolves each event's day in the **calendar's** timezone — a Sunday 5pm
-America/Los_Angeles meeting is Monday in UTC, so a UTC comparison deletes the
-wrong day. Pass `--timezone` to override.
+resolves each event's day in the timezone the calendar is pinned to (the saved
+`timezone` setting, then the browser's) — a Sunday 5pm America/Los_Angeles
+meeting is Monday in UTC, so a UTC comparison deletes the wrong day. Pass
+`--timezone` to override; an invalid zone is rejected, never silently treated as
+UTC. `--to` is exclusive: an event starting exactly on that bound is left alone.
+
+A filtered selection only ever removes the matched occurrences, so it accepts
+`--scope single`. `all` and `thisAndFollowing` act on a whole recurring series —
+which for a daily series would also delete the weekdays the user kept, and would
+not match the dry-run preview — so they require explicit `--ids` or
+`delete-event`.
 
 The result is a per-event report, not a boolean. Read `deleted`, `failed`, and
 `skipped` and give the user the counts; a `failed` entry carries the provider
 error and a `skipped` entry says why the app cannot delete it (ICS feeds are
-read-only, overlaid calendars are not yours, bookings are cancelled from the
-booking). Never report a bulk delete as done from the absence of a thrown error.
+read-only; a booking, including the Google event backing one, is cancelled from
+the booking so that deleting the event cannot leave the booking confirmed).
+Never report a bulk delete as done from the absence of a thrown error.
 
 The action refuses rather than guesses when the calendar read was incomplete (an
 expired account token) or when more than 200 events match — narrow the filter
 and run again. An `unreadableSources` entry means an ICS feed could not be read,
 so mention that the sweep did not cover it.
 
-`delete-events` cannot touch an overlaid person's calendar; it only reads the
-signed-in user's own accounts, bookings, and subscribed feeds.
+`delete-events` only reads the signed-in user's own accounts, bookings, and
+subscribed feeds; it cannot touch an overlaid person's calendar.
 
 ### rsvp-event
 

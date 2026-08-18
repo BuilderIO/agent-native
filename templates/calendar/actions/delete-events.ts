@@ -1,12 +1,15 @@
 import { defineAction } from "@agent-native/core";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import {
   eventWeekday,
   matchesWeekdays,
   normalizeWeekdays,
+  requireValidTimezone,
   type WeekdayName,
 } from "../server/lib/event-weekday.js";
+import { dateOnlyInTimezone } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
@@ -44,7 +47,16 @@ interface EventResult {
 }
 
 /** Why this app cannot delete an event, or undefined when it can. */
-function undeletableReason(event: CalendarEvent): string | undefined {
+function undeletableReason(
+  event: CalendarEvent,
+  bookedGoogleEventIds: ReadonlySet<string>,
+): string | undefined {
+  // The shared read hides a booking whose linked Google event is present, so
+  // deleting that Google event here would leave the booking row confirmed and
+  // the event would reappear on the calendar as a local booking.
+  if (event.googleEventId && bookedGoogleEventIds.has(event.googleEventId)) {
+    return "Is the Google event for an active booking; cancel the booking instead";
+  }
   if (event.source === "ical") {
     return "Comes from a subscribed ICS feed, which is read-only";
   }
@@ -55,6 +67,26 @@ function undeletableReason(event: CalendarEvent): string | undefined {
     return "Has no Google event id to delete";
   }
   return undefined;
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `to` is documented and treated as exclusive, but the shared calendar read
+ * post-filters starts with `<= to` so the UI can show an event that begins on
+ * the boundary. Re-checking strictly here keeps a destructive filter inside the
+ * range the caller actually named. An all-day start carries no instant, so it is
+ * compared as a local date against the range's exclusive end date rather than as
+ * a UTC midnight that would sort before the zone's own midnight.
+ */
+function startsBeforeExclusiveEnd(
+  start: string,
+  range: { to: string; timezone: string },
+): boolean {
+  if (DATE_ONLY_RE.test(start)) {
+    return start < dateOnlyInTimezone(new Date(range.to), range.timezone);
+  }
+  return new Date(start).getTime() < new Date(range.to).getTime();
 }
 
 async function mapWithConcurrency<T, R>(
@@ -73,6 +105,32 @@ async function mapWithConcurrency<T, R>(
     }),
   );
   return results;
+}
+
+/**
+ * Which timezone decides an event's weekday, in the order the rest of the app
+ * uses it: an explicit argument, then the timezone the calendar is pinned to,
+ * then the browser's. Every layer is validated rather than normalized, because
+ * `normalizeTimezone`'s silent UTC fallback would move day boundaries under a
+ * delete without anyone being able to tell.
+ */
+async function resolveFilterTimezone(
+  requested: string | undefined,
+  ownerEmail: string,
+): Promise<string | undefined> {
+  if (requested) return requireValidTimezone(requested);
+  const settings = (await getUserSetting(ownerEmail, "calendar-settings")) as {
+    timezone?: unknown;
+  } | null;
+  const saved = settings?.timezone;
+  if (typeof saved !== "string" || !saved.trim()) return undefined;
+  try {
+    return requireValidTimezone(saved.trim());
+  } catch {
+    throw new Error(
+      `The saved calendar timezone (${saved}) is not a valid IANA timezone, so weekday filtering cannot be trusted. Fix it in Settings or pass timezone explicitly.`,
+    );
+  }
 }
 
 export default defineAction({
@@ -119,14 +177,14 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "IANA timezone that defines the day boundaries; defaults to the calendar's",
+        "IANA timezone that defines the day boundaries; defaults to the saved calendar timezone",
       ),
     scope: z
       .enum(["single", "all", "thisAndFollowing"])
       .optional()
       .default("single")
       .describe(
-        "Recurring-event delete scope. Keep single to remove only the matched occurrences.",
+        "Recurring-event delete scope. Filtered selection allows single only; all and thisAndFollowing require explicit ids because they act on the whole series.",
       ),
     sendUpdates: z
       .enum(["all", "none"])
@@ -158,16 +216,28 @@ export default defineAction({
         "Pass either explicit ids or a filter (from/to, daysOfWeek, query), not both.",
       );
     }
-    if (!hasIds && !args.from && !args.to) {
+    // Both bounds, not one: a lone `to` would silently start the range at today
+    // and a lone `from` would silently shrink it to a single day, so an
+    // incomplete destructive request would delete a range nobody asked for.
+    if (!hasIds && !(args.from && args.to)) {
+      throw new Error("A bulk delete needs both from and to, or explicit ids.");
+    }
+    // Google expands a recurring series into instances, so a weekend filter can
+    // match several occurrences of one daily series. Deleting with scope "all"
+    // would remove the whole series including the weekdays the user kept, and
+    // "thisAndFollowing" would have those occurrences race to rewrite the same
+    // master RRULE. Either way the dry-run preview would understate what
+    // happens, so a filtered selection is restricted to the matched occurrences.
+    if (!hasIds && args.scope !== "single") {
       throw new Error(
-        "A bulk delete needs an explicit from/to range, or explicit ids.",
+        `scope "${args.scope}" acts on a whole recurring series, which a filtered bulk delete cannot preview. Use scope single here, or pass the specific event as ids (or call delete-event) to change a series.`,
       );
     }
 
     const range = resolveCalendarEventRange({
       from: args.from,
       to: args.to,
-      timezone: args.timezone,
+      timezone: await resolveFilterTimezone(args.timezone, ownerEmail),
     });
 
     let targets: Array<{
@@ -202,9 +272,19 @@ export default defineAction({
       // from an ICS feed or a standalone booking is not deletable here, and
       // narrowing the read to Google would drop it from the report entirely --
       // so "deleted 3 of 3" comes back while the user still sees a fourth.
-      const listed = await listCalendarEvents(
-        { query: args.query, accountEmails: args.accountEmails },
-        { range },
+      // The bookings-only read is unfiltered by Google presence, so it is the
+      // only way to see which Google events are backing an active booking.
+      const [listed, bookingsOnly] = await Promise.all([
+        listCalendarEvents(
+          { query: args.query, accountEmails: args.accountEmails },
+          { range },
+        ),
+        listCalendarEvents({ sources: ["bookings"] }, { range }),
+      ]);
+      const bookedGoogleEventIds = new Set(
+        bookingsOnly.events
+          .map((event) => event.googleEventId)
+          .filter((id): id is string => Boolean(id)),
       );
       // A provider read that partially failed is not an empty weekend. Deleting
       // "everything that matched" out of an incomplete inventory would report a
@@ -221,8 +301,10 @@ export default defineAction({
         unreadableSources.push({ name: feed.name, error: feed.error });
       }
 
-      const matched = listed.events.filter((event) =>
-        matchesWeekdays(event.start, range.timezone, weekdays),
+      const matched = listed.events.filter(
+        (event) =>
+          startsBeforeExclusiveEnd(event.start, range) &&
+          matchesWeekdays(event.start, range.timezone, weekdays),
       );
       if (matched.length > MAX_MATCHED_EVENTS) {
         throw new Error(
@@ -239,7 +321,7 @@ export default defineAction({
           accountEmail: event.accountEmail,
           outcome: "matched",
         };
-        const reason = undeletableReason(event);
+        const reason = undeletableReason(event, bookedGoogleEventIds);
         if (reason) {
           results.push({ ...display, outcome: "skipped", reason });
           continue;

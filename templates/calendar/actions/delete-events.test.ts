@@ -12,6 +12,8 @@ const listOverlayEventsMock = vi.hoisted(() => vi.fn());
 const deleteEventMock = vi.hoisted(() => vi.fn());
 const removeEventFromCalendarMock = vi.hoisted(() => vi.fn());
 const fetchICalEventsMock = vi.hoisted(() => vi.fn());
+const bookingLinkRowsMock = vi.hoisted(() => vi.fn());
+const bookingRowsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestTimezone: getRequestTimezoneMock,
@@ -40,12 +42,38 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("../server/db/index.js", () => ({
   getDb: vi.fn(() => ({
-    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+    select: () => ({
+      from: (table: { __table?: string }) => ({
+        where: () =>
+          table.__table === "bookings"
+            ? bookingRowsMock()
+            : bookingLinkRowsMock(),
+      }),
+    }),
   })),
   schema: {
-    bookingLinks: { slug: "slug", title: "title", color: "color" },
+    bookingLinks: {
+      __table: "bookingLinks",
+      slug: "slug",
+      title: "title",
+      color: "color",
+    },
     bookingLinkShares: {},
-    bookings: {},
+    bookings: {
+      __table: "bookings",
+      id: "id",
+      name: "name",
+      email: "email",
+      slug: "slug",
+      start: "start",
+      end: "end",
+      eventTitle: "eventTitle",
+      notes: "notes",
+      meetingLink: "meetingLink",
+      googleEventId: "googleEventId",
+      status: "status",
+      createdAt: "createdAt",
+    },
   },
 }));
 
@@ -107,6 +135,10 @@ describe("delete-events", () => {
     deleteEventMock.mockResolvedValue(undefined);
     removeEventFromCalendarMock.mockResolvedValue(undefined);
     fetchICalEventsMock.mockResolvedValue([]);
+    bookingLinkRowsMock.mockResolvedValue([
+      { slug: "intro", title: "Intro call", color: "#000" },
+    ]);
+    bookingRowsMock.mockResolvedValue([]);
   });
 
   it("deletes weekend events using the calendar timezone, not UTC", async () => {
@@ -270,14 +302,18 @@ describe("delete-events", () => {
   });
 
   it("reports a read-only ICS weekend event instead of leaving it out", async () => {
-    getUserSettingMock.mockResolvedValue([
-      {
-        id: "feed-1",
-        name: "Team offsites",
-        url: "https://example.com/skip.ics",
-        color: "#000",
-      },
-    ]);
+    getUserSettingMock.mockImplementation(async (_email, key) =>
+      key === "external-calendars"
+        ? [
+            {
+              id: "feed-1",
+              name: "Team offsites",
+              url: "https://example.com/skip.ics",
+              color: "#000",
+            },
+          ]
+        : null,
+    );
     fetchICalEventsMock.mockResolvedValue([
       {
         id: "ics-sat",
@@ -319,14 +355,18 @@ describe("delete-events", () => {
   });
 
   it("names an ICS feed it could not read so the report is not passed off as complete", async () => {
-    getUserSettingMock.mockResolvedValue([
-      {
-        id: "feed-2",
-        name: "Broken feed",
-        url: "https://example.com/broken.ics",
-        color: "#000",
-      },
-    ]);
+    getUserSettingMock.mockImplementation(async (_email, key) =>
+      key === "external-calendars"
+        ? [
+            {
+              id: "feed-2",
+              name: "Broken feed",
+              url: "https://example.com/broken.ics",
+              color: "#000",
+            },
+          ]
+        : null,
+    );
     fetchICalEventsMock.mockRejectedValue(new Error("503 unavailable"));
     listGoogleEventsMock.mockResolvedValue({
       events: [googleEvent({ id: "sat", start: "2026-04-11T18:00:00.000Z" })],
@@ -402,7 +442,196 @@ describe("delete-events", () => {
   it("requires a range or explicit ids", async () => {
     await expect(
       run({ daysOfWeek: "weekend", scope: "single", sendUpdates: "none" }),
-    ).rejects.toThrow(/explicit from\/to range/i);
+    ).rejects.toThrow(/both from and to/i);
+  });
+
+  it("refuses a whole-series scope on a filtered selection", async () => {
+    for (const scope of ["all", "thisAndFollowing"]) {
+      await expect(
+        run({
+          from: "2026-04-06",
+          to: "2026-04-20",
+          daysOfWeek: "weekend",
+          scope,
+          sendUpdates: "none",
+        }),
+      ).rejects.toThrow(/whole recurring series/i);
+    }
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("still allows a whole-series scope for an explicitly named event", async () => {
+    const result = await run({
+      ids: ["google-series-instance"],
+      scope: "all",
+      sendUpdates: "none",
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(deleteEventMock).toHaveBeenCalledWith(
+      "series-instance",
+      { ownerEmail: OWNER, accountEmail: OWNER },
+      { scope: "all", sendUpdates: "none" },
+    );
+  });
+
+  it("requires both range bounds so a one-sided request cannot widen the delete", async () => {
+    await expect(
+      run({
+        to: "2027-01-01",
+        daysOfWeek: "weekend",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/both from and to/i);
+    await expect(
+      run({
+        from: "2026-04-06",
+        daysOfWeek: "weekend",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/both from and to/i);
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Google event of an active booking and says to cancel the booking", async () => {
+    bookingRowsMock.mockResolvedValue([
+      {
+        id: "bk1",
+        name: "Ada",
+        email: "ada@example.com",
+        slug: "intro",
+        start: "2026-04-11T18:00:00.000Z",
+        end: "2026-04-11T18:30:00.000Z",
+        eventTitle: "Intro call",
+        notes: "",
+        meetingLink: "",
+        googleEventId: "linked-sat",
+        status: "confirmed",
+        createdAt: "2026-04-01T00:00:00.000Z",
+      },
+    ]);
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({ id: "linked-sat", start: "2026-04-11T18:00:00.000Z" }),
+        googleEvent({ id: "plain-sat", start: "2026-04-11T19:00:00.000Z" }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "plain-sat",
+    ]);
+    expect(result.deleted).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "google-linked-sat",
+          outcome: "skipped",
+          reason: expect.stringMatching(/cancel the booking/i),
+        }),
+      ]),
+    );
+  });
+
+  it("treats the end bound as exclusive for timed and all-day starts", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        // Local midnight of the exclusive end date, timed and all-day.
+        googleEvent({ id: "timed-at-end", start: "2026-04-18T07:00:00.000Z" }),
+        googleEvent({
+          id: "allday-at-end",
+          start: "2026-04-18",
+          end: "2026-04-19",
+          allDay: true,
+        }),
+        googleEvent({ id: "inside", start: "2026-04-11T18:00:00.000Z" }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-18",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "inside",
+    ]);
+    expect(result.deleted).toBe(1);
+  });
+
+  it("prefers the pinned calendar timezone over the browser timezone", async () => {
+    getRequestTimezoneMock.mockReturnValue("UTC");
+    getUserSettingMock.mockImplementation(async (_email, key) =>
+      key === "calendar-settings" ? { timezone: "America/Los_Angeles" } : null,
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({ id: "sunday-pt", start: "2026-04-13T00:00:00.000Z" }),
+        googleEvent({ id: "friday-pt", start: "2026-04-11T00:00:00.000Z" }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "weekend",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.range).toEqual(
+      expect.objectContaining({ timezone: "America/Los_Angeles" }),
+    );
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "sunday-pt",
+    ]);
+  });
+
+  it("rejects an invalid timezone rather than silently filtering in UTC", async () => {
+    await expect(
+      run({
+        from: "2026-04-06",
+        to: "2026-04-20",
+        daysOfWeek: "weekend",
+        timezone: "Mars/Olympus",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/invalid iana timezone/i);
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a corrupt saved calendar timezone instead of guessing", async () => {
+    getUserSettingMock.mockImplementation(async (_email, key) =>
+      key === "calendar-settings" ? { timezone: "Not/AZone" } : null,
+    );
+
+    await expect(
+      run({
+        from: "2026-04-06",
+        to: "2026-04-20",
+        daysOfWeek: "weekend",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/saved calendar timezone/i);
   });
 
   it("refuses a match set larger than one bulk delete may commit", async () => {

@@ -95,3 +95,18 @@ export function matchesWeekdays(
   if (weekdays.length === 0) return true;
   return weekdays.includes(eventWeekday(start, timezone));
 }
+
+/**
+ * Validate a caller-supplied IANA timezone instead of falling back to UTC.
+ * `normalizeTimezone` silently returns UTC for an unparseable zone, which on a
+ * destructive weekday filter would quietly reclassify every event and delete a
+ * different set of days than the caller named.
+ */
+export function requireValidTimezone(timezone: string): string {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
+  } catch {
+    throw new Error(`Invalid IANA timezone: ${timezone}`);
+  }
+  return timezone;
+}
