@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.29.3
+
+### Patch Changes
+
+- 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
+
 ## 0.29.2
 
 ### Patch Changes
