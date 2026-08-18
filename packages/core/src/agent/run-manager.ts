@@ -11,6 +11,7 @@ import {
   isProviderConnectionError,
 } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
+import type { EngineRequestShape } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -427,6 +428,22 @@ function getRunErrorCode(err: unknown): string | undefined {
   // it — so an uncoded transport failure has to be classified here too, not
   // only when the run row is persisted.
   return classifyTerminalErrorCode(describeErrorWithCauses(err));
+}
+
+/**
+ * Sentry tags are strings, and an absent shape must stay absent: a run that
+ * failed before the request was built did not send a zero-byte payload.
+ */
+export function engineRequestShapeTags(
+  shape: EngineRequestShape | undefined,
+): Record<string, string> {
+  if (!shape) return {};
+  return {
+    engineModel: shape.model,
+    enginePayloadBytes: String(shape.payloadBytes),
+    engineToolCount: String(shape.toolCount),
+    engineMessageCount: String(shape.messageCount),
+  };
 }
 
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
@@ -1396,6 +1413,11 @@ export function startRun(
           engineError?.statusCode != null
             ? String(engineError.statusCode)
             : undefined,
+        // What we sent, in sizes and counts only. A gateway rejection describes
+        // nothing about the request behind it, so without these an oversized
+        // payload and an upstream outage produce the same capture — which is
+        // how one gateway 500 cost a night of guessing.
+        ...engineRequestShapeTags(engineError?.requestShape),
       },
       extra: {
         runId,

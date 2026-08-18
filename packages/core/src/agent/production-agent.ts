@@ -5227,6 +5227,7 @@ export async function runAgentLoop(opts: {
                   providerRetryable: event.providerRetryable,
                   contextOverflow: event.contextOverflow,
                   requestId: event.requestId,
+                  requestShape: event.requestShape,
                 });
               }
             }

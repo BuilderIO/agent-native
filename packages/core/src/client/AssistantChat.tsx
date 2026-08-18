@@ -233,6 +233,15 @@ export { displayableUserMessageText } from "./chat/message-components.js";
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
 type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
+// Desktop chat mounts beside the parent identity gate, so an unauthenticated
+// relay is an expected empty state until that gate establishes a session.
+export function shouldSuppressUnauthenticatedDesktopThreadRestore(
+  surface: AgentChatSurfaceKind,
+  status: number,
+): boolean {
+  return surface === "desktop" && (status === 401 || status === 403);
+}
+
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -3908,7 +3917,14 @@ const AssistantChatInner = forwardRef<
           if (!res.ok) {
             if (!cancelled) {
               setThreadRestoreError(
-                res.status === 404 ? "not-found" : "unavailable",
+                shouldSuppressUnauthenticatedDesktopThreadRestore(
+                  agentChatSurface,
+                  res.status,
+                )
+                  ? null
+                  : res.status === 404
+                    ? "not-found"
+                    : "unavailable",
               );
             }
             return;
