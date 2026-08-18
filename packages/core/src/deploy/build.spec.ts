@@ -970,6 +970,28 @@ export default (event) =>
     expect(html).toContain("https://public@example/4511270423822336");
   });
 
+  it("uses Netlify CONTEXT for generated preview browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"preview"');
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+  });
+
   it("keeps mounted SSR HEAD responses bodyless and leaves missing API paths as 404", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 

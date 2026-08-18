@@ -108,6 +108,7 @@ describe("agent-native app config", () => {
     [{ BRANCH: "beta", CONTEXT: "production" }, "beta"],
     [{ BRANCH: "production", CONTEXT: "production" }, "production"],
     [{ BRANCH: "feature/auth", CONTEXT: "deploy-preview" }, "preview"],
+    [{ BRANCH: "feature/auth", VERCEL_ENV: "preview" }, "preview"],
     [{}, "local"],
   ] as const)(
     "infers deployment environment from hosting facts",

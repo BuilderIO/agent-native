@@ -1157,10 +1157,10 @@ function resolveDeploymentEnvironment() {
   );
   if (explicit) return explicit;
 
-  const context =
-    typeof env.NETLIFY_CONTEXT === "string"
-      ? env.NETLIFY_CONTEXT.trim().toLowerCase()
-      : "";
+  const context = firstNonEmpty(
+    typeof env.CONTEXT === "string" ? env.CONTEXT : undefined,
+    typeof env.NETLIFY_CONTEXT === "string" ? env.NETLIFY_CONTEXT : undefined,
+  )?.toLowerCase();
   const branch =
     typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
   if (branch === "beta") return "beta";
@@ -1173,13 +1173,14 @@ function resolveDeploymentEnvironment() {
   if (context === "branch-deploy" && branch === "main") return "beta";
   if (
     context === "deploy-preview" ||
+    context === "branch-deploy" ||
     branch.startsWith("deploy-preview") ||
     String(env.VERCEL_ENV || "").trim().toLowerCase() === "preview"
   ) {
     return "preview";
   }
   return (
-    firstNonEmpty(env.NETLIFY_CONTEXT, env.VERCEL_ENV, env.NODE_ENV) ||
+    firstNonEmpty(context, env.VERCEL_ENV, env.NODE_ENV) ||
     "production"
   );
 }

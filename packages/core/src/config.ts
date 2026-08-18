@@ -665,6 +665,7 @@ export function inferAgentNativeDeploymentEnvironment(
 
   const context = env.CONTEXT?.trim().toLowerCase();
   const branch = env.BRANCH?.trim().toLowerCase();
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
 
   if (
     branch === "production" ||
@@ -675,6 +676,7 @@ export function inferAgentNativeDeploymentEnvironment(
   if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
     return "beta";
   }
+  if (vercelEnv === "preview") return "preview";
   if (
     context === "deploy-preview" ||
     context === "branch-deploy" ||

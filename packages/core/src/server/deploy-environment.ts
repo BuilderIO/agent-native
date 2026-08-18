@@ -28,7 +28,10 @@ export function resolveDeployEnvironment(): string {
   );
   if (explicit) return explicit;
 
-  const context = process.env.NETLIFY_CONTEXT?.trim().toLowerCase();
+  const context = firstNonEmpty(
+    process.env.CONTEXT,
+    process.env.NETLIFY_CONTEXT,
+  )?.toLowerCase();
   const branch = process.env.BRANCH?.trim().toLowerCase();
   if (branch === "beta") return "beta";
   if (
@@ -40,6 +43,7 @@ export function resolveDeployEnvironment(): string {
   if (context === "branch-deploy" && branch === "main") return "beta";
   if (
     context === "deploy-preview" ||
+    context === "branch-deploy" ||
     branch?.startsWith("deploy-preview") ||
     process.env.VERCEL_ENV?.trim().toLowerCase() === "preview"
   ) {
@@ -47,11 +51,8 @@ export function resolveDeployEnvironment(): string {
   }
 
   return (
-    firstNonEmpty(
-      process.env.NETLIFY_CONTEXT,
-      process.env.VERCEL_ENV,
-      process.env.NODE_ENV,
-    ) ?? "production"
+    firstNonEmpty(context, process.env.VERCEL_ENV, process.env.NODE_ENV) ??
+    "production"
   );
 }
 
