@@ -155,12 +155,15 @@ describe("VideoPlayer playback", () => {
     const centerPlay = container.querySelector<HTMLButtonElement>(
       'button[aria-label="videoPlayer.playClip"]',
     );
+    const playIcon = centerPlay?.querySelector("svg");
 
     // Mobile Safari can remain at HAVE_NOTHING until playback is initiated,
     // so loadeddata/canplay may not arrive before the user needs this control.
     expect(video.readyState).toBe(0);
     expect(container.textContent).not.toContain("Preparing clip");
     expect(centerPlay).not.toBeNull();
+    expect(playIcon).not.toBeNull();
+    expect(playIcon?.getAttribute("class")).not.toContain("ml-[6%]");
 
     act(() => {
       centerPlay?.click();

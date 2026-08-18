@@ -927,7 +927,7 @@ const messages = {
   commentsPanel: {
     disabled: "此錄製已停用評論。",
     beFirst: "成為第一個評論的人",
-    leaveNotePanel: "在此面板頂部留下備註。",
+    leaveNotePanel: "在此面板底部留下備註。",
     leaveNoteTimestamp: "在目前時間戳留下備註。",
     leaveComment: "留下評論...",
     signInToComment: "登入以發表評論。",

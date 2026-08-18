@@ -68,11 +68,35 @@ production template deploy or package publish fails, retrigger the failed job
 when the existing code already contains the fix; otherwise make the necessary
 code/config fix and ship that follow-up until production is live.
 
+## Worktree and branch setup
+
+A detached HEAD is a valid shipping context. Codex and platform-managed
+worktrees may intentionally start detached, and `/ship` explicitly authorizes
+creating a shipping branch in that worktree before committing or pushing. Do
+not stop or ask for confirmation just because `git branch --show-current` is
+empty.
+
+If this worktree is detached:
+
+1. Inspect `git worktree list --porcelain` and existing `changes-*` refs.
+2. Create an unused `changes-N` branch (N at least 50) at the current HEAD in
+   this worktree, for example `git switch -c changes-N`. Never attach or switch
+   a branch that is checked out by another worktree, use `main`, overwrite an
+   existing ref, or move another worktree.
+3. Continue the normal ship flow on that new branch.
+
+This is the one pre-PR branch operation that `/ship` authorizes for a detached
+worktree. Do not reset, rebase, stash, or force-push. If already on a named
+branch, stay on it.
+
 ## Steps
 
-1. **Stay on the current branch**: never create, switch, rebase, reset, or stash
-   before opening the PR. This repo uses shared/platform-managed branches; ship
-   the branch you are already on.
+1. **Stay in the current worktree and branch**: if already on a named branch,
+   never create, switch, rebase, reset, or stash before opening the PR. If the
+   worktree is detached, follow the Worktree and branch setup section and
+   create the shipping branch before opening the PR. This repo uses
+   shared/platform-managed worktrees; ship the branch belonging to this
+   worktree.
 
 2. **Check local changes**: run `git status --short` and `git diff --stat` to
    establish the owned-path baseline. Multiple agents may have added work;

@@ -977,7 +977,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
   commentsPanel: {
     disabled: "이 녹화에서는 댓글이 비활성화되어 있습니다.",
     beFirst: "첫 댓글을 남겨보세요",
-    leaveNotePanel: "이 패널 상단에 메모를 남기세요.",
+    leaveNotePanel: "이 패널 하단에 메모를 남기세요.",
     leaveNoteTimestamp: "현재 타임스탬프에 메모를 남기세요.",
     leaveComment: "댓글 남기기...",
     signInToComment: "댓글을 남기려면 로그인하세요.",

@@ -1003,7 +1003,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
   commentsPanel: {
     disabled: "Les commentaires sont désactivés pour cet enregistrement.",
     beFirst: "Soyez le premier à commenter",
-    leaveNotePanel: "Laissez une note en haut de ce panneau.",
+    leaveNotePanel: "Laissez une note en bas de ce panneau.",
     leaveNoteTimestamp: "Laissez une note à l’horodatage actuel.",
     leaveComment: "Laisser un commentaire...",
     signInToComment: "Connectez-vous pour laisser un commentaire.",

@@ -974,7 +974,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
   commentsPanel: {
     disabled: "Comments are disabled for this recording.",
     beFirst: "Be the first to comment",
-    leaveNotePanel: "Leave a note at the top of this panel.",
+    leaveNotePanel: "Leave a note at the bottom of this panel.",
     leaveNoteTimestamp: "Leave a note at the current timestamp.",
     leaveComment: "Leave a comment...",
     signInToComment: "Sign in to leave a comment.",
