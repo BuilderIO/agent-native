@@ -621,11 +621,54 @@ export function runMCPAgentLoop(
 export function createA2AEngineToolSurface(
   availableTools: EngineTool[],
   initialToolNames?: string[],
+  options: {
+    receiverOwnsObjective?: boolean;
+    localCapabilityNames?: string[];
+  } = {},
 ): { tools: EngineTool[]; availableTools: EngineTool[] } {
+  const selectedInitialNames = options.receiverOwnsObjective
+    ? [
+        ...new Set([
+          ...(initialToolNames ?? []),
+          ...(options.localCapabilityNames ?? []),
+        ]),
+      ]
+    : initialToolNames;
+  const initialTools = filterInitialEngineTools(
+    availableTools,
+    selectedInitialNames,
+  );
   return {
-    tools: filterInitialEngineTools(availableTools, initialToolNames),
+    tools: options.receiverOwnsObjective
+      ? initialTools.filter(
+          (tool) =>
+            tool.name !== "describe-workspace-apps" &&
+            tool.name !== "call-agent",
+        )
+      : initialTools,
     availableTools,
   };
+}
+
+export function isSelectedA2AReceiver(
+  selectedReceiverApp: string | undefined,
+  appId: string | undefined,
+): boolean {
+  const normalize = (value: string | undefined) =>
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/^agent-native-/, "") ?? "";
+  const selected = normalize(selectedReceiverApp);
+  return selected.length > 0 && selected === normalize(appId);
+}
+
+export function buildSelectedA2AReceiverContext(appId: string): string {
+  return `
+<selected-a2a-receiver>
+selectedApp: ${appId}
+The caller already selected this app to own the current objective. Start with this app's declared local capabilities and use tool-search for another local action when needed. A resource name that resembles a different app is not a routing decision. Delegate again only for a genuinely separate subtask; do not substitute another app for loading this app's own actions.
+</selected-a2a-receiver>`;
 }
 
 /**
