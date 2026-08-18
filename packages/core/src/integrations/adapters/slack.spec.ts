@@ -331,6 +331,33 @@ describe("slackAdapter", () => {
     ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
   });
 
+  it("accepts an org-wide Enterprise Grid event through a managed installation when a team allowlist exists", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      { id: "installation-enterprise" },
+    );
+
+    await expect(
+      slackAdapter().parseIncomingMessage(
+        slackEvent({
+          team_id: undefined,
+          enterprise_id: "E123",
+          authorizations: [
+            {
+              enterprise_id: "E123",
+              team_id: null,
+              is_enterprise_install: true,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBeTruthy();
+    expect(
+      installationStoreMocks.getActiveIntegrationInstallationByKey,
+    ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
+  });
+
   it("prefers the event workspace authorization over an enterprise authorization", async () => {
     process.env.NODE_ENV = "development";
     vi.spyOn(console, "warn").mockImplementation(() => {});

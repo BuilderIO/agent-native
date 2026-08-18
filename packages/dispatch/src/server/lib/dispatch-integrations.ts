@@ -504,6 +504,12 @@ export async function resolveDispatchExecutionContext(
     if (installation) {
       return resolveManagedSlackDmExecutionContext(incoming, installation);
     }
+    incoming.platformContext.identityVerificationFailed = true;
+    return {
+      ownerEmail: fallbackOwnerForIncoming(incoming),
+      orgId: null,
+      principalType: "user",
+    };
   }
 
   if (incoming.platform !== "slack" || incoming.triggerKind === "dm") {
@@ -611,6 +617,16 @@ export async function beforeDispatchProcess(
   const commandText =
     contextString(incoming.platformContext.rawText) || trimmed;
   const match = commandText.match(/^\/link(?:@\w+)?\s+([a-zA-Z0-9_-]+)$/);
+  if (
+    match &&
+    incoming.platform === "slack" &&
+    incoming.triggerKind === "dm" &&
+    !contextString(incoming.platformContext.managedInstallationOrgId) &&
+    incoming.platformContext.identityVerificationFailed !== true &&
+    incoming.platformContext.identityAccessDenied !== true
+  ) {
+    await resolveDispatchExecutionContext(incoming);
+  }
   if (
     incoming.platform === "slack" &&
     incoming.triggerKind === "dm" &&

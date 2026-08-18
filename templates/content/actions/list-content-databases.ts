@@ -173,6 +173,10 @@ export default defineAction({
       ),
       isNull(schema.contentDatabases.deletedAt),
       isNull(schema.contentSpaces.archivedAt),
+      or(
+        isNull(schema.contentDatabases.spaceId),
+        isNotNull(schema.contentSpaces.id),
+      ),
       isNull(schema.contentDatabases.systemRole),
       args.spaceId
         ? eq(schema.contentDatabases.spaceId, args.spaceId)
@@ -303,6 +307,7 @@ export default defineAction({
               isNull(schema.documents.trashedAt),
               isNull(schema.contentDatabases.deletedAt),
               isNull(schema.contentSpaces.archivedAt),
+              isNotNull(schema.contentSpaces.id),
               isNotNull(schema.contentDatabases.systemRole),
               eq(schema.contentDatabases.spaceId, args.spaceId!),
             ),

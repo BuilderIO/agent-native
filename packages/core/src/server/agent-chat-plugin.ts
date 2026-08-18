@@ -2132,6 +2132,7 @@ export function createAgentChatPlugin(
                           baseUrl: artifactBaseUrl,
                           includePersistedArtifactMarker: true,
                           persistedArtifactSecret: recoverableArtifactSecret,
+                          delegatedTaskId: context.taskId,
                         },
                       )
                     : null;
@@ -2260,6 +2261,7 @@ export function createAgentChatPlugin(
               event: context.event,
               outcome: a2aOutcome,
               persistedArtifactSecret: recoverableArtifactSecret,
+              delegatedTaskId: context.taskId,
             });
 
           console.log(

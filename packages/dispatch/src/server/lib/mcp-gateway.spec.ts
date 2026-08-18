@@ -143,9 +143,15 @@ function withSignedMutationReceipts(
   text: string,
   receipts: unknown[],
   secret: string,
+  delegatedTaskId: string,
 ): string {
   const payload = Buffer.from(
-    JSON.stringify({ version: 1, identities: [], mutationReceipts: receipts }),
+    JSON.stringify({
+      version: 1,
+      identities: [],
+      mutationReceipts: receipts,
+      delegatedTaskId,
+    }),
   ).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
   return `${text}\n\n<!-- agent-native:persisted-artifacts=${payload}.${signature} -->`;
@@ -427,6 +433,7 @@ describe("askGrantedDispatchMcpApp", () => {
                 "Updated the exact feedback row.",
                 [receipt],
                 orgSecret,
+                "task-with-receipt",
               ),
             },
             {
@@ -465,6 +472,41 @@ describe("askGrantedDispatchMcpApp", () => {
         },
       ],
     });
+
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-current",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Echoed an earlier receipt.",
+                [receipt],
+                orgSecret,
+                "task-prior",
+              ),
+            },
+          ],
+        },
+      },
+    });
+
+    const replayed = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-owner",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("content", "Update feedback again."),
+    );
+    expect(replayed).not.toHaveProperty("receipts");
   });
 
   it("ignores unsigned mutation receipts asserted by the target app", async () => {
@@ -549,6 +591,7 @@ describe("askGrantedDispatchMcpApp", () => {
                 "Claimed an update.",
                 [receipt],
                 "shared-a2a-secret",
+                "task-with-shared-secret-receipt",
               ),
             },
           ],
@@ -608,6 +651,7 @@ describe("askGrantedDispatchMcpApp", () => {
                 "Claimed an update.",
                 [receipt],
                 orgSecret,
+                "task-with-wrong-scope-receipt",
               ),
             },
           ],

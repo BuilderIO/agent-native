@@ -1007,7 +1007,21 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
   }
 
   if (allowedTeamIds) {
-    if (!teamId || !allowedTeamIds.has(teamId)) {
+    let allowedEnterpriseInstall = false;
+    if (!teamId && installationScope.isEnterpriseInstall) {
+      try {
+        const key = slackInstallationKey({
+          teamId,
+          apiAppId,
+          enterpriseId: installationScope.enterpriseId,
+          isEnterpriseInstall: true,
+        });
+        allowedEnterpriseInstall =
+          !!(await getActiveIntegrationInstallationByKey("slack", key));
+        // coercion-ok: lookup failure leaves the enterprise event denied below
+      } catch {}
+    }
+    if ((!teamId || !allowedTeamIds.has(teamId)) && !allowedEnterpriseInstall) {
       throw createError({
         statusCode: 401,
         statusMessage: "Unrecognized Slack workspace",

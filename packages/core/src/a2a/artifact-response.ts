@@ -23,6 +23,7 @@ export interface A2AArtifactResponseOptions {
   includeReferencedArtifacts?: boolean;
   includePersistedArtifactMarker?: boolean;
   persistedArtifactSecret?: string;
+  delegatedTaskId?: string;
 }
 
 export interface GuardedA2AArtifactResponse {
@@ -32,6 +33,7 @@ export interface GuardedA2AArtifactResponse {
 
 export interface A2AArtifactIdentityOptions {
   persistedArtifactSecrets?: readonly string[];
+  expectedDelegatedTaskId?: string;
 }
 
 export interface A2AArtifactIdentity {
@@ -147,6 +149,7 @@ interface PersistedArtifactLedger {
   version: 1;
   identities: A2AArtifactIdentity[];
   mutationReceipts: A2APersistedMutationReceipt[];
+  delegatedTaskId?: string;
 }
 
 function persistedArtifactLedgerFromMarker(
@@ -183,6 +186,9 @@ function persistedArtifactLedgerFromMarker(
         mutationReceipts: Array.isArray(ledger.mutationReceipts)
           ? ledger.mutationReceipts
           : [],
+        ...(typeof ledger.delegatedTaskId === "string"
+          ? { delegatedTaskId: ledger.delegatedTaskId }
+          : {}),
       } as PersistedArtifactLedger;
     } catch {
       // coercion-ok: malformed signed-marker payloads are untrusted absence, never a successful receipt ledger
@@ -215,6 +221,7 @@ function withPersistedArtifactMarker(
   text: string,
   toolResults: A2AToolResultSummary[],
   secret = a2aSecret(),
+  delegatedTaskId?: string,
 ): string {
   const verificationSecrets = [secret, a2aSecret()].filter(
     (value, index, values): value is string =>
@@ -229,7 +236,12 @@ function withPersistedArtifactMarker(
   if ((identities.length === 0 && mutationReceipts.length === 0) || !secret)
     return text;
   const payload = Buffer.from(
-    JSON.stringify({ version: 1, identities, mutationReceipts }),
+    JSON.stringify({
+      version: 1,
+      identities,
+      mutationReceipts,
+      ...(delegatedTaskId ? { delegatedTaskId } : {}),
+    }),
   ).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
   const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
@@ -1274,6 +1286,12 @@ export function extractA2APersistedMutationReceipts(
         result.result,
         options.persistedArtifactSecrets,
       );
+      if (
+        options.expectedDelegatedTaskId &&
+        nested?.delegatedTaskId !== options.expectedDelegatedTaskId
+      ) {
+        continue;
+      }
       for (const receipt of nested?.mutationReceipts ?? []) {
         const parsed = parsePersistedMutationReceipt(receipt, "call-agent");
         if (parsed) receipts.set(parsed.receiptId, parsed);
@@ -1731,6 +1749,7 @@ export function guardA2AArtifactResponse(
           withReceipts,
           toolResults,
           options.persistedArtifactSecret ?? a2aSecret(),
+          options.delegatedTaskId,
         )
       : withReceipts;
   };

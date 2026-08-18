@@ -129,6 +129,11 @@ describe("list-content-databases", () => {
   });
 
   it("searches user-authored descriptions and returns live identity metadata", async () => {
+    await createPersonalSpace({
+      id: "space-creative",
+      name: "Creative",
+      filesDatabaseId: "space-creative-files",
+    });
     await createDatabaseDocument({
       documentId: "db-doc-described",
       databaseId: "db-described",
@@ -167,6 +172,16 @@ describe("list-content-databases", () => {
   });
 
   it("resolves exact IDs and titles within an exact space", async () => {
+    await createPersonalSpace({
+      id: "space-product",
+      name: "Product",
+      filesDatabaseId: "space-product-files",
+    });
+    await createPersonalSpace({
+      id: "space-other",
+      name: "Other",
+      filesDatabaseId: "space-other-files",
+    });
     await createDatabaseDocument({
       documentId: "db-doc-exact",
       databaseId: "db-exact",
@@ -624,6 +639,32 @@ describe("list-content-databases", () => {
       .update(schema.contentSpaces)
       .set({ archivedAt: new Date().toISOString() })
       .where(eq(schema.contentSpaces.id, spaceId));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        spaceId,
+        includeSystemCollections: true,
+      });
+      expect(inventory.databases).toEqual([]);
+      expect(inventory.systemCollections).toEqual([]);
+    });
+  });
+
+  it("does not inventory databases whose referenced space is missing", async () => {
+    const spaceId = "missing-space";
+    await createDatabaseDocument({
+      documentId: "orphaned-ordinary-document",
+      databaseId: "orphaned-ordinary-database",
+      title: "Orphaned ordinary database",
+      spaceId,
+    });
+    await createDatabaseDocument({
+      documentId: "orphaned-system-document",
+      databaseId: "orphaned-system-database",
+      title: "Orphaned files",
+      spaceId,
+      systemRole: "files",
+    });
 
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       const inventory = await listContentDatabasesAction.run({

@@ -397,7 +397,7 @@ describe("beforeDispatchProcess", () => {
     });
   });
 
-  it("replies with linking guidance instead of silently dropping an unlinked Slack DM", async () => {
+  it("fails closed instead of silently dropping an unmatched Slack DM", async () => {
     vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
     const incoming = slackIncoming({
       triggerKind: "dm",
@@ -413,15 +413,15 @@ describe("beforeDispatchProcess", () => {
     const result = await beforeDispatchProcess(incoming, noopAdapter);
 
     expect(execution.ownerEmail).toMatch(/@integration\.local$/);
-    expect(incoming.platformContext.identityLinkRequired).toBe(true);
+    expect(incoming.platformContext.identityVerificationFailed).toBe(true);
     expect(result).toEqual({
       handled: true,
       responseText:
-        "Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     });
   });
 
-  it("lets an unlinked Slack DM consume a link token before the agent gate", async () => {
+  it("does not let an unmatched Slack DM consume a link token", async () => {
     const incoming = slackIncoming({
       text: "/link token-123",
       triggerKind: "dm",
@@ -439,14 +439,9 @@ describe("beforeDispatchProcess", () => {
     expect(result).toEqual({
       handled: true,
       responseText:
-        "Linked successfully. Future slack messages will use owner@example.test's personal dispatch context.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     });
-    expect(mocks.consumeLinkToken).toHaveBeenCalledWith({
-      platform: "slack",
-      token: "token-123",
-      externalUserId: "T123:U123",
-      externalUserName: "U123",
-    });
+    expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
   });
 
   it("scopes a managed Slack link claim to the installation organization", async () => {
@@ -481,7 +476,6 @@ describe("beforeDispatchProcess", () => {
       },
     });
 
-    await resolveDispatchExecutionContext(incoming);
     await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
       {
         handled: true,
@@ -520,7 +514,6 @@ describe("beforeDispatchProcess", () => {
       },
     });
 
-    await resolveDispatchExecutionContext(incoming);
     await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
       {
         handled: true,
@@ -533,6 +526,23 @@ describe("beforeDispatchProcess", () => {
 });
 
 describe("managed Slack execution identity", () => {
+  it("fails closed when no managed installation matches a Slack DM", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    const incoming = slackIncoming({
+      senderId: "U-UNMATCHED",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: { teamId: "T-UNMATCHED", channelId: "D-UNMATCHED" },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    expect(execution.orgId).toBeNull();
+    expect(incoming.platformContext.identityVerificationFailed).toBe(true);
+  });
+
   it("uses the enterprise-scoped installation for an Enterprise Grid DM", async () => {
     mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
       managedSlackInstallation(),

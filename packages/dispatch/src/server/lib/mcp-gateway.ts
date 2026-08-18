@@ -128,6 +128,7 @@ function dispatchTaskMutationReceipts(
   const result = [{ tool: "call-agent", result: text }];
   const receipts = extractA2APersistedMutationReceipts(result, {
     persistedArtifactSecrets: [identity.orgSecret],
+    expectedDelegatedTaskId: task.id,
   });
   return receipts.filter((receipt) => {
     if (receipt.target.authorityScopeKind === "personal") {
