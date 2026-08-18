@@ -24,7 +24,6 @@ function firstNonEmpty(
 export function resolveDeployEnvironment(): string {
   const explicit = firstNonEmpty(
     process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
-    process.env.SENTRY_ENVIRONMENT,
   );
   if (explicit) return explicit;
 
@@ -33,6 +32,7 @@ export function resolveDeployEnvironment(): string {
     process.env.NETLIFY_CONTEXT,
   )?.toLowerCase();
   const branch = process.env.BRANCH?.trim().toLowerCase();
+  const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase();
   if (branch === "beta") return "beta";
   if (
     branch === "production" ||
@@ -45,14 +45,20 @@ export function resolveDeployEnvironment(): string {
     context === "deploy-preview" ||
     context === "branch-deploy" ||
     branch?.startsWith("deploy-preview") ||
-    process.env.VERCEL_ENV?.trim().toLowerCase() === "preview"
+    vercelEnv === "preview"
   ) {
     return "preview";
   }
 
+  if (!context && !branch && !vercelEnv) {
+    return (
+      firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV) ??
+      "production"
+    );
+  }
+
   return (
-    firstNonEmpty(context, process.env.VERCEL_ENV, process.env.NODE_ENV) ??
-    "production"
+    firstNonEmpty(context, vercelEnv, process.env.NODE_ENV) ?? "production"
   );
 }
 

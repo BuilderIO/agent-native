@@ -972,7 +972,7 @@ export default (event) =>
 
   it("uses Netlify CONTEXT for generated preview browser telemetry", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
-    vi.stubEnv("SENTRY_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "production");
     vi.stubEnv("CONTEXT", "deploy-preview");
     vi.stubEnv("NETLIFY_CONTEXT", "production");
     vi.stubEnv("BRANCH", "feature/auth");

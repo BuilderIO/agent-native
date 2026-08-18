@@ -11,7 +11,7 @@ describe("resolveDeployEnvironment", () => {
     "uses Netlify CONTEXT for a %s feature deployment",
     (context) => {
       vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
-      vi.stubEnv("SENTRY_ENVIRONMENT", "");
+      vi.stubEnv("SENTRY_ENVIRONMENT", "production");
       vi.stubEnv("CONTEXT", context);
       vi.stubEnv("NETLIFY_CONTEXT", "production");
       vi.stubEnv("BRANCH", "feature/auth");

@@ -1151,10 +1151,7 @@ function isTruthyRuntimeValue(value) {
 
 function resolveDeploymentEnvironment() {
   const env = globalThis.process?.env || {};
-  const explicit = firstNonEmpty(
-    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
-    env.SENTRY_ENVIRONMENT,
-  );
+  const explicit = firstNonEmpty(env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT);
   if (explicit) return explicit;
 
   const context = firstNonEmpty(
@@ -1163,6 +1160,8 @@ function resolveDeploymentEnvironment() {
   )?.toLowerCase();
   const branch =
     typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
+  const vercelEnv = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  const sentryEnvironment = firstNonEmpty(env.SENTRY_ENVIRONMENT);
   if (branch === "beta") return "beta";
   if (
     branch === "production" ||
@@ -1175,14 +1174,14 @@ function resolveDeploymentEnvironment() {
     context === "deploy-preview" ||
     context === "branch-deploy" ||
     branch.startsWith("deploy-preview") ||
-    String(env.VERCEL_ENV || "").trim().toLowerCase() === "preview"
+    vercelEnv === "preview"
   ) {
     return "preview";
   }
-  return (
-    firstNonEmpty(context, env.VERCEL_ENV, env.NODE_ENV) ||
-    "production"
-  );
+  if (!context && !branch && !vercelEnv && sentryEnvironment) {
+    return sentryEnvironment;
+  }
+  return firstNonEmpty(context, vercelEnv, env.NODE_ENV) || "production";
 }
 
 function getSentryClientConfigScript() {
