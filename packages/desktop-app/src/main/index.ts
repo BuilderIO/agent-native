@@ -253,6 +253,7 @@ import {
   initializeMultiFrontierAppIntegration,
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
+import { createOAuthPopupCloser } from "./oauth-popup-close";
 import {
   isQuickPromptActive,
   registerQuickPromptIpc,
@@ -11076,17 +11077,8 @@ function openOAuthWindow(
   // The Builder callback HTML also calls window.close() itself; this
   // close-path is the Electron-side safety net if the page's script
   // hasn't fired yet (or doesn't, e.g. on future callback redesigns).
-  let closeScheduled = false;
-
-  function scheduleClose() {
-    if (closeScheduled) return;
-    closeScheduled = true;
-    oauthWin.webContents.once("did-finish-load", () => {
-      setTimeout(() => {
-        if (!oauthWin.isDestroyed()) oauthWin.close();
-      }, 600);
-    });
-  }
+  const popupCloser = createOAuthPopupCloser(oauthWin);
+  const scheduleClose = () => popupCloser.scheduleCloseAfterFinishLoad();
 
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
@@ -11127,8 +11119,12 @@ function openOAuthWindow(
     },
   );
 
-  oauthWin.webContents.on("did-fail-load", () => {
-    scheduleClose();
+  // A genuine load failure (DNS, connection refused, timeout, etc.) means
+  // nothing else is going to load in this popup — close it directly instead
+  // of waiting for a did-finish-load that will never fire, which otherwise
+  // strands the user on a permanently blank popup after clicking "Allow".
+  oauthWin.webContents.on("did-fail-load", (_event, errorCode) => {
+    popupCloser.onLoadFailed(errorCode);
   });
 
   // Builder credentials now land in SQL-backed app_secrets and the webview

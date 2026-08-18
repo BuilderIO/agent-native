@@ -132,9 +132,10 @@ A worktree-created branch is a normal, valid PR source. Do not ask an agent to
 copy its changes into the shared checkout before reviewing or approving. Read
 the remote PR diff as the source of truth. If this skill needs to update a PR
 from a worktree, keep all GitHub and Git commands in that worktree's cwd and
-current branch, stage owned paths explicitly, and update the existing PR
-instead of creating a second one. Never reset, rebase, stash, or absorb peer
-paths from a shared checkout.
+current branch, publish the complete nonignored snapshot with
+`corepack pnpm ship:push`, and update the existing PR instead of creating a
+second one. Never reset, rebase, stash, or overwrite local work without
+explicit authorization.
 
 ## End-of-run recap
 

@@ -194,6 +194,8 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_CHANNEL: stable
+          RELEASE_DIST_TAG: latest
         run: |
           set -euo pipefail
           note() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
@@ -229,6 +231,23 @@ jobs:
             exit 1
           fi
           has() { printf '%s' "$packages" | jq -e --arg n "$1" 'any(.[]; .name == $n)' >/dev/null; }
+
+          # A stable release may publish only one of the packages consumed by
+          # builder-workspace. Send the complete stable pin set so the
+          # downstream PR never has to guess which unchanged package version
+          # belongs with this release.
+          published_version() {
+            local name="$1" version
+            version="$(printf '%s' "$packages" | jq -r --arg n "$name" '.[] | select(.name == $n) | .version' | head -n 1)"
+            if [ -z "$version" ] || [ "$version" = "null" ]; then
+              version="$(npm view "$name" version --prefer-online)"
+            fi
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Could not resolve a stable version for ${name}: ${version}" >&2
+              return 1
+            fi
+            printf '%s' "$version"
+          }
 
           # GitHub's dispatch endpoint returns 503 "No server is currently
           # available" under load, and a lost dispatch has no second chance —
@@ -275,16 +294,27 @@ jobs:
 
           if has @agent-native/core || has @agent-native/creative-context ||
             has @agent-native/dispatch || has @agent-native/toolkit; then
-            payload="$(jq -cn --arg p "$packages" --arg r "$REPO" --arg u "$RUN_URL" \
-              '{event_type:"agent-native-packages-published",client_payload:{publishedPackages:$p,sourceRepository:$r,sourceRunUrl:$u}}')"
+            core_version="$(published_version @agent-native/core)"
+            dispatch_version="$(published_version @agent-native/dispatch)"
+            toolkit_version="$(published_version @agent-native/toolkit)"
+            payload="$(jq -cn \
+              --arg p "$packages" \
+              --arg c "$RELEASE_CHANNEL" \
+              --arg rc "$RELEASE_DIST_TAG" \
+              --arg r "$REPO" \
+              --arg u "$RUN_URL" \
+              --arg core "$core_version" \
+              --arg dispatch "$dispatch_version" \
+              --arg toolkit "$toolkit_version" \
+              '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,core_version:$core,dispatch_version:$dispatch,toolkit_version:$toolkit,publishedPackages:$p,sourceRepository:$r,sourceRunUrl:$u}}')"
             dispatch "Builder workspace" "BuilderIO/builder-agent-native-workspace" "$WORKSPACE_TOKEN" "$payload" || rc=1
           else
             note "Builder workspace not notified: no package it consumes was published."
           fi
 
           if has @agent-native/core || has @agent-native/creative-context || has @agent-native/toolkit; then
-            payload="$(jq -cn --arg p "$packages" --arg s "$SHA" \
-              '{event_type:"agent-native-packages-published",client_payload:{sha:$s,publishedPackages:$p}}')"
+            payload="$(jq -cn --arg p "$packages" --arg s "$SHA" --arg c "$RELEASE_CHANNEL" --arg rc "$RELEASE_DIST_TAG" \
+              '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,sha:$s,publishedPackages:$p}}')"
             dispatch "Starter template mirror" "$REPO" "$SELF_TOKEN" "$payload" || rc=1
           else
             note "Starter template mirror not notified: no package it consumes was published."
@@ -294,7 +324,6 @@ jobs:
 
   publish-desktop:
     name: Publish desktop app
-    needs: []
     if: |
       (github.event_name == 'workflow_dispatch' && inputs.publishDesktop) ||
       contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
@@ -381,7 +410,9 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
+        run: |
+          version="$(node -p "require('./packages/desktop-app/package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish draft release
         env:

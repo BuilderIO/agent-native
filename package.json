@@ -112,7 +112,6 @@
     "guard:no-boot-data-work": "node scripts/guard-no-boot-data-work.mjs",
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guard:serverless-function-payload": "node scripts/guard-serverless-function-payload.mjs",
-    "guard:hooks-registered": "node scripts/guard-hooks-registered.mjs",
     "guards": "tsx scripts/run-guards.ts",
     "ship:push": "node scripts/ship-push.mjs",
     "chat-health": "node scripts/chat-health.mjs",

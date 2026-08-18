@@ -502,6 +502,46 @@ describe("session replay", () => {
     }
   });
 
+  it("aborts a hung replay upload instead of holding the flush lock forever", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({});
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
+
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toBe(true),
+    );
+
+    // Without a signal a hung endpoint never settles, `state.flushing` stays
+    // set, and every later flush early-returns while the queue keeps growing.
+    const replayCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    const init = replayCall?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(init?.signal?.aborted).toBe(false);
+  });
+
   it("lets explicit sessionReplay false override replay env vars", async () => {
     installBrowser();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");

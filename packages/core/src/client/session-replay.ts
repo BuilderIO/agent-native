@@ -1543,7 +1543,6 @@ function isDefinitiveReplayUploadClientError(status: number): boolean {
 }
 
 const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
-
 // A hung upload never settles, so `state.flushing` stays set, every later flush
 // early-returns while still queueing rrweb events, and the queue grows until the
 // session ends. Time the request out so the failure is observable and the lock
