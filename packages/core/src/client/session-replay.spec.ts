@@ -456,6 +456,52 @@ describe("session replay", () => {
     }
   });
 
+  it("still times out a hung upload when AbortController is unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("AbortController", undefined);
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      const result = await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 1,
+        flushIntervalMs: 100_000,
+      });
+      expect(result.started).toBe(true);
+
+      fetchMock.mockImplementation(
+        () => new Promise<Response>(() => undefined),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+      expect(firstInit.signal).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      // With no transport-level cancellation, the race rejection still has to
+      // release the lock so a later flush can make progress.
+      fetchMock.mockResolvedValue(new Response("{}"));
+      await replay.flushSessionReplay("manual");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets explicit sessionReplay false override replay env vars", async () => {
     installBrowser();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");

@@ -1552,19 +1552,26 @@ const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
 
 function startReplayUploadTimeout(): {
   signal: AbortSignal | undefined;
+  promise: Promise<never>;
   done: () => void;
 } {
   // Use an explicit controller/timer pair instead of relying only on
   // AbortSignal.timeout: the controller is available in older supported
   // browsers, and the timer can always be cleared when a normal upload
   // settles so completed uploads do not leave timeout work behind.
-  if (typeof AbortController === "undefined") {
-    return { signal: undefined, done: () => {} };
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REPLAY_UPLOAD_TIMEOUT_MS);
+  const controller =
+    typeof AbortController === "undefined" ? undefined : new AbortController();
+  let rejectTimeout!: (error: Error) => void;
+  const promise = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => {
+    controller?.abort();
+    rejectTimeout(new Error("Session replay upload timed out"));
+  }, REPLAY_UPLOAD_TIMEOUT_MS);
   return {
-    signal: controller.signal,
+    signal: controller?.signal,
+    promise,
     done: () => clearTimeout(timer),
   };
 }
@@ -1584,13 +1591,14 @@ async function sendReplayUpload(
     const timeout = startReplayUploadTimeout();
     let response: Response;
     try {
-      response = await fetch(options.endpoint, {
+      const request = fetch(options.endpoint, {
         method: "POST",
         body,
         keepalive: canUseKeepalive,
         headers: { "Content-Type": "text/plain;charset=UTF-8" },
         signal: timeout.signal,
       });
+      response = await Promise.race([request, timeout.promise]);
     } finally {
       timeout.done();
     }
@@ -1606,7 +1614,7 @@ async function sendReplayUpload(
   const timeout = startReplayUploadTimeout();
   let response: Response;
   try {
-    response = await fetch(options.endpoint, {
+    const request = fetch(options.endpoint, {
       method: "POST",
       body: upload.body,
       keepalive: canUseKeepalive,
@@ -1616,6 +1624,7 @@ async function sendReplayUpload(
       },
       signal: timeout.signal,
     });
+    response = await Promise.race([request, timeout.promise]);
   } finally {
     timeout.done();
   }
