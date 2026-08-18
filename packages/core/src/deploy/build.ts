@@ -1141,6 +1141,14 @@ function firstNonEmpty() {
   }
 }
 
+function isTruthyRuntimeValue(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
+  return ["1", "true", "yes", "on"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
 function getSentryClientConfigScript() {
   const env = globalThis.process?.env || {};
   const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
