@@ -8,7 +8,7 @@
   },
   "doctor": {
     "dbToolScopingDenylist": {
-      "deck_events": "Durable access-request audit rows are written by the request action and are not exposed through generic agent DB reads."
+      "slides:deck_events": "Durable access-request audit rows are written by the request action and are not exposed through generic agent DB reads."
     },
     "failOnBuild": false
   }

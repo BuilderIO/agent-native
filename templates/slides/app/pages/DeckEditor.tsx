@@ -11,6 +11,7 @@ import {
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   DndContext,
   closestCenter,
@@ -608,10 +609,7 @@ export default function DeckEditor() {
   }, [refetchOrg, reloadDecks]);
 
   const openSignIn = useCallback(() => {
-    const returnPath = window.location.pathname + window.location.search;
-    window.location.href = `${agentNativePath(
-      "/_agent-native/sign-in",
-    )}?return=${encodeURIComponent(returnPath)}`;
+    window.location.href = buildSignInReturnHref();
   }, []);
 
   const requestDeckAccess = useCallback(() => {
