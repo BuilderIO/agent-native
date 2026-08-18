@@ -1008,7 +1008,7 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
 
   if (allowedTeamIds) {
     let allowedEnterpriseInstall = false;
-    if (!teamId && installationScope.isEnterpriseInstall) {
+    if (installationScope.isEnterpriseInstall) {
       try {
         const key = slackInstallationKey({
           teamId,

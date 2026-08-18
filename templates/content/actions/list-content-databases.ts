@@ -16,6 +16,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { documentDiscoveryPagination } from "./_document-discovery-query.js";
 
 const DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT = 50;
@@ -93,6 +94,9 @@ export default defineAction({
       );
     }
     const db = getDb();
+    if (args.includeSystemCollections) {
+      await resolveContentSpaceAccess(args.spaceId!, "viewer", { db });
+    }
     const query = args.query?.trim();
     const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;
     const exactTitle = args.title?.toLowerCase();

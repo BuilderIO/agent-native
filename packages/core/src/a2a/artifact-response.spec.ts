@@ -339,6 +339,7 @@ describe("appendA2AArtifactLinks", () => {
         baseUrl: "https://content.agent.test",
         includePersistedArtifactMarker: true,
         persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
       },
     );
     expect(downstream).toContain("Mutation receipts:");
@@ -355,7 +356,10 @@ describe("appendA2AArtifactLinks", () => {
     expect(
       extractA2APersistedMutationReceipts(
         [{ tool: "call-agent", result: downstream }],
-        { persistedArtifactSecrets: [secret] },
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
       ),
     ).toEqual([
       expect.objectContaining({
@@ -373,6 +377,7 @@ describe("appendA2AArtifactLinks", () => {
       {
         includePersistedArtifactMarker: true,
         persistedArtifactSecret: organizationSecret,
+        delegatedTaskId: "task-outer",
       },
     );
     expect(
@@ -381,6 +386,34 @@ describe("appendA2AArtifactLinks", () => {
         { persistedArtifactSecrets: [organizationSecret] },
       ),
     ).toEqual([]);
+
+    const current = appendA2AArtifactLinks(
+      "Current update finished.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+    const prior = appendA2AArtifactLinks(
+      "Prior update finished.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-prior",
+      },
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: `${prior}\n${current}` }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toHaveLength(1);
   });
 
   it("preserves exact block receipt identity without retaining block bodies", () => {

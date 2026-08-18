@@ -610,6 +610,12 @@ describe("list-content-databases", () => {
             databaseId: feedbackDatabaseId,
           }),
         ).rejects.toThrow(/No accessible Content database/);
+        await expect(
+          listContentDatabasesAction.run({
+            spaceId,
+            includeSystemCollections: true,
+          }),
+        ).rejects.toThrow(/Not authorized for Content space/);
       },
     );
   });
@@ -641,12 +647,12 @@ describe("list-content-databases", () => {
       .where(eq(schema.contentSpaces.id, spaceId));
 
     await runWithRequestContext({ userEmail: OWNER }, async () => {
-      const inventory = await listContentDatabasesAction.run({
-        spaceId,
-        includeSystemCollections: true,
-      });
-      expect(inventory.databases).toEqual([]);
-      expect(inventory.systemCollections).toEqual([]);
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          includeSystemCollections: true,
+        }),
+      ).rejects.toThrow(/not found/);
     });
   });
 
@@ -667,12 +673,12 @@ describe("list-content-databases", () => {
     });
 
     await runWithRequestContext({ userEmail: OWNER }, async () => {
-      const inventory = await listContentDatabasesAction.run({
-        spaceId,
-        includeSystemCollections: true,
-      });
-      expect(inventory.databases).toEqual([]);
-      expect(inventory.systemCollections).toEqual([]);
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          includeSystemCollections: true,
+        }),
+      ).rejects.toThrow(/not found/);
     });
   });
 });

@@ -155,6 +155,7 @@ interface PersistedArtifactLedger {
 function persistedArtifactLedgerFromMarker(
   result: string,
   secrets: readonly string[] = a2aSecrets(),
+  expectedDelegatedTaskId?: string,
 ): PersistedArtifactLedger | null {
   if (secrets.length === 0) return null;
   const matches = result.matchAll(
@@ -180,7 +181,7 @@ function persistedArtifactLedgerFromMarker(
       }
       const ledger = asRecord(parsed);
       if (!ledger || ledger.version !== 1) continue;
-      return {
+      const parsedLedger = {
         version: 1,
         identities: Array.isArray(ledger.identities) ? ledger.identities : [],
         mutationReceipts: Array.isArray(ledger.mutationReceipts)
@@ -190,6 +191,13 @@ function persistedArtifactLedgerFromMarker(
           ? { delegatedTaskId: ledger.delegatedTaskId }
           : {}),
       } as PersistedArtifactLedger;
+      if (
+        expectedDelegatedTaskId &&
+        parsedLedger.delegatedTaskId !== expectedDelegatedTaskId
+      ) {
+        continue;
+      }
+      return parsedLedger;
     } catch {
       // coercion-ok: malformed signed-marker payloads are untrusted absence, never a successful receipt ledger
       continue;
@@ -232,6 +240,7 @@ function withPersistedArtifactMarker(
   }).slice(0, 12);
   const mutationReceipts = extractA2APersistedMutationReceipts(toolResults, {
     persistedArtifactSecrets: secret ? [secret] : [],
+    expectedDelegatedTaskId: delegatedTaskId,
   }).slice(0, 12);
   if ((identities.length === 0 && mutationReceipts.length === 0) || !secret)
     return text;
@@ -1285,13 +1294,8 @@ export function extractA2APersistedMutationReceipts(
       const nested = persistedArtifactLedgerFromMarker(
         result.result,
         options.persistedArtifactSecrets,
+        options.expectedDelegatedTaskId,
       );
-      if (
-        options.expectedDelegatedTaskId &&
-        nested?.delegatedTaskId !== options.expectedDelegatedTaskId
-      ) {
-        continue;
-      }
       for (const receipt of nested?.mutationReceipts ?? []) {
         const parsed = parsePersistedMutationReceipt(receipt, "call-agent");
         if (parsed) receipts.set(parsed.receiptId, parsed);

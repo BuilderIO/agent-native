@@ -320,7 +320,10 @@ export function assembleA2AFinalResponse(
   const mutationReceipts = extractA2APersistedMutationReceipts(
     [...toolResults],
     options.persistedArtifactSecret
-      ? { persistedArtifactSecrets: [options.persistedArtifactSecret] }
+      ? {
+          persistedArtifactSecrets: [options.persistedArtifactSecret],
+          expectedDelegatedTaskId: options.delegatedTaskId,
+        }
       : {},
   );
   if (terminalError) {
