@@ -40,6 +40,7 @@ export async function clearSelectedDashboardObjectIfOwned(
     await callAction("clear-selected-dashboard-object", {
       ...(dashboardId ? { dashboardId } : {}),
       ...(expectedSelection ? { expectedSelection } : {}),
+      browserTabId: TAB_ID,
       source: TAB_ID,
     });
   } catch {

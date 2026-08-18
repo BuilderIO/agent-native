@@ -135,17 +135,25 @@ describe("useDashboardChatContext", () => {
     );
   });
 
-  it("passes the old dashboard id to atomic cleanup on unmount", async () => {
+  it("passes its published selection to atomic cleanup on unmount", async () => {
     await act(async () => {
       root.render(<Harness id="dash-1" />);
     });
+    await settleContextPublish();
     await act(async () => {
       root.render(<Harness id={null} />);
     });
 
     expect(clientMocks.callAction).toHaveBeenCalledWith(
       "clear-selected-dashboard-object",
-      { dashboardId: "dash-1", source: TAB_ID },
+      {
+        browserTabId: TAB_ID,
+        expectedSelection: expect.objectContaining({
+          id: "dash-1",
+          __agentNativeSelectedObjectSource: TAB_ID,
+        }),
+        source: TAB_ID,
+      },
     );
   });
 

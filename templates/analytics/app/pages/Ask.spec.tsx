@@ -99,6 +99,7 @@ describe("AskPage", () => {
     expect(clientMocks.callAction).toHaveBeenCalledWith(
       "clear-selected-dashboard-object",
       {
+        browserTabId: "test-tab",
         expectedSelection: expect.objectContaining({
           type: "dashboard",
           id: "dash-1",

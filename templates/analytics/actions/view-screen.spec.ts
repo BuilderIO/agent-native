@@ -115,8 +115,29 @@ describe("view-screen monitoring status-pages branch", () => {
     const out = await runScreen();
 
     expect(out.pathname).toBe("/dashboards/dash-1");
-    expect(out.navigation).toBeUndefined();
+    expect(out.navigation).toEqual({
+      view: "adhoc",
+      dashboardId: "dash-1",
+    });
     expect(out.selectedObject).toEqual(selectedObjectState.current);
+  });
+
+  it("uses the dashboard URL when navigation names a different dashboard", async () => {
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-2" },
+    );
+
+    const out = await runScreen();
+
+    expect(out.navigation).toEqual({
+      view: "adhoc",
+      dashboardId: "dash-2",
+    });
+    expect(getDashboard).toHaveBeenCalledWith("dash-2", {
+      email: "user@example.test",
+      orgId: "org-1",
+    });
   });
 
   it("lists status pages in the monitoring surfaces catalog", async () => {
