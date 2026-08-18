@@ -94,6 +94,26 @@ describe("default onboarding steps", () => {
     ]);
   });
 
+  it("registers durable file storage with Builder and custom object-storage keys", async () => {
+    const step = await loadDefaultStep("file-storage");
+
+    expect(step.required).toBe(false);
+    expect(step.methods.map((method) => method.id)).toEqual(["builder", "s3"]);
+    expect(step.methods[0]).toMatchObject({
+      kind: "builder-cli-auth",
+      payload: { scope: "llm" },
+    });
+    expect(step.methods[1]).toMatchObject({
+      kind: "form",
+      payload: {
+        saveTo: "scoped-secrets",
+        fields: expect.arrayContaining([
+          expect.objectContaining({ key: "S3_PUBLIC_BASE_URL" }),
+        ]),
+      },
+    });
+  });
+
   it("completes GitHub repository setup from local token env when allowed", async () => {
     vi.stubEnv("GITHUB_TOKEN", "github_pat_example");
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);

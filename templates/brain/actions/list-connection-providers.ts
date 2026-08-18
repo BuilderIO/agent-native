@@ -4,6 +4,10 @@ import {
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
+import {
+  findWorkspaceDispatchAgent,
+  getBuiltinAgents,
+} from "@agent-native/core/server/agent-discovery";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   listWorkspaceConnectionProviderCatalogForApp,
@@ -29,6 +33,76 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "granola",
   "github",
 ]);
+
+function dispatchBaseHref(): string | undefined {
+  const workspaceDispatch = findWorkspaceDispatchAgent();
+  if (workspaceDispatch?.url) return workspaceDispatch.url;
+
+  return getBuiltinAgents(APP_ID).find((agent) => agent.id === "dispatch")?.url;
+}
+
+function dispatchIntegrationsHref(providerId: string): string | undefined {
+  const params = new URLSearchParams({
+    provider: providerId,
+    appId: APP_ID,
+    returnTo: "ask",
+  });
+  const dispatchHref = dispatchBaseHref();
+  if (!dispatchHref) return undefined;
+  const base = dispatchHref
+    .replace(/\/(?:overview|apps)\/?$/, "")
+    .replace(/\/$/, "");
+  const path = `integrations?${params.toString()}`;
+  try {
+    return new URL(path, `${base}/`).toString();
+  } catch {
+    return `${base}/${path}`;
+  }
+}
+
+function providerApiConfigured({
+  credentialHealth,
+  providerApi,
+  workspace,
+}: {
+  credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
+  providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+  workspace: WorkspaceConnectionProviderAppSummary;
+}): boolean | null {
+  if (!providerApi) return null;
+  if (workspace.hasActiveWorkspaceConnection) return true;
+  if (providerApi.auth === "none") return true;
+
+  const availableKeys = new Set(
+    credentialHealth.details
+      .filter((detail) => detail.available)
+      .map((detail) => detail.key),
+  );
+
+  // Jira's legacy fallback is one complete Basic-auth tuple. The catalog keys
+  // are individually optional because OAuth is preferred, so the generic
+  // required-key count cannot prove that an unconnected Jira provider is ready.
+  if (providerApi.id === "jira") {
+    return ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"].every((key) =>
+      availableKeys.has(key),
+    );
+  }
+
+  if (
+    providerApi.auth.startsWith("oauth-bearer:") &&
+    !providerApi.auth.includes("-or-")
+  ) {
+    return false;
+  }
+  if (providerApi.credentialKeys.length === 0) return false;
+  if (
+    providerApi.auth.includes("-or-api-key-header:") ||
+    providerApi.auth.includes("-or-bearer-key:")
+  ) {
+    return providerApi.credentialKeys.some((key) => availableKeys.has(key));
+  }
+  return providerApi.credentialKeys.every((key) => availableKeys.has(key));
+}
 
 async function credentialHealthForProvider(
   provider: WorkspaceConnectionProviderCatalogForAppItem,
@@ -100,14 +174,48 @@ async function credentialHealthForProvider(
 
 function providerHealthForProvider({
   credentialHealth,
+  providerApi,
+  providerApiIsConfigured,
   sourceProviderSupported,
   workspace,
 }: {
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
+  providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+  providerApiIsConfigured: boolean | null;
   sourceProviderSupported: boolean;
   workspace: WorkspaceConnectionProviderAppSummary;
 }) {
+  if (providerApi && providerApiIsConfigured === false) {
+    if (workspace.grantState === "needs_grant") {
+      return {
+        status: "needs_grant" as const,
+        message: workspace.grantAvailabilityMessage,
+      };
+    }
+    if (
+      workspace.hasGrantedWorkspaceConnection &&
+      !workspace.hasActiveWorkspaceConnection
+    ) {
+      return {
+        status: "unhealthy" as const,
+        message:
+          "Brain has a grant, but the shared connection needs reauth or repair.",
+      };
+    }
+    return {
+      status: "missing_credentials" as const,
+      message:
+        "Connect this provider before Brain makes an on-demand API request.",
+    };
+  }
   if (!sourceProviderSupported) {
+    if (providerApi) {
+      return {
+        status: "ready" as const,
+        message:
+          "Authenticated provider API access is ready for on-demand Brain queries.",
+      };
+    }
     return {
       status: "unsupported" as const,
       message:
@@ -175,7 +283,7 @@ async function listWorkspaceConnectionsForCatalog(): Promise<{
 
 export default defineAction({
   description:
-    "List reusable connection provider metadata relevant to Brain sources, including workspace connection grants for the Brain app.",
+    "Check reusable Brain source and provider API readiness before using a provider. Each provider reports whether authenticated access is configured and includes an absolute Dispatch setupLink when shared setup is needed. When a requested provider is unavailable, explain the missing connection and return its setupLink instead of attempting provider-api-request; if the user is not a workspace admin, mention that a personal MCP connection may be available in chat.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -206,8 +314,13 @@ export default defineAction({
         const workspaceConnection = provider.workspaceConnection;
         const credentialHealth = await credentialHealthForProvider(provider);
         const providerApi = isProviderApiId(provider.id)
-          ? listProviderApiCatalog(provider.id)[0]
+          ? (listProviderApiCatalog(provider.id)[0] ?? null)
           : null;
+        const providerApiIsConfigured = providerApiConfigured({
+          credentialHealth,
+          providerApi,
+          workspace: workspaceConnection,
+        });
         return {
           id: provider.id,
           label: provider.label,
@@ -222,9 +335,15 @@ export default defineAction({
           configuredSourceCount,
           hasConfiguredSources: configuredSourceCount > 0,
           sourceProviderSupported,
+          configured:
+            providerApiIsConfigured ??
+            (sourceProviderSupported ? credentialHealth.available : null),
+          setupLink: dispatchIntegrationsHref(provider.id),
           credentialHealth,
           providerHealth: providerHealthForProvider({
             credentialHealth,
+            providerApi,
+            providerApiIsConfigured,
             sourceProviderSupported,
             workspace: workspaceConnection,
           }),

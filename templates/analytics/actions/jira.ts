@@ -66,6 +66,7 @@ export default defineAction({
       .describe("Lookback days for mode=analytics"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],

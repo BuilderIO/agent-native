@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { docsUrl } from "@agent-native/core/shared";
+
 import { resolveAppForSkill, type BuiltInAppMcp } from "./built-in-apps.js";
 import { registerMcpServer } from "./connect.js";
 import type { ClientId } from "./mcp-config-writers.js";
@@ -385,7 +387,26 @@ function shouldLoadPublicCatalog(parsed: ParsedArgs): boolean {
   if (parsed.command !== "add") return false;
   if (parsed.copySource && parsed.source) return true;
   if (parsed.skillNames.length === 0) return true;
-  return parsed.skillNames.some((name) => !resolveAppForSkill(name));
+  return parsed.skillNames.some((name) => !isCoreDelegatedSkill(name));
+}
+
+const REWIND_SKILL_TARGETS = new Set([
+  "rewind",
+  "screen-memory",
+  "clips-rewind",
+  "agent-native-rewind",
+]);
+
+function isRewindSkillTarget(skillName: string): boolean {
+  return REWIND_SKILL_TARGETS.has(skillName.trim().toLowerCase());
+}
+
+function isCoreDelegatedSkill(skillName: string): boolean {
+  // Rewind uses Core's local Screen Memory installer, not the standalone
+  // package's hosted MCP descriptor path.
+  return (
+    isRewindSkillTarget(skillName) || Boolean(resolveAppForSkill(skillName))
+  );
 }
 
 const HIDDEN_STANDALONE_BUILT_INS = [
@@ -590,6 +611,11 @@ export async function runSkillsCli(
       command: parsed.command,
       error: error instanceof Error ? error.message : String(error),
       durationMs: Date.now() - startedAt,
+    });
+    telemetry.captureException(error, {
+      handled: false,
+      tags: { source: "skills-command", command: parsed.command },
+      extra: { durationMs: Date.now() - startedAt },
     });
     throw error;
   } finally {
@@ -902,14 +928,18 @@ function resolvePlanMcpUrlOverride(input: string): {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("--mcp-url must use http:// or https://.");
   }
-  const mcpSuffix = "/_agent-native/mcp";
+  const publicMcpSuffix = "/mcp";
+  const legacyMcpSuffix = "/_agent-native/mcp";
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const appPath = trimmedPath.endsWith(mcpSuffix)
+  const mcpSuffix = trimmedPath.endsWith(legacyMcpSuffix)
+    ? legacyMcpSuffix
+    : trimmedPath.endsWith(publicMcpSuffix)
+      ? publicMcpSuffix
+      : undefined;
+  const appPath = mcpSuffix
     ? trimmedPath.slice(0, -mcpSuffix.length)
     : trimmedPath;
-  const mcpPath = trimmedPath.endsWith(mcpSuffix)
-    ? trimmedPath
-    : `${trimmedPath || ""}${mcpSuffix}`;
+  const mcpPath = `${appPath || ""}${publicMcpSuffix}`;
   return {
     hostedUrl: `${parsed.origin}${appPath}`,
     mcpUrl: `${parsed.origin}${mcpPath}`,
@@ -1563,8 +1593,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const PR_VISUAL_RECAP_DOCS_URL =
-  "https://www.agent-native.com/docs/pr-visual-recap";
+const PR_VISUAL_RECAP_DOCS_URL = docsUrl("pr-visual-recap");
 
 function prVisualRecapWorkflowPath(baseDir: string): string {
   return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");
@@ -1615,7 +1644,7 @@ const PR_VISUAL_RECAP_REUSABLE_WORKFLOW = `name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 permissions:
   contents: read
@@ -1626,6 +1655,7 @@ concurrency:
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       checks: write
       contents: read
@@ -1636,6 +1666,7 @@ jobs:
       skill-source: repo
       runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: \${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
     secrets:
       PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}

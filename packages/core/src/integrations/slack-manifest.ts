@@ -4,10 +4,7 @@ export const SLACK_AGENT_BOT_EVENTS = [
   "app_home_opened",
   "app_context_changed",
   "app_mention",
-  "message.channels",
-  "message.groups",
   "message.im",
-  "message.mpim",
 ] as const;
 
 export interface SlackAgentManifestUrls {

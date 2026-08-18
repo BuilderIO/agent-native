@@ -1,7 +1,7 @@
 /**
  * Regenerate the recording's title using its transcript.
  *
- * Title generation uses the same Gemini 3.1 Flash-Lite media-pipeline path as
+ * Title generation uses the same low-cost text-model media-pipeline path as
  * transcript cleanup so a freshly recorded clip can get a useful title without
  * waiting for the agent chat bridge. If the fast path is unavailable, we still
  * queue the older agent-chat request as a fallback.
@@ -59,7 +59,9 @@ function buildTitleContext({
 }): string | undefined {
   const parts: string[] = [];
   if (currentTitle && !isDefaultTitle(currentTitle)) {
-    parts.push(`Current title: ${currentTitle}`);
+    parts.push(
+      `Current title: ${currentTitle}\nWhen regenerating, do not return this title verbatim; choose a more specific alternative when the transcript supports one.`,
+    );
   }
   if (agentsContext) parts.push(agentsContext);
   return parts.length > 0 ? parts.join("\n\n") : undefined;
@@ -172,7 +174,7 @@ export default defineAction({
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
     // Full-video mode needs the agent to watch the clip; skip the transcript-
-    // only Gemini fast path so we don't generate titles from audio alone.
+    // only text-model fast path so we don't generate titles from audio alone.
     if (includeFullVideoInAi) {
       await queueTitleRegenerationRequest({
         recordingId: args.recordingId,
@@ -237,9 +239,14 @@ export default defineAction({
 
         if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
+        const titleMatchesCurrent =
+          fresh.title?.trim().toLocaleLowerCase() ===
+          generatedTitle.trim().toLocaleLowerCase();
+
         if (
-          isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-          fresh.title === rec.title
+          !titleMatchesCurrent &&
+          (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+            fresh.title === rec.title)
         ) {
           await db
             .update(schema.recordings)
@@ -272,12 +279,18 @@ export default defineAction({
           };
         }
 
-        return {
-          updated: false,
-          skipped: true,
-          reason: "Recording title changed before generation completed",
-          recordingId: args.recordingId,
-        };
+        if (!titleMatchesCurrent) {
+          return {
+            updated: false,
+            skipped: true,
+            reason: "Recording title changed before generation completed",
+            recordingId: args.recordingId,
+          };
+        }
+
+        console.warn(
+          `[clips] AI title regeneration returned the existing title for ${args.recordingId}; queueing a refinement instead`,
+        );
       }
     } catch (err) {
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
@@ -302,9 +315,14 @@ export default defineAction({
 
       if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
+      const titleMatchesCurrent =
+        fresh.title?.trim().toLocaleLowerCase() ===
+        fallbackTitle.trim().toLocaleLowerCase();
+
       if (
-        isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-        fresh.title === rec.title
+        !titleMatchesCurrent &&
+        (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+          fresh.title === rec.title)
       ) {
         await db
           .update(schema.recordings)

@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Content",
+    appName: "Content",
     tagline:
       "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [
@@ -19,6 +19,7 @@ export default createAuthPlugin({
     "/_agent-native/builder/callback",
     "/_agent-native/builder/connect",
     "/_agent-native/builder/status",
+    "/_agent-native/connection-status/builder",
     "/_agent-native/env-status",
   ],
 });

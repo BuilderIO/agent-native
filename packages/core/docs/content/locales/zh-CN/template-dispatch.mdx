@@ -123,7 +123,7 @@ Dispatch 是**工作区控制平面**。其他模板是域应用程序（邮件�
   在不复制原始机密的情况下分派访问权限。应用程序特定源
   配置保留在使用提供程序的应用程序中。
 - **暴露一个 MCP 连接器。**添加
-  `https://dispatch.agent-native.com/_agent-native/mcp`，Claude、ChatGPT，
+  `https://dispatch.agent-native.com/mcp`，Claude、ChatGPT，
   Codex、Cursor 或其他 MCP 主机，然后选择要运行的工作区应用
   连接器可以从 Dispatch 的 **代理** 页面进行访问。使用直接应用程序URL
   仅当该主机应与一个应用隔离时。
@@ -304,7 +304,7 @@ _它的底层工作原理（对于开发人员）。_
   ]}
 />
 
-- **MCP 集线器模式。** Dispatch 仍然可以充当工作区的 [MCP hub](/docs/mcp-clients#hub)，因此工作区中的每个其他应用程序都会拉取相同的组织范围 MCP 服务器列表。另外，对于 Claude、ChatGPT 和其他应访问多个工作区应用的主机，Dispatch 自己的 `/_agent-native/mcp` 端点是推荐的外部 MCP 连接器。
+- **MCP 集线器模式。** Dispatch 仍然可以充当工作区的 [MCP hub](/docs/mcp-clients#hub)，因此工作区中的每个其他应用程序都会拉取相同的组织范围 MCP 服务器列表。另外，对于 Claude、ChatGPT 和其他应访问多个工作区应用的主机，Dispatch 自己的 `/mcp` 端点是推荐的外部 MCP 连接器。
 
 ## 梦想 {#dreams}
 
@@ -345,7 +345,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# 在多选选择器中选择“Dispatch”，以及您想要的任何域应用程序
+# Dispatch 会自动包含。若只需 Dispatch，请取消选择 Chat；若需其他应用，请选择要与其一同生成的领域应用
 ```
 
 如果您更喜欢直接命名模板而不是使用选择器：

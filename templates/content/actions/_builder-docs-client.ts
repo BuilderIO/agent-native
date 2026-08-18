@@ -36,6 +36,12 @@ import {
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
 import { executeBuilderCmsWrite } from "./_builder-cms-write-client.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  organizationContentSpaceId,
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 type FetchLike = typeof fetch;
@@ -188,19 +194,43 @@ async function postBuilderMcp(args: {
   endpoint: string;
   privateKey: string;
   payload: Record<string, unknown>;
-  sessionId?: string | null;
+  connection?: BuilderMcpConnection;
+  modernClientName?: string;
   fetchImpl: FetchLike;
 }) {
+  const method =
+    typeof args.payload.method === "string" ? args.payload.method : "";
+  const modernClientName =
+    args.modernClientName ??
+    (args.connection?.protocolVersion === "2026-07-28"
+      ? "agent-native-content-builder-mdx"
+      : undefined);
+  const payload = modernClientName
+    ? withModernBuilderMcpEnvelope(args.payload, modernClientName)
+    : args.payload;
   const headers: Record<string, string> = {
     accept: "application/json, text/event-stream",
     authorization: `Bearer ${args.privateKey}`,
     "content-type": "application/json",
   };
-  if (args.sessionId) headers["mcp-session-id"] = args.sessionId;
+  if (args.connection?.sessionId) {
+    headers["mcp-session-id"] = args.connection.sessionId;
+  }
+  if (modernClientName) {
+    headers["mcp-protocol-version"] = "2026-07-28";
+    headers["mcp-method"] = method;
+    const params = args.payload.params as Record<string, unknown> | undefined;
+    if (typeof params?.name === "string") {
+      headers["mcp-name"] = params.name;
+    }
+    if (method === "resources/read" && typeof params?.uri === "string") {
+      headers["mcp-name"] = params.uri;
+    }
+  }
   const response = await args.fetchImpl(args.endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify(args.payload),
+    body: JSON.stringify(payload),
   });
   const text = await response.text();
   if (!response.ok) {
@@ -212,44 +242,141 @@ async function postBuilderMcp(args: {
   };
 }
 
+interface BuilderMcpConnection {
+  protocolVersion: "2026-07-28" | "2025-11-25" | "2024-11-05";
+  sessionId: string | null;
+}
+
+function withModernBuilderMcpEnvelope(
+  payload: Record<string, unknown>,
+  clientName: string,
+): Record<string, unknown> {
+  const params =
+    payload.params &&
+    typeof payload.params === "object" &&
+    !Array.isArray(payload.params)
+      ? (payload.params as Record<string, unknown>)
+      : {};
+  const meta =
+    params._meta &&
+    typeof params._meta === "object" &&
+    !Array.isArray(params._meta)
+      ? (params._meta as Record<string, unknown>)
+      : {};
+  return {
+    ...payload,
+    params: {
+      ...params,
+      _meta: {
+        ...meta,
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {
+          name: clientName,
+          version: "0.1.0",
+        },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  };
+}
+
 async function initializeBuilderMcp(args: {
   endpoint: string;
   privateKey: string;
   fetchImpl: FetchLike;
 }) {
-  const initialized = await postBuilderMcp({
-    endpoint: args.endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    payload: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: {
-          name: "agent-native-content-builder-mdx",
-          version: "0.1.0",
-        },
-      },
-    },
-  });
-  const sessionId = initialized.sessionId;
-  if (sessionId) {
-    await postBuilderMcp({
+  try {
+    const discovered = await postBuilderMcp({
       endpoint: args.endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
       payload: {
         jsonrpc: "2.0",
-        method: "notifications/initialized",
+        id: 1,
+        method: "server/discover",
         params: {},
       },
-    }).catch(() => null);
+    });
+    const result = discovered.json.result;
+    if (
+      result &&
+      typeof result === "object" &&
+      Array.isArray((result as Record<string, unknown>).supportedVersions) &&
+      (
+        (result as Record<string, unknown>).supportedVersions as unknown[]
+      ).includes("2026-07-28")
+    ) {
+      return {
+        protocolVersion: "2026-07-28",
+        sessionId: null,
+      } satisfies BuilderMcpConnection;
+    }
+  } catch (error) {
+    // A legacy server may reject server/discover before initialize.
+    if (
+      !(error instanceof Error) ||
+      !/HTTP (?:400|404|405)\./.test(error.message)
+    ) {
+      throw error;
+    }
   }
-  return sessionId;
+
+  const initializeLegacyProtocol = async (
+    protocolVersion: "2025-11-25" | "2024-11-05",
+  ) => {
+    const initialized = await postBuilderMcp({
+      endpoint: args.endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: {
+            name: "agent-native-content-builder-mdx",
+            version: "0.1.0",
+          },
+        },
+      },
+    });
+    if (initialized.json.error) {
+      throw new Error(
+        `Builder MCP initialize rejected protocol ${protocolVersion}.`,
+      );
+    }
+    const sessionId = initialized.sessionId;
+    if (sessionId) {
+      await postBuilderMcp({
+        endpoint: args.endpoint,
+        privateKey: args.privateKey,
+        fetchImpl: args.fetchImpl,
+        connection: { protocolVersion, sessionId },
+        payload: {
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+          params: {},
+        },
+      }).catch(() => null);
+    }
+    return {
+      protocolVersion,
+      sessionId,
+    } satisfies BuilderMcpConnection;
+  };
+
+  try {
+    return await initializeLegacyProtocol("2025-11-25");
+  } catch (error) {
+    const isProtocolRejection =
+      error instanceof Error &&
+      (/HTTP (?:400|404|405|422)\./.test(error.message) ||
+        error.message.includes("initialize rejected protocol"));
+    if (!isProtocolRejection) throw error;
+    return await initializeLegacyProtocol("2024-11-05");
+  }
 }
 
 function fullEntryFromToolResponse(value: unknown, model: string) {
@@ -357,7 +484,7 @@ async function readFullBuilderDocsEntryViaMcp(args: {
   privateKey: string;
 }) {
   const endpoint = builderMcpEndpoint();
-  const sessionId = await initializeBuilderMcp({
+  const connection = await initializeBuilderMcp({
     endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
@@ -366,7 +493,7 @@ async function readFullBuilderDocsEntryViaMcp(args: {
     endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
-    sessionId,
+    connection,
     payload: {
       jsonrpc: "2.0",
       id: `builder-mdx-${args.model}-${args.entryId}`,
@@ -524,6 +651,17 @@ export async function pullBuilderDocIntoContent(args: {
   if (!ownerEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId() ?? null;
   const db = getDb();
+  const provisioned = args.dryRun
+    ? null
+    : await provisionContentSpaces(db, ownerEmail);
+  const targetSpaceId = orgId
+    ? organizationContentSpaceId(orgId)
+    : personalContentSpaceId(ownerEmail);
+  if (provisioned && !provisioned.spaceIds.includes(targetSpaceId)) {
+    throw new Error(
+      "The active organization does not have a writable Content space.",
+    );
+  }
   const entry = await readFullBuilderDocsEntry({
     model: args.model,
     entryId: args.entryId,
@@ -554,6 +692,9 @@ export async function pullBuilderDocIntoContent(args: {
       `Requires editor access to update document "${documentId}".`,
     );
   }
+  if (existing?.spaceId && existing.spaceId !== targetSpaceId) {
+    throw new Error("Builder document belongs to a different Content space.");
+  }
 
   const sourceFields = builderDocumentSourceFields(bundle, now);
 
@@ -562,6 +703,7 @@ export async function pullBuilderDocIntoContent(args: {
       await db
         .update(schema.documents)
         .set({
+          spaceId: existing.spaceId ?? targetSpaceId,
           title: bundle.mdx.title,
           content: bundle.mdx.body,
           updatedAt: now,
@@ -571,6 +713,7 @@ export async function pullBuilderDocIntoContent(args: {
     } else {
       await db.insert(schema.documents).values({
         id: documentId,
+        spaceId: targetSpaceId,
         ownerEmail,
         orgId,
         parentId: null,
@@ -586,6 +729,7 @@ export async function pullBuilderDocIntoContent(args: {
         ...sourceFields,
       });
     }
+    await ensureDocumentFilesMembership(db, documentId, now);
     await replaceBuilderDocumentSidecars({
       db,
       documentId,

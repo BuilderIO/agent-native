@@ -25,7 +25,8 @@ vi.mock("../db/client.js", () => ({
   isPostgres: () => false,
 }));
 
-const { getSetting, putSetting, deleteSetting } = await import("./store.js");
+const { getSetting, putSetting, deleteSetting, mutateSetting } =
+  await import("./store.js");
 
 beforeEach(() => {
   sqlite = new Database(":memory:");
@@ -86,5 +87,33 @@ describe("settings store", () => {
   it("returns false when deleting a key that does not exist", async () => {
     const deleted = await deleteSetting("ghost");
     expect(deleted).toBe(false);
+  });
+
+  it("preserves every concurrent read-modify-write update", async () => {
+    await putSetting("counter", { value: 0 });
+
+    await Promise.all(
+      Array.from({ length: 12 }, () =>
+        mutateSetting("counter", async (current) => {
+          await Promise.resolve();
+          return { value: Number(current?.value ?? 0) + 1 };
+        }),
+      ),
+    );
+
+    expect(await getSetting("counter")).toEqual({ value: 12 });
+  });
+
+  it("serializes concurrent creation of a missing setting", async () => {
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        mutateSetting("new-counter", async (current) => {
+          await Promise.resolve();
+          return { value: Number(current?.value ?? 0) + 1 };
+        }),
+      ),
+    );
+
+    expect(await getSetting("new-counter")).toEqual({ value: 8 });
   });
 });

@@ -24,9 +24,13 @@ export function parseDocumentHideFromSearch(
   return parseDocumentFavorite(value);
 }
 
-export function documentDiscoveryFilter(): SQL {
-  const userEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId();
+export function documentDiscoveryFilter(options?: {
+  userEmail?: string | null;
+  orgIds?: string[];
+}): SQL {
+  const userEmail = options?.userEmail ?? getRequestUserEmail();
+  const orgIds =
+    options?.orgIds ?? (getRequestOrgId() ? [getRequestOrgId() as string] : []);
   const clauses: SQL[] = [
     eq(schema.documents.hideFromSearch, 0),
     sql`${schema.documents.hideFromSearch} IS NULL`,
@@ -41,11 +45,12 @@ export function documentDiscoveryFilter(): SQL {
         and ${schema.documentShares.principalId} = ${userEmail})`);
   }
 
-  if (orgId) {
+  for (const orgId of orgIds) {
+    clauses.push(eq(schema.documents.orgId, orgId));
     clauses.push(sql`exists (select 1 from ${schema.documentShares}
-      where ${schema.documentShares.resourceId} = ${schema.documents.id}
-        and ${schema.documentShares.principalType} = 'org'
-        and ${schema.documentShares.principalId} = ${orgId})`);
+        where ${schema.documentShares.resourceId} = ${schema.documents.id}
+          and ${schema.documentShares.principalType} = 'org'
+          and ${schema.documentShares.principalId} = ${orgId})`);
   }
 
   return or(...clauses) ?? sql`1=0`;

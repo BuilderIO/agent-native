@@ -126,7 +126,7 @@ async function resolveScopeId(
     return { scopeId: email, orgRole: null, orgId: null };
   }
 
-  const orgCtx = await getOrgContext(event).catch(() => null);
+  const orgCtx = await getOrgContext(event);
   const orgId = orgCtx?.orgId ?? null;
   const orgRole = orgCtx?.role ?? null;
 

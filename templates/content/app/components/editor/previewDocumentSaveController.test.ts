@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPreviewDocumentSaveController,
-  skippedPreviewDocumentSave,
+  deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
 } from "./previewDocumentSaveController";
 
@@ -31,7 +31,7 @@ function makeController(args: {
   return createPreviewDocumentSaveController({
     documentId: args.documentId ?? DOC,
     initial: args.init ?? initial,
-    save: args.save,
+    save: (id, payload) => args.save(id, payload),
     onSaved: args.onSaved,
     onError: args.onError,
   });
@@ -180,6 +180,57 @@ describe("previewDocumentSaveController", () => {
     expect(save).toHaveBeenLastCalledWith(DOC, { title: "T1", content: "C2" });
   });
 
+  it("rebases trailing edits onto the timestamp returned by its own save", async () => {
+    let resolveFirst:
+      | ((value: {
+          outcome: "saved";
+          loadedUpdatedAt: string;
+          loadedContentWasEmpty: boolean;
+        }) => void)
+      | undefined;
+    const save = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        outcome: "saved",
+        loadedUpdatedAt: "after-second-save",
+        loadedContentWasEmpty: false,
+      });
+    const c = makeController({
+      save,
+      init: {
+        title: "T0",
+        content: "",
+        loadedUpdatedAt: "before-first-save",
+        loadedContentWasEmpty: true,
+      },
+    });
+
+    c.changeContent("C1");
+    vi.advanceTimersByTime(450);
+    await flushMicrotasks();
+    c.changeContent("C2");
+
+    resolveFirst?.({
+      outcome: "saved",
+      loadedUpdatedAt: "after-first-save",
+      loadedContentWasEmpty: false,
+    });
+    await flushMicrotasks();
+
+    expect(save).toHaveBeenLastCalledWith(DOC, {
+      title: "T0",
+      content: "C2",
+      loadedUpdatedAt: "after-first-save",
+      loadedContentWasEmpty: false,
+    });
+  });
+
   it("flush does NOT duplicate-save when the in-flight save already covers the latest payload", async () => {
     let resolveFirst: (() => void) | undefined;
     const save = vi
@@ -253,9 +304,12 @@ describe("previewDocumentSaveController", () => {
     });
   });
 
-  it("drops a skipped pending-row save so hydrated content can be adopted", async () => {
+  it("keeps a hydration-deferred user edit dirty until a later flush persists it", async () => {
     const onSaved = vi.fn();
-    const save = vi.fn().mockResolvedValue(skippedPreviewDocumentSave());
+    const save = vi
+      .fn()
+      .mockResolvedValueOnce(deferredPreviewDocumentSave())
+      .mockResolvedValueOnce(undefined);
     const c = makeController({
       save,
       onSaved,
@@ -266,36 +320,182 @@ describe("previewDocumentSaveController", () => {
       },
     });
 
-    c.changeContent("<empty-block/>");
+    c.changeContent("Typed while Builder was syncing");
     vi.advanceTimersByTime(450);
     await flushMicrotasks();
 
     expect(save).toHaveBeenCalledExactlyOnceWith(DOC, {
       title: "Builder row",
-      content: "<empty-block/>",
+      content: "Typed while Builder was syncing",
       loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
     });
     expect(onSaved).not.toHaveBeenCalled();
     expect(c.hasSavedLocally).toBe(false);
     expect(c.pending).toEqual({
       title: "Builder row",
-      content: "",
+      content: "Typed while Builder was syncing",
       loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
     });
+    expect(c.lastSaved.content).toBe("");
+    expect(c.deferredReason).toBe("hydration");
 
-    c.mark({
-      title: "Builder row",
-      content: "Hydrated Builder body",
-      loadedUpdatedAt: "2026-07-02T12:00:02.000Z",
-    });
     await c.flush();
 
-    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(onSaved).toHaveBeenCalledOnce();
+    expect(c.deferredReason).toBeNull();
     expect(c.pending).toEqual({
       title: "Builder row",
-      content: "Hydrated Builder body",
-      loadedUpdatedAt: "2026-07-02T12:00:02.000Z",
+      content: "Typed while Builder was syncing",
+      loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
     });
+  });
+
+  it("keeps a non-empty conflict-deferred draft dirty and recoverable", async () => {
+    const save = vi
+      .fn()
+      .mockResolvedValue(deferredPreviewDocumentSave("conflict"));
+    const c = makeController({ save });
+
+    c.changeContent("User-authored Builder draft");
+    await c.flush();
+
+    expect(c.pending.content).toBe("User-authored Builder draft");
+    expect(c.lastSaved.content).toBe("C0");
+    expect(c.deferredReason).toBe("conflict");
+    expect(c.hasSavedLocally).toBe(false);
+  });
+
+  it("routes a late save callback conflict to the current mount adapter", async () => {
+    const onConflictA = vi.fn();
+    const onConflictB = vi.fn();
+    let resolveSave:
+      | ((value: ReturnType<typeof deferredPreviewDocumentSave>) => void)
+      | undefined;
+    const snapshot = {
+      lastSaved: initial,
+      pending: { title: "T0", content: "newer tab draft" },
+      deferredReason: "conflict" as const,
+    };
+    const c = createPreviewDocumentSaveController({
+      documentId: DOC,
+      initial,
+      save: () =>
+        new Promise<ReturnType<typeof deferredPreviewDocumentSave>>(
+          (resolve) => {
+            resolveSave = resolve;
+          },
+        ),
+      onDraftConflict: onConflictA,
+    });
+    c.changeContent("local edit");
+    const flushing = c.flush();
+    c.replaceSaveAdapter({
+      save: vi.fn().mockResolvedValue(undefined),
+      onDraftConflict: onConflictB,
+    });
+
+    resolveSave?.(deferredPreviewDocumentSave("conflict", snapshot));
+    await flushing;
+
+    expect(onConflictA).not.toHaveBeenCalled();
+    expect(onConflictB).toHaveBeenCalledExactlyOnceWith(snapshot);
+  });
+
+  it("rebases a recoverable draft only after an explicit keep-local choice", async () => {
+    const save = vi
+      .fn()
+      .mockResolvedValueOnce(deferredPreviewDocumentSave("conflict"))
+      .mockResolvedValueOnce(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Builder row",
+        content: "",
+        loadedUpdatedAt: "before-hydration",
+        loadedContentWasEmpty: true,
+      },
+    });
+
+    c.changeContent("My local draft");
+    await c.flush();
+    c.rebasePending({
+      title: "Builder row",
+      content: "Fresh Builder body",
+      loadedUpdatedAt: "after-hydration",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "Builder row",
+      content: "My local draft",
+      loadedUpdatedAt: "after-hydration",
+      loadedContentWasEmpty: false,
+    });
+    expect(c.lastSaved.content).toBe("Fresh Builder body");
+    await c.flush();
+    expect(save).toHaveBeenLastCalledWith(DOC, c.pending);
+    expect(c.lastSaved.content).toBe("My local draft");
+  });
+
+  it("preserves a server body when resolving a title-only conflict", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Before",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+    });
+
+    c.changeTitle("Local title");
+    c.rebasePending({
+      title: "External title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "Local title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+    await c.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, c.pending);
+  });
+
+  it("preserves a server title when resolving a body-only conflict", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Before",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+    });
+
+    c.changeContent("Local body");
+    c.rebasePending({
+      title: "External title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "External title",
+      content: "Local body",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+    await c.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, c.pending);
   });
 
   it("title and content edits both flush together in one payload", async () => {

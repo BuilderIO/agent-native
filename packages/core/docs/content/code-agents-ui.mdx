@@ -287,7 +287,8 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 ## Host Contract
 
-`CodeAgentsHost` is intentionally small:
+`CodeAgentsHost` has a small required core; everything else is an optional
+method a host can skip:
 
 | Method                                                | Purpose                                                |
 | ----------------------------------------------------- | ------------------------------------------------------ |
@@ -304,6 +305,13 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 | `openTerminal?(request)`                              | Optional native terminal hook                          |
 
 Browser hosts should return a graceful `openTerminal` error instead of trying to emulate native terminal launch.
+
+Desktop also implements further optional methods for native-only affordances —
+project picking (`listProjects`, `selectProject`, `chooseProject`), model
+listing, computer-setup actions, Codex login, and remote-connector
+pairing/status. A browser host can omit all of them; the shared UI hides the
+corresponding controls when a method isn't implemented. See
+`CodeAgentsHost` in `@agent-native/code-agents-ui` for the full, current list.
 
 ## Shared Composer
 

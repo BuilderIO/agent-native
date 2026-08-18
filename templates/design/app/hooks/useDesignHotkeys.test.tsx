@@ -65,6 +65,23 @@ function dispatchKey(
   return event;
 }
 
+async function withSelectedText(text: string, run: () => Promise<void> | void) {
+  const node = document.createElement("p");
+  node.textContent = text;
+  document.body.append(node);
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  try {
+    await run();
+  } finally {
+    selection?.removeAllRanges();
+    node.remove();
+  }
+}
+
 async function withNavigatorPlatform(
   platform: string,
   run: () => void | Promise<void>,
@@ -86,6 +103,20 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — current Figma tool bindings", () => {
+  it("routes standard canvas commands through their existing callbacks", async () => {
+    const onCopy = vi.fn();
+    const onDuplicate = vi.fn();
+    const onBringForward = vi.fn();
+    await withHotkeys({ onCopy, onDuplicate, onBringForward }, () => {
+      dispatchKey("c", { metaKey: true });
+      dispatchKey("d", { metaKey: true });
+      dispatchKey("}", { code: "BracketRight", metaKey: true });
+    });
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    expect(onBringForward).toHaveBeenCalledTimes(1);
+  });
+
   it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {
     const onShowKeyboardShortcuts = vi.fn();
     await withHotkeys({ onShowKeyboardShortcuts }, () => {
@@ -176,6 +207,33 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     });
     expect(onCopyAsPng).toHaveBeenCalledTimes(1);
     expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  it("leaves Cmd+C and Cmd+X to the browser while chat text is selected", async () => {
+    const onCopy = vi.fn();
+    const onCut = vi.fn();
+    await withSelectedText("copy me from the agent panel", async () => {
+      let copyEvent!: KeyboardEvent;
+      let cutEvent!: KeyboardEvent;
+      await withHotkeys({ onCopy, onCut }, () => {
+        copyEvent = dispatchKey("c", { metaKey: true });
+        cutEvent = dispatchKey("x", { metaKey: true });
+      });
+      expect(copyEvent.defaultPrevented).toBe(false);
+      expect(cutEvent.defaultPrevented).toBe(false);
+    });
+    expect(onCopy).not.toHaveBeenCalled();
+    expect(onCut).not.toHaveBeenCalled();
+  });
+
+  it("still copies the canvas selection when only a collapsed caret exists", async () => {
+    const onCopy = vi.fn();
+    await withSelectedText("", () =>
+      withHotkeys({ onCopy }, () => {
+        dispatchKey("c", { metaKey: true });
+      }),
+    );
+    expect(onCopy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -690,11 +748,23 @@ describe("useDesignHotkeys — Shift+A adds auto layout", () => {
   });
 });
 
-describe("useDesignHotkeys — Cmd+\\ show/hide UI and Shift+C show/hide comments", () => {
-  it("fires onToggleUi for Cmd+\\", async () => {
+describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
+  it("uses Figma's Shift+\\ chord without claiming Cmd/Ctrl+\\", async () => {
     const onToggleUi = vi.fn();
     await withHotkeys({ onToggleUi }, () => {
-      dispatchKey("\\", { metaKey: true });
+      dispatchKey("|", { code: "Backslash", shiftKey: true });
+      dispatchKey("\\", { code: "Backslash", metaKey: true });
+      dispatchKey("\\", { code: "Backslash", ctrlKey: true });
+      dispatchKey("|", {
+        code: "Backslash",
+        metaKey: true,
+        shiftKey: true,
+      });
+      dispatchKey("|", {
+        code: "Backslash",
+        ctrlKey: true,
+        shiftKey: true,
+      });
     });
     expect(onToggleUi).toHaveBeenCalledTimes(1);
   });

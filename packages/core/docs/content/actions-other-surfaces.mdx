@@ -1,0 +1,167 @@
+---
+title: "Other Surfaces"
+description: "Everything that calls an action beyond the UI hooks: native chat UI widget results, the CLI, A2A, MCP, and the two standard actions every template ships."
+---
+
+# Other Surfaces
+
+The UI-hook surface is covered on [Data & Sync](/docs/client-data): `useActionQuery()`, `useActionMutation()`, and `callAction()`. This page covers everything else that can call, or be driven by, an action.
+
+## Rendering native chat UI {#native-chat-ui}
+
+Actions can return structured widget data that the in-app chat renders
+natively. This is the first-party chat path for reusable tables, charts, setup
+summaries, and insight cards. Use [Generative UI](/docs/generative-ui) when the
+agent needs to generate arbitrary interactive controls inside the in-app chat,
+and use [MCP Apps](/docs/mcp-apps) for inline UI in external MCP hosts.
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
+  run: async () =>
+    createDataChartWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+The built-in discriminants are `"data-table"`, `"data-chart"`, and
+`"data-insights"`, with server-safe builders and schemas in
+`@agent-native/core/data-widgets`. Use `data-chart` for chart-only answers,
+`data-table` for SQL/list results, and `data-insights` only when a combined
+summary/chart/table card is the right output. See
+[Native Chat UI](/docs/native-chat-ui) for the full result contract, or
+[BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes) if you're
+wiring a custom agent runtime instead of the built-in chat loop. See
+[Agent Surfaces](/docs/agent-surfaces) for how the same action can stay
+automation-friendly, render in chat, or grow into a full screen.
+
+## Calling it from the CLI {#cli}
+
+Every action is runnable via `pnpm action`:
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+JSON input is the preferred shape for agents and complex objects. Flags work
+the same way for simple manual runs and existing scripts:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+```
+
+This is useful for agent-dev loops, scripts, and cron jobs.
+
+## Calling it from another agent (A2A) {#a2a}
+
+If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discover your actions automatically and can call them by name. Same-origin deploys skip JWT signing. Cross-origin deploys use a shared `A2A_SECRET` instead.
+
+## Exposing it over MCP {#mcp}
+
+With MCP enabled, your actions show up in the framework's MCP server at `/mcp`. Every caller gets a compact catalog by default (app-facing builtins plus the template-declared app actions), and `tool-search` is always present so any other tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`), and [`publicAgent.expose`](/docs/actions-access-control#public-agent) opts a safe read/ingest tool onto the public surface. See [MCP Protocol](/docs/mcp-protocol) for catalog tiers, auth, and the `mcpApp` resource details.
+
+For UI-capable MCP hosts, an action can declare an optional MCP Apps resource via the `mcpApp` field (plus a matching `link`) so capable hosts render the result inline. When `link` and `mcpApp` should point at the same route, `embedRoute()` builds both from one pure path builder:
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+Keep `link` as the fallback for CLI and non-UI MCP hosts. It is also the embed's launch target. The embed bridge (the signed embed-start session, transplant vs. controlled-frame rendering, the `ui/*` host bridge, CSP, and height clamping) is owned by [External Agents](/docs/external-agents#mcp-app-bridge).
+
+## Standard actions {#standard-actions}
+
+Every template should include these two for [context awareness](/docs/context-awareness).
+
+### view-screen {#view-screen}
+
+Reads the current navigation state, fetches contextual data, and returns a snapshot of what the user sees. The agent calls this when it needs a fresh look at the screen.
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+Writes a one-shot navigation command to application state. The UI reads it, navigates, and deletes the entry.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## What's next
+
+- [**Data & Sync**](/docs/client-data) — `useActionQuery`, `useActionMutation`, and `callAction` from the UI
+- [**Overview**](/docs/actions-overview) — what an action is and the hello-world walkthrough
+- [**Context Awareness**](/docs/context-awareness) — the `view-screen` + `navigate` pattern in depth
+- [**A2A Protocol**](/docs/a2a-protocol) — how other agents discover and call your actions
+- [**MCP Protocol**](/docs/mcp-protocol) — catalog tiers, auth, and `mcpApp` resources
+- [**Generative UI**](/docs/generative-ui) — rendering transient or persisted generated UI inline in chat
+- [**Native Chat UI**](/docs/native-chat-ui) — the full widget result contract

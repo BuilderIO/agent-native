@@ -5,7 +5,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  ALWAYS_ON_CORE_ACTIONS,
   autoDiscoverActions,
+  CORE_ACTION_GROUPS,
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
 } from "./action-discovery.js";
@@ -65,6 +67,26 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves grounding metadata from static action entries", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "grounded-query": {
+        default: {
+          tool: { description: "Grounded query", parameters: {} },
+          grounding: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+      "metadata-read": {
+        tool: { description: "Metadata read", parameters: {} },
+        grounding: false,
+        run: async () => ({ ok: true }),
+      },
+    });
+
+    expect(registry["grounded-query"].grounding).toBe(true);
+    expect(registry["metadata-read"].grounding).toBe(false);
+  });
+
   it("preserves explicit readOnly false from named action entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-mutating-read": {
@@ -92,6 +114,21 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "poll-run": {
+        default: {
+          tool: { description: "Poll run status", parameters: {} },
+          readOnly: true,
+          dedupe: false,
+          run: async () => ({ status: "running" }),
+        },
+      },
+    });
+
+    expect(registry["poll-run"].dedupe).toBe(false);
+  });
+
   it("preserves explicit allowInPlanMode false metadata", () => {
     const registry = loadActionsFromStaticRegistry({
       "act-only-read": {
@@ -105,6 +142,32 @@ describe("action discovery", () => {
     });
 
     expect(registry["act-only-read"].allowInPlanMode).toBe(false);
+  });
+
+  it("preserves Plan-mode effect metadata", () => {
+    const classify = (args: any) =>
+      args.action === "list" ? ("read" as const) : ("write" as const);
+    const registry = loadActionsFromStaticRegistry({
+      "mixed-records": {
+        default: {
+          tool: { description: "Manage records", parameters: {} },
+          planMode: {
+            effect: classify,
+            allowedValues: { action: ["list"] },
+            allowedProperties: ["action"],
+            requiredProperties: ["action"],
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["mixed-records"].planMode).toEqual({
+      effect: classify,
+      allowedValues: { action: ["list"] },
+      allowedProperties: ["action"],
+      requiredProperties: ["action"],
+    });
   });
 
   it("preserves per-tool timeout and result limits", () => {
@@ -326,6 +389,24 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "merges app-facing MCP actions without exposing them as agent tools",
+    async () => {
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      for (const name of ["list-mcp-tools", "call-mcp-tool"]) {
+        expect(registry[name], `${name} should be merged`).toBeDefined();
+        expect(registry[name].agentTool).toBe(false);
+        expect(registry[name].requiresAuth).toBe(true);
+      }
+      expect(registry["list-mcp-tools"].http).toEqual({ method: "GET" });
+      expect(registry["call-mcp-tool"].http).toBeUndefined();
+      expect(registry["call-mcp-tool"].toolCallable).toBe(false);
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("does not overwrite a template-provided action of the same name (template wins)", async () => {
     const templateRun = async () => "template-share";
     const registry: Record<string, any> = {
@@ -374,10 +455,45 @@ describe("action discovery", () => {
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
+      "send-review-thread-to-agent",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }
     expect(registry["list-resource-history"].readOnly).toBe(true);
     expect(registry["list-review-comments"].readOnly).toBe(true);
+  });
+
+  it("classifies every merged core action as grouped or explicitly always-on", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    // Drift guard. An action added to mergeCoreSharingActions without a
+    // CORE_ACTION_GROUPS entry would silently become always-on and ride along
+    // in every app's first request — the exact default `frameworkTools` exists
+    // to undo. Failing here forces the author to make that call on purpose.
+    const unclassified = Object.keys(registry).filter(
+      (name) =>
+        CORE_ACTION_GROUPS[name] === undefined &&
+        !ALWAYS_ON_CORE_ACTIONS.has(name),
+    );
+    expect(
+      unclassified,
+      `Add these to CORE_ACTION_GROUPS (gateable via frameworkTools) or ` +
+        `ALWAYS_ON_CORE_ACTIONS (deliberately always-on): ${unclassified.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("stamps frameworkGroup on grouped kits and leaves always-on actions untagged", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["share-resource"].frameworkGroup).toBe("sharing");
+    expect(registry["list-review-comments"].frameworkGroup).toBe("review");
+    expect(registry["restore-resource-version"].frameworkGroup).toBe("history");
+    expect(registry["set-feature-flag"].frameworkGroup).toBe("featureFlags");
+    expect(registry["change-password"].frameworkGroup).toBe("userProfile");
+    // Always-on: no group, so no `frameworkTools` switch can remove it.
+    expect(registry["upload-image"].frameworkGroup).toBeUndefined();
+    expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
   });
 });

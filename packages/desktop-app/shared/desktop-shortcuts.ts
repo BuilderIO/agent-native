@@ -167,7 +167,7 @@ export function formatDesktopShortcutAccelerator(
   return accelerator
     .split("+")
     .map((part) => replacements[part] ?? part)
-    .join("+");
+    .join(" ");
 }
 
 export function shortcutOpenPathForBinding(

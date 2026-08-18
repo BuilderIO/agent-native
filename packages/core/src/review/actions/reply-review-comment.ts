@@ -1,12 +1,14 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
+import { notifyReviewComment } from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
 } from "../registry.js";
-import { getReviewCommentById, insertReviewComment } from "../store.js";
+import { getReviewCommentById, insertReviewReply } from "../store.js";
 import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
 
 const mentionSchema = z.object({
@@ -27,7 +29,8 @@ const schema = z.object({
 });
 
 export default defineAction({
-  description: "Reply to an existing review comment thread.",
+  description:
+    "Reply to an existing review comment thread with inline Markdown text without headings.",
   schema,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
@@ -39,7 +42,7 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "viewer",
+      "commenter",
     );
     const parent = await getReviewCommentById(args.commentId, scope, {
       bypassScope: true,
@@ -51,32 +54,44 @@ export default defineAction({
     ) {
       throw new Error("Review comment not found");
     }
+    if (parent.status !== "open") {
+      throw new Error("Review thread is not open");
+    }
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
     ]);
 
-    return insertReviewComment({
-      resourceType: args.resourceType,
-      resourceId: args.resourceId,
-      threadId: parent.threadId,
-      parentCommentId: parent.id,
-      targetId: parent.targetId,
-      kind: parent.kind,
-      anchor: parent.anchor,
-      body: args.body,
-      authorEmail: actionCtx?.userEmail ?? null,
-      authorName: args.authorName ?? actionCtx?.userEmail ?? null,
-      createdBy: actorKindFromContext(actionCtx),
-      resolutionTarget:
-        args.resolutionTarget ??
-        (mentions.length > 0 ? "human" : parent.resolutionTarget),
-      mentions,
-      ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
-      orgId: access.orgId ?? actionCtx?.orgId ?? null,
-      visibility: normalizeReviewVisibility(access.visibility),
-      metadata: args.metadata,
-    });
+    const routeTarget =
+      args.resolutionTarget ?? (mentions.length > 0 ? "human" : null);
+    const reply = await insertReviewReply(
+      {
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+        threadId: parent.threadId,
+        parentCommentId: parent.id,
+        targetId: parent.targetId,
+        kind: parent.kind,
+        anchor: parent.anchor,
+        body: args.body,
+        authorEmail: actionCtx?.userEmail ?? null,
+        authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
+        createdBy: actorKindFromContext(actionCtx),
+        resolutionTarget: null,
+        mentions,
+        ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
+        orgId: access.orgId ?? actionCtx?.orgId ?? null,
+        visibility: normalizeReviewVisibility(access.visibility),
+        metadata: args.metadata,
+      },
+      routeTarget,
+      {
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+      },
+    );
+
+    return { ...reply, notified: await notifyReviewComment(reply) };
   },
   audit: {
     target: (args, result) => {

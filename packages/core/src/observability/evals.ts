@@ -128,14 +128,13 @@ function scoreErrorRecovery(
   runStatus: string,
 ): EvalResult {
   const hadErrors = summary.failedTools > 0;
-  let score: number;
-  if (!hadErrors) {
-    score = 1.0;
-  } else if (runStatus === "completed") {
-    score = 1.0;
-  } else {
-    score = 0;
-  }
+  // `truncated` scores 0 alongside errored/aborted: a turn that hit a budget or
+  // timeout boundary did not recover from its tool errors, it ran out of room.
+  // Before `truncated` existed those runs were stored as `completed` and scored
+  // a full 1.0, so this criterion's historical series has a discontinuity at the
+  // point that status was introduced.
+  const recovered = runStatus === "completed";
+  const score = !hadErrors || recovered ? 1.0 : 0;
   return makeEvalResult({
     ...fromSummary(summary),
     evalType: "automated",

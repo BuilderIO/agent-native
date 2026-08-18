@@ -222,4 +222,22 @@ describe("AgentTerminal", () => {
     expect(MockWebSocket.instances[0].sent).not.toContain("nope\r");
     expect(onAgentRunningChange).toHaveBeenCalledWith(true);
   });
+
+  it("queues a submitted prompt until the terminal socket is ready", async () => {
+    const onPromptSubmitted = vi.fn();
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      command: "builder",
+      submitRequest: { id: "prompt-1", text: "launch the app" },
+      onPromptSubmitted,
+    });
+    await waitForSocketCount(1);
+    await flushTimers();
+
+    expect(MockWebSocket.instances[0].sent).toContain("launch the app\r");
+    expect(onPromptSubmitted).toHaveBeenCalledWith({
+      id: "prompt-1",
+      text: "launch the app",
+    });
+  });
 });

@@ -58,6 +58,9 @@ const mocks = vi.hoisted(() => {
       "importedBy",
       "status",
       "distilledAt",
+      "sensitivityDisposition",
+      "sensitivityPolicyVersion",
+      "audienceAclHash",
       "createdAt",
       "updatedAt",
     ]),
@@ -88,6 +91,12 @@ const mocks = vi.hoisted(() => {
       "updatedAt",
     ]),
     brainKnowledgeShares: table("brainKnowledgeShares", ["id"]),
+    brainCaptureAudiences: table("brainCaptureAudiences", [
+      "id",
+      "captureId",
+      "audienceId",
+      "aclHash",
+    ]),
   };
 
   const rows = {
@@ -185,6 +194,10 @@ vi.mock("../db/index.js", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ op: "access" }),
+}));
+
+vi.mock("./audiences.js", () => ({
+  listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
@@ -405,7 +418,7 @@ function resetRows() {
         "The self-serve freemium path was retired because low activation and support load hurt enterprise onboarding.",
       topic: "Growth",
       tagsJson: JSON.stringify(["freemium", "enterprise"]),
-      entitiesJson: "[]",
+      entitiesJson: JSON.stringify([{ type: "person", name: "Nick Nestle" }]),
       evidenceJson: JSON.stringify([
         {
           captureId: "capture-freemium-current",
@@ -431,6 +444,11 @@ function resetRows() {
       updatedAt: now,
     },
   );
+  for (const capture of mocks.rows.captures) {
+    capture.sensitivityDisposition = "allowed";
+    capture.sensitivityPolicyVersion = "1";
+    capture.audienceAclHash = "acl-hash";
+  }
 }
 
 beforeEach(resetRows);
@@ -512,6 +530,15 @@ describe("Brain universal search helpers", () => {
         sourceUrl: "https://notes.granola.ai/d/private-call",
       }),
     ).toBeNull();
+    expect(
+      sourceUrlFromMetadata({ sourceUrl: "javascript:alert(1)" }),
+    ).toBeNull();
+    expect(
+      sourceUrlFromMetadata({ sourceUrl: "data:text/html,test" }),
+    ).toBeNull();
+    expect(
+      sourceUrlFromMetadata({ sourceUrl: "http://docs.example/a" }),
+    ).toBeNull();
   });
 
   it("summarizes federated coverage without searching other apps", async () => {
@@ -591,6 +618,19 @@ describe("Brain universal search regressions", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("searches structured entity metadata for named-person questions", async () => {
+    const results = await searchEverythingRows({
+      query: "Nick Nestle",
+      type: "knowledge",
+      limit: 5,
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "knowledge-freemium-current",
+      type: "knowledge",
+    });
   });
 
   it("redacts PII in raw capture search output while preserving source links", async () => {

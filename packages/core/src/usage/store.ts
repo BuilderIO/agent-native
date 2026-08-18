@@ -458,6 +458,17 @@ export async function recordUsage(
       Date.now(),
     ],
   });
+
+  // Alert delivery is deliberately detached from the usage write. A provider
+  // or email outage must not make a successful model call fail, and the alert
+  // evaluator serializes its own work so the hot path stays one insert.
+  void import("./alerts-store.js")
+    .then(({ enqueueUsageAlertEvaluation }) => {
+      return enqueueUsageAlertEvaluation(record);
+    })
+    .catch((error) => {
+      console.error("[usage-alerts] could not enqueue evaluation:", error);
+    });
 }
 
 /** Total cost (in cents) charged against a user, across all time. */

@@ -163,7 +163,7 @@ export default defineAction({
           ? ("connect-builder" as const)
           : ("make-it-real" as const),
         ctaMessage: isFusion
-          ? "Builder is not yet connected. Connect Builder.io to trigger preview deploys."
+          ? "Builder is not yet connected. Connect Builder.io (free tier available) to trigger preview deploys."
           : "Preview deploys require a Builder-hosted app. Use 'Make it real' to upgrade " +
             "this inline design to a real-app source, then deploy previews.",
         previewUrl: null,

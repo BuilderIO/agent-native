@@ -12,6 +12,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "../mcp/route-paths.js";
+import { docsUrl } from "../shared/docs-url.js";
+import {
   buildAppSkillPack,
   ensureAppSkill,
   loadAppSkillManifest,
@@ -28,7 +33,11 @@ import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
-import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
+import { CLIENTS, configPathFor, type ClientId } from "./mcp-config-writers.js";
+import {
+  installScreenMemoryForClient,
+  resolveScreenMemoryStoreDir,
+} from "./mcp.js";
 import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
@@ -42,12 +51,17 @@ import {
   EXEMPLAR_REFERENCE_MD,
   HELP,
   LOCAL_FILES_REFERENCE_MD,
+  REWIND_SKILL_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import {
+  linkDefaultWorkspaceSkills,
+  removeCopiedFrameworkSkills,
+} from "./workspacify.js";
 
 export {
   CANVAS_REFERENCE_MD,
@@ -72,7 +86,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Create, search, select, and export brand image and video assets from the Assets app.",
       hosted: {
         url: "https://assets.agent-native.com",
-        mcpUrl: "https://assets.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://assets.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-assets" },
       auth: {
@@ -115,16 +129,16 @@ export const BUILT_IN_APP_SKILLS = {
       id: "content",
       displayName: "Content",
       description:
-        "Edit docs, blogs, resources, and MDX content through the Content app, including repo-backed Local File Mode.",
+        "Edit docs, blogs, resources, and MDX content through the Content app, including database-backed local-folder sources.",
       hosted: {
         url: "https://content.agent-native.com",
-        mcpUrl: "https://content.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://content.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-content" },
       auth: {
         mode: "oauth",
         setup:
-          "Authenticate with the Content MCP connector in the host app. Local File Mode requires a local Content app, Agent Native Desktop, or trusted local bridge for filesystem access.",
+          "Authenticate with the Content MCP connector in the host app. Local-folder synchronization requires a local Content app, Agent Native Desktop, or trusted local bridge for filesystem access.",
       },
       surfaces: [
         {
@@ -157,6 +171,40 @@ export const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: CONTENT_SKILL_MD,
   },
+  rewind: {
+    skillName: "rewind",
+    screenMemoryMcp: true,
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "rewind",
+      displayName: "Rewind",
+      description:
+        "Retrieve recent local Clips screen memory, chapters, transcripts, and exact frames through a privacy-preserving agent workflow.",
+      hosted: {
+        url: "https://clips.agent-native.com",
+        mcpUrl: "https://clips.agent-native.com/mcp",
+      },
+      mcp: { serverName: "clips-screen-memory" },
+      auth: { mode: "none" },
+      surfaces: [
+        {
+          id: "rewind-memory",
+          path: "/",
+          description:
+            "Search and inspect the user's local Clips Rewind memory through a bounded local MCP broker.",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/rewind",
+          visibility: "exported",
+          exportAs: "rewind",
+        },
+      ],
+      hostAdapters: ["plain-skill", "claude-skill", "generic-mcp"],
+    }),
+    skillMarkdown: REWIND_SKILL_MD,
+  },
   design: {
     skillName: "design-exploration",
     extraSkills: {
@@ -170,7 +218,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
       hosted: {
         url: "https://design.agent-native.com",
-        mcpUrl: "https://design.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://design.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-design" },
       auth: {
@@ -247,7 +295,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
-        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://plan.agent-native.com/mcp",
       },
       mcp: { serverName: "plan", aliases: ["agent-native-plans"] },
       auth: {
@@ -317,7 +365,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Visualize local Codex and Claude Code context usage with warnings and optimization tips.",
       hosted: {
         url: "https://context-xray.agent-native.com",
-        mcpUrl: "https://context-xray.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://context-xray.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-context-xray" },
       auth: { mode: "none" },
@@ -352,6 +400,7 @@ export const BUILT_IN_APP_SKILLS = {
      */
     extraFiles?: Record<string, Record<string, string>>;
     localOnly?: boolean;
+    screenMemoryMcp?: boolean;
   }
 >;
 
@@ -375,6 +424,10 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "local-content": "content",
   "content-local-files": "content",
   "agent-native-content": "content",
+  rewind: "rewind",
+  "screen-memory": "rewind",
+  "clips-rewind": "rewind",
+  "agent-native-rewind": "rewind",
   design: "design",
   "ui-design": "design",
   "ux-design": "design",
@@ -417,6 +470,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "content-local-files",
     "agent-native-content",
   ],
+  rewind: ["screen-memory", "clips-rewind", "agent-native-rewind"],
   design: [
     "design-exploration",
     "visual-edit",
@@ -751,6 +805,7 @@ export interface RunSkillsOptions {
    * browser/device OAuth round-trip.
    */
   runConnect?: (args: string[]) => Promise<void>;
+  installScreenMemory?: typeof installScreenMemoryForClient;
   /**
    * Best-effort install-funnel telemetry. Created once per `runSkills` run and
    * threaded through resolution/install/connect so each `track` is fire-and-
@@ -801,10 +856,60 @@ function isKnownSkill(value: string | undefined): boolean {
   return Boolean(normalizeKnownSkillTarget(value));
 }
 
+function explicitlyTargetsRewind(parsed: ParsedSkillsArgs): boolean {
+  return (
+    normalizeKnownSkillTarget(parsed.target ?? "assets") === "rewind" ||
+    Boolean(
+      parsed.plainSkillNames?.some(
+        (skillName) => normalizeKnownSkillTarget(skillName) === "rewind",
+      ),
+    )
+  );
+}
+
+const REWIND_MISSING_STORE_ERROR =
+  "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.";
+
+function preflightRewindStore(parsed: ParsedSkillsArgs): string | undefined {
+  if (parsed.command !== "add" || !explicitlyTargetsRewind(parsed))
+    return undefined;
+  if (!parsed.mcp) {
+    throw new Error(
+      "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+    );
+  }
+  if (parsed.mcpUrl) {
+    throw new Error(
+      "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",
+    );
+  }
+  if (parsed.dryRun) return undefined;
+  const screenMemoryDir = resolveScreenMemoryStoreDir();
+  if (!screenMemoryDir) throw new Error(REWIND_MISSING_STORE_ERROR);
+  return screenMemoryDir;
+}
+
+function preflightResolvedRewindTargets(
+  parsed: ParsedSkillsArgs,
+  targets: string[],
+): void {
+  preflightRewindStore({
+    ...parsed,
+    target: undefined,
+    plainSkillNames: [...(parsed.plainSkillNames ?? []), ...targets],
+  });
+}
+
 function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
 ): boolean {
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
+}
+
+function isScreenMemoryMcpBuiltInSkill(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
+): boolean {
+  return Boolean(entry && "screenMemoryMcp" in entry && entry.screenMemoryMcp);
 }
 
 function targetSupportsInstallMode(
@@ -937,15 +1042,15 @@ function contentModeInstructionBlock(input: {
   if (input.mode === "local-files") {
     return `## Installed Mode
 
-Default storage for this installation: Content Local File Mode. This repo should
-have an \`agent-native.json\` file with \`apps.content.mode: "local-files"\`;
-the installer writes one if missing and fills in default roots for \`docs/\`,
-\`blog/\`, \`content/\`, and \`resources/\`. Prefer Content document actions
-when a local Content app,
-Agent Native Desktop, or another trusted local bridge exposes them. If those
-tools are not currently available, edit the configured Markdown/MDX files and
-local components directly, preserving frontmatter, imports, JSX, and unknown MDX
-syntax. The hosted Content app cannot read private repo files by itself.`;
+Default storage for this installation is Content's SQL database. This repo's
+\`agent-native.json\` declares \`docs/\`, \`blog/\`, \`content/\`, and
+\`resources/\` as local-folder sources with opaque connection ids; it does not
+select a separate application mode. A trusted local Content app or Agent Native
+Desktop bridge imports those files into their workspace's canonical Files
+database, after which normal Content document actions read and edit the SQL-backed
+pages. Use \`sync-manifest-local-folder-source\` with each root's generated
+connection id, or launch \`agent-native content local-files <target>\`, to connect
+and pull it. The hosted Content app cannot read private repo files by itself.`;
   }
   if (input.mode === "self-hosted") {
     return `## Installed Mode
@@ -1015,6 +1120,7 @@ function skillFilesForBuiltIn(
       skillName,
       mcpUrl:
         isLocalOnlyBuiltInSkill(entry) ||
+        isScreenMemoryMcpBuiltInSkill(entry) ||
         localFilesModeSkipsMcp(appSkillId, options.planMode)
           ? ""
           : (options.mcpUrl ?? entry.manifest.hosted.mcpUrl),
@@ -1072,6 +1178,7 @@ function writeSkillFolder(
       `${JSON.stringify(metadata, null, 2)}\n`,
       "utf-8",
     );
+    assertSkillFolderIsNotSymlink(dir);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.renameSync(tempDir, dir);
   } catch (error: any) {
@@ -1081,6 +1188,21 @@ function writeSkillFolder(
     throw new Error(
       `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
       { cause: error },
+    );
+  }
+}
+
+function assertSkillFolderIsNotSymlink(dir: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(dir);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error(
+      `Refusing to replace symlinked Agent Native skill folder ${dir}. Update the linked source or remove the symlink before installing.`,
     );
   }
 }
@@ -1135,8 +1257,23 @@ function shouldWriteContentLocalFilesManifest(
   return targetId === "content" && mode === "local-files";
 }
 
+function contentLocalFolderConnectionId(baseDir: string, rootPath: string) {
+  const absoluteRootPath = path.resolve(baseDir, rootPath);
+  let canonicalRootPath = absoluteRootPath;
+  try {
+    canonicalRootPath = fs.realpathSync(absoluteRootPath);
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return `local-folder:${createHash("sha256")
+    .update(canonicalRootPath)
+    .digest("base64url")
+    .slice(0, 24)}`;
+}
+
 function mergeContentLocalFilesManifest(
   existing: unknown,
+  baseDir: string,
 ): Record<string, unknown> {
   const manifest = isJsonRecord(existing) ? { ...existing } : {};
   if (manifest.version === undefined) manifest.version = 1;
@@ -1144,10 +1281,29 @@ function mergeContentLocalFilesManifest(
   const apps = isJsonRecord(manifest.apps) ? { ...manifest.apps } : {};
   const contentApp = isJsonRecord(apps.content) ? { ...apps.content } : {};
   const defaults = defaultContentLocalFilesAppConfig();
-  contentApp.mode = "local-files";
   if (!Array.isArray(contentApp.roots) || contentApp.roots.length === 0) {
     contentApp.roots = defaults.roots;
   }
+  contentApp.roots = contentApp.roots.map((root: unknown) => {
+    if (!isJsonRecord(root) || typeof root.path !== "string") return root;
+    const source = isJsonRecord(root.source) ? root.source : {};
+    return {
+      ...root,
+      source: {
+        ...source,
+        type: "local-folder",
+        connectionId:
+          typeof source.connectionId === "string" && source.connectionId
+            ? source.connectionId
+            : contentLocalFolderConnectionId(baseDir, root.path),
+        truthPolicy:
+          typeof source.truthPolicy === "string"
+            ? source.truthPolicy
+            : "source_primary",
+      },
+    };
+  });
+  delete contentApp.mode;
   if (contentApp.components === undefined) {
     contentApp.components = defaults.components;
   }
@@ -1177,7 +1333,7 @@ function writeContentLocalFilesManifest(
       );
     }
   }
-  const manifest = mergeContentLocalFilesManifest(existing);
+  const manifest = mergeContentLocalFilesManifest(existing, baseDir);
   if (!options.dryRun) {
     fs.writeFileSync(
       manifestPath,
@@ -1200,9 +1356,10 @@ function builtInSkillsRootForAgent(
 ): string {
   const home = homeDir() ?? baseDir;
   if (scope === "project") {
-    if (agent === "codex") return path.join(baseDir, ".agents", "skills");
-    if (agent === "pi") return path.join(baseDir, ".agents", "skills");
-    return path.join(baseDir, ".claude", "skills");
+    if (agent === "claude-code" || agent === "claude-code-cli") {
+      return path.join(baseDir, ".claude", "skills");
+    }
+    return path.join(baseDir, ".agents", "skills");
   }
   if (agent === "codex") {
     return process.env.CODEX_HOME
@@ -1210,6 +1367,13 @@ function builtInSkillsRootForAgent(
       : path.join(home, ".codex", "skills");
   }
   if (agent === "pi") {
+    return path.join(home, ".agents", "skills");
+  }
+  if (
+    agent === "cursor" ||
+    agent === "opencode" ||
+    agent === "github-copilot"
+  ) {
     return path.join(home, ".agents", "skills");
   }
   return path.join(home, ".claude", "skills");
@@ -1284,7 +1448,7 @@ $ARGUMENTS
  * there is no need to shell out to the separate @agent-native/skills installer
  * (which would have to be published to npm first). Returns the written folders.
  */
-function installBuiltInInstructions(input: {
+type BuiltInInstructionInstallInput = {
   appSkillId: BuiltInAppSkillId;
   onlySkillNames?: string[];
   skillsAgents: string[];
@@ -1293,7 +1457,11 @@ function installBuiltInInstructions(input: {
   dryRun?: boolean;
   planMode?: PlanInstallMode;
   mcpUrl?: string;
-}): string[] {
+};
+
+function builtInInstructionPaths(
+  input: BuiltInInstructionInstallInput,
+): string[] {
   const bundles = Object.values(
     skillFilesForBuiltIn(input.appSkillId, {
       planMode: input.planMode,
@@ -1313,20 +1481,96 @@ function installBuiltInInstructions(input: {
     );
     for (const bundle of bundles) {
       const dir = path.join(root, bundle.skillName);
-      if (!input.dryRun) writeSkillFolder(dir, bundle);
       written.push(dir);
       const command = slashCommandForBuiltInSkill(bundle.skillName);
       if (command) {
         const commandPath = path.join(commandsRoot, `${bundle.skillName}.md`);
-        if (!input.dryRun) {
-          fs.mkdirSync(path.dirname(commandPath), { recursive: true });
-          fs.writeFileSync(commandPath, command, "utf-8");
-        }
         written.push(commandPath);
       }
     }
   }
   return written;
+}
+
+function installBuiltInInstructions(
+  input: BuiltInInstructionInstallInput,
+): string[] {
+  const bundles = Object.values(
+    skillFilesForBuiltIn(input.appSkillId, {
+      planMode: input.planMode,
+      mcpUrl: input.mcpUrl,
+    }),
+  ).filter(
+    (bundle) =>
+      !input.onlySkillNames || input.onlySkillNames.includes(bundle.skillName),
+  );
+  const written = builtInInstructionPaths(input);
+  if (input.dryRun) return written;
+
+  for (const agent of input.skillsAgents) {
+    const root = builtInSkillsRootForAgent(agent, input.scope, input.baseDir);
+    const commandsRoot = builtInCommandsRootForAgent(
+      agent,
+      input.scope,
+      input.baseDir,
+    );
+    for (const bundle of bundles) {
+      writeSkillFolder(path.join(root, bundle.skillName), bundle);
+      const command = slashCommandForBuiltInSkill(bundle.skillName);
+      if (command) {
+        const commandPath = path.join(commandsRoot, `${bundle.skillName}.md`);
+        fs.mkdirSync(path.dirname(commandPath), { recursive: true });
+        fs.writeFileSync(commandPath, command, "utf-8");
+      }
+    }
+  }
+  return written;
+}
+
+interface InstallPathSnapshot {
+  target: string;
+  backup: string;
+  existed: boolean;
+}
+
+function snapshotInstallPaths(
+  targets: string[],
+  backupRoot: string,
+): InstallPathSnapshot[] {
+  return [...new Set(targets)].map((target, index) => {
+    const backup = path.join(backupRoot, `snapshot-${index}`);
+    const existed = fs.existsSync(target);
+    if (existed) fs.cpSync(target, backup, { recursive: true });
+    return { target, backup, existed };
+  });
+}
+
+function removeEmptyParents(start: string, boundary: string): void {
+  let current = path.resolve(start);
+  const stop = path.resolve(boundary);
+  while (current !== stop && current.startsWith(`${stop}${path.sep}`)) {
+    if (!fs.existsSync(current) || fs.readdirSync(current).length > 0) return;
+    fs.rmdirSync(current);
+    current = path.dirname(current);
+  }
+}
+
+function restoreInstallPaths(
+  snapshots: InstallPathSnapshot[],
+  boundary: string,
+): void {
+  for (const snapshot of snapshots.toReversed()) {
+    fs.rmSync(snapshot.target, { recursive: true, force: true });
+    if (snapshot.existed) {
+      fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
+      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+    }
+  }
+  for (const snapshot of snapshots) {
+    if (!snapshot.existed) {
+      removeEmptyParents(path.dirname(snapshot.target), boundary);
+    }
+  }
 }
 
 function listSkillFolderFiles(dir: string): Record<string, string> {
@@ -1542,6 +1786,27 @@ function hasAgentNativeCoreDependency(
   return false;
 }
 
+function markedScaffoldGuidanceTemplate(
+  pkg: Record<string, unknown> | undefined,
+): "headless" | "default" | undefined {
+  const agentNative = pkg?.["agent-native"];
+  if (
+    !agentNative ||
+    typeof agentNative !== "object" ||
+    Array.isArray(agentNative)
+  ) {
+    return undefined;
+  }
+  const scaffold = (agentNative as Record<string, unknown>).scaffold;
+  if (!scaffold || typeof scaffold !== "object" || Array.isArray(scaffold)) {
+    return undefined;
+  }
+  const frameworkSkills = (scaffold as Record<string, unknown>).frameworkSkills;
+  return frameworkSkills === "headless" || frameworkSkills === "default"
+    ? frameworkSkills
+    : undefined;
+}
+
 function findWorkspaceCorePackageDir(
   workspaceRoot: string,
   workspaceCoreName: string,
@@ -1595,6 +1860,9 @@ function detectStandaloneScaffoldTemplate(
   if (!fs.existsSync(path.join(projectRoot, ".agents", "skills"))) {
     return undefined;
   }
+
+  const markedTemplate = markedScaffoldGuidanceTemplate(pkg);
+  if (markedTemplate) return markedTemplate;
 
   const hasAppDir = fs.existsSync(path.join(projectRoot, "app"));
   const hasHeadlessHello = fs.existsSync(
@@ -1803,6 +2071,21 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           if (!entry.isDirectory()) continue;
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
+            const preserved = new Set([
+              ...removeCopiedFrameworkSkills(appDir, {
+                workspaceRoot: state.workspaceRoot,
+              }),
+              ...linkDefaultWorkspaceSkills(appDir, state.workspaceRoot),
+            ]);
+            if (preserved.size > 0) {
+              console.warn(
+                `[skills] Preserved app-local framework-named skills in ${appDir}: ${[
+                  ...preserved,
+                ].join(
+                  ", ",
+                )}. Migrate them explicitly before inheriting workspace copies.`,
+              );
+            }
             setupAgentSymlinks(appDir);
             refreshCopiedClaudeSkills(appDir);
           }
@@ -2067,6 +2350,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     hint: BUILT_IN_APP_SKILLS.content.manifest.description,
   },
   {
+    value: "rewind",
+    label: "rewind",
+    hint: BUILT_IN_APP_SKILLS.rewind.manifest.description,
+  },
+  {
     value: "design-exploration",
     label: "design-exploration",
     hint: BUILT_IN_APP_SKILLS.design.manifest.description,
@@ -2178,8 +2466,7 @@ function prVisualRecapWorkflowDisplayPath(): string {
   return path.join(".github", "workflows", "pr-visual-recap.yml");
 }
 
-const PR_VISUAL_RECAP_DOCS_URL =
-  "https://www.agent-native.com/docs/pr-visual-recap";
+const PR_VISUAL_RECAP_DOCS_URL = docsUrl("pr-visual-recap");
 
 function prVisualRecapInstallCommand(): string {
   return "npx @agent-native/core@latest skills add visual-recap --with-github-action";
@@ -2771,8 +3058,11 @@ function preserveMcpUrlAppPathOverride(
     return target;
   }
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const appPath = trimmedPath.endsWith("/_agent-native/mcp")
-    ? trimmedPath.slice(0, -"/_agent-native/mcp".length).replace(/\/+$/, "")
+  const mcpSuffix = [MCP_LEGACY_ROUTE_PREFIX, MCP_PUBLIC_ROUTE_PREFIX].find(
+    (suffix) => trimmedPath === suffix || trimmedPath.endsWith(suffix),
+  );
+  const appPath = mcpSuffix
+    ? trimmedPath.slice(0, -mcpSuffix.length).replace(/\/+$/, "")
     : trimmedPath;
   if (!appPath) return target;
   const url = `${parsed.origin}${appPath}`;
@@ -2782,7 +3072,7 @@ function preserveMcpUrlAppPathOverride(
       ...target.loaded,
       manifest: {
         ...target.loaded.manifest,
-        hosted: { url, mcpUrl: `${url}/_agent-native/mcp` },
+        hosted: { url, mcpUrl: `${url}${MCP_PUBLIC_ROUTE_PREFIX}` },
       },
     },
   };
@@ -2870,7 +3160,8 @@ async function runCommand(
 /**
  * Resolve a `--mcp-url` override into the `{ url, mcpUrl }` pair the manifest
  * expects. Accepts a bare origin (`https://x.ngrok-free.dev`) — appending the
- * standard `/_agent-native/mcp` path — or a full MCP URL already ending in it.
+ * standard `/mcp` path — or a full MCP URL already ending in `/mcp` or the
+ * legacy `/_agent-native/mcp` path.
  */
 function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
   let parsed: URL;
@@ -2884,9 +3175,12 @@ function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
   }
   const origin = parsed.origin;
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const mcpUrl = trimmedPath.endsWith("/_agent-native/mcp")
-    ? `${origin}${trimmedPath}`
-    : `${origin}/_agent-native/mcp`;
+  const mcpSuffix = [MCP_LEGACY_ROUTE_PREFIX, MCP_PUBLIC_ROUTE_PREFIX].find(
+    (suffix) => trimmedPath === suffix || trimmedPath.endsWith(suffix),
+  );
+  const mcpUrl = mcpSuffix
+    ? `${origin}${trimmedPath.slice(0, -mcpSuffix.length)}${MCP_PUBLIC_ROUTE_PREFIX}`
+    : `${origin}${MCP_PUBLIC_ROUTE_PREFIX}`;
   return { url: origin, mcpUrl };
 }
 
@@ -3240,7 +3534,18 @@ export async function addAgentNativeSkill(
     );
   }
   const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
+  const installsScreenMemoryMcp = isScreenMemoryMcpBuiltInSkill(knownBuiltIn);
   const baseDir = options.baseDir ?? process.cwd();
+  if (installsScreenMemoryMcp && !parsed.mcp) {
+    throw new Error(
+      "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+    );
+  }
+  if (installsScreenMemoryMcp && parsed.mcpUrl) {
+    throw new Error(
+      "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",
+    );
+  }
   if (isLocalOnlyBuiltInSkill(knownBuiltIn)) {
     if (parsed.planMode) {
       throw new Error(
@@ -3346,7 +3651,9 @@ export async function addAgentNativeSkill(
     );
   }
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
-  const skillsAgents = skillsAgentsForClients(clients);
+  const skillsAgents = installsScreenMemoryMcp
+    ? clients.filter((client) => client !== "cowork")
+    : skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
       const localManifestPath = shouldWriteContentLocalFilesManifest(
@@ -3374,9 +3681,11 @@ export async function addAgentNativeSkill(
         displayName: installTarget.displayName,
         skillNames: installTarget.skillNames,
         skillsAgents,
-        mcpUrl: localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+        mcpUrl: installsScreenMemoryMcp
           ? ""
-          : installTarget.loaded.manifest.hosted.mcpUrl,
+          : localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+            ? ""
+            : installTarget.loaded.manifest.hosted.mcpUrl,
         mcpClients: shouldRegisterMcp ? mcpClients : [],
         dryRun: true,
         commands: [
@@ -3393,6 +3702,7 @@ export async function addAgentNativeSkill(
     }
   }
   const commands: string[] = [];
+  const screenMemoryDir = preflightRewindStore(parsed);
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
   let instructionsWritten: string[] | undefined;
@@ -3400,6 +3710,36 @@ export async function addAgentNativeSkill(
   let connectCommand: string | undefined;
   let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
   let localManifestPath: string | undefined;
+  const builtInInstructionInput: BuiltInInstructionInstallInput | undefined =
+    knownTarget
+      ? {
+          appSkillId: knownTarget,
+          onlySkillNames,
+          skillsAgents,
+          scope: parsed.scope as "project" | "user",
+          baseDir,
+          dryRun: parsed.dryRun,
+          planMode,
+          mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
+        }
+      : undefined;
+  const rewindSnapshots = installsScreenMemoryMcp
+    ? snapshotInstallPaths(
+        [
+          ...(parsed.instructions && builtInInstructionInput
+            ? builtInInstructionPaths(builtInInstructionInput)
+            : []),
+          ...(shouldRegisterMcp
+            ? mcpClients.map((client) =>
+                configPathFor(client, baseDir, parsed.scope),
+              )
+            : []),
+        ],
+        tmpRoot,
+      )
+    : undefined;
+  const rollbackBoundary =
+    parsed.scope === "user" ? os.homedir() : path.resolve(baseDir);
 
   try {
     if (parsed.instructions) {
@@ -3409,21 +3749,14 @@ export async function addAgentNativeSkill(
             "Skill instructions use shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files. Use an MCP-capable client or omit --instructions-only.",
           );
         }
-      } else if (knownTarget) {
+      } else if (knownTarget && builtInInstructionInput) {
         // Built-in skills ship their instructions inside this package, so copy
         // the skill folders straight into each client's skills directory. This
         // avoids shelling out to the separate @agent-native/skills installer
         // (which would need to be published to npm to run via npx).
-        instructionsWritten = installBuiltInInstructions({
-          appSkillId: knownTarget,
-          onlySkillNames,
-          skillsAgents,
-          scope: parsed.scope as "project" | "user",
-          baseDir,
-          dryRun: parsed.dryRun,
-          planMode,
-          mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
-        });
+        instructionsWritten = installBuiltInInstructions(
+          builtInInstructionInput,
+        );
         instructionSource = instructionsWritten[0];
         commands.push(...instructionsWritten.map((dir) => `write ${dir}`));
       } else {
@@ -3467,16 +3800,39 @@ export async function addAgentNativeSkill(
       commands.push(`write ${localManifestPath}`);
     }
 
-    // Skill instructions are now on disk (built-in folders copied or external
-    // pack materialized) — record the install before MCP registration/connect.
-    options.telemetry?.track("skills_cli install completed", {
-      skills: installTarget.skillNames.join(","),
-      clients: clients.join(","),
-      scope: parsed.scope,
-      dryRun: Boolean(parsed.dryRun),
-    });
+    // Rewind reports completion only after both local writes succeed.
+    if (!installsScreenMemoryMcp) {
+      options.telemetry?.track("skills_cli install completed", {
+        skills: installTarget.skillNames.join(","),
+        clients: clients.join(","),
+        scope: parsed.scope,
+        dryRun: Boolean(parsed.dryRun),
+      });
+    }
 
-    if (shouldRegisterMcp) {
+    if (shouldRegisterMcp && installsScreenMemoryMcp) {
+      registeredMcpClients = mcpClients.map((client) => {
+        commands.push(
+          `npx @agent-native/core@latest mcp install-screen-memory --client ${client} --scope ${parsed.scope}`,
+        );
+        (options.installScreenMemory ?? installScreenMemoryForClient)(
+          client,
+          screenMemoryDir!,
+          baseDir,
+          parsed.scope,
+        );
+        return client;
+      });
+      options.telemetry?.track("skills_cli mcp registered", {
+        skills: installTarget.skillNames.join(","),
+      });
+      options.telemetry?.track("skills_cli install completed", {
+        skills: installTarget.skillNames.join(","),
+        clients: clients.join(","),
+        scope: parsed.scope,
+        dryRun: false,
+      });
+    } else if (shouldRegisterMcp) {
       commands.push(
         `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
       );
@@ -3586,9 +3942,11 @@ export async function addAgentNativeSkill(
       instructionSource,
       skillNames: installTarget.skillNames,
       skillsAgents,
-      mcpUrl: localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+      mcpUrl: installsScreenMemoryMcp
         ? ""
-        : installTarget.loaded.manifest.hosted.mcpUrl,
+        : localFilesModeSkipsMcp(modeAwareTargetId, planMode)
+          ? ""
+          : installTarget.loaded.manifest.hosted.mcpUrl,
       mcpClients: registeredMcpClients,
       dryRun: parsed.dryRun,
       commands,
@@ -3601,6 +3959,18 @@ export async function addAgentNativeSkill(
       githubActionExisted,
       githubActionSuggestedCommand,
     };
+  } catch (error) {
+    if (rewindSnapshots) {
+      try {
+        restoreInstallPaths(rewindSnapshots, rollbackBoundary);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "Rewind setup failed and its partial installation could not be fully rolled back.",
+        );
+      }
+    }
+    throw error;
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
     installTarget.cleanup?.();
@@ -3620,10 +3990,13 @@ function listSkills(options: RunSkillsOptions = {}) {
           ] ?? [],
         name: entry.manifest.displayName,
         description: entry.manifest.description,
-        mcpUrl: isLocalOnlyBuiltInSkill(entry)
-          ? ""
-          : entry.manifest.hosted.mcpUrl,
-        local: isLocalOnlyBuiltInSkill(entry),
+        mcpUrl:
+          isLocalOnlyBuiltInSkill(entry) || isScreenMemoryMcpBuiltInSkill(entry)
+            ? ""
+            : entry.manifest.hosted.mcpUrl,
+        local:
+          isLocalOnlyBuiltInSkill(entry) ||
+          isScreenMemoryMcpBuiltInSkill(entry),
         source: "agent-native",
       })),
     ...publicSkillEntries(options).map((entry) => ({
@@ -3778,8 +4151,13 @@ function runSkillsStatusOrUpdate(
   const scaffoldChanged = update
     ? updateScaffoldGuidanceStates(scaffoldBefore, parsed.dryRun)
     : [];
-  if (update && !parsed.dryRun && scaffoldChanged.length > 0) {
-    repairScaffoldAgentLinks(scaffoldChanged);
+  if (update && !parsed.dryRun) {
+    const workspaceStates = scaffoldBefore.filter(
+      (state) => state.workspaceRoot && state.sharedPackageDir,
+    );
+    if (scaffoldChanged.length > 0 || workspaceStates.length > 0) {
+      repairScaffoldAgentLinks([...scaffoldChanged, ...workspaceStates]);
+    }
   }
   const skillAfter =
     update && !parsed.dryRun
@@ -3875,6 +4253,41 @@ function readCliVersion(): string {
   }
 }
 
+function deferCliTelemetry(target: CliTelemetry): {
+  telemetry: CliTelemetry;
+  commit: () => void;
+} {
+  type TrackCall = Parameters<CliTelemetry["track"]>;
+  type ExceptionCall = Parameters<CliTelemetry["captureException"]>;
+  const trackCalls: TrackCall[] = [];
+  const exceptionCalls: ExceptionCall[] = [];
+  let committed = false;
+
+  return {
+    telemetry: {
+      track(...args) {
+        if (committed) target.track(...args);
+        else trackCalls.push(args);
+      },
+      captureException(...args) {
+        if (committed) target.captureException(...args);
+        else exceptionCalls.push(args);
+      },
+      async flush() {
+        if (committed) await target.flush();
+      },
+    },
+    commit() {
+      if (committed) return;
+      committed = true;
+      for (const args of trackCalls) target.track(...args);
+      for (const args of exceptionCalls) target.captureException(...args);
+      trackCalls.length = 0;
+      exceptionCalls.length = 0;
+    },
+  };
+}
+
 export async function runSkills(
   argv: string[],
   options: RunSkillsOptions = {},
@@ -3883,6 +4296,7 @@ export async function runSkills(
   if (parsed.baseDir) {
     options = { ...options, baseDir: path.resolve(parsed.baseDir) };
   }
+  preflightRewindStore(parsed);
   const clackForLog = parsed.printJson
     ? undefined
     : await import("@clack/prompts");
@@ -3918,7 +4332,7 @@ export async function runSkills(
   // finally so events send on success, error, and cancellation — the CLI is
   // short-lived, so flushing before exit is essential or the events never send.
   const startedAt = Date.now();
-  const telemetry =
+  const telemetryTarget =
     options.telemetry ??
     createCliTelemetry({
       cli: "core",
@@ -3926,6 +4340,13 @@ export async function runSkills(
       command: parsed.command,
       interactive: shouldPrompt(parsed, options),
     });
+  const deferredTelemetry = deferCliTelemetry(telemetryTarget);
+  const telemetry = deferredTelemetry.telemetry;
+  const deferUntilSkillSelection =
+    parsed.command === "add" &&
+    !parsed.target &&
+    !(parsed.plainSkillNames?.length ?? 0);
+  if (!deferUntilSkillSelection) deferredTelemetry.commit();
   const optionsWithTelemetry: RunSkillsOptions = {
     ...options,
     telemetry,
@@ -3966,9 +4387,12 @@ export async function runSkills(
 
     const targets = await resolveSkillTargets(parsed, optionsWithTelemetry);
     if (!targets) {
+      deferredTelemetry.commit();
       telemetry.track("skills_cli cancelled", { step: "skills" });
       return;
     }
+    preflightResolvedRewindTargets(parsed, targets);
+    deferredTelemetry.commit();
     const preselected = Boolean(parsed.target);
     telemetry.track("skills_cli skills selected", {
       selected: targets.join(","),
@@ -4282,6 +4706,11 @@ export async function runSkills(
       command: parsed.command,
       error: error instanceof Error ? error.message : String(error),
       durationMs: Date.now() - startedAt,
+    });
+    telemetry.captureException(error, {
+      handled: false,
+      tags: { source: "skills-command", command: parsed.command },
+      extra: { durationMs: Date.now() - startedAt },
     });
     throw error;
   } finally {

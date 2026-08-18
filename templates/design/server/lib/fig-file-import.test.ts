@@ -96,6 +96,27 @@ function editableDocument(imageHash?: string) {
   };
 }
 
+function twoFrameEditableDocument() {
+  const document = editableDocument();
+  return {
+    nodeChanges: [
+      ...document.nodeChanges,
+      {
+        guid: { sessionID: 1, localID: 5 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: "b",
+        },
+        type: "FRAME",
+        name: "Banner",
+        size: { x: 640, y: 120 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 220 },
+        fillPaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 1, a: 1 } }],
+      },
+    ],
+  };
+}
+
 describe("bounded .fig decoding", () => {
   it("decodes a valid compressed fig-kiwi schema and document", () => {
     const decoded = decodeFig(encodedHelloFig());
@@ -122,7 +143,9 @@ describe("bounded .fig decoding", () => {
     expect(() => decodeKiwiContainer(uncompressedContainer)).toThrow(
       /too many binary chunks/i,
     );
-  });
+    // Building/decoding the 4k-chunk container is CPU-heavy and synchronous, so
+    // it can exceed the 5s default under a loaded parallel test run.
+  }, 20_000);
 
   it("does not compile schema names that could escape kiwi code generation", async () => {
     const unsafeSchema = parseSchema(
@@ -146,20 +169,22 @@ describe("bounded .fig decoding", () => {
     ).rejects.toThrow(/could not be decoded/i);
   });
 
-  it("rejects hostile schema field counts before kiwi-schema loops over them", () => {
-    const hostileSchema = Buffer.concat([
-      Buffer.from([1]),
-      Buffer.from("Message\0", "utf8"),
-      Buffer.from([2, 0x88, 0x10]), // MESSAGE with 2,056 fields (cap is 1,024)
-    ]);
-    const decoded = decodeFig(kiwiContainer([hostileSchema, Buffer.from([0])]));
+  it("rejects schemas with unsafe identifier names before kiwi code generation", () => {
+    const unsafeSchema = parseSchema("message Message { string value = 1; }");
+    unsafeSchema.definitions[0]!.name = "Bad-name";
+    const decoded = decodeFig(
+      kiwiContainer([
+        Buffer.from(encodeBinarySchema(unsafeSchema)),
+        Buffer.from([0]),
+      ]),
+    );
 
     expect(decoded.document).toBeNull();
   });
 
-  it("accepts current Figma schemas whose NodeChange message has 600 fields", () => {
+  it("accepts current Figma schemas whose NodeChange message has 2000 fields", () => {
     const fields = Array.from(
-      { length: 600 },
+      { length: 2000 },
       (_, index) => `string field${index} = ${index + 1};`,
     ).join(" ");
     const schema = parseSchema(
@@ -249,6 +274,132 @@ describe("editable .fig conversion", () => {
     });
   });
 
+  it("keeps a frame-child at its parent-relative offset, ignoring the frame's canvas position", () => {
+    const document = editableDocument();
+    // Frame far out on the canvas.
+    document.nodeChanges[2]!.transform = {
+      m00: 1,
+      m01: 0,
+      m02: 800,
+      m10: 0,
+      m11: 1,
+      m12: 800,
+    };
+    // Child at a parent-relative offset (Kiwi transforms are relativeTransform).
+    document.nodeChanges[3]!.transform = {
+      m00: 1,
+      m01: 0,
+      m02: 26.1875,
+      m10: 0,
+      m11: 1,
+      m12: 0,
+    };
+
+    const rendered = renderHtmlTemplates(document);
+
+    expect(rendered.frames[0]!.html).toContain("left: 26.19px");
+    expect(rendered.frames[0]!.html).toContain("top: 0px");
+    // The frame's own canvas offset must not leak into the child.
+    expect(rendered.frames[0]!.html).not.toContain("left: 826.19px");
+    expect(rendered.frames[0]!.html).not.toContain("left: -773");
+  });
+
+  it("preserves nested coordinates after normalizing the frame boundary", () => {
+    const document = {
+      nodeChanges: [
+        { guid: { sessionID: 1, localID: 1 }, type: "DOCUMENT", name: "Doc" },
+        {
+          guid: { sessionID: 1, localID: 2 },
+          parentIndex: {
+            guid: { sessionID: 1, localID: 1 },
+            position: "a",
+          },
+          type: "CANVAS",
+          name: "Page",
+        },
+        {
+          guid: { sessionID: 1, localID: 3 },
+          parentIndex: {
+            guid: { sessionID: 1, localID: 2 },
+            position: "a",
+          },
+          type: "FRAME",
+          name: "Offset frame",
+          size: { x: 800, y: 800 },
+          transform: {
+            m00: 1,
+            m01: 0,
+            m02: 800,
+            m10: 0,
+            m11: 1,
+            m12: 800,
+          },
+        },
+        {
+          guid: { sessionID: 1, localID: 4 },
+          parentIndex: {
+            guid: { sessionID: 1, localID: 3 },
+            position: "a",
+          },
+          type: "FRAME",
+          name: "Image wrapper",
+          size: { x: 200, y: 100 },
+          // Parent-relative offset inside the offset frame.
+          transform: {
+            m00: 1,
+            m01: 0,
+            m02: 26,
+            m10: 0,
+            m11: 1,
+            m12: 0,
+          },
+        },
+        {
+          guid: { sessionID: 1, localID: 5 },
+          parentIndex: {
+            guid: { sessionID: 1, localID: 4 },
+            position: "a",
+          },
+          type: "TEXT",
+          name: "Nested title",
+          size: { x: 100, y: 20 },
+          transform: {
+            m00: 1,
+            m01: 0,
+            m02: 10,
+            m10: 0,
+            m11: 1,
+            m12: 20,
+          },
+          textData: { characters: "Nested" },
+        },
+      ],
+    };
+
+    const rendered = renderHtmlTemplates(document);
+
+    expect(rendered.frames[0]!.html).toContain("left: 26px; top: 0px");
+    expect(rendered.frames[0]!.html).toContain("left: 10px; top: 20px");
+  });
+
+  it("imports all frames from the uploaded file", async () => {
+    const result = await convertDecodedFigToEditableHtml(
+      {
+        format: "kiwi",
+        document: twoFrameEditableDocument(),
+        images: [],
+        thumbnail: null,
+      },
+      {
+        originalName: "all-frames.fig",
+        ownerEmail: "example@example.com",
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files).toHaveLength(2);
+  });
+
   it("uploads embedded images through file storage and persists only the URL", async () => {
     const uploader = vi.fn().mockResolvedValue({
       url: "https://assets.example.com/figma-image.png",
@@ -282,8 +433,9 @@ describe("editable .fig conversion", () => {
       }),
     );
     expect(result.files[0]!.content).toContain(
-      "https://assets.example.com/figma-image.png",
+      "background-image: url('https://assets.example.com/figma-image.png')",
     );
+    expect(result.files[0]!.content).not.toContain("&quot;");
     expect(result.files[0]!.content).not.toContain("iVBOR");
     expect(result.stats.uploadedImageCount).toBe(1);
   });

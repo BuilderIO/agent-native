@@ -1,0 +1,33 @@
+import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
+import { z } from "zod";
+
+import { markInboxItemReady, requireUserEmail } from "../server/inbox/store.js";
+import type { Task } from "../server/tasks/store.js";
+
+export const markInboxItemReadySchema = z.object({
+  inboxItemId: z.string().describe("Inbox item id"),
+});
+
+export default defineAction({
+  description:
+    "Promote one inbox item to an incomplete task, preserving its id. Use bulk-mark-inbox-items-ready for multiple items.",
+  schema: markInboxItemReadySchema,
+  run: async (args, ctx) => {
+    const ownerEmail = requireUserEmail(ctx?.userEmail);
+    return markInboxItemReady({ ownerEmail, id: args.inboxItemId });
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const payload = result as { task?: Task };
+    const task = payload.task;
+    if (!task?.id || !task.title) return null;
+    return {
+      url: buildDeepLink({
+        view: "tasks",
+        params: { taskId: task.id },
+      }),
+      label: task.title,
+    };
+  },
+});

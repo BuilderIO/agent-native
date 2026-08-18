@@ -14,6 +14,16 @@ export interface IframeFigmaClipboardPastePayload {
   content: string;
 }
 
+export interface IframeImagePasteFile {
+  dataUrl: string;
+  type: string;
+  name: string;
+}
+
+export interface IframeImagePastePayload {
+  files: IframeImagePasteFile[];
+}
+
 export interface IframeContextMenuPayload {
   screenId?: string;
   clientX: number;
@@ -22,4 +32,22 @@ export interface IframeContextMenuPayload {
   viewportClientY?: number;
   info?: ElementInfo | null;
   layerCandidates?: CanvasLayerHitCandidate[];
+}
+
+export interface IframeNodeHtmlPreviewTarget {
+  nodeId?: string;
+  selector?: string;
+}
+
+export interface IframeNodeHtmlPreviewMessage {
+  type: "node-html-preview";
+  proposalId: string;
+  target: IframeNodeHtmlPreviewTarget;
+  operation: "preview" | "restore";
+  html?: string;
+}
+
+export interface IframeNodeHtmlPreviewAppliedPayload {
+  type: "agent-native:node-html-preview-applied";
+  proposalId: string;
 }

@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 分析イベントを発生させます。すべての登録プロバイダーにファンアウトします。
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` には、アクションの `ctx` をそのまま渡すか、`ctx` を持たない呼び出し元向けに `{ userId, anonymousId, sessionId }` のメタオブジェクトを渡します。
+
+ブラウザーセッションは呼び出し元が渡す必要はありません。アンビエントなリクエストコンテキスト（`RequestContext.browserSessionId`。アクションクライアント、チャット、ブラウザーの `track()` がいずれも送信する `X-Agent-Native-Session-Id` ヘッダーから設定されます）から取得されるため、UI がイベントを発生させた場合でもエージェントが発生させた場合でも、同じ訪問として相関付けられます。各プロバイダーは自身のセッションフィールドにマッピングします。PostHog では `$session_id`（イベントとセッションリプレイが結び付きます）、Mixpanel と Amplitude では `session_id` プロパティ、Webhook と Agent Native Analytics ではトップレベルの `sessionId` です。ブラウザーを持たない呼び出し元（cron、CLI、MCP、A2A）では値がなく、メタオブジェクトの `sessionId` が指定されていればそちらが優先されます。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 カスタム バックエンド、プロバイダー レジストリ API、またはバッチ処理/シングルトン内部が必要ですか?末尾の [Advanced: custom providers & internals](#advanced) を参照してください。
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx をそのまま渡す: イベントは ctx.userEmail に紐付き、呼び出し元の
+    // ブラウザーセッションに結び付けられます。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -176,8 +182,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +201,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 Agent Native アプリは、2 つ目の分析 SDK を追加することなく、ファーストパーティのブラウザー セッション リプレイを利用できます。ブラウザー ルートで一度 `configureTracking()` を呼び出し、Analytics の公開キーとコレクター エンドポイントを渡します。
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -237,6 +241,8 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 - 機密ゾーンは、`[data-sensitive]`、`.an-block`、`.an-private`、`data-an-block`、`data-an-private`、およびクレジット カード/パスワード/SSN のようなフィールドなどのセレクターでブロックされます。
 - URL は、ブラウザー分析で使用されるものと同じ `scrubUrl()` ヘルパーでスクラブされます。
 - リプレイ キャプチャは Web 専用でオプトインです。ネイティブ デスクトップ画面は記録しません。
+
+拡張機能やレンダリングされたメール コンテンツなど、フレームワークが管理する iframe はリプレイ キャプチャに含まれます。記録されたフレーム内でも、同じマスキングおよびブロック用セレクターが適用されます。サードパーティのクロスオリジン iframe は、そのドキュメント自体がクロスオリジン iframe 記録を有効にした互換性のある rrweb レコーダーを実行しない限り不透明なままです。親ページからブラウザーのオリジン境界を回避することはできません。
 
 記録中、セッション リプレイはブラウザーのコンソール出力 (`log`、`info`、`warn`、`error`、`debug`、およびウィンドウの `error`/`unhandledrejection`) とネットワーク リクエストのメタデータ (`fetch` および XHR) もタグ付けされた rrweb カスタム イベントとしてキャプチャするため、エージェントとリプレイ ビューアーがユーザー報告の問題をデバッグできます。キャプチャは、リプレイが有効な場合デフォルトでオンになっています。`sessionReplay.console` と `sessionReplay.network` オプション (それぞれ真偽値またはオプション オブジェクト `{ maxEvents?: number }` を受け取り、`network` はさらに `captureErrorBodies` と `maxErrorBodyLength` を受け取ります) で調整または無効化できます。リクエストの本文とヘッダーは記録されませんが、レスポンスの本文は 5xx (サーバー エラー) レスポンスに限り、境界付きでレダクト済みのスニペットとしてキャプチャされます (`captureErrorBodies`、デフォルトは `true`、上限は `maxErrorBodyLength` 文字、デフォルト 2048) — 5xx 以外およびネットワーク障害 (ステータス 0) のレスポンスに本文が含まれることはありません。URL はスクラブされ、メッセージは切り詰められ、レコーダー自身の取り込み/追跡トラフィックは除外されます。セッションごとの上限 (コンソール 1000 件/ネットワーク 2000 件) を超えると切り詰めの通知が追加されます。
 
@@ -351,6 +357,6 @@ interface TrackingEvent {
 
 ## 次は何ですか
 
-- [**Actions**](/docs/actions) — ほとんどの追跡通話が発信される場所
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` は起動時にコアルートプラグインで実行されます
+- [**Actions**](/docs/actions-overview) — ほとんどの追跡通話が発信される場所
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` は起動時にコアルートプラグインで実行されます
 - [**セキュリティ — シークレット管理**](/docs/security#secrets) — 追跡プロバイダーの API キーを管理

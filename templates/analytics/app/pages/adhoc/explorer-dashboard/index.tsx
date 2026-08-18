@@ -1,17 +1,19 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  PresenceBar,
   useCollaborativeDoc,
-  generateTabId,
   emailToColor,
   emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
   useSession,
   useChangeVersions,
   useActionMutation,
-  agentNativePath,
   callAction,
-  useT,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   DndContext,
   DragOverlay,
@@ -46,6 +48,7 @@ import { useSearchParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
+import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -73,6 +76,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -113,6 +117,10 @@ const TAB_ID = generateTabId();
 
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
+  ownerEmail: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
   archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
@@ -143,6 +151,10 @@ async function fetchDashboard(
       name: raw.name ?? "Untitled Dashboard",
       charts: raw.charts ?? [],
     },
+    ownerEmail: typeof raw.ownerEmail === "string" ? raw.ownerEmail : null,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : null,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
     archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
     hiddenAt: typeof raw.hiddenAt === "string" ? raw.hiddenAt : null,
     hiddenBy: typeof raw.hiddenBy === "string" ? raw.hiddenBy : null,
@@ -176,6 +188,16 @@ export default function ExplorerDashboardPage() {
   const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(
     null,
   );
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedBy, setDashboardUpdatedBy] = useState<string | null>(
+    null,
+  );
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
   const [hiddenBy, setHiddenBy] = useState<string | null>(null);
@@ -187,6 +209,8 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
@@ -194,6 +218,20 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  useEffect(() => {
+    if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [dashboardActionsOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setDashboardActionsOpen(false);
+  }, []);
+
   const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
     id: dashboardId,
     kind: "explorer",
@@ -305,6 +343,10 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId) return;
     setLoaded(false);
     setDashboard(null);
+    setDashboardOwner(null);
+    setDashboardCreatedAt(null);
+    setDashboardUpdatedAt(null);
+    setDashboardUpdatedBy(null);
     setHiddenAt(null);
     setHiddenBy(null);
     setResourceAccess(null);
@@ -316,6 +358,10 @@ export default function ExplorerDashboardPage() {
     const d = dashboardQuery.data;
     if (d) {
       setDashboard(d.data);
+      setDashboardOwner(d.ownerEmail);
+      setDashboardCreatedAt(d.createdAt);
+      setDashboardUpdatedAt(d.updatedAt);
+      setDashboardUpdatedBy(d.updatedBy);
       setArchivedAt(d.archivedAt);
       setHiddenAt(d.hiddenAt);
       setHiddenBy(d.hiddenBy);
@@ -329,6 +375,10 @@ export default function ExplorerDashboardPage() {
         name: t("explorerDashboard.untitledDashboard"),
         charts: [],
       });
+      setDashboardOwner(null);
+      setDashboardCreatedAt(null);
+      setDashboardUpdatedAt(null);
+      setDashboardUpdatedBy(null);
       setArchivedAt(null);
       setHiddenAt(null);
       setHiddenBy(null);
@@ -642,18 +692,29 @@ export default function ExplorerDashboardPage() {
                   {t("explorerDashboard.moreActions")}
                 </TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-72">
                 {dashboardId ? (
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      setDashboardActionsOpen(false);
-                      setHistoryOpen(true);
-                    }}
-                  >
-                    <IconHistory className="mr-2 h-3.5 w-3.5" />
-                    {t("dashboard.historyTitle")}
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuLabel className="font-normal">
+                      <DashboardMetadata
+                        createdAt={dashboardCreatedAt}
+                        createdBy={dashboardOwner}
+                        updatedAt={dashboardUpdatedAt}
+                        updatedBy={dashboardUpdatedBy}
+                      />
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setDashboardActionsOpen(false);
+                        setHistoryOpen(true);
+                      }}
+                    >
+                      <IconHistory className="mr-2 h-3.5 w-3.5" />
+                      {t("dashboard.historyTitle")}
+                    </DropdownMenuItem>
+                  </>
                 ) : null}
                 {dashboardId && canEdit && !archivedAt ? (
                   <DropdownMenuSeparator />
@@ -677,8 +738,7 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
-                      setDashboardActionsOpen(false);
-                      setConfirmDeleteOpen(true);
+                      requestDashboardDelete();
                     }}
                     className="text-destructive focus:text-destructive"
                   >

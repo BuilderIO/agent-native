@@ -205,10 +205,10 @@ describe("workspace dev startup", () => {
     const fake = fakeSpawn();
     handle = await runWorkspaceDev({
       root: tmpDir,
+      args: ["--prewarm"],
       env: {
         ...testEnv(),
-        // Opt in to prewarm for this test (testEnv disables it by default).
-        WORKSPACE_NO_PREWARM: "",
+        WORKSPACE_PREWARM: "1",
         WORKSPACE_PREWARM_DELAY_MS: "0",
       },
       spawnProcess: fake.spawnProcess,
@@ -238,7 +238,6 @@ describe("workspace dev startup", () => {
       args: ["--no-prewarm"],
       env: {
         ...testEnv(),
-        WORKSPACE_NO_PREWARM: "",
         WORKSPACE_PREWARM_DELAY_MS: "0",
       },
       spawnProcess: fake.spawnProcess,
@@ -553,6 +552,53 @@ describe("workspace dev startup", () => {
     }
   });
 
+  it("keeps probing while a cold app returns a Nitro startup 503", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "2000" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps.find((candidate) => candidate.id === "dispatch");
+    expect(app).toBeDefined();
+
+    const first = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await first.text()).toContain("Starting Dispatch");
+
+    let requests = 0;
+    const upstream = http.createServer((_req, res) => {
+      requests += 1;
+      if (requests < 3) {
+        res.writeHead(503, { "content-type": "text/plain" });
+        res.end("Vite environment nitro is unavailable");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<h1>Dispatch ready</h1>");
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(app!.port, "127.0.0.1", resolve);
+    });
+
+    try {
+      await waitUntil(() => requests >= 2);
+      expect(app!.ready).not.toBe(true);
+      await waitUntil(() => app!.ready === true);
+
+      const second = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+      });
+      expect(await second.text()).toContain("Dispatch ready");
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
   it("runs a workspace install before starting a newly generated app without installed bins", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -665,13 +711,17 @@ describe("workspace dev helpers", () => {
     expect(shouldEagerStartWorkspaceApps([], {})).toBe(false);
   });
 
-  it("defaults prewarm on in lazy mode and respects opt-outs", () => {
-    expect(shouldPrewarmWorkspaceApps([], {})).toBe(true);
+  it("defaults prewarm off in lazy mode and supports explicit opt-in", () => {
+    expect(shouldPrewarmWorkspaceApps([], {})).toBe(false);
+    expect(shouldPrewarmWorkspaceApps(["--prewarm"], {})).toBe(true);
+    expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_PREWARM: "1" })).toBe(
+      true,
+    );
     expect(shouldPrewarmWorkspaceApps(["--no-prewarm"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_NO_PREWARM: "1" })).toBe(
       false,
     );
-    // Eager mode already starts every app — prewarm has nothing to do.
+    // Eager mode already starts every app, so prewarm has nothing to do.
     expect(shouldPrewarmWorkspaceApps(["--eager"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
       false,
@@ -745,11 +795,7 @@ function testEnv(): NodeJS.ProcessEnv {
     WORKSPACE_APP_PORT_START: "19100",
     WORKSPACE_NO_OPEN: "1",
     WORKSPACE_PROXY_READY_TIMEOUT_MS: "50",
-    // Existing assertions count "exec vite" spawns and expect just the
-    // default-app entry; the background prewarm queue would race those
-    // counters. Tests that exercise prewarm opt in explicitly by clearing
-    // this in their own env override.
-    WORKSPACE_NO_PREWARM: "1",
+    WORKSPACE_PREWARM: "0",
   };
 }
 

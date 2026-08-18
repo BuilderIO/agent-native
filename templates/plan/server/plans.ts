@@ -724,8 +724,8 @@ export async function assertPlanEditor(planId: string) {
     if (!readable || !resource || resource.deletedAt) throw error;
     throw new ForbiddenError(
       resource.kind === "recap"
-        ? `Recap ${planId} is read-only for you (your role: ${readable.role}). Recaps are published review snapshots owned by whoever published them (often the PR recap workflow), and changing one requires editor access. Do not retry this call with the same arguments. Instead: (1) add review feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting only needs viewer access; (2) publish an updated recap you own with create-visual-recap (pass its planId only when replacing a recap you own); or (3) ask the recap owner to share editor access.`
-        : `Plan ${planId} is read-only for you (your role: ${readable.role}); this operation requires editor access. Do not retry this call with the same arguments. Instead add feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting only needs viewer access — or ask the plan owner to share editor access.`,
+        ? `Recap ${planId} is read-only for you (your role: ${readable.role}). Recaps are published review snapshots owned by whoever published them (often the PR recap workflow), and changing one requires editor access. Do not retry this call with the same arguments. Instead: (1) add review feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting requires commenter access; (2) publish an updated recap you own with create-visual-recap (pass its planId only when replacing a recap you own); or (3) ask the recap owner to share editor access.`
+        : `Plan ${planId} is read-only for you (your role: ${readable.role}); this operation requires editor access. Do not retry this call with the same arguments. Instead add feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting requires commenter access — or ask the plan owner to share editor access.`,
     );
   }
 }

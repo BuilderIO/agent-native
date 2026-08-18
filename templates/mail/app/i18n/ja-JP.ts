@@ -441,10 +441,10 @@ const messages = {
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
   },
   settings: {
-    openAgentSettings: "エージェント設定を開く",
+    openAgentSettings: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    agentTitle: "エージェント設定",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェントを管理",
     aliasName: "エイリアス名",
     aliasNamePlaceholder: "例: デザインチーム",
     recipientsOnePerLine: "宛先（1 行に 1 件のメール）",
@@ -482,6 +482,11 @@ const messages = {
     lastRun: "前回の実行:",
     automationsDescription:
       "AI を使って新しい受信メールを自動処理するルールです。",
+    allowAutomationSends: "自動化によるメールの自動送信を許可する",
+    allowAutomationSendsDescription:
+      "デフォルトではオフです。毎回承認を求めずに自動化でメールを送信する場合にオンにしてください。",
+    automationSendSettingSaveFailed:
+      "自動メール送信の設定を保存できませんでした。",
     loadingModels: "モデルを読み込み中",
     newRule: "新しいルール",
     noAutomationRules: "自動化ルールはまだありません。",
@@ -500,6 +505,8 @@ const messages = {
     importFromGmail: "Gmail からインポート",
     signatureHelp:
       "新しい下書きの引用返信履歴の前に追加されます。Markdown リンクと画像に対応しています。",
+    addSignatureImage: "画像を追加",
+    signatureImageUploadFailed: "署名画像のアップロードに失敗しました",
     writingStyle: "文章スタイル",
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",

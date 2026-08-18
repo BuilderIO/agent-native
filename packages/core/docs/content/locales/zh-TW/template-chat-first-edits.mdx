@@ -1,0 +1,70 @@
+---
+title: "在 Chat 中新增你的第一個功能"
+description: "渲染 Chat 入門畫面的唯一檔案、它的真實 props 做什麼，以及從頭到尾新增一個功能的完整演練。"
+---
+
+# 在 Chat 中新增你的第一個功能
+
+本頁面適用於擴充[聊天範本](/docs/template-chat)的開發人員。它介紹渲染入門聊天畫面的唯一檔案，然後演練當你要求一個真實功能時代理通常會涉及的一切。
+
+## 要檢查的第一個程式碼 {#first-code}
+
+- `actions/hello.ts` 是代理可以呼叫的啟動行為。更換它或
+  在其旁邊新增 actions。
+- `app/routes/_index.tsx` 渲染全頁面聊天介面。調整
+  建議、空狀態、撰寫器或週圍布局。
+- `AGENTS.md` 告訴內建代理如何在此應用程式內工作。
+
+<FileTree
+  id="doc-block-1ml3vtu"
+  title={"Chat 範本布局"}
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "一個範例 action；替換它或在旁邊新增 actions",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "代理讀取的標準脈絡 action",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "標準導覽 action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "渲染整頁面 chat 介面；編輯建議、空狀態和 composer",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "重新匯出 _index.tsx，因此 /chat/:threadId 會渲染帶有 URL 中對話串 id 的相同介面",
+    },
+    {
+      path: "AGENTS.md",
+      note: "內建代理讀取的以 chat 為先的指南",
+    },
+  ]}
+/>
+
+真正的入門檔案不僅僅是一個簡單的 `<AgentChatSurface />`；對話串 URL 同步、分頁身分和 hero composer 布局請參閱 `app/routes/_index.tsx`。
+
+## 使用您自己的代理後端 {#own-agent-backend}
+
+該範本預設使用內建的應用程式代理迴圈。要連線自訂後端，請交換代理聊天外掛後面的聊天執行時，而不是重寫 UI。聊天路由應該在共用聊天介面週圍保留一個薄渲染器；後端選取屬於伺服器外掛/執行時轉接器。
+
+當您的模型編排已經存在於其他地方，但您仍然想要一個具有驗證、對話串、actions、UI 狀態和可部署頁面的應用程式時，請使用此選項。
+
+## 首次編輯 {#first-edits}
+
+搭好腳手架後，詢問代理：
+
+> 新增 `notes` 的資料模型。註解有 ID、標題、內文和所有者。在 `/notes` 渲染筆記頁面，新增建立/列出 actions，並保持聊天能夠建立筆記。
+
+代理應新增 Drizzle 架構、actions、路由、導覽和說明。然後您可以使用 UI 或聊天中的註解功能。
+
+## 下一步是什麼
+
+- [**聊天範本**](/docs/template-chat) — 預設包含哪些內容以及何時選擇它
+- [**Chat — 執行時與管理介面**](/docs/template-chat-developers) — 核心表、驗證和管理頁面
+- [**Actions**](/docs/actions-overview) - 操作系統聊天和 UI 都呼叫
+- [**Native 聊天介面**](/docs/native-chat-ui) — 聊天介面基元和執行時選項

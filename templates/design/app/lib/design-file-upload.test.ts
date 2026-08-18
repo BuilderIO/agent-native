@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  MAX_FIG_UPLOAD_BYTES,
-  uploadDesignFile,
-  validateFigUploadFile,
-} from "./design-file-upload";
+import { MAX_UPLOAD_BYTES as SERVER_MAX_UPLOAD_BYTES } from "../../server/lib/request-body-limits";
+import { uploadDesignFile, validateFigUploadFile } from "./design-file-upload";
+import { MAX_UPLOAD_BYTES } from "./upload-limits";
 
 class FakeEventTarget {
   listeners = new Map<string, Array<(event: ProgressEvent) => void>>();
@@ -124,10 +122,10 @@ describe("uploadDesignFile", () => {
     await expect(upload).rejects.toThrow("Localized upload failure");
   });
 
-  it("keeps the browser limit aligned with the 50 MB server cap", () => {
-    expect(MAX_FIG_UPLOAD_BYTES).toBe(50 * 1024 * 1024);
+  it("keeps the browser limit aligned with the server wire cap", () => {
+    expect(MAX_UPLOAD_BYTES).toBe(SERVER_MAX_UPLOAD_BYTES);
     expect(
-      validateFigUploadFile({ name: "sample.FIG", size: MAX_FIG_UPLOAD_BYTES }),
+      validateFigUploadFile({ name: "sample.FIG", size: MAX_UPLOAD_BYTES }),
     ).toBeNull();
     expect(validateFigUploadFile({ name: "sample.zip", size: 10 })).toBe(
       "invalid-extension",
@@ -135,7 +133,7 @@ describe("uploadDesignFile", () => {
     expect(
       validateFigUploadFile({
         name: "sample.fig",
-        size: MAX_FIG_UPLOAD_BYTES + 1,
+        size: MAX_UPLOAD_BYTES + 1,
       }),
     ).toBe("too-large");
   });

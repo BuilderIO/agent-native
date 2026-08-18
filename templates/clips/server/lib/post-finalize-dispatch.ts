@@ -7,7 +7,12 @@ import {
   signScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
-export type PostFinalizeJobKind = "seekable" | "transcript";
+export type PostFinalizeJobKind =
+  | "media-ready"
+  | "seekable"
+  | "transcript"
+  | "brain-export"
+  | "loom-import";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 
@@ -46,10 +51,13 @@ export async function dispatchPostFinalizeJob(args: {
   kind: PostFinalizeJobKind;
   delayMs?: number;
   retryAttempt?: number;
+  regenerate?: boolean;
+  requireAccepted?: boolean;
 }): Promise<void> {
+  const { requireAccepted = false, ...job } = args;
   const token = signScopedAgentAccessToken({
     resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
-    resourceId: postFinalizeJobResourceId(args.recordingId, args.kind),
+    resourceId: postFinalizeJobResourceId(job.recordingId, job.kind),
     ttlSeconds: 10 * 60,
   });
   const basePath = normalizeBasePath(
@@ -61,7 +69,7 @@ export async function dispatchPostFinalizeJob(args: {
   const usesDurableBackground =
     dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath);
   const body = JSON.stringify({
-    ...args,
+    ...job,
     token,
     ...(usesDurableBackground
       ? {
@@ -69,6 +77,12 @@ export async function dispatchPostFinalizeJob(args: {
           [AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD]: processorRoute,
         }
       : {}),
+  });
+  console.log("[post-finalize] dispatching", {
+    recordingId: args.recordingId,
+    kind: args.kind,
+    workerUrl,
+    usesDurableBackground,
   });
   const post = (url: string) =>
     fetch(url, {
@@ -81,7 +95,14 @@ export async function dispatchPostFinalizeJob(args: {
       usesDurableBackground && !initialResponse.ok
         ? await post(resolveWorkerUrl(processorRoute))
         : initialResponse;
-    if (response.ok) return;
+    if (response.ok) {
+      console.log("[post-finalize] dispatch accepted", {
+        recordingId: args.recordingId,
+        kind: args.kind,
+        status: response.status,
+      });
+      return;
+    }
     const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
     throw new Error(
       `Post-finalize ${args.kind} worker returned HTTP ${response.status}${
@@ -98,6 +119,11 @@ export async function dispatchPostFinalizeJob(args: {
       error: err instanceof Error ? err.message : String(err),
     });
   });
+
+  if (requireAccepted) {
+    await dispatch;
+    return;
+  }
 
   await Promise.race([
     dispatch,

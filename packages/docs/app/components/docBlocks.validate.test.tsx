@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -235,9 +236,11 @@ describe("docs visual blocks", () => {
         if (!isValidatableBlockSegment(segment)) return;
         try {
           const html = renderToStaticMarkup(
-            <DocBlocksProvider>
-              <DocBlock segment={segment} />
-            </DocBlocksProvider>,
+            <MemoryRouter>
+              <DocBlocksProvider>
+                <DocBlock segment={segment} />
+              </DocBlocksProvider>
+            </MemoryRouter>,
           );
           // A rendered DocBlockError surfaces as the only child text; treat the
           // schema test as the source of truth for those and just assert the
@@ -294,10 +297,10 @@ describe("docs visual blocks", () => {
     });
   });
 
-  it("accepts the diagram frame attribute", () => {
+  it("accepts the diagram display attributes", () => {
     const segment = splitDocSegments(
       [
-        '<Diagram frame="hide">',
+        '<Diagram frame="hide" renderMode="design">',
         "",
         "```html",
         '<div class="diagram-node">A</div>',

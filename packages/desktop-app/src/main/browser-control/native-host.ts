@@ -5,6 +5,8 @@ import path from "node:path";
 export const AGENT_NATIVE_CHROME_EXTENSION_ID =
   "oflpdgfpegnhakjociddiffecjnbnnad";
 export const AGENT_NATIVE_BROWSER_HOST_NAME = "com.agent_native.dispatch";
+export const AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV =
+  "AGENT_NATIVE_BROWSER_EXTENSION_IDS";
 
 export interface InstallBrowserNativeHostOptions {
   baseUrl: string;
@@ -13,6 +15,7 @@ export interface InstallBrowserNativeHostOptions {
   hostEntryPath: string;
   stateDirectory: string;
   homeDirectory?: string;
+  additionalExtensionIds?: readonly string[];
 }
 
 export function installBrowserNativeHost(
@@ -42,16 +45,58 @@ export function installBrowserNativeHost(
     manifestDirectory,
     `${AGENT_NATIVE_BROWSER_HOST_NAME}.json`,
   );
+  const extensionIds = [
+    AGENT_NATIVE_CHROME_EXTENSION_ID,
+    ...(options.additionalExtensionIds ?? []),
+  ];
   writePrivateJson(manifestPath, {
     name: AGENT_NATIVE_BROWSER_HOST_NAME,
     description: "Agent Native browser control bridge",
     path: launcherPath,
     type: "stdio",
-    allowed_origins: [
-      `chrome-extension://${AGENT_NATIVE_CHROME_EXTENSION_ID}/`,
-    ],
+    allowed_origins: exactExtensionOrigins(extensionIds),
   });
   return { manifestPath, launcherPath, configPath };
+}
+
+function exactExtensionOrigins(extensionIds: readonly string[]): string[] {
+  const unique = [...new Set(extensionIds)];
+  if (unique.length > 16) {
+    throw new Error(
+      "Browser native host cannot allow more than 16 extensions.",
+    );
+  }
+  for (const extensionId of unique) assertChromeExtensionId(extensionId);
+  return unique.map((extensionId) => `chrome-extension://${extensionId}/`);
+}
+
+export function parseAdditionalChromeExtensionIds(
+  value: string | undefined,
+): string[] {
+  if (!value?.trim()) return [];
+  const extensionIds = [
+    ...new Set(
+      value
+        .split(",")
+        .map((extensionId) => extensionId.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (extensionIds.length > 15) {
+    throw new Error(
+      "Browser native host cannot allow more than 15 additional extensions.",
+    );
+  }
+  for (const extensionId of extensionIds) assertChromeExtensionId(extensionId);
+  return extensionIds;
+}
+
+function assertChromeExtensionId(extensionId: string): void {
+  if (!/^[a-p]{32}$/.test(extensionId)) {
+    throw new Error(
+      "Chrome extension id must contain exactly 32 a-p characters.",
+    );
+  }
 }
 
 function assertLoopbackBaseUrl(value: string): string {

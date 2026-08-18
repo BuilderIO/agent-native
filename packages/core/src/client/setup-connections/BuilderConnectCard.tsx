@@ -1,41 +1,51 @@
-import { IconCheck, IconLoader2, IconPlugConnected } from "@tabler/icons-react";
+import {
+  ActionButton,
+  DesignSystemErrorBoundary,
+  Status,
+  Surface,
+} from "@agent-native/toolkit/design-system";
+import { IconCheck, IconPlugConnected } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+import {
+  useBuilderConnectCardController,
+  type BuilderConnectCardControllerOptions,
+  type BuilderConnectCardViewModel,
+} from "./useBuilderConnectCardController.js";
 
-export interface BuilderConnectCardProps {
-  title?: string;
-  description?: string;
-  trackingSource?: string;
+export interface BuilderConnectCardProps extends BuilderConnectCardControllerOptions {
   className?: string;
-  onConnected?: (orgName: string | null) => void;
+  render?: (context: BuilderConnectCardRenderContext) => ReactNode;
 }
 
-export function BuilderConnectCard({
-  title = "Builder connect",
-  description = "Connect Builder for managed model access, browser automation, and workspace identity.",
-  trackingSource = "setup_connections_page",
-  className,
-  onConnected,
-}: BuilderConnectCardProps) {
-  const flow = useBuilderConnectFlow({
-    trackingSource,
-    onConnected: ({ orgName }) => onConnected?.(orgName),
-  });
+export interface BuilderConnectCardRenderContext {
+  viewModel: BuilderConnectCardViewModel;
+  className?: string;
+}
 
-  const connectedLabel = flow.orgName
-    ? `Connected to ${flow.orgName}`
-    : "Connected";
-  const statusLabel = !flow.hasFetchedStatus
-    ? "Checking"
-    : flow.configured
-      ? connectedLabel
-      : flow.builderEnabled
-        ? "Ready to connect"
-        : "Project not configured";
+export interface DefaultBuilderConnectCardViewProps {
+  viewModel: BuilderConnectCardViewModel;
+  className?: string;
+}
+
+export function DefaultBuilderConnectCardView({
+  viewModel,
+  className,
+}: DefaultBuilderConnectCardViewProps) {
+  const action = viewModel.action;
+  const statusTone =
+    viewModel.status.kind === "connected"
+      ? "success"
+      : viewModel.status.kind === "checking"
+        ? "info"
+        : "neutral";
 
   return (
-    <section
+    <Surface
+      as="section"
+      elevation="low"
+      padding="none"
       className={cn(
         "rounded-lg border border-border bg-background p-4 shadow-sm",
         className,
@@ -45,12 +55,12 @@ export function BuilderConnectCard({
         <span
           className={cn(
             "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border",
-            flow.configured
+            viewModel.configured
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
               : "border-border bg-muted text-muted-foreground",
           )}
         >
-          {flow.configured ? (
+          {viewModel.configured ? (
             <IconCheck className="size-4" />
           ) : (
             <IconPlugConnected className="size-4" />
@@ -58,37 +68,87 @@ export function BuilderConnectCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-            <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {statusLabel}
-            </span>
+            <h2 className="text-sm font-semibold text-foreground">
+              {viewModel.title}
+            </h2>
+            <Status
+              tone={statusTone}
+              size="compact"
+              className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+            >
+              {viewModel.status.label}
+            </Status>
           </div>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            {description}
+            {viewModel.description}
           </p>
-          {flow.error ? (
-            <p className="mt-2 text-xs text-destructive">{flow.error}</p>
+          {viewModel.error ? (
+            <p className="mt-2 text-xs text-destructive">{viewModel.error}</p>
           ) : null}
-          {!flow.configured ? (
-            <button
-              type="button"
-              onClick={() => flow.start()}
-              disabled={
-                flow.connecting ||
-                (!flow.builderEnabled && flow.hasFetchedStatus)
-              }
-              className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {flow.connecting ? (
-                <IconLoader2 className="size-3.5 animate-spin" />
-              ) : (
-                <IconPlugConnected className="size-3.5" />
-              )}
-              Connect Builder
-            </button>
+          {action ? (
+            <div className="mt-3">
+              <ActionButton
+                type="button"
+                intent="primary"
+                size="compact"
+                pending={action.pending}
+                disabled={action.disabled}
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+                leadingIcon={<IconPlugConnected className="size-3.5" />}
+                onPress={action.onPress}
+              >
+                {action.label}
+              </ActionButton>
+            </div>
           ) : null}
         </div>
       </div>
-    </section>
+    </Surface>
   );
+}
+
+export function BuilderConnectCard({
+  title,
+  description,
+  trackingSource,
+  className,
+  onConnected,
+  render,
+}: BuilderConnectCardProps) {
+  const viewModel = useBuilderConnectCardController({
+    title,
+    description,
+    trackingSource,
+    onConnected,
+  });
+
+  const fallback = (
+    <DefaultBuilderConnectCardView
+      viewModel={viewModel}
+      className={className}
+    />
+  );
+  return render ? (
+    <DesignSystemErrorBoundary
+      component="BuilderConnectCard"
+      fallback={fallback}
+    >
+      <BuilderConnectCardCustomView
+        render={render}
+        viewModel={viewModel}
+        className={className}
+      />
+    </DesignSystemErrorBoundary>
+  ) : (
+    fallback
+  );
+}
+
+function BuilderConnectCardCustomView({
+  render,
+  viewModel,
+  className,
+}: Required<Pick<BuilderConnectCardProps, "render">> &
+  BuilderConnectCardRenderContext) {
+  return render({ viewModel, className });
 }

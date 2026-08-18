@@ -102,13 +102,13 @@ PR Visual Recap은 모든 끌어오기 요청을 **시각적 코드 검토**로 
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-이렇게 하면 `visual-plan` 스킬(액션이 실행하는 `visual-recap` 스킬 포함)이 설치되고 저장소에 `.github/workflows/pr-visual-recap.yml`가 기록됩니다. 워크플로는 `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check`를 포함하여 `npx @agent-native/core@latest recap <subcommand>`를 통해 **게시된 CLI 하위 명령**을 호출합니다. `usage` — 따라서 저장소에 도우미 스크립트로 복사되는 것은 없습니다. `setup` 및 `doctor`는 로컬에서 실행하는 대화형 도우미입니다. `gate`는 모든 요약 전에 워크플로가 실행되는 보안 게이트 단계입니다.
+이렇게 하면 `visual-plan` 스킬(액션이 실행하는 `visual-recap` 스킬 포함)이 설치되고 저장소에 `.github/workflows/pr-visual-recap.yml`가 기록됩니다. 워크플로는 `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check`를 포함하여 `npx @agent-native/recap-cli@latest recap <subcommand>`를 통해 **게시된 CLI 하위 명령**을 호출합니다. `usage` — 따라서 저장소에 도우미 스크립트로 복사되는 것은 없습니다. `setup` 및 `doctor`는 로컬에서 실행하는 대화형 도우미입니다. `gate`는 모든 요약 전에 워크플로가 실행되는 보안 게이트 단계입니다.
 
 그런 다음 안내식 설정 도우미를 실행하세요.
 
 ```bash
-npx @agent-native/core@latest recap setup
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 `recap setup`는 작업 흐름을 새로 고치고 `gh`를 사용하여 GitHub Actions를 설정합니다.
@@ -118,7 +118,7 @@ env 또는 로컬 계획에서 값을 사용할 수 있는 경우 비밀/변수
 생성된 워크플로 파일을 열고 PR을 열어 실행을 확인하세요.
 
 기본적으로 워크플로는 최신 번들에서 에이전트 프롬프트를 작성합니다.
-형제를 포함한 `@agent-native/core@latest`의 `visual-recap` 지침
+형제를 포함한 `@agent-native/recap-cli@latest`의 `visual-recap` 지침
 스킬과 함께 제공되는 참조 파일입니다. 저장소가 의도적으로 사용자 정의되고
 커밋된 `visual-recap` 폴더를 고정하고 저장소 변수를 설정합니다.
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
@@ -135,8 +135,8 @@ env 또는 로컬 계획에서 값을 사용할 수 있는 경우 비밀/변수
 JSON 따옴표는 필수입니다. 이 값은 전체 `recap` 작업의 러너를 선택합니다. 안내식 설정 중 구성하려면 동일한 JSON 값을 `--runs-on`에 전달한 다음 `doctor`로 워크플로와 러너 가용성을 검증하세요.
 
 ```bash
-npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 경량 게이트는 별도로 `ubuntu-latest`를 사용합니다. GitHub 호스팅 러너를 비활성화한 저장소는 `VISUAL_RECAP_GATE_RUNS_ON`을 JSON이 아닌 단일 일반 레이블로 설정하거나 `--gate-runs-on visual-recap-gate`를 사용할 수 있습니다. 사용자 지정 레이블은 같은 저장소의 `OWNER`, `MEMBER`, `COLLABORATOR` 작성자에게만 사용됩니다. 포크와 그 밖의 작성자는 `ubuntu-latest`로 강제되며 GitHub 호스팅 러너가 꺼져 있으면 예약되지 않을 수 있습니다. 전용이며 가능하면 임시인 러너를 사용하세요. 기본 게이트는 PR 트리를 체크아웃하지 않고 워크플로 로직과 PR 메타데이터를 평가합니다.
@@ -160,11 +160,29 @@ npx @agent-native/core@latest recap doctor
 
 백엔드 외에도 두 개의 저장소 변수가 에이전트 실행 *방법*을 조정합니다.
 
-- **`VISUAL_RECAP_MODEL`**는 CLI(`--model`)에 전달된 모델을 고정합니다. 예를 들어 Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. CLI 자체 기본 모델을 사용하려면 설정하지 않은 상태로 두세요.
+- **`VISUAL_RECAP_MODEL`**는 CLI(`--model`)에 전달되는 모델을 고정합니다 — 예를 들어 Codex의 경우 `gpt-5.6-luna`, Claude 모델 ID, 또는 DeepSeek의 경우 `deepseek-chat`입니다. `openai-compatible`에는 필수입니다. **Claude** 백엔드의 경우 설정하지 않으면 이제 `claude-sonnet-5`가 기본값이 됩니다. 다른 Claude 모델(더 저렴한 `claude-haiku-4-5` 등)을 사용하려면 변수를 명시적으로 설정하세요. **Codex** 백엔드의 경우 설정하지 않으면 Codex CLI 자체의 기본 모델이 사용됩니다.
 - **`VISUAL_RECAP_REASONING`**는 추론 깊이를 `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`로 설정합니다. 이는 Codex 백엔드에 적용됩니다. Claude의 추론은 모델 중심이므로 이 변수는 무시됩니다.
 - **`VISUAL_RECAP_SKILL_SOURCE`**는 프롬프트 최신성을 제어합니다. `auto`/unset은 최신 번들 기술 지침을 사용하고 `repo`는 커밋된 저장소 로컬 `visual-recap` 기술 폴더에 고정합니다.
 
 예를 들어 GPT-5.6 Sol를 사용하여 Codex에 대한 요약을 실행하려면 저장소 변수 `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` 및 `VISUAL_RECAP_REASONING=high`를 설정하세요.
+
+## 비용
+
+각 요약 실행은 저렴한 템플릿 요약이 아니라 실제 diff를 읽는 완전한 에이전틱 코딩 에이전트 세션이므로, 비용은 모델 선택과 실행 빈도에 따라 달라집니다:
+
+- **PR 푸시마다 전체 세션.** 기본 트리거는 `synchronize`에서 실행되므로, 10번 푸시된 PR은 에이전트를 10번 실행합니다.
+- 마지막 실행 이후의 커밋만이 아니라 **매번 전체 PR**을 대상으로 합니다 — 비용은 증분 diff 크기가 아니라 전체 PR 크기에 비례합니다.
+- **diff 입력은 약 600KB로 제한됩니다.** 이는 실행당 최악의 경우를 제한하지만, 큰 diff는 작은 diff보다 여전히 상당히 더 많은 비용이 듭니다.
+- **실패 시 자동 재시도가 한 번** 있으며, 일시적으로 실패한 실행의 비용을 대략 두 배로 늘릴 수 있습니다.
+
+비용을 줄이려면:
+
+- **더 저렴한 모델을 고정하세요.** Claude의 경우, 간단하거나 작은 저장소에는 `VISUAL_RECAP_MODEL=claude-haiku-4-5`를 설정하세요 — 가장 저렴한 Claude 등급입니다. `claude-sonnet-5`(기본값)는 균형 잡힌 등급입니다.
+- **더 저렴한 모델로 Codex로 전환하세요.** `VISUAL_RECAP_AGENT=codex`와 `VISUAL_RECAP_MODEL=gpt-5.6-luna`(가장 저렴한 GPT-5.6 등급) 또는 `gpt-5.6-terra`(중간 등급)를 설정하고, 추론 토큰 비용을 더 줄이려면 `VISUAL_RECAP_REASONING=low`를 설정하세요. 추론 깊이는 Codex에만 적용됩니다.
+- **더 저렴한 OpenAI 호환 제공업체를 지정하세요.** `VISUAL_RECAP_AGENT=openai-compatible`을 DeepSeek, Kimi 또는 다른 OpenAI 호환 엔드포인트를 대상으로 하는 `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`와 함께 설정하세요.
+- **요약 빈도를 줄이세요.** 설치된 워크플로의 `on.pull_request.types`를 `[opened, synchronize, reopened, ready_for_review, labeled, closed]`에서 `[opened, ready_for_review, closed]`로 편집하면, 모든 푸시가 아니라 PR이 열릴 때와 병합될 때만 요약이 실행됩니다.
+
+각 실행은 실제로 소비한 비용을 기록합니다. 워크플로의 `recap usage` 단계가 게시된 계획에 토큰 및 비용 사용량을 첨부하므로, 추측하는 대신 실행별 실제 지출을 확인할 수 있습니다.
 
 ## 비밀 및 변수
 
@@ -196,11 +214,11 @@ npx @agent-native/core@latest connect https://plan.agent-native.com --service-to
 
 **솔로: 개인 토큰은 여전히 작동합니다.** `npx @agent-native/core@latest connect`로 발행하세요
 Plans 앱에 반대합니다. 호스팅된 앱의 경우 로컬
-`npx @agent-native/core@latest recap setup`가 읽을 수 있는 게시 토큰 파일:
+`npx @agent-native/recap-cli@latest recap setup`가 읽을 수 있는 게시 토큰 파일:
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
-npx @agent-native/core@latest recap setup
+npx @agent-native/recap-cli@latest recap setup
 ```
 
 수동 설정을 선호하는 경우 토큰을 GitHub 비밀번호에 붙여넣으세요. 사용
@@ -209,16 +227,16 @@ npx @agent-native/core@latest recap setup
 
 ### 선택 사항(기본값을 변경하는 경우에만)
 
-| 비밀/변수                | 기본값                          | 필요할 때                                                                                                                                           |
-| ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | 비밀. 대신 Codex로 요약을 실행하려면 `VISUAL_RECAP_AGENT=codex`와 함께 설정하세요.                                                                  |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | 변수. 코딩 에이전트 백엔드(`claude` 또는 `codex`)를 선택합니다.                                                                                     |
-| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                          |
-| `VISUAL_RECAP_REASONING` | 각 모델의 기본값                | 변수입니다. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`. Codex 백엔드에 적용됩니다.                                          |
-| `RECAP_CLI_VERSION`      | `latest`                        | 변수입니다. 워크플로가 설치하는 `@agent-native/core` CLI 버전을 고정합니다. `1.5.0`. [Version pinning](#version-pinning-copy-variant)를 참조하세요. |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 비밀. 다른 출처에서 Plans 앱을 자체 호스팅하는 경우에만 해당됩니다.                                                                                 |
+| 비밀/변수                | 기본값                                                | 필요할 때                                                                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                     | 비밀. 대신 Codex로 요약을 실행하려면 `VISUAL_RECAP_AGENT=codex`와 함께 설정하세요.                                                                                                                                                                                                    |
+| `VISUAL_RECAP_AGENT`     | `claude`                                              | 변수. 코딩 에이전트 백엔드(`claude` 또는 `codex`)를 선택합니다.                                                                                                                                                                                                                       |
+| `VISUAL_RECAP_MODEL`     | Claude의 경우 `claude-sonnet-5`; 호환 백엔드에는 필수 | 변수입니다. OpenAI 호환 백엔드용 제공업체 모델 ID(해당 백엔드에서는 필수). Claude의 경우 설정하지 않으면 이제 `claude-sonnet-5`가 기본값입니다 — 재정의하려면 설정하세요. 예: 가장 저렴한 등급인 `claude-haiku-4-5`. Codex의 경우 설정하지 않으면 Codex CLI 자체 기본값이 사용됩니다. |
+| `VISUAL_RECAP_REASONING` | 각 모델의 기본값                                      | 변수입니다. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`. Codex 백엔드에 적용됩니다.                                                                                                                                                                            |
+| `RECAP_CLI_VERSION`      | `latest`                                              | 변수입니다. 워크플로가 설치하는 `@agent-native/recap-cli` CLI 버전을 고정합니다. `1.5.0`. [Version pinning](#version-pinning-copy-variant)를 참조하세요.                                                                                                                              |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                       | 비밀. 다른 출처에서 Plans 앱을 자체 호스팅하는 경우에만 해당됩니다.                                                                                                                                                                                                                   |
 
-워크플로는 도우미 CLI(이 모노레포 내의 로컬 소스, 다른 곳에 게시된 `@agent-native/core`)를 호출하는 방법을 자동으로 감지하므로 설정할 `RECAP_CLI` 변수가 없습니다.
+워크플로는 도우미 CLI(이 모노레포 내의 로컬 소스, 다른 곳에 게시된 `@agent-native/recap-cli`)를 호출하는 방법을 자동으로 감지하므로 설정할 `RECAP_CLI` 변수가 없습니다.
 
 ## 댓글의 인라인 스크린샷
 
@@ -359,9 +377,9 @@ GitHub Action은 호스팅되고 공유 가능한 PR 검토를 위해 설계되�
 로컬 파일 모드에서 로컬로 동일한 도우미 흐름:
 
 ```bash
-npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
-npx @agent-native/core@latest recap scan --diff recap.diff
-npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+npx @agent-native/recap-cli@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/recap-cli@latest recap scan --diff recap.diff
+npx @agent-native/recap-cli@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
 생성된 `recap-prompt.md`를 코딩 에이전트에 제공하세요. 로컬 파일 모드에서
@@ -391,7 +409,7 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 
 ## 버전 고정(복사 변형) {#version-pinning-copy-variant}
 
-기본적으로 복사 변형 워크플로는 런타임에 `@agent-native/core@latest`를 설치하므로 모든 요약 실행이 자동으로 최신 CLI를 선택합니다. CI에 재현 가능한 도구가 필요한 경우 **`RECAP_CLI_VERSION`** 저장소 변수를 설정하여 설치된 버전을 고정하세요.
+기본적으로 복사 변형 워크플로는 런타임에 `@agent-native/recap-cli@latest`를 설치하므로 모든 요약 실행이 자동으로 최신 CLI를 선택합니다. CI에 재현 가능한 도구가 필요한 경우 **`RECAP_CLI_VERSION`** 저장소 변수를 설정하여 설치된 버전을 고정하세요.
 
 1. 저장소의 **설정 → 비밀 및 변수 → Actions → 변수**로 이동하세요.
 2. `1.5.0`와 같은 값을 사용하여 `RECAP_CLI_VERSION`라는 변수를 만듭니다.
@@ -402,7 +420,7 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 
 ## 비밀 검사 허용 목록
 
-요약을 게시하기 전에 워크플로는 `npx @agent-native/core@latest recap scan`를 실행하여 차이점에서 가능성 있는 비밀을 감지합니다. diff가 알려진 비밀 패턴과 일치하는 PR은 설명 주석과 함께 차단됩니다. 요약은 게시되지 않으며 diff 콘텐츠는 코딩 에이전트로 전송되지 않습니다.
+요약을 게시하기 전에 워크플로는 `npx @agent-native/recap-cli@latest recap scan`를 실행하여 차이점에서 가능성 있는 비밀을 감지합니다. diff가 알려진 비밀 패턴과 일치하는 PR은 설명 주석과 함께 차단됩니다. 요약은 게시되지 않으며 diff 콘텐츠는 코딩 에이전트로 전송되지 않습니다.
 
 드물게 저장소에 의도적인 테스트 픽스처 또는 표면적으로 비밀 패턴과 유사한 비밀이 아닌 문자열(예: 테스트 파일의 픽스처 키)이 있습니다. 거짓 긍정을 억제하려면 저장소 루트에 `.github/recap-scan-allowlist`를 생성하세요.
 
@@ -436,7 +454,7 @@ EXAMPLE_API_KEY=placeholder-value
 
 ### 재사용 가능한 변형을 사용하는 이유는 무엇입니까?
 
-기본 설치 프로그램은 전체 ~360줄 워크플로 YAML를 저장소에 복사합니다(**복사** 옵션). 이는 실행되는 모든 라인을 감사해야 하는 에어 갭 저장소 또는 저장소에 적합한 선택입니다. 단점은 버그 수정 및 개선 사항이 사용자에게 전달되지 않는다는 것입니다. 각 릴리스 후에 `npx @agent-native/core@latest recap setup`를 수동으로 다시 실행해야 합니다.
+기본 설치 프로그램은 전체 ~360줄 워크플로 YAML를 저장소에 복사합니다(**복사** 옵션). 이는 실행되는 모든 라인을 감사해야 하는 에어 갭 저장소 또는 저장소에 적합한 선택입니다. 단점은 버그 수정 및 개선 사항이 사용자에게 전달되지 않는다는 것입니다. 각 릴리스 후에 `npx @agent-native/recap-cli@latest recap setup`를 수동으로 다시 실행해야 합니다.
 
 **재사용 가능** 옵션은 대신 ~20줄의 얇은 호출자를 작성합니다. `uses:`를 통해 `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml`에 위임합니다. 모든 호출자는 워크플로가 실행될 때 로컬 업데이트 없이 자동으로 최신 로직을 선택합니다.
 
@@ -449,7 +467,7 @@ EXAMPLE_API_KEY=placeholder-value
 
 ### 발신자 스니펫
 
-이것은 `npx @agent-native/core@latest recap setup --reusable`가 쓴 내용입니다(또는 수동으로 붙여넣을 수도 있습니다):
+이것은 `npx @agent-native/recap-cli@latest recap setup --reusable`가 쓴 내용입니다(또는 수동으로 붙여넣을 수도 있습니다):
 
 ```yaml
 name: PR Visual Recap
@@ -461,10 +479,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -484,7 +503,8 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
-      # cli-version: "latest"  # pin to a specific @agent-native/core version
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
+      # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
 [Secrets and variables](#secrets-and-variables)에 설명된 것과 동일한 비밀 및 변수가 적용됩니다. 재사용 가능한 호출자는 전체 작업에 `VISUAL_RECAP_RUNS_ON`을 `runs-on`으로, 게이트에 `VISUAL_RECAP_GATE_RUNS_ON`을 단일 레이블 `gate-runs-on`으로 전달합니다. 생략하면 둘 다 `ubuntu-latest`를 사용합니다.
@@ -493,15 +513,15 @@ jobs:
 
 ```bash
 # 전체 복사본 대신 씬 호출자를 작성합니다.
-npx @agent-native/core@latest recap setup --reusable
+npx @agent-native/recap-cli@latest recap setup --reusable
 
 # 또는 재현성을 위해 고정된 참조를 사용합니다.
-npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+npx @agent-native/recap-cli@latest recap setup --reusable --ref v1.2.3
 ```
 
 두 변형 모두 `.github/workflows/pr-visual-recap.yml`에 워크플로를 작성합니다. 기존 워크플로가 이미 있고 다른 경우 명령은 거부하고 `--force`를 전달하여 덮어쓰라고 지시합니다.
 
-작성 후 평소처럼 `npx @agent-native/core@latest recap doctor`를 실행하여 비밀이 구성되었는지 확인하세요.
+작성 후 평소처럼 `npx @agent-native/recap-cli@latest recap doctor`를 실행하여 비밀이 구성되었는지 확인하세요.
 
 ### 버전 고정
 
@@ -511,7 +531,7 @@ npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
 ```
 
-`cli-version` 입력은 `@agent-native/core` CLI 버전이 워크플로 내에서 실행되는 것을 제어합니다. 최신 릴리스를 추적하려면 `"latest"`에 남겨두거나 완전한 재현성을 위해 버전 문자열(예: `"1.5.0"`)에 고정하세요.
+`cli-version` 입력은 `@agent-native/recap-cli` CLI 버전이 워크플로 내에서 실행되는 것을 제어합니다. 최신 릴리스를 추적하려면 `"latest"`에 남겨두거나 완전한 재현성을 위해 버전 문자열(예: `"1.5.0"`)에 고정하세요.
 
 ### workflow_call 이벤트 컨텍스트
 

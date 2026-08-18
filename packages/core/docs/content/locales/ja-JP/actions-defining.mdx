@@ -1,0 +1,275 @@
+---
+title: "アクションを定義する"
+description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、アクション サーフェスを小さく保つ方法。"
+---
+
+# アクションを定義する
+
+すべてのアクションは `defineAction()` の呼び出しから始まります。これは、エージェント向けの description、入力を検証するスキーマ、実際の処理を行う `run` 関数を1つにまとめたもので、UI とエージェントはまったく同じコードを呼び出すことになります。
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="アクションの構造"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "ツール サーフェス",
+      note: "`description` は、いつこれを呼び出すかをエージェントが判断するために読む部分です。各フィールドの `.describe()` の呼び出しも JSON Schema に反映されます。",
+    },
+    {
+      lines: "8-11",
+      label: "型付き契約",
+      note: "1つのスキーマが**すべての**サーフェスからの入力を検証し、モデル向けの JSON Schema にも変換されます。無効な入力が `run` に届くことはありません。",
+    },
+    {
+      lines: "12-16",
+      label: "唯一の実装",
+      note: "`run` の本体が唯一の信頼できる情報源です。UI のボタンもエージェント ツールも、まったく同じこれを実行します。`getDb()` と `schema` は、アプリの `server/db/index.ts` から取得します。[データベース](/docs/database) を参照してください。",
+    },
+  ]}
+/>
+
+フレームワークは `actions/` 内のすべてのファイルを自動検出し、起動時にマウントします。手動で登録する必要はほかにありません。
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "以下はすべて1つの config オブジェクトです。必須なのは description、schema、run のみです。",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description:
+            "エージェントが、このアクションをいつ呼び出すかを判断するために読む内容。",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "すべてのサーフェスで入力を検証します。下記の「スキーマ オプション」を参照してください。",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "すべてのサーフェスが呼び出す唯一の実装。`ctx` 引数については「実行コンテキスト」を参照してください。",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "マウントされるメソッド/パスを上書きするか、HTTP エンドポイントを完全に無効化します。下記の「HTTP 設定」を参照してください。",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "`http.method` が GET のとき自動的に true になります。UI のポーリング再フェッチと書き込み監査をスキップします。アクセス制御ではありません。",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "`run()` の戻り値を検証します。下記の「戻り値を検証する」を参照してください。",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "出力が一致しなかった場合の挙動。",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            '`outputErrorStrategy` が "fallback" のとき、無効な結果の代わりに返されます。',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "変更を伴うアクションを、同じターン内の他のツール呼び出しと同時に実行できるようにします。",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "`false` に設定すると、すべてのエージェント ツール一覧から非表示になります。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "`false` に設定すると、サンドボックス化された拡張機能の iframe ブリッジからの呼び出しをブロックします。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "`{ expose: true }` を指定すると、このアクションを公開 MCP/A2A/OpenAPI サーフェスに追加します。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "`run()` の前にエージェント ループを一時停止し、人間の承認を待ちます。「人間参加型の承認」を参照してください。",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "この呼び出し元がそもそもこのアクションを実行してよいかどうかを判定するガード関数。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "変更を伴うすべてのアクションが既に受け取っている自動監査キャプチャを調整します。「監査ログ」を参照してください。",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "アクションの結果に対するネイティブ チャット UI のレンダラーを宣言します。「その他のサーフェス」を参照してください。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description:
+      "型付きのアクション定義。ファイルのデフォルト エクスポートとしてエクスポートしてください。",
+  }}
+/>
+
+## スキーマ オプション {#schemas}
+
+`schema` は、[Standard Schema](https://standardschema.dev) 互換のライブラリであれば何でも受け付けます。
+
+- **Zod** (v4): もっとも一般的な選択肢で、型推論が最も優れており、JSON Schema への自動変換にも対応しています。
+- **Valibot**: バンドル サイズが重要な場合に適した選択肢です。
+- **ArkType**: その構文が好みであれば良い選択肢です。
+
+スキーマは2つの役割を果たします。Claude API のツール定義向けに JSON Schema へ変換されることと、`run()` が発火する前に実行時に入力を検証することです。無効な入力がハンドラーに届くことはありません。
+
+## 戻り値を検証する {#output-schema}
+
+`schema` は _入力_ を検証します。アクションが **返す値** も検証したい場合は、`outputSchema` を渡してください (Zod、Valibot、ArkType など、`schema` と同じく任意の Standard Schema 互換スキーマを使えます)。フレームワークは `run()` の前に入力を検証し、`run()` が解決した後に結果を検証します。
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` は、不一致が起きたときの挙動を制御します。
+
+| 戦略         | 不一致時の挙動                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **デフォルト。** 問題点を `console.warn` に出力し、**元の**結果をそのまま返します。破壊的変更なし。 |
+| `"strict"`   | 明確なエラーをスローするため、アクションのバグに気づきやすくなります。                              |
+| `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` の値を返します。                                  |
+
+`run()` が成功すると、フレームワークは検証済みの値を返すため、`outputSchema` に設定されたデフォルト値や型変換が、入力の場合と同じように反映されます。`outputSchema` を渡さない場合、戻り値は変更されません。
+
+## HTTP 設定 {#http}
+
+デフォルトでは、すべてのアクションが `POST /_agent-native/actions/<name>` として公開されます。`http` オプションで上書きできます。
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+`GET` アクションの場合、`leadId` はクエリ パラメータとして渡されます: `/_agent-native/actions/get-lead?leadId=abc`。
+
+<Endpoint id="doc-block-actions-defining-3" title="自動マウントされるアクション エンドポイント" method="GET" path="/_agent-native/actions/get-lead" summary={"すべてのアクションはここに自動的にマウントされます。ファイル名がそのままアクション名になります。"} auth={"セッション Cookie (フロントエンドからの呼び出しには `X-Agent-Native-Frontend: 1` が付与されます)、または外部の呼び出し元向けの `Authorization: Bearer <token>`"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET の引数はクエリ パラメータとして届きます。POST の引数は JSON ボディとして届きます。"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "アクションの戻り値を JSON として返します。"
+  },
+  {
+    "status": "400",
+    "description": "run() が発火する前に、入力がスキーマ検証に失敗しました。"
+  }
+]}>
+
+POST がデフォルトで、`http: { method: "GET" }` を指定すると GET になります。React のフックと `callAction()` は、`http.path` の上書きに関わらず、常に名前でこのパスを呼び出します。外部システムは、長期間有効なベアラー トークンを使って同じルートを呼び出せます。[HTTP API](/docs/http-api) を参照してください。
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: デフォルトは `POST` です。`GET` アクションは自動的に `readOnly` としてマークされるため、成功した呼び出しが UI のポーリング再フェッチをトリガーすることはありません。
+- **`http: { path: "..." }`**: `/_agent-native/actions/` 配下にマウントされる URL を上書きします。デフォルトはファイル名です。この上書きは、直接 HTTP を呼び出す相手に対してのみ URL を変更します。`useActionQuery()`、`useActionMutation()`、`callAction()` は、この上書きに関わらず常に `/_agent-native/actions/<name>` を呼び出すため、パスを上書きするとこれらのフックは 404 になります。パスの上書きは、外部の HTTP 呼び出し元向けにのみ使用してください。また、上書きしたパス内の `:param` ルート セグメントは `run()` の引数として解析されない点にも注意してください。解析されるのは、クエリ文字列のパラメータと JSON ボディのフィールドのみです。
+- **`http: false`**: HTTP エンドポイントを完全に無効化します。呼び出せるのはエージェントと CLI のみになります。
+- **`readOnly: true`**: 何も変更しない `POST` アクションであっても、明示的にポーリング再フェッチをスキップします。これはアクセス制御ではありません。誰がこのアクションを呼び出せるかを制限するものではなく、`useActionQuery()`、`useActionMutation()`、その他どのクライアント フックにも影響しません。唯一の効果は、呼び出し後のリフレッシュ イベントを抑制することと、書き込み監査からアクションを除外することです。モデルからアクションを隠すには `agentTool: false` を使ってください。呼び出せる相手を制御するには、[アクセスと認可](/docs/actions-access-control) の認証・アクセス オプションを使ってください。
+- **`parallelSafe: true`**: 変更を伴うアクションを、同じターン内の他のツール呼び出しと同時に実行できるようにします。同時実行しても安全で、順序に依存しない場合にのみ設定してください。変更を伴うアクションは、デフォルトでは直列に実行されます。
+
+## アクション サーフェスを小さく保つ {#small-surface}
+
+エージェントから見えるアクションはすべて、モデルのツール一覧の枠を1つ消費します。一覧が長く、重複が多いほど、モデルが正しいツールを選ぶのが難しくなります。UI のボタン1つにつきアクション1つを作るのではなく、自分たちが保守する API のようにアクション サーフェスを設計してください。
+
+- `update-name`、`update-order`、`update-color` のようなフィールドごとの複数のアクションよりも、オプション フィールドのパッチを受け取る **CRUD スタイルの `update` アクションを1つ** 用意することを優先してください。呼び出し元は、変更されたフィールドだけを送信すればよくなります。
+- クエリやフィルターごとに新しい読み取りアクションを追加する前に、まずより汎用的な選択肢を検討してください。プロバイダー データには [provider API トリオ](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`、`provider-api-docs`、`provider-api-request`)、アプリ データには開発用の `db-query` ツールがあります。
+- UI 専用またはプログラム的なアクションには、[`agentTool: false`](/docs/actions-access-control#agent-tool) を付けてください。フロントエンドや HTTP からは引き続き呼び出せますが、モデルのツール一覧の枠は消費しません。
+- UI がもう使わなくなったアクションは、モデルに公開したままにせず、削除するか非表示にしてください。
+
+このリポジトリには、助言用のヘルパー `node scripts/audit-template-actions.mjs [template ...]` (エイリアス `pnpm actions:audit`) が含まれています。これはテンプレートの `actions/` フォルダをスキャンし、UI がもう使っていない可能性のあるアクションと、1つにまとめられそうなフィールドごとのアクション群にフラグを立てます。常に終了コード 0 を返して CI を落とすことはなく、そのヒューリスティックは控えめなので、その出力はエラーではなく提案として扱ってください。
+
+## 次は何ですか
+
+- [**概要**](/docs/actions-overview) — アクションとは何か、hello world のウォークスルー
+- [**アクセスと認可**](/docs/actions-access-control) — `agentTool`、`toolCallable`、`authorize`、`ctx` によるスコープ設定
+- [**実行コンテキスト**](/docs/actions-run-context) — `ctx` の全フィールド一覧表
+- [**その他のサーフェス**](/docs/actions-other-surfaces) — ネイティブ チャット UI、CLI、A2A、MCP、標準アクション
+- [**データベース**](/docs/database) — `run()` の中で使う `getDb()`/`schema`
+- [**データと同期**](/docs/client-data) — UI からこのアクションを呼び出す

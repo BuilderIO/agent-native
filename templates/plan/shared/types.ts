@@ -200,7 +200,7 @@ export interface PlanReport {
 export interface PlanBundle {
   plan: Plan;
   access?: {
-    role: "owner" | "viewer" | "editor" | "admin";
+    role: "owner" | "viewer" | "commenter" | "editor" | "admin";
     ownerEmail?: string | null;
     orgId?: string | null;
     visibility?: "private" | "org" | "public" | null;
