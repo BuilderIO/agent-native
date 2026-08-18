@@ -2031,6 +2031,56 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-new"]);
   });
 
+  it("does not create duplicate replacement threads when the final tab is closed twice", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1")];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:duplicate-close-test",
+      JSON.stringify(["thread-1"]),
+    );
+
+    let resolveReplacement: ((id: string) => void) | undefined;
+    threadMocks.createThread.mockImplementationOnce(async () => {
+      threadMocks.activeThreadId = "thread-new";
+      threadMocks.threads = [...threadMocks.threads, makeThread("thread-new")];
+      return await new Promise<string>((resolve) => {
+        resolveReplacement = resolve;
+      });
+    });
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="duplicate-close-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      headerProps?.closeTab("thread-1");
+      headerProps?.closeTab("thread-1");
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveReplacement?.("thread-new");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-new"]);
+  });
+
   // The persisted list is only one way a duplicate id reaches `openTabIds`.
   // Open requests made before the lazy chat panel mounts are buffered, and the
   // panel replays its whole backlog in one synchronous loop. Every handler in

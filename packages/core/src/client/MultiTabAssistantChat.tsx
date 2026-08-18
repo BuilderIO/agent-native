@@ -1556,6 +1556,7 @@ export function MultiTabAssistantChat({
   // optimistic id for a brand-new session); the activeThreadId effect above
   // adds it to openTabIds without spinning up a duplicate thread.
   const autoCreatingRef = useRef(false);
+  const lastTabReplacementInFlightRef = useRef(false);
   useEffect(() => {
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
@@ -2062,16 +2063,28 @@ export function MultiTabAssistantChat({
       // appeared to reopen itself right after closing.
       const prev = openTabIdsRef.current;
       if (prev.length <= 1) {
+        if (lastTabReplacementInFlightRef.current) return;
+        lastTabReplacementInFlightRef.current = true;
         // Last tab — create a new one and replace the old tab once ready;
         // the old tab stays visible in the meantime so the bar is never empty.
         cleanupClosedTab(tabId);
-        createThread().then((newId) => {
-          if (newId) {
-            newThreadIds.current.add(newId);
-            setOpenTabIds([newId]);
-            writeThreadUrl(null);
+        void (async () => {
+          try {
+            const newId = await createThread();
+            if (newId) {
+              newThreadIds.current.add(newId);
+              setOpenTabIds([newId]);
+              writeThreadUrl(null);
+            }
+          } catch (error) {
+            console.error(
+              "[agent-chat] failed to replace the closed final tab",
+              error,
+            );
+          } finally {
+            lastTabReplacementInFlightRef.current = false;
           }
-        });
+        })();
         return;
       }
       const next = prev.filter((id) => id !== tabId);
