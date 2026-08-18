@@ -2784,7 +2784,15 @@ fn segment_path_for(
     extension: &str,
     counter: u32,
 ) -> Result<PathBuf, String> {
-    pending_recording_path(app, &format!("{safe_id}-seg{counter}"), extension)
+    let base_path = pending_recording_path(app, safe_id, extension)?;
+    let base_stem = base_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "pending recording path has no valid file stem".to_string())?;
+    Ok(base_path.with_file_name(format!(
+        "{base_stem}-seg{counter}.{}",
+        extension.trim_start_matches('.')
+    )))
 }
 
 fn pending_recording_file_stem(safe_id: &str, pid: u32) -> String {
@@ -3551,9 +3559,16 @@ mod orphan_recovery_tests {
         assert!(is_recording_segment_path(Path::new(
             "clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4"
         )));
+        assert!(is_recording_segment_path(Path::new(
+            "clips-pending-recording-e4esSx9NZCZa-1234-seg2.mp4"
+        )));
         assert!(
             orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4")).is_none()
         );
+        assert!(orphan_recording_id(Path::new(
+            "clips-pending-recording-e4esSx9NZCZa-1234-seg2.mp4"
+        ))
+        .is_none());
         assert!(orphan_recording_id(Path::new("unrelated.mp4")).is_none());
     }
 
