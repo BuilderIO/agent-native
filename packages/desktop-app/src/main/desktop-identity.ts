@@ -650,7 +650,17 @@ export class DesktopIdentityBroker {
   ): Promise<boolean> {
     const pendingKey = `${generation}:${appId}`;
     if (this.completedModernAppSessions.has(pendingKey)) {
-      return Promise.resolve(true);
+      const app = this.options.resolveApp(appId);
+      if (!app) return Promise.resolve(false);
+      return this.hasAppSession(app).then((hasSession) => {
+        if (hasSession) return true;
+        this.completedModernAppSessions.delete(pendingKey);
+        return this.ensureModernAppSessionDeduped(
+          appId,
+          generation,
+          expectedEmail,
+        );
+      });
     }
     const existing = this.pendingModernAppSessions.get(pendingKey);
     if (existing) return existing;
