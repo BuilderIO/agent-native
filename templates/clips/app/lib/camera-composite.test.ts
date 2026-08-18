@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { clampToMaxDimension } from "./camera-composite";
+import {
+  cameraBubbleStrokeRadius,
+  clampToMaxDimension,
+} from "./camera-composite";
 
 describe("clampToMaxDimension", () => {
   it("preserves dimensions that are already within the composite ceiling", () => {
@@ -22,5 +25,15 @@ describe("clampToMaxDimension", () => {
       width: 1080,
       height: 1920,
     });
+  });
+});
+
+describe("cameraBubbleStrokeRadius", () => {
+  it("never returns a negative radius for a small startup bubble", () => {
+    expect(cameraBubbleStrokeRadius(1, 4)).toBe(0);
+  });
+
+  it("keeps the normal inset for a full-size bubble", () => {
+    expect(cameraBubbleStrokeRadius(200, 5)).toBe(97.5);
   });
 });
