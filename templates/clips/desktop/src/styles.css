@@ -3741,24 +3741,6 @@ body[data-clips-route="recording-pill"] #root {
   max-width: 440px;
 }
 
-.meeting-notification-bar {
-  width: 3px;
-  height: 36px;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
-
-.meeting-notification-bar-calendar {
-  background: #7dd3fc;
-}
-
-.meeting-notification-bar-adhoc {
-  background: transparent;
-  border-left: 3px dashed #a3a3a3;
-  width: 3px;
-  border-radius: 0;
-}
-
 .meeting-notification-content {
   flex: 1;
   min-width: 0;

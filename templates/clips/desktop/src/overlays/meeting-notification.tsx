@@ -314,7 +314,6 @@ export function MeetingNotification() {
     return <div className="meeting-notification-root" />;
   }
 
-  const isCalendar = data.type === "calendar";
   const hasJoin = Boolean(data.joinUrl);
   const provider = detectMeetingJoinProvider(data.joinUrl, data.platform);
   const providerName = joinProviderLabel(provider);
@@ -339,9 +338,6 @@ export function MeetingNotification() {
           resumeAutoHide();
         }}
       >
-        <div
-          className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
-        />
         <div className="meeting-notification-content">
           <div className="meeting-notification-title">{data.title}</div>
           <div className="meeting-notification-subtitle">{data.subtitle}</div>
