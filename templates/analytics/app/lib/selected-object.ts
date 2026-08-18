@@ -12,6 +12,9 @@ export async function readSelectedDashboardObject(): Promise<SelectedDashboardOb
     return value && typeof value === "object" && !Array.isArray(value)
       ? value
       : null;
+    // A browser-side selection probe: "could not read" and "nothing selected"
+    // drive the same UI, and throwing breaks route transitions.
+    // coercion-ok: unreadable selection and no selection render identically
   } catch {
     return null;
   }
