@@ -1538,6 +1538,7 @@ const hiIN = {
     localFileMode: "Local File Mode",
     fileUploads: "File uploads",
     deployment: "Deployment",
+    workspaceDeployment: "वर्कस्पेस परिनियोजन",
     environmentVariables: "पर्यावरण चर",
     progress: "Progress",
     authentication: "Authentication",

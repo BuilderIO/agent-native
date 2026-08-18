@@ -608,6 +608,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
+        id: "workspace-deployment",
+        labelKey: "workspaceDeployment",
+        slug: "workspace-deployment",
+      },
+      {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",

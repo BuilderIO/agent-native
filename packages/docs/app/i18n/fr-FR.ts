@@ -1549,6 +1549,7 @@ const frFR = {
     localFileMode: "Mode fichiers locaux",
     fileUploads: "Téléversements",
     deployment: "Déploiement",
+    workspaceDeployment: "Déploiement du Workspace",
     environmentVariables: "Variables d'environnement",
     progress: "Progression",
     authentication: "Authentification",

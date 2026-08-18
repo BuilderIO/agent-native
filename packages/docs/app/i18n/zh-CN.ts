@@ -1520,6 +1520,7 @@ const zhCN = {
     localFileMode: "本地文件模式",
     fileUploads: "文件上传",
     deployment: "部署",
+    workspaceDeployment: "工作区部署",
     environmentVariables: "环境变量",
     progress: "进度",
     authentication: "认证",

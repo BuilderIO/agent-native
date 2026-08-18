@@ -1548,6 +1548,7 @@ const deDE = {
     localFileMode: "Lokaler Dateimodus",
     fileUploads: "Datei-Uploads",
     deployment: "Deployment",
+    workspaceDeployment: "Workspace-Deployment",
     environmentVariables: "Umgebungsvariablen",
     progress: "Fortschritt",
     authentication: "Authentifizierung",

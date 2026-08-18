@@ -1518,6 +1518,7 @@ const messages = {
     localFileMode: "本機檔案模式",
     fileUploads: "檔案上傳",
     deployment: "部署",
+    workspaceDeployment: "工作區部署",
     environmentVariables: "環境變數",
     progress: "進度",
     authentication: "認證",

@@ -73,6 +73,7 @@ ar-SA|toolkit-settings
 ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
+ar-SA|workspace-deployment
 de-DE|agent-native-config
 de-DE|automation-connectors
 de-DE|docs-components
@@ -145,6 +146,7 @@ de-DE|toolkit-settings
 de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
+de-DE|workspace-deployment
 es-ES|agent-native-config
 es-ES|automation-connectors
 es-ES|docs-components
@@ -217,6 +219,7 @@ es-ES|toolkit-settings
 es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
+es-ES|workspace-deployment
 fr-FR|agent-native-config
 fr-FR|automation-connectors
 fr-FR|docs-components
@@ -289,6 +292,7 @@ fr-FR|toolkit-settings
 fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
+fr-FR|workspace-deployment
 hi-IN|agent-native-config
 hi-IN|automation-connectors
 hi-IN|docs-components
@@ -361,6 +365,7 @@ hi-IN|toolkit-settings
 hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
+hi-IN|workspace-deployment
 ja-JP|agent-native-config
 ja-JP|automation-connectors
 ja-JP|docs-components
@@ -433,6 +438,7 @@ ja-JP|toolkit-settings
 ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
+ja-JP|workspace-deployment
 ko-KR|agent-native-config
 ko-KR|automation-connectors
 ko-KR|docs-components
@@ -505,6 +511,7 @@ ko-KR|toolkit-settings
 ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
+ko-KR|workspace-deployment
 pt-BR|agent-native-config
 pt-BR|automation-connectors
 pt-BR|docs-components
@@ -577,6 +584,7 @@ pt-BR|toolkit-settings
 pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
+pt-BR|workspace-deployment
 zh-CN|agent-native-config
 zh-CN|automation-connectors
 zh-CN|docs-components
@@ -649,6 +657,7 @@ zh-CN|toolkit-settings
 zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
+zh-CN|workspace-deployment
 zh-TW|agent-native-config
 zh-TW|automation-connectors
 zh-TW|docs-components
@@ -720,3 +729,4 @@ zh-TW|toolkit-settings
 zh-TW|toolkit-setup-connections
 zh-TW|toolkit-sharing
 zh-TW|toolkit-ui
+zh-TW|workspace-deployment

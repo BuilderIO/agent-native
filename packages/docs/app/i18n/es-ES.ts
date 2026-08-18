@@ -1548,6 +1548,7 @@ const esES = {
     localFileMode: "Modo de archivos locales",
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
+    workspaceDeployment: "Despliegue del Workspace",
     environmentVariables: "Variables de entorno",
     progress: "Progreso",
     authentication: "Autenticación",

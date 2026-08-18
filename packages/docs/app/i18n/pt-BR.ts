@@ -1544,6 +1544,7 @@ const ptBR = {
     localFileMode: "Modo de arquivos locais",
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
+    workspaceDeployment: "Deploy do Workspace",
     environmentVariables: "Variáveis de ambiente",
     progress: "Progresso",
     authentication: "Autenticação",

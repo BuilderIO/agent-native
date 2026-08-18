@@ -1538,6 +1538,7 @@ const enUS = {
     localFileMode: "Local File Mode",
     fileUploads: "File Uploads",
     deployment: "Deployment",
+    workspaceDeployment: "Workspace Deployment",
     environmentVariables: "Environment Variables",
     progress: "Progress",
     authentication: "Authentication",

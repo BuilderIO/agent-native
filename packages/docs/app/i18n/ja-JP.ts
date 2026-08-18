@@ -1545,6 +1545,7 @@ const jaJP = {
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
+    workspaceDeployment: "ワークスペースのデプロイ",
     environmentVariables: "環境変数",
     progress: "進行状況",
     authentication: "認証",

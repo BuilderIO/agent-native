@@ -1541,6 +1541,7 @@ const koKR = {
     localFileMode: "로컬 파일 모드",
     fileUploads: "파일 업로드",
     deployment: "배포",
+    workspaceDeployment: "워크스페이스 배포",
     environmentVariables: "환경 변수",
     progress: "진행 상황",
     authentication: "인증",

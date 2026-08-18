@@ -1536,6 +1536,7 @@ const arSA = {
     localFileMode: "Local File Mode",
     fileUploads: "تحميلات الملفات",
     deployment: "Deployment",
+    workspaceDeployment: "نشر مساحة العمل",
     environmentVariables: "متغيرات البيئة",
     progress: "Progress",
     authentication: "Authentication",
