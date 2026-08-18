@@ -1169,14 +1169,23 @@ const SUBSCHEMA_MAP_KEYS = [
 ] as const;
 
 /**
- * Remove JSON Schema keywords that some providers' function-calling schema
- * validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * Remove or rewrite JSON Schema keywords that some providers' function-calling
+ * schema validators reject. OpenAI (and Gemini via the Builder gateway) reject
  * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
  * `400 invalid_function_parameters` error, causing the model turn to produce no
  * content (surfacing as an empty assistant response). Anthropic ignores the
  * keyword, so stripping it is safe across providers and keeps action schemas
  * portable. `propertyNames` only constrained object *keys*; the value/shape of
  * the object is unaffected by its removal.
+ *
+ * OpenAI rejects `oneOf` the same way — "Invalid schema for function 'x': …
+ * 'oneOf' is not permitted" — while accepting `anyOf`. Zod v4's `toJSONSchema`
+ * emits `oneOf` for every `z.discriminatedUnion`, so any action with one was
+ * 400'd for the whole request before a token streamed, and the gateway folded
+ * that 400 into a generic 500. Measured: 178k events / 786 users over seven
+ * weeks from a single action. For a discriminated union the two keywords accept
+ * the same documents, and the tool-input validator already handles both
+ * (see `narrowUnionBranchErrors`), so the rewrite is behaviour-preserving.
  *
  * Only descends through actual subschema positions (properties, items, union
  * branches, definitions, etc.) — never through value-bearing keywords like
@@ -1211,6 +1220,14 @@ function stripUnsupportedSchemaKeywords<T>(node: T): T {
         stripUnsupportedSchemaKeywords(sub);
       }
     }
+  }
+  // After descending, so nested unions are rewritten too. Merged rather than
+  // overwritten on the pathological case where a schema carries both: dropping
+  // either arm would silently narrow what the tool accepts.
+  if (Array.isArray(obj.oneOf)) {
+    const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
+    obj.anyOf = [...existing, ...obj.oneOf];
+    delete obj.oneOf;
   }
   return node;
 }

@@ -16,8 +16,12 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const settings = new Map<string, Record<string, unknown>>();
+let settingsReadThrows = false;
 vi.mock("../settings/store.js", () => ({
-  getSetting: vi.fn(async (key: string) => settings.get(key) ?? null),
+  getSetting: vi.fn(async (key: string) => {
+    if (settingsReadThrows) throw new Error("settings unreadable");
+    return settings.get(key) ?? null;
+  }),
   putSetting: vi.fn(async (key: string, value: Record<string, unknown>) => {
     settings.set(key, value);
   }),
@@ -39,6 +43,7 @@ beforeEach(() => {
   memberRows = [{ email: "owner@example.com" }];
   turnQueryThrows = false;
   settings.clear();
+  settingsReadThrows = false;
   notify.mockClear();
   execute.mockClear();
 });
@@ -94,6 +99,16 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("check-failed");
     expect(out.status).not.toBe("healthy");
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  // An unreadable cooldown stamp is not an absent one. Treating it as absent
+  // pages on every sweep for as long as settings stay unreadable.
+  it("does not page when the cooldown stamp cannot be read", async () => {
+    turns(20, 15);
+    settingsReadThrows = true;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out.status).toBe("check-failed");
     expect(notify).not.toHaveBeenCalled();
   });
 
