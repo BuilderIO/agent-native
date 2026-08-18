@@ -69,17 +69,17 @@ then run /visual-plan on my current branch before writing any code.`;
 
 const PLAN_VIDEO_PREVIEWS = [
   {
-    title: "Steve visual plans 1",
+    title: "Triggering code to diagram itself",
     href: "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
     thumbnail: "https://clips.agent-native.com/api/thumbnail/F5l6RppFaQDF",
   },
   {
-    title: "Steve visual plans 2",
+    title: "Better, more visual plans for Claude Code",
     href: "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
     thumbnail: "https://clips.agent-native.com/api/thumbnail/F6SlN9TdlK30",
   },
   {
-    title: "Steve visual plans 3",
+    title: "Visual MDX Plans for APIs, UIs, and Flows",
     href: "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
     thumbnail: "https://clips.agent-native.com/api/thumbnail/YuM1nM1pcX3e",
   },
