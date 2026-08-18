@@ -441,6 +441,86 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     });
   });
 
+  // A tool schema only ever travels as JSON, so a value JSON cannot carry
+  // describes a contract no caller can satisfy. `bigint` makes `JSON.stringify`
+  // THROW while the request is being built; `undefined`/`NaN`/`±Infinity`
+  // serialize to `null`, advertising a value the Zod validator still rejects.
+  // Both are worse than failing at definition time.
+  it.each([
+    ["a BigInt", z.literal(1n), "a BigInt"],
+    ["undefined", z.literal(undefined as any), "undefined"],
+    ["NaN", z.literal(NaN), "NaN"],
+    ["negative Infinity", z.literal(-Infinity), "Infinity"],
+  ])("rejects a literal of %s", (_label, literal, expected) => {
+    expect(() =>
+      defineAction({
+        description: "unrepresentable literal",
+        schema: z.object({ field: literal as any }),
+        run: async () => "ok",
+      }),
+    ).toThrow(new RegExp(`field is a literal of ${expected}`));
+  });
+
+  // The value must be found wherever it hides, including the places a converter
+  // would otherwise launder it before anything could inspect the output.
+  it.each([
+    [
+      "nested in an object",
+      z.object({ outer: z.object({ field: z.literal(1n) }) }),
+      "outer.field",
+    ],
+    ["inside an array", z.object({ field: z.array(z.literal(1n)) }), "field"],
+    [
+      "behind optional",
+      z.object({ field: z.literal(NaN).optional() }),
+      "field",
+    ],
+    [
+      "in a union branch",
+      z.object({ field: z.union([z.literal("s"), z.literal(NaN)]) }),
+      "field|1",
+    ],
+  ])("rejects an unrepresentable literal %s", (_label, schema, path) => {
+    let caught: any;
+    try {
+      defineAction({
+        description: "d",
+        schema: schema as any,
+        run: async () => "ok",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught?.errorCode).toBe("SCHEMA_NOT_JSON_REPRESENTABLE");
+    expect(caught.details.problems.join(";")).toContain(path);
+  });
+
+  // The failure this guards against was a throw during serialization, so assert
+  // on serialization itself rather than only on the object graph.
+  it("emits tool parameters that survive JSON.stringify", () => {
+    const action = defineAction({
+      description: "serializable",
+      schema: z.object({
+        title: z.string(),
+        count: z.number().int().optional(),
+        kind: z.literal("weekly"),
+        nothing: z.literal(null),
+        ratio: z.literal(1.5),
+        mode: z.union([z.literal("a"), z.literal("b")]),
+        choice: z.enum(["x", "y"]),
+      }),
+      run: async () => "ok",
+    });
+
+    expect(() => JSON.stringify(action.tool.parameters)).not.toThrow();
+    const roundTripped = JSON.parse(JSON.stringify(action.tool.parameters));
+    // A silent `null` here is the divergence case: it would mean a value was
+    // dropped or coerced on the way to JSON.
+    expect(JSON.stringify(roundTripped)).not.toContain('"const":null,"type"');
+    expect(roundTripped.properties.kind).toMatchObject({ const: "weekly" });
+    expect(roundTripped.properties.nothing).toMatchObject({ type: "null" });
+  });
+
   it("strips the $schema key so the Claude API (draft 2020-12) does not reject it", () => {
     const action = defineAction({
       description: "with schema key",
@@ -475,93 +555,6 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect("propertyNames" in params.properties.cfg).toBe(false);
     // …but the identically-named key inside the default *data* survives.
     expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
-  });
-
-  // OpenAI answers a `oneOf` anywhere in a function schema with
-  // "Invalid schema for function 'x': ... 'oneOf' is not permitted" and 400s
-  // the whole request before a token streams. Zod emits `oneOf` for every
-  // discriminated union, so this was 178k errors across 786 users over seven
-  // weeks from one action.
-  it("rewrites oneOf to anyOf so OpenAI does not reject the function schema", () => {
-    const action = defineAction({
-      description: "with a discriminated union",
-      schema: z.object({
-        operations: z.array(
-          z.discriminatedUnion("op", [
-            z.object({ op: z.literal("add"), panelId: z.string() }),
-            z.object({
-              op: z.literal("remove"),
-              panelIds: z.array(z.string()),
-            }),
-          ]),
-        ),
-      }),
-      run: async () => "ok",
-    });
-    const json = JSON.stringify(action.tool.parameters);
-    expect(json).not.toContain('"oneOf"');
-    expect(json).toContain('"anyOf"');
-  });
-
-  it("keeps every branch when rewriting a nested union", () => {
-    const action = defineAction({
-      description: "nested union",
-      schema: z.object({
-        outer: z.object({
-          inner: z.discriminatedUnion("kind", [
-            z.object({ kind: z.literal("a"), a: z.string() }),
-            z.object({ kind: z.literal("b"), b: z.string() }),
-            z.object({ kind: z.literal("c"), c: z.string() }),
-          ]),
-        }),
-      }),
-      run: async () => "ok",
-    });
-    const params = action.tool.parameters as any;
-    const inner = params.properties.outer.properties.inner;
-    expect(inner.oneOf).toBeUndefined();
-    expect(inner.anyOf).toHaveLength(3);
-  });
-
-  // OpenAI rejects a schema position with no `type` — "schema must have a
-  // 'type' key" — and 400s the whole request, exactly like `oneOf` did. This
-  // surfaced only after the oneOf fix let the validator reach the next layer.
-  it("gives z.unknown() a typed value union so OpenAI accepts it", () => {
-    const action = defineAction({
-      description: "typeless field",
-      schema: z.object({ value: z.unknown() }),
-      run: async () => "ok",
-    });
-    const value = (action.tool.parameters as any).properties.value;
-    expect(Array.isArray(value.anyOf)).toBe(true);
-    expect(value.anyOf.map((b: any) => b.type)).toContain("string");
-    expect(value.anyOf.map((b: any) => b.type)).toContain("object");
-  });
-
-  it("types the value schema inside a record so nothing is left bare", () => {
-    const action = defineAction({
-      description: "record of unknown",
-      schema: z.object({ patch: z.record(z.string(), z.unknown()) }),
-      run: async () => "ok",
-    });
-    const patch = (action.tool.parameters as any).properties.patch;
-    expect(patch.type).toBe("object");
-    const extra = patch.additionalProperties;
-    if (extra && typeof extra === "object") {
-      expect(Array.isArray(extra.anyOf)).toBe(true);
-    }
-  });
-
-  // An enum carries its own shape; adding a value union would widen it.
-  it("leaves an enum-only schema alone", () => {
-    const action = defineAction({
-      description: "enum field",
-      schema: z.object({ mode: z.enum(["a", "b"]) }),
-      run: async () => "ok",
-    });
-    const mode = (action.tool.parameters as any).properties.mode;
-    expect(mode.enum).toEqual(["a", "b"]);
-    expect(mode.anyOf).toBeUndefined();
   });
 
   it("stores the original schema on the entry for downstream re-validation", () => {

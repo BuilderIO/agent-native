@@ -229,6 +229,55 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Retry");
   });
 
+  // The gateway 500 is no longer auto-recoverable (0 recoveries in 97 production
+  // runs), so `recoverable` is absent and Continue is correctly gone. Its own copy
+  // still ends with "Retry in a moment", so without an explicit branch the card
+  // would be the dead end that sentence points at.
+  it("offers a working Retry for the gateway internal-error envelope", async () => {
+    const onRetry = vi.fn();
+    const onContinue = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
+              errorCode: "builder_gateway_internal_error",
+              details:
+                "Sorry, we ran into an issue processing your request. ERROR ID: 4dbb6f30593c44d093090a37a99012a2",
+            }}
+            onContinue={onContinue}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    expect(retry).toBeTruthy();
+
+    await act(async () => {
+      retry!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    // Not recoverable, so no Continue — auto-continuing is what burned 28 runs.
+    const labels = [...container.querySelectorAll("button")].map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(labels).not.toContain("Continue");
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
   it("dismisses the recovery card after saving a provider key", async () => {
     const onDismiss = vi.fn();
 

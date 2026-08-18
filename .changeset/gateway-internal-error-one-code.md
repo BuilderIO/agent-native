@@ -32,3 +32,12 @@ invented type on a nested field passes validation, reaches the provider, and com
 back as the opaque ERROR ID envelope — on every retry, because the same malformed
 schema is resent verbatim. Literal values are now read from `values`, and no
 literal can emit a type outside the seven JSON Schema names.
+
+An action schema carrying a literal that JSON cannot represent is now rejected when
+the action is defined, rather than producing a broken request later. A `bigint`
+literal made `JSON.stringify` throw while the request was being built, and
+`undefined`, `NaN`, and `±Infinity` serialized to `null` — advertising a value the
+Zod validator still rejects, so the schema and the validator disagreed with nothing
+in the output left to detect it from. The check runs against the Zod def as well as
+the emitted schema, because Zod's own converter turns `z.literal(NaN)` into
+`const: null` before the emitted schema can be inspected.
