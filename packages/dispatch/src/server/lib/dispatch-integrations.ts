@@ -130,6 +130,26 @@ async function resolveManagedSlackInstallation(incoming: IncomingMessage) {
   );
 }
 
+class ManagedSlackInstallationLookupError extends Error {
+  constructor(options?: ErrorOptions) {
+    super(
+      "Managed Slack installation identity is temporarily unavailable",
+      options,
+    );
+    this.name = "ManagedSlackInstallationLookupError";
+  }
+}
+
+async function resolveManagedSlackInstallationOrFail(
+  incoming: IncomingMessage,
+) {
+  try {
+    return await resolveManagedSlackInstallation(incoming);
+  } catch (cause) {
+    throw new ManagedSlackInstallationLookupError({ cause });
+  }
+}
+
 async function resolveManagedSlackToken(
   incoming: IncomingMessage,
 ): Promise<string | null> {
@@ -302,11 +322,17 @@ async function resolveManagedSlackDmExecutionContext(
     return deniedContext();
   }
 
-  const linkedOwner = await resolveLinkedOwner(
-    "slack",
-    identityKeyForIncoming(incoming),
-    { orgId: installation.orgId },
-  );
+  let linkedOwner: string | null;
+  try {
+    linkedOwner = await resolveLinkedOwner(
+      "slack",
+      identityKeyForIncoming(incoming),
+      { orgId: installation.orgId },
+    );
+  } catch {
+    incoming.platformContext.identityVerificationFailed = true;
+    return deniedContext();
+  }
   const candidates = [linkedOwner, profile.email].filter(
     (email, index, values): email is string =>
       !!email && values.indexOf(email) === index,
@@ -451,7 +477,18 @@ export async function resolveDispatchExecutionContext(
   incoming: IncomingMessage,
 ): Promise<IntegrationExecutionContext> {
   if (incoming.platform === "slack" && incoming.triggerKind === "dm") {
-    const installation = await resolveManagedSlackInstallation(incoming);
+    let installation;
+    try {
+      installation = await resolveManagedSlackInstallationOrFail(incoming);
+    } catch (error) {
+      if (!(error instanceof ManagedSlackInstallationLookupError)) throw error;
+      incoming.platformContext.identityVerificationFailed = true;
+      return {
+        ownerEmail: fallbackOwnerForIncoming(incoming),
+        orgId: null,
+        principalType: "user",
+      };
+    }
     if (installation) {
       return resolveManagedSlackDmExecutionContext(incoming, installation);
     }
@@ -475,7 +512,7 @@ export async function resolveDispatchExecutionContext(
     };
   }
 
-  const installation = await resolveManagedSlackInstallation(incoming);
+  const installation = await resolveManagedSlackInstallationOrFail(incoming);
   if (!installation) {
     // Preserve the legacy manually configured app path while managed installs
     // roll out. Its behavior remains explicit and visible in Settings.

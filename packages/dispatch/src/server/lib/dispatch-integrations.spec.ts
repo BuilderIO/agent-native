@@ -451,6 +451,104 @@ describe("beforeDispatchProcess", () => {
 });
 
 describe("managed Slack execution identity", () => {
+  it("fails closed with retry guidance when managed installation lookup is unavailable", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockRejectedValueOnce(
+      new Error("installation store unavailable"),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-ALICE",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    expect(execution.orgId).toBeNull();
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+  });
+
+  it("fails closed with retry guidance when linked identity lookup is unavailable", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockRejectedValueOnce(
+      new Error("identity link store unavailable"),
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "alice@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-ALICE",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+  });
+
+  it("does not borrow a user principal when managed channel installation lookup is unavailable", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockRejectedValueOnce(
+      new Error("installation store unavailable"),
+    );
+
+    await expect(
+      resolveDispatchExecutionContext(
+        slackIncoming({
+          senderId: "U-MANAGED-ALICE",
+          triggerKind: "mention",
+          conversationType: "channel",
+          platformContext: {
+            teamId: "T-MANAGED",
+            channelId: "C-MANAGED",
+            channelType: "channel",
+          },
+        }),
+      ),
+    ).rejects.toThrow(
+      "Managed Slack installation identity is temporarily unavailable",
+    );
+    expect(mocks.resolveLinkedOwner).not.toHaveBeenCalled();
+  });
+
   it("uses the verified member in the installation org and ignores the deployment default", async () => {
     vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
     mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(

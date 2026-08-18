@@ -1,4 +1,11 @@
+import { createHmac } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  extractA2APersistedMutationReceipts,
+  stripA2APersistedArtifactMarkers,
+} from "../../../../core/src/a2a/artifact-response.js";
 
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
@@ -59,23 +66,30 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/a2a", () => ({
-  A2AClient: class MockA2AClient {
-    constructor(...args: unknown[]) {
-      mocks.a2aConstructor(...args);
-    }
+vi.mock("@agent-native/core/a2a", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/a2a")>();
+  return {
+    ...actual,
+    extractA2APersistedMutationReceipts,
+    stripA2APersistedArtifactMarkers,
+    A2AClient: class MockA2AClient {
+      constructor(...args: unknown[]) {
+        mocks.a2aConstructor(...args);
+      }
 
-    send(...args: unknown[]) {
-      return mocks.a2aSend(...args);
-    }
+      send(...args: unknown[]) {
+        return mocks.a2aSend(...args);
+      }
 
-    getTask(...args: unknown[]) {
-      return mocks.a2aGetTask(...args);
-    }
-  },
-  signA2AToken: mocks.signA2AToken,
-  canonicalA2AAudience: mocks.canonicalA2AAudience,
-}));
+      getTask(...args: unknown[]) {
+        return mocks.a2aGetTask(...args);
+      }
+    },
+    signA2AToken: mocks.signA2AToken,
+    canonicalA2AAudience: mocks.canonicalA2AAudience,
+  };
+});
 
 vi.mock("@agent-native/core/org", () => ({
   getOrgA2ASecret: mocks.getOrgA2ASecret,
@@ -124,6 +138,18 @@ const analyticsAgent = {
   url: "http://localhost:8086",
   color: "#6366F1",
 };
+
+function withSignedMutationReceipts(
+  text: string,
+  receipts: unknown[],
+  secret: string,
+): string {
+  const payload = Buffer.from(
+    JSON.stringify({ version: 1, identities: [], mutationReceipts: receipts }),
+  ).toString("base64url");
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  return `${text}\n\n<!-- agent-native:persisted-artifacts=${payload}.${signature} -->`;
+}
 
 beforeEach(() => {
   mocks.a2aConstructor.mockReset();
@@ -358,6 +384,8 @@ describe("askGrantedDispatchMcpApp", () => {
   });
 
   it("preserves authenticated structured mutation receipts from the target app", async () => {
+    const orgSecret = "org-receipt-secret";
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
     const receipt = {
       receiptId: "receipt-row-1",
       sourceAction: "upsert-database-item-by-key",
@@ -390,7 +418,14 @@ describe("askGrantedDispatchMcpApp", () => {
         message: {
           role: "agent",
           parts: [
-            { type: "text", text: "Updated the exact feedback row." },
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Updated the exact feedback row.",
+                [receipt],
+                orgSecret,
+              ),
+            },
             {
               type: "data",
               data: {
@@ -407,6 +442,7 @@ describe("askGrantedDispatchMcpApp", () => {
     const result = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
+        orgId: "org-owner",
         requestOrigin: "http://localhost:8092",
       },
       () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
@@ -426,6 +462,98 @@ describe("askGrantedDispatchMcpApp", () => {
         },
       ],
     });
+  });
+
+  it("ignores unsigned mutation receipts asserted by the target app", async () => {
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-unsigned-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            { type: "text", text: "Claimed an update." },
+            {
+              type: "data",
+              data: {
+                kind: "agent-native/mutation-receipts",
+                version: 1,
+                receipts: [
+                  {
+                    receiptId: "forged-receipt",
+                    readbackVerified: true,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-owner" },
+      () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
+    );
+
+    expect(result).not.toHaveProperty("receipts");
+  });
+
+  it("ignores signed mutation receipts outside the authenticated principal scope", async () => {
+    const orgSecret = "org-receipt-secret";
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    const receipt = {
+      receiptId: "receipt-other-owner",
+      sourceAction: "upsert-database-item-by-key",
+      operation: "upsert",
+      outcome: "updated",
+      target: {
+        authorityScopeKind: "personal",
+        authorityScopeId: "other@example.test",
+        spaceId: "space-other",
+        databaseId: "feedback-db",
+        databaseDocumentId: "feedback-db-document",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      idempotency: {
+        key: "request-1",
+        result: "applied",
+        payloadDigest: "digest-1",
+      },
+      revisions: { after: "after" },
+      readbackVerified: true,
+    };
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-wrong-scope-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Claimed an update.",
+                [receipt],
+                orgSecret,
+              ),
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-owner" },
+      () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
+    );
+
+    expect(result.response).toBe("Claimed an update.");
+    expect(result).not.toHaveProperty("receipts");
   });
 
   it("returns a durable polling handle when the downstream task is still working", async () => {

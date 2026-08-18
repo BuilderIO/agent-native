@@ -1,7 +1,10 @@
 import {
   A2AClient,
   canonicalA2AAudience,
+  extractA2APersistedMutationReceipts,
   signA2AToken,
+  stripA2APersistedArtifactMarkers,
+  type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -108,49 +111,39 @@ function dispatchTaskText(task: Task): string {
   );
 }
 
-type DispatchMutationReceipt = {
-  receiptId: string;
-  sourceAction: string;
-  row: { itemId?: string; documentId: string; urlPath: string };
-  idempotency: {
-    result: "applied" | "replayed";
-    [key: string]: unknown;
-  };
-  readbackVerified: true;
-  [key: string]: unknown;
-};
+type DispatchMutationReceipt = A2APersistedMutationReceipt;
 
-function dispatchTaskMutationReceipts(task: Task): DispatchMutationReceipt[] {
-  const parts = task.status.message?.parts ?? [];
-  for (const part of parts) {
-    if (part.type !== "data" || !part.data || typeof part.data !== "object")
-      continue;
-    const data = part.data as Record<string, unknown>;
-    if (
-      data.kind !== "agent-native/mutation-receipts" ||
-      data.version !== 1 ||
-      !Array.isArray(data.receipts)
-    ) {
-      continue;
-    }
-    return data.receipts
-      .filter((value): value is DispatchMutationReceipt => {
-        if (!value || typeof value !== "object" || Array.isArray(value))
-          return false;
-        const receipt = value as Partial<DispatchMutationReceipt>;
-        return (
-          typeof receipt.receiptId === "string" &&
-          typeof receipt.sourceAction === "string" &&
-          receipt.readbackVerified === true &&
-          typeof receipt.row?.documentId === "string" &&
-          typeof receipt.row?.urlPath === "string" &&
-          (receipt.idempotency?.result === "applied" ||
-            receipt.idempotency?.result === "replayed")
-        );
-      })
-      .slice(0, 12);
+function dispatchTaskMutationReceipts(
+  task: Task,
+  identity: {
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
+): DispatchMutationReceipt[] {
+  const text = dispatchTaskText(task);
+  if (!text) return [];
+  const result = [{ tool: "call-agent", result: text }];
+  const receipts = extractA2APersistedMutationReceipts(result);
+  if (receipts.length === 0 && identity.orgSecret) {
+    receipts.push(
+      ...extractA2APersistedMutationReceipts(result, {
+        persistedArtifactSecrets: [identity.orgSecret],
+      }),
+    );
   }
-  return [];
+  return receipts.filter((receipt) => {
+    if (receipt.target.authorityScopeKind === "personal") {
+      return (
+        receipt.target.authorityScopeId.toLowerCase() ===
+        identity.userEmail.toLowerCase()
+      );
+    }
+    return (
+      identity.orgId !== null &&
+      receipt.target.authorityScopeId === identity.orgId
+    );
+  });
 }
 
 type DispatchAskAppStatusErrorCategory =
@@ -180,10 +173,15 @@ type DispatchAskAppTaskResult = {
 function dispatchAskAppTaskResult(
   app: string,
   task: Task,
+  identity: {
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
 ): DispatchAskAppTaskResult {
   const status = String(task.status.state);
-  const response = dispatchTaskText(task);
-  const receipts = dispatchTaskMutationReceipts(task);
+  const response = stripA2APersistedArtifactMarkers(dispatchTaskText(task));
+  const receipts = dispatchTaskMutationReceipts(task, identity);
   const base = {
     app,
     routedVia: "a2a" as const,
@@ -847,7 +845,11 @@ export async function askGrantedDispatchMcpApp(
     { async: true, metadata },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
-  return dispatchAskAppTaskResult(target.id, finalOrRunning);
+  return dispatchAskAppTaskResult(target.id, finalOrRunning, {
+    userEmail,
+    orgId: orgId ?? null,
+    orgSecret: orgSecret ?? null,
+  });
 }
 
 export async function getGrantedDispatchMcpAppTask(
@@ -882,7 +884,11 @@ export async function getGrantedDispatchMcpAppTask(
     const startedAt = Date.now();
     try {
       const task = await client.getTask(trimmedTaskId);
-      return dispatchAskAppTaskResult(target.id, task);
+      return dispatchAskAppTaskResult(target.id, task, {
+        userEmail,
+        orgId: orgId ?? null,
+        orgSecret: orgSecret ?? null,
+      });
     } catch (err) {
       const delayMs = DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
       const errorCategory = dispatchAskAppStatusErrorCategory(err);
