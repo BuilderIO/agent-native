@@ -434,12 +434,16 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
     [workspaceAppsQuery.data],
   );
+  const visibleWorkspaceApps = useMemo(
+    () => workspaceApps.filter((item) => !item.archived),
+    [workspaceApps],
+  );
   const workspaceApp = useMemo(
     () =>
-      workspaceApps.find(
+      visibleWorkspaceApps.find(
         (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
       ) ?? null,
-    [appId, workspaceApps],
+    [appId, visibleWorkspaceApps],
   );
   const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
     "list_apps",
@@ -454,7 +458,7 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
   const apps = useMemo(() => {
     const merged = new Map<string, WorkspaceAppSummary>();
 
-    for (const app of workspaceApps) {
+    for (const app of visibleWorkspaceApps) {
       merged.set(app.id.trim().toLowerCase(), app);
     }
     for (const app of grantedAppsQuery.data?.apps ?? []) {
@@ -470,7 +474,7 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     }
 
     return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, workspaceApps]);
+  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps]);
   const app = useMemo(
     () =>
       apps.find(

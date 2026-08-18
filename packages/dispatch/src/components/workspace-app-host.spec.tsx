@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientState = vi.hoisted(() => {
@@ -25,6 +26,7 @@ const clientState = vi.hoisted(() => {
     actionNames,
     actionQueryParams,
     actionQueryOptions,
+    workspaceApps: null as Array<Record<string, unknown>> | null,
     grantedApps: [
       {
         id: "analytics.agent-native.com",
@@ -116,7 +118,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       data:
         name === "list_apps"
           ? { apps: clientState.grantedApps }
-          : [
+          : (clientState.workspaceApps ?? [
               {
                 id: "mail",
                 name: "Mail",
@@ -145,7 +147,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
                 url: null,
                 status: "ready",
               },
-            ],
+            ]),
       isError: false,
       isLoading: false,
       refetch: vi.fn(),
@@ -175,6 +177,7 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.actionNames.length = 0;
     clientState.actionQueryParams.length = 0;
     clientState.actionQueryOptions.length = 0;
+    clientState.workspaceApps = null;
     clientState.legacyMutateAsync.mockClear();
     clientState.legacyMutateError = null;
     clientState.legacyErrorMutateAsync.mockReset();
@@ -257,6 +260,34 @@ describe("WorkspaceAppKeepAlive", () => {
       clientState.actionQueryOptions.find((query) => query.name === "list_apps")
         ?.options?.enabled,
     ).toBe(true);
+  });
+
+  it("does not resolve archived workspace apps for direct routes", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "hidden-app",
+        name: "Hidden app",
+        path: "/hidden-app",
+        url: null,
+        status: "ready",
+        archived: true,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <WorkspaceAppKeepAlive activeAppId="hidden-app" />
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-chat-first-app-status="ready"]'),
+    ).toBeNull();
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
   });
 
   it("uses the app-scoped workspace session action when the rollout is enabled", async () => {
