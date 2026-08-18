@@ -2955,8 +2955,7 @@ function createAuthGuardFn(
 
     const session = await getSession(event);
     if (session) {
-      const workspaceAppId =
-        process.env.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() || "";
+      const workspaceAppId = getAppConfig().app.workspaceId?.trim() || "";
       if (
         workspaceAppId &&
         workspaceAppId !== "dispatch" &&

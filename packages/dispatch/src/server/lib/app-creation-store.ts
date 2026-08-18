@@ -1033,7 +1033,9 @@ async function workspaceAppDefaultVisibility(): Promise<WorkspaceAppVisibility> 
   const setting = await getOrgSetting(
     orgId,
     WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
-  ).catch(() => null);
+  )
+    // coercion-ok: An unavailable optional setting preserves the org-wide default.
+    .catch(() => null);
   return setting?.visibility === "private" ? "private" : "org";
 }
 

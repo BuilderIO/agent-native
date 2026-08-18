@@ -158,7 +158,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     const setting = await getOrgSetting(
       ctx.orgId,
       WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
-    ).catch(() => null);
+    )
+      // coercion-ok: An unavailable optional setting preserves the org-wide default.
+      .catch(() => null);
     workspaceAppDefaultVisibility = normalizeWorkspaceAppDefaultVisibility(
       setting?.visibility,
     );
