@@ -443,12 +443,29 @@ describe("session replay", () => {
 
       await vi.advanceTimersByTimeAsync(15_000);
       expect(firstInit.signal?.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(recordMock).toHaveBeenCalledTimes(2);
 
-      // The timed-out batch is requeued, but a subsequent flush can proceed -
-      // proving the failed request no longer pins state.flushing forever.
+      // Client-side abort is not proof that the keepalive request was not
+      // accepted by the server. The old identity stays fenced, so a manual
+      // flush cannot retry its sequence.
       fetchMock.mockResolvedValue(new Response("{}"));
       await replay.flushSessionReplay("manual");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // The timed-out episode is retired after the original request settles;
+      // the restarted recorder supplies a fresh Meta + FullSnapshot stream.
+      recordOptions.emit({ type: 2, data: { href: "/restarted" } });
+      await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const bodies = await Promise.all(
+        fetchMock.mock.calls.map(([, init]) =>
+          parseReplayUpload(init as RequestInit),
+        ),
+      );
+      expect(bodies[1].replayId).not.toBe(bodies[0].replayId);
+      expect(bodies[1].sequence).toBe(0);
 
       await replay.stopSessionReplay();
     } finally {
@@ -502,12 +519,13 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // Once the original request settles, a new FullSnapshot is the safe
-      // re-anchor. The implementation may resume a queued flush automatically,
-      // but it must never send the uncertain batch a second time.
+      // Once the original request settles, the old replay identity is retired.
+      // The restarted recorder supplies a fresh Meta + FullSnapshot stream; it
+      // must never send the uncertain batch a second time.
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       await blockedFlush;
+      expect(recordMock).toHaveBeenCalledTimes(2);
       recordOptions.emit({ type: 2, data: { href: "/reanchored" } });
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -517,10 +535,58 @@ describe("session replay", () => {
           parseReplayUpload(init as RequestInit),
         ),
       );
+      expect(bodies[1].replayId).not.toBe(bodies[0].replayId);
+      expect(bodies[1].sequence).toBe(0);
       expect(bodies[1].events).toHaveLength(1);
       expect(bodies[1].events[0].type).toBe(2);
 
       await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not make teardown wait for an uncancelable replay upload", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("AbortController", undefined);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 1,
+        flushIntervalMs: 100_000,
+      });
+
+      let resolveUpload!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/teardown" } });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      await replay.stopSessionReplay("manual");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        "[session-replay] upload timed out; waiting for it to settle before restarting",
+      );
+
+      resolveUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
     } finally {
       vi.useRealTimers();
     }

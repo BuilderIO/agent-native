@@ -1313,10 +1313,9 @@ function enqueueReplayEvent(
   if (!state.options) return;
   const eventType = typeof event.type === "number" ? event.type : null;
   if (state.pendingReplayUpload) {
-    // A timed-out request whose transport could not be canceled has an
-    // uncertain sequence outcome. Keep at most the newest FullSnapshot as a
-    // safe re-anchor and drop intervening mutations until that request settles;
-    // never let an uncertain upload turn into an unbounded retry backlog.
+    // A timed-out request has an uncertain server outcome. Keep at most the
+    // newest FullSnapshot as a bounded placeholder until the old request
+    // settles; never let an uncertain upload turn into a retry backlog.
     if (eventType !== RRWEB_FULL_SNAPSHOT_EVENT_TYPE) return;
     state.queue = [];
     state.queuedBytes = 0;
@@ -1404,8 +1403,6 @@ interface ReplayUploadPayload {
 interface PendingReplayUpload {
   request: Promise<void>;
   payload: ReplayUploadPayload;
-  reason: string;
-  reservedSequence: boolean;
 }
 
 function buildReplayBody(
@@ -1628,26 +1625,19 @@ async function awaitReplayUpload(
   request: Promise<Response>,
   timeout: ReturnType<typeof startReplayUploadTimeout>,
 ): Promise<void> {
-  let requestSettled = false;
-  const checkedRequest = request.then(
-    (response) => {
-      requestSettled = true;
-      if (!response.ok) {
-        throw new ReplayUploadHttpError(response.status);
-      }
-    },
-    (error) => {
-      requestSettled = true;
-      throw error;
-    },
-  );
+  const checkedRequest = request.then((response) => {
+    if (!response.ok) {
+      throw new ReplayUploadHttpError(response.status);
+    }
+  });
   try {
     await Promise.race([checkedRequest, timeout.promise]);
   } catch (error) {
-    // Without AbortController the original fetch remains live after the
-    // timeout. Fence its batch until that request settles; retrying now could
-    // race a late success with the same replay sequence.
-    if (!timeout.signal && timeout.didTimeout() && !requestSettled) {
+    // An abort signal only cancels this client's observation of fetch. A
+    // keepalive request may already have reached the server, so every timeout
+    // is uncertain until the original promise settles. Fence the old replay
+    // identity instead of retrying its sequence.
+    if (timeout.didTimeout()) {
       throw new ReplayUploadInFlightTimeoutError(checkedRequest);
     }
     throw error;
@@ -1875,10 +1865,9 @@ function resumeAfterPendingReplayUpload(
 ): void {
   if (state.pendingReplayUpload !== pending) return;
   state.pendingReplayUpload = null;
-  const nextReason = state.pendingFlushReason ?? pending.reason;
   state.pendingFlushReason = null;
   const waiters = state.pendingFlushWaiters.splice(0);
-  void flushSessionReplay(nextReason).then(
+  void recoverAfterPendingReplayUpload(state, pending).then(
     () => {
       for (const resolve of waiters) resolve();
     },
@@ -1888,35 +1877,46 @@ function resumeAfterPendingReplayUpload(
   );
 }
 
+async function recoverAfterPendingReplayUpload(
+  state: SessionReplayState,
+  pending: PendingReplayUpload,
+): Promise<void> {
+  if (state.replayId !== pending.payload.replayId) return;
+
+  // Never reuse the replay identity after a timeout. The server may have
+  // accepted the old request even when this client observed an abort, so a
+  // later FullSnapshot under the old identity could conflict at the same
+  // sequence. Restarting rrweb also emits a fresh Meta + FullSnapshot pair.
+  state.queue = [];
+  state.queuedBytes = 0;
+  state.retryBatches = [];
+  state.awaitingFullSnapshot = false;
+  removeStoredReplaySession(pending.payload.replayId);
+
+  if (!state.active || !state.options) return;
+  const options = state.options;
+  const sessionId = pending.payload.sessionId;
+  await stopSessionReplay("upload-timeout");
+  if (state.active || state.options !== options) return;
+  await restartSessionReplayWithFreshIdentity(state, options, sessionId);
+}
+
 function fenceTimedOutReplayUpload(
   state: SessionReplayState,
   pending: PendingReplayUpload,
 ): void {
   void pending.request
     .then(
-      () => {
-        if (state.replayId === pending.payload.replayId) {
-          if (!pending.reservedSequence) {
-            advanceReplaySequence(state, pending.payload);
-          }
-          state.transientClientErrorFailures = 0;
-        }
-      },
+      () => undefined,
       (error) => {
-        if (
-          pending.reservedSequence &&
-          state.replayId === pending.payload.replayId
-        ) {
-          rollbackReplaySequenceReservation(state, pending.payload);
-        }
-        // The uncertain batch is intentionally not requeued: a late success
-        // may already have committed it. The next FullSnapshot is the safe
-        // re-anchor for any events captured after the timeout.
+        // The uncertain batch is intentionally not requeued. Once the old
+        // promise settles, recovery rotates to a fresh replay identity instead
+        // of guessing whether this error means the server rejected the write.
         const previousInternal = replayCaptureInternal;
         replayCaptureInternal = true;
         try {
           console.warn(
-            "[session-replay] timed-out upload settled without a retry; waiting for a new FullSnapshot",
+            "[session-replay] timed-out upload settled without a retry; restarting the replay",
             error,
           );
         } finally {
@@ -1962,13 +1962,13 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
   if (!state.options) return;
   if (state.pendingReplayUpload) {
+    // The fence blocks another upload, but it must not turn teardown into an
+    // unbounded wait when the original transport never settles.
     state.pendingFlushReason = mergePendingFlushReason(
       state.pendingFlushReason,
       reason,
     );
-    return new Promise<void>((resolve) => {
-      state.pendingFlushWaiters.push(resolve);
-    });
+    return;
   }
   if (state.flushing) {
     state.pendingFlushReason = mergePendingFlushReason(
@@ -2012,8 +2012,6 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       const pending: PendingReplayUpload = {
         request: error.request,
         payload,
-        reason,
-        reservedSequence,
       };
       state.pendingReplayUpload = pending;
       // The timed-out batch is deliberately fenced rather than requeued:
@@ -2109,7 +2107,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         );
       } else if (fencedTimedOutUpload) {
         console.warn(
-          "[session-replay] upload timed out before cancellation; waiting for it to settle before retrying",
+          "[session-replay] upload timed out; waiting for it to settle before restarting",
         );
       } else {
         console.warn("[session-replay] upload failed", error);
@@ -2174,7 +2172,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // configuration/input errors and must not create a restart loop.
     let restartResult: SessionReplayStartResult | null = null;
     if (shouldRestartAfterConflict && rejectedOptions) {
-      restartResult = await restartSessionReplayAfterConflict(
+      restartResult = await restartSessionReplayWithFreshIdentity(
         state,
         rejectedOptions,
         payload.sessionId,
@@ -2200,7 +2198,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
 }
 
 /**
- * Restart a recorder whose replay identity was rejected without routing the
+ * Restart a recorder under a fresh replay identity without routing the
  * already-normalized options back through the public start API.
  *
  * The original recording already passed whole-session sampling. Re-entering
@@ -2211,7 +2209,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
  * reuse the exact normalized console/network capture caps instead of relying
  * on internal option shapes continuing to round-trip through the public API.
  */
-async function restartSessionReplayAfterConflict(
+async function restartSessionReplayWithFreshIdentity(
   state: SessionReplayState,
   options: NormalizedSessionReplayOptions,
   sessionId: string,
@@ -2223,7 +2221,7 @@ async function restartSessionReplayAfterConflict(
 
   const startGeneration = ++state.startGeneration;
   let startPromise: Promise<SessionReplayStartResult>;
-  startPromise = restartSessionReplayAfterConflictInternal(
+  startPromise = restartSessionReplayWithFreshIdentityInternal(
     state,
     options,
     sessionId,
@@ -2235,7 +2233,7 @@ async function restartSessionReplayAfterConflict(
   return startPromise;
 }
 
-async function restartSessionReplayAfterConflictInternal(
+async function restartSessionReplayWithFreshIdentityInternal(
   state: SessionReplayState,
   options: NormalizedSessionReplayOptions,
   sessionId: string,
@@ -3208,7 +3206,7 @@ export async function startSessionReplay(
   const state = getState();
   if (state.pendingReplayUpload) {
     // Do not start a new recorder episode while the previous episode's
-    // uncancelable upload still owns an uncertain sequence number.
+    // timed-out upload still owns an uncertain server outcome.
     return {
       started: false,
       reason: "already-active",
