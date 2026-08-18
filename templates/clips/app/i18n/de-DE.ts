@@ -1372,10 +1372,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     cameraOff: "Camera off (Lokalisiert)",
     includeCameraAria: "Include camera in this recording (Lokalisiert)",
     startRecording: "Start recording (Lokalisiert)",
-    micOffConfirmTitle: "Record without a microphone? (Lokalisiert)",
+    micOffConfirmTitle: "Dein Mikrofon ist stummgeschaltet",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Lokalisiert)",
-    startWithoutMic: "Start anyway (Lokalisiert)",
+      "Damit dein Video Ton hat, musst du dein Mikrofon wieder einschalten.",
+    startWithoutMic: "Weiter",
     unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
     importLoom: "Import Loom (Lokalisiert)",

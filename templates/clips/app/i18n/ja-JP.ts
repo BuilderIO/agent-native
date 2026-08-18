@@ -1351,10 +1351,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     cameraOff: "Camera off (ローカライズ済み)",
     includeCameraAria: "Include camera in this recording (ローカライズ済み)",
     startRecording: "Start recording (ローカライズ済み)",
-    micOffConfirmTitle: "Record without a microphone? (ローカライズ済み)",
+    micOffConfirmTitle: "マイクがミュートされています",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (ローカライズ済み)",
-    startWithoutMic: "Start anyway (ローカライズ済み)",
+      "動画に音声を入れるには、マイクのミュートを解除してください。",
+    startWithoutMic: "続ける",
     unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
     importLoom: "Import Loom (ローカライズ済み)",

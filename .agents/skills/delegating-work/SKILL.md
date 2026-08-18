@@ -80,8 +80,8 @@ default, not an exception.
 
 Parallel subagents editing disjoint files is normal and expected here. Assign
 non-overlapping file sets before you fan out, and have each subagent re-read
-existing changes before editing. There is no file lease mechanism; use the
-shared checkout's normal read-before-edit discipline.
+existing changes before editing. Use the shared checkout's normal
+read-before-edit discipline.
 
 ## Related skills
 

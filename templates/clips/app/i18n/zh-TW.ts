@@ -1273,10 +1273,10 @@ const messages = {
     cameraOff: "攝影機已關閉",
     includeCameraAria: "在此錄製中包含攝影機",
     startRecording: "開始錄製",
-    micOffConfirmTitle: "要在沒有麥克風的情況下錄製嗎？",
+    micOffConfirmTitle: "您的麥克風已靜音",
     micOffConfirmDescription:
-      "麥克風已關閉，這段錄製將不會收錄任何音訊。若需要旁白，請先開啟麥克風再開始錄製。",
-    startWithoutMic: "仍要開始",
+      "若要讓影片有聲音，請取消麥克風靜音。",
+    startWithoutMic: "繼續",
     unmuteMicrophone: "取消靜音",
     uploadVideo: "上傳影片",
     importLoom: "匯入 Loom",

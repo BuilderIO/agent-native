@@ -1362,10 +1362,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
-    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmTitle: "Tu micrófono está silenciado",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
-    startWithoutMic: "Start anyway",
+      "Para que haya sonido en tu video, tendrás que activar el micrófono.",
+    startWithoutMic: "Continuar",
     unmuteMicrophone: "Activar micrófono",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",

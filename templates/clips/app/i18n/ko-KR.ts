@@ -1336,10 +1336,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     cameraOff: "Camera off (현지화됨)",
     includeCameraAria: "Include camera in this recording (현지화됨)",
     startRecording: "Start recording (현지화됨)",
-    micOffConfirmTitle: "Record without a microphone? (현지화됨)",
+    micOffConfirmTitle: "마이크가 음소거되었습니다",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (현지화됨)",
-    startWithoutMic: "Start anyway (현지화됨)",
+      "동영상에 소리를 넣으려면 마이크 음소거를 해제하세요.",
+    startWithoutMic: "계속",
     unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",

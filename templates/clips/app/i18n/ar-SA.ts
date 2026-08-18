@@ -1345,10 +1345,10 @@ const messages = {
     cameraOff: "Camera off (مترجم)",
     includeCameraAria: "Include camera in this recording (مترجم)",
     startRecording: "Start recording (مترجم)",
-    micOffConfirmTitle: "Record without a microphone? (مترجم)",
+    micOffConfirmTitle: "الميكروفون مكتوم",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (مترجم)",
-    startWithoutMic: "Start anyway (مترجم)",
+      "لإضافة صوت إلى الفيديو، يجب إلغاء كتم صوت الميكروفون.",
+    startWithoutMic: "متابعة",
     unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     importLoom: "Import Loom (مترجم)",
