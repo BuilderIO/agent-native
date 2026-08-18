@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import type { CalendarEvent } from "@shared/api";
-import { parseISO } from "date-fns";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -182,18 +181,6 @@ function baseEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
     attendees: [],
     ...overrides,
   };
-}
-
-/** Mirrors the component's private `formatTimeShort` so the test can locate
- * the read-only time summary without asserting on any source string. */
-function shortTimeLabel(iso: string): string {
-  const d = parseISO(iso);
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const period = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 || 12;
-  if (m === 0) return `${hour12} ${period}`;
-  return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
 function setNativeInputValue(input: HTMLInputElement, value: string): void {
@@ -648,17 +635,30 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    const timeSummary = findByExactText("span", shortTimeLabel(event.start));
-    expect(timeSummary).toBeTruthy();
+    const openPopoverButtons = () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter(
+        (button) => button.textContent === "Mock open popover",
+      );
+
+    // The outer detail popover is first; the start and end time pickers are
+    // the next two nested popovers in the rendered event form.
+    const startTimePopoverButton = openPopoverButtons()[1];
+    const endTimePopoverButton = openPopoverButtons()[2];
+    expect(startTimePopoverButton).toBeTruthy();
+    expect(endTimePopoverButton).toBeTruthy();
     act(() => {
-      (timeSummary as HTMLElement).click();
+      startTimePopoverButton!.click();
+      endTimePopoverButton!.click();
     });
 
-    const timeInputs =
-      document.querySelectorAll<HTMLInputElement>('input[type="time"]');
-    expect(timeInputs).toHaveLength(2);
-    expect(timeInputs[0].value).toBe("12:00");
-    expect(timeInputs[1].value).toBe("13:00");
+    const startTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.start"]',
+    );
+    const endTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.end"]',
+    );
+    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
+    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {
