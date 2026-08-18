@@ -505,6 +505,7 @@ export class RecorderEngine {
   private cameraComposite: CameraCompositeHandle | null = null;
   private audioMixCtx: AudioContext | null = null;
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
+  private wakeLock: WakeLockSentinel | null = null;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -904,6 +905,14 @@ export class RecorderEngine {
         } catch (err) {
           throw this.friendlyError(err, "screen");
         }
+        // The OS is as free to sleep/lock the display during a pause as
+        // during active recording, which ends getDisplayMedia's video track
+        // outright (unlike the mic/camera, display capture requires an
+        // active compositor). Without this, a paused recording left idle
+        // finalizes early with no warning — see onDisplayTrackEnded below.
+        // Best-effort: unsupported browsers or a denied request must never
+        // block capture.
+        void this.acquireWakeLock();
       }
 
       if (wantsCamera) {
@@ -2360,9 +2369,24 @@ export class RecorderEngine {
     );
   }
 
+  /** Best-effort — unsupported browsers or a denied request must never block capture. */
+  private async acquireWakeLock(): Promise<void> {
+    try {
+      this.wakeLock = (await navigator.wakeLock?.request?.("screen")) ?? null;
+    } catch {
+      this.wakeLock = null;
+    }
+  }
+
+  private releaseWakeLock(): void {
+    this.wakeLock?.release().catch(() => {});
+    this.wakeLock = null;
+  }
+
   private cleanupTracks(): void {
     // Clear before stopping tracks so the `ended` events our own stop() fires
     // aren't mistaken for a disconnect.
+    this.releaseWakeLock();
     this.cameraLive = false;
     this.audioMixSources = [];
     this.audioMixCtx?.close().catch(() => {});

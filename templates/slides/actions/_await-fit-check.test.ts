@@ -284,6 +284,8 @@ describe("formatOverflowForTool", () => {
       measuredAt: Date.now(),
     });
 
-    expect(msg).toMatch(/fewer.*columns|flex-based column widths|percentage.*column widths/i);
+    expect(msg).toMatch(
+      /fewer.*columns|flex-based column widths|percentage.*column widths/i,
+    );
   });
 });
