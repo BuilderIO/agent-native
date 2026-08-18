@@ -7,6 +7,7 @@ type JsonSchema = {
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
   oneOf?: JsonSchema[];
+  anyOf?: JsonSchema[];
   const?: string;
 };
 

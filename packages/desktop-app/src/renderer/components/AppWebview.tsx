@@ -809,7 +809,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevRefreshKey = useRef(refreshKey);
     useEffect(() => {
       const previousRefreshKey = prevRefreshKey.current;
-      prevRefreshKey.current = refreshKey;
       if (
         !shouldReloadActiveWebview({
           previousRefreshKey,
@@ -820,6 +819,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       ) {
         return;
       }
+
+      // Keep a refresh pending while this webview is hidden. The shell sends
+      // one shared key to all mounted apps, so an inactive app must consume it
+      // only when it can actually apply the reload.
+      prevRefreshKey.current = refreshKey;
 
       const wv = webviewRef.current;
       if (wv) {

@@ -25,6 +25,28 @@ describe("shouldReloadActiveWebview", () => {
     ).toBe(false);
   });
 
+  it("reloads after an inactive app becomes active with a pending key", () => {
+    const previousRefreshKey = 1;
+    const refreshKey = 2;
+
+    expect(
+      shouldReloadActiveWebview({
+        previousRefreshKey,
+        refreshKey,
+        isActive: false,
+        isPlaceholder: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReloadActiveWebview({
+        previousRefreshKey,
+        refreshKey,
+        isActive: true,
+        isPlaceholder: false,
+      }),
+    ).toBe(true);
+  });
+
   it("does not reload placeholders or unchanged keys", () => {
     expect(
       shouldReloadActiveWebview({
