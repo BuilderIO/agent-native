@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.161.8
+
+### Patch Changes
+
+- adf5cb0: Prioritize a selected A2A receiver's declared local capabilities before cross-app delegation.
+
 ## 0.161.7
 
 ### Patch Changes
