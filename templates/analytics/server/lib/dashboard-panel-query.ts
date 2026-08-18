@@ -50,20 +50,6 @@ export function isDashboardPanelSource(
  * program to run and with what params. Shape:
  * { programId: string; params?: Record<string, unknown> }.
  */
-export function serializeProgramDescriptorInput(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const obj = raw as Record<string, unknown>;
-    if (typeof obj.programId !== "string" || !obj.programId.trim()) {
-      throw new Error("program panel descriptor requires a 'programId' field");
-    }
-    return JSON.stringify(raw);
-  }
-  throw new Error(
-    "program panel sql must be a JSON string or object with 'programId'",
-  );
-}
-
 export interface ProgramDescriptor {
   programId: string;
   params?: Record<string, unknown>;
@@ -90,6 +76,31 @@ function parseProgramDescriptor(raw: string): ProgramDescriptor {
       ? (obj.params as Record<string, unknown>)
       : undefined;
   return { programId: obj.programId, params };
+}
+
+/** Validate either persisted JSON or the object form accepted by actions. */
+export function parseProgramDescriptorInput(raw: unknown): ProgramDescriptor {
+  if (typeof raw === "string") return parseProgramDescriptor(raw);
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.programId !== "string" || !obj.programId.trim()) {
+      throw new Error("program panel descriptor requires a 'programId' field");
+    }
+    const params =
+      obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)
+        ? (obj.params as Record<string, unknown>)
+        : undefined;
+    return { programId: obj.programId, params };
+  }
+  throw new Error(
+    "program panel sql must be a JSON string or object with 'programId'",
+  );
+}
+
+export function serializeProgramDescriptorInput(raw: unknown): string {
+  parseProgramDescriptorInput(raw);
+  if (typeof raw === "string") return raw;
+  return JSON.stringify(raw);
 }
 
 export function normalizeDashboardPanelQuery(

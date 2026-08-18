@@ -50,6 +50,12 @@ describe("dashboard-panel-query: program source", () => {
       expect(normalizeDashboardPanelQuery("program", raw)).toBe(raw);
     });
 
+    it("rejects a plain program id instead of treating it as a descriptor", () => {
+      expect(() =>
+        normalizeDashboardPanelQuery("program", "dp_plain_id"),
+      ).toThrow(/program panel sql must be a JSON object/);
+    });
+
     it("throws on a missing programId in object form", () => {
       expect(() =>
         normalizeDashboardPanelQuery("program", { params: {} }),

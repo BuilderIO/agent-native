@@ -601,6 +601,9 @@ function renderFormPage(
         if (v) data[f.id] = parseInt(v);
       } else if (f.type === "scale") {
         data[f.id] = parseInt(el.querySelector(".slider").value);
+      } else if (f.type === "radio") {
+        var checked = el.querySelector('input[type="radio"]:checked');
+        if (checked && checked.value) data[f.id] = checked.value;
       } else {
         var input = el.querySelector("input, textarea, select");
         if (input && input.value) data[f.id] = input.value;
