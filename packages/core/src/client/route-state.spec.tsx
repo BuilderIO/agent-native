@@ -274,6 +274,47 @@ describe("route-state client helpers", () => {
     expect(onError).toHaveBeenCalledTimes(2);
   });
 
+  it("reports an unserializable state once per state, not once per render", async () => {
+    // `navigationKeys` is a fresh array on every render, so the write dedup key
+    // is recomputed constantly; keyed on anything render-unstable, each re-render
+    // issues another failing write and another error.
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const onError = vi.fn();
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    let rerender: (() => void) | undefined;
+
+    function Harness() {
+      const [, bump] = React.useState(0);
+      rerender = () => bump((count) => count + 1);
+      useSemanticNavigationState({
+        state: circular,
+        navigationKeys: ["navigation"],
+        commandKeys: ["navigate"],
+        commandRefetchInterval: false,
+        onCommand: () => {},
+        onError,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        rerender?.();
+        await Promise.resolve();
+      });
+      await act(flush);
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },

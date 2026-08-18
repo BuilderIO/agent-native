@@ -52,6 +52,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
           },
         ],
       },
+      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
         id: "what-is-agent-native",
         labelKey: "whatIsAgentNative",
@@ -617,7 +618,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "local-file-mode",
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
         id: "environment-variables",
         labelKey: "environmentVariables",

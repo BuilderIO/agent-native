@@ -520,21 +520,52 @@ export function WorkspaceAppHost({
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
-    { includeAgentCards: false },
+    { includeAgentCards: false, includeArchived: true },
+  );
+  const workspaceApps = useMemo(
+    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
+    [workspaceAppsQuery.data],
+  );
+  const visibleWorkspaceApps = useMemo(
+    () => workspaceApps.filter((item) => !item.archived),
+    [workspaceApps],
+  );
+  const workspaceAppIds = useMemo(
+    () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
+    [workspaceApps],
+  );
+  const workspaceApp = useMemo(
+    () =>
+      visibleWorkspaceApps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
+    [appId, visibleWorkspaceApps],
   );
   const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
     "list_apps",
     {},
+    {
+      // Mounted workspace apps are already fully described by the workspace
+      // registry. Defer the broader MCP grant/discovery scan until that
+      // lookup misses; it is only needed for externally granted apps.
+      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
+    },
   );
   const apps = useMemo(() => {
     const merged = new Map<string, WorkspaceAppSummary>();
 
-    for (const app of mergeChatFirstWorkspaceApps(workspaceAppsQuery.data)) {
+    for (const app of visibleWorkspaceApps) {
       merged.set(app.id.trim().toLowerCase(), app);
     }
     for (const app of grantedAppsQuery.data?.apps ?? []) {
       const id = app.id.trim();
-      if (!id || merged.has(id.toLowerCase())) continue;
+      if (
+        !id ||
+        workspaceAppIds.has(id.toLowerCase()) ||
+        merged.has(id.toLowerCase())
+      ) {
+        continue;
+      }
       merged.set(id.toLowerCase(), {
         id,
         name: app.name.trim() || id,
@@ -545,7 +576,7 @@ export function WorkspaceAppHost({
     }
 
     return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, workspaceAppsQuery.data]);
+  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps, workspaceAppIds]);
   const app = useMemo(
     () =>
       apps.find(

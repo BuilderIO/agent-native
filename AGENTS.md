@@ -179,21 +179,28 @@ argument rots into exactly the patchwork it warns about.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions. If you are about to write a handler under `server/routes/api/`, or
-  middleware to guard one, stop and write an action instead. The only
-  exceptions are uploads, streaming, inbound webhooks, OAuth callbacks, public
-  unauthenticated URLs, and non-JSON responses. Existing template `/api/*` CRUD
-  is a grandfathered baseline being migrated, not a pattern to copy;
-  `guard:no-action-twin-routes` fails on new ones.
+  actions.
+- Before adding settings, setup, credential, OAuth, or connection UI for an
+  external service, inspect the shared toolkit, settings, vault, OAuth,
+  workspace-connection, onboarding, and provider API primitives. Use the
+  strongest existing primitive by default; keep custom UI only for
+  provider-specific prerequisites, sequencing, status, or health checks.
+- Normal app data must flow through actions. If you are about to write a handler
+  under `server/routes/api/`, or middleware to guard one, stop and write an
+  action instead. The only exceptions are uploads, streaming, inbound webhooks,
+  OAuth callbacks, public unauthenticated URLs, and non-JSON responses.
+  Existing template `/api/*` CRUD is a grandfathered baseline being migrated,
+  not a pattern to copy; `guard:no-action-twin-routes` fails on new ones.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
   `@agent-native/core/provider-api` instead of hardcoding one action per
   provider endpoint/filter. First-class actions are ergonomic shortcuts, not
   capability limits: when the upstream API can express an endpoint, filter,
-  pagination mode, or payload, agents need a safe way to call it directly. If an
-  app stores provider credentials on resource/share rows, add a scoped resolver
-  that preserves those access checks before exposing raw provider requests.
+  pagination mode, or payload, agents should have a safe way to call it
+  directly through the provider API substrate. If an app stores provider
+  credentials on resource/share rows, add a scoped resolver that preserves
+  those access checks before exposing raw provider requests.
 - For customer or third-party provider data, never read API keys or tokens from
   `process.env`. Inspect the workspace connection catalog first, use the
   granted connection's vault-backed credential refs, and only use scoped local

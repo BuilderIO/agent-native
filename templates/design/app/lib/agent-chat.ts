@@ -47,11 +47,11 @@ export interface DesignSourceHandoffResult {
   target: "host" | "local";
   delivered: boolean;
   /**
-   * The host prefilled its composer and the user has not sent it yet. Callers
-   * must not treat this as applied: discarding pending edits here loses work
-   * the agent was never asked to do.
+   * The host accepted the handoff and owns the turn from here. Callers must not
+   * treat this as applied: the edits stay pending until that turn settles, or a
+   * failed run would silently discard them.
    */
-  staged?: boolean;
+  awaitingHostTurn?: boolean;
   reason?: string;
   tabId?: string;
 }
@@ -72,19 +72,20 @@ export async function sendDesignSourceHandoffAndConfirm(
   options?: { timeoutMs?: number },
 ): Promise<DesignSourceHandoffResult> {
   // `embedChrome` alone is a display preference any embedder can ask for, so the
-  // shell route is what decides who receives source-edit context. `submit` is
-  // the host's call there, and its composer filling is the delivery evidence.
+  // shell route is what decides who receives source-edit context.
   if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
     const posted = sendToBuilderChat({
       message: opts.message,
       context: opts.context,
-      submit: false,
+      // Runs the turn rather than prefilling: the prompt is generated from the
+      // pending edits, so there is nothing for the user to write or review.
+      submit: true,
       targetOrigin: getVerifiedBuilderHostOrigin() ?? undefined,
     });
     return {
       target: "host",
       delivered: posted,
-      ...(posted ? { staged: true } : { reason: "host-post-failed" }),
+      ...(posted ? { awaitingHostTurn: true } : { reason: "host-post-failed" }),
     };
   }
 

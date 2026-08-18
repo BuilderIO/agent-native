@@ -99,13 +99,18 @@ describe("Design agent chat routing", () => {
       submit: true,
     });
 
-    expect(result).toEqual({ target: "host", delivered: true, staged: true });
+    expect(result).toEqual({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    });
     expect(sendToBuilderChatMock).toHaveBeenCalledWith({
       message: "Apply the pending visual style edits to the source.",
       context: "Structured source instructions",
-      // The host owns the send, and the origin comes from the handshake rather
-      // than the loopback-blind parent sniff.
-      submit: false,
+      // Submitted, not prefilled: the prompt is generated from the pending
+      // edits, and the origin comes from the handshake rather than the
+      // loopback-blind parent sniff.
+      submit: true,
       targetOrigin: "https://builder.io",
     });
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
