@@ -116,23 +116,57 @@ const staleInstructionPatterns = [
   },
 ];
 
-const requiredActionGuidance = [
+const runtimeIntegrationGuidancePattern =
+  /For external integrations, inspect the workspace\/provider connection catalog\s+first(?:\.|;)/;
+
+const requiredGeneratedGuidance = [
   {
     rel: "packages/core/src/templates/default/AGENTS.md",
     pattern:
       /Do not create `\/api\/\*` routes that only call,\s+repackage, or proxy an action\./,
+    message: "canonical action-first guidance",
+  },
+  {
+    rel: "packages/core/src/templates/default/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
+  },
+  {
+    rel: "packages/core/src/templates/headless/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
   },
   {
     rel: "packages/core/src/templates/workspace-root/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
+    message: "canonical action-first guidance",
   },
   {
     rel: "packages/core/src/templates/workspace-core/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
+    message: "canonical action-first guidance",
   },
   {
     rel: "registry/agent-native-app/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
+    message: "canonical action-first guidance",
+  },
+  {
+    rel: "registry/agent-native-app/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
+  },
+  {
+    rel: "packages/core/src/templates/workspace-root/AGENTS.md",
+    pattern:
+      /Before implementing an app that connects to an external service, inspect the\s+workspace\/provider connection catalog first\./,
+    message: "shared-primitive integration preflight",
+  },
+  {
+    rel: "packages/core/src/templates/workspace-core/AGENTS.md",
+    pattern:
+      /For external integrations, check the provider connection catalog first/,
+    message: "shared-primitive integration preflight",
   },
 ];
 
@@ -376,7 +410,7 @@ function checkGeneratedInstructionPhrases() {
     }
   }
 
-  for (const { rel, pattern } of requiredActionGuidance) {
+  for (const { rel, pattern, message } of requiredGeneratedGuidance) {
     const file = join(rootDir, rel);
     if (!existsSync(file)) {
       findings.push(`${rel}: missing required generated-app guidance file`);
@@ -384,7 +418,20 @@ function checkGeneratedInstructionPhrases() {
     }
     const content = readFileSync(file, "utf-8");
     if (!pattern.test(content)) {
-      findings.push(`${rel}: missing canonical action-first guidance`);
+      findings.push(`${rel}: missing ${message}`);
+    }
+  }
+
+  for (const template of listTemplateDirs()) {
+    const rel = `templates/${template}/AGENTS.md`;
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required generated-app guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (!runtimeIntegrationGuidancePattern.test(content)) {
+      findings.push(`${rel}: missing runtime-visible integration preflight`);
     }
   }
 
@@ -456,7 +503,7 @@ function checkGeneratedInstructionPhrases() {
 
   if (findings.length > 0) {
     throw new Error(
-      `Generated guidance is out of sync.\n\n${findings.join("\n")}`,
+      `Generated app guidance is out of sync.\n\n${findings.join("\n")}`,
     );
   }
 }
