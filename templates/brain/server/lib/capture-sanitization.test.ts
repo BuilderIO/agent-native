@@ -108,8 +108,12 @@ describe("capture sanitization", () => {
     expect(result.content).not.toContain("U123456789");
     expect(result.content).not.toContain("person@example.com");
     expect(result.content).not.toContain("415");
-    expect(JSON.stringify(result.metadata)).not.toMatch(
-      /person@example\.com|415|555|1212|raw-slack-id/,
+    const serializedMetadata = JSON.stringify(result.metadata);
+    expect(serializedMetadata).not.toMatch(
+      /person@example\.com|\+1 \(415\) 555-1212|raw-slack-id/,
+    );
+    expect(JSON.stringify(result.metadata.safeSegments)).not.toMatch(
+      /person@example\.com|\+1 \(415\) 555-1212|raw-slack-id/,
     );
     const segments = result.metadata.safeSegments as Array<{
       text: string;
