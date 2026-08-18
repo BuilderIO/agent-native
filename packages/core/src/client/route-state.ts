@@ -244,7 +244,8 @@ function navigationWriteDedupToken(
     const serialized = JSON.stringify({ keys, state });
     if (typeof serialized === "string") return serialized;
   } catch {
-    // Falls through to identity below.
+    // coercion-ok: deferred, not dropped — the write below still rejects with
+    // this error and reports it through `onError`.
   }
   return state;
 }
