@@ -54,6 +54,17 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("accepts boolean-style workspace flags from the config layer", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(agentNativePath("/_agent-native/poll")).toBe(
+      "/diagrams/_agent-native/poll",
+    );
+  });
+
   it("uses the live workspace route segment for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");

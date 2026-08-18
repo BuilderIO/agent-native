@@ -63,10 +63,22 @@ export function isWorkspaceSsoApp(
   }
 }
 
+function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
+  try {
+    const origin = new URL(rawUrl).origin;
+    return Object.values(CANONICAL_WORKSPACE_SSO_APP_ORIGINS).some(
+      (canonicalOrigin) => canonicalOrigin === origin,
+    );
+  } catch {
+    // coercion-ok: malformed app metadata is not a canonical first-party app.
+    return false;
+  }
+}
+
 /**
- * A mounted app URL leaves Dispatch's `/apps/:id` host route. Keep this check
- * based on the published URL path so canonical first-party origins continue
- * to use the inline pane while custom workspace apps open at their own mount.
+ * A mounted app URL leaves Dispatch's `/apps/:id` host route. Canonical
+ * first-party origins can stay inline even at `/`, while external published
+ * apps must open at their own origin regardless of their path.
  */
 export function isPathMountedWorkspaceApp(
   app: WorkspaceAppHrefSource,
@@ -75,7 +87,7 @@ export function isPathMountedWorkspaceApp(
   if (rawUrl) {
     try {
       const pathname = new URL(rawUrl).pathname.replace(/\/+$/, "") || "/";
-      return pathname !== "/";
+      return pathname !== "/" || !isCanonicalWorkspaceSsoOrigin(rawUrl);
       // coercion-ok: invalid absolute URLs use the mounted path fallback.
     } catch {
       // Fall through to the mounted path for relative manifest values.

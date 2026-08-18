@@ -43,11 +43,19 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+function isTruthyRuntimeValue(value: string | boolean | undefined): boolean {
+  if (value === true) return true;
+  return (
+    typeof value === "string" &&
+    ["1", "true", "yes", "on"].includes(value.trim().toLowerCase())
+  );
+}
+
 function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
   return (
-    env?.VITE_AGENT_NATIVE_WORKSPACE === "1" ||
-    env?.AGENT_NATIVE_WORKSPACE === "1" ||
+    isTruthyRuntimeValue(env?.VITE_AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(env?.AGENT_NATIVE_WORKSPACE) ||
     typeof env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON === "string"
   );
 }

@@ -37,6 +37,15 @@ function envString(env: RuntimeEnv, key: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function envFlag(env: RuntimeEnv, key: string): boolean {
+  const value = env[key];
+  if (value === true) return true;
+  return (
+    typeof value === "string" &&
+    ["1", "true", "yes", "on"].includes(value.trim().toLowerCase())
+  );
+}
+
 function titleCase(value: string): string {
   return value
     .split(/[-_\s]+/)
@@ -229,7 +238,7 @@ export function isWorkspaceAppEnvironment(
   env: RuntimeEnv = runtimeEnv(),
 ): boolean {
   return (
-    envString(env, "VITE_AGENT_NATIVE_WORKSPACE") === "1" ||
+    envFlag(env, "VITE_AGENT_NATIVE_WORKSPACE") ||
     Boolean(envString(env, "VITE_WORKSPACE_GATEWAY_URL")) ||
     Boolean(envString(env, "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON"))
   );

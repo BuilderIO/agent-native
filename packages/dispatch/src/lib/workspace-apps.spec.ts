@@ -74,6 +74,12 @@ describe("workspace app routes", () => {
         url: "https://mail.agent-native.com",
       }),
     ).toBe(false);
+    expect(
+      isPathMountedWorkspaceApp({
+        path: "/",
+        url: "https://feedback.example.com",
+      }),
+    ).toBe(true);
   });
 
   it("hides the generic chat starter and Dispatch from default launchers", () => {
