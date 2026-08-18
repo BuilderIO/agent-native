@@ -7,9 +7,8 @@
 // quitAndInstall from a chat-first rail action / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
-// Un-packaged development builds cannot install a release. Packaged local
-// builds use the same production feed as signed releases so they can recover
-// to the current production version.
+// Un-packaged development builds and locally packaged builds cannot install a
+// production release. Only explicitly marked release builds use the updater.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
