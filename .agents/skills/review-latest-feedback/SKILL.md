@@ -37,9 +37,10 @@ reply, or vague status update as a terminal ownership marker.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
-message that is still unhandled. Read the full parent, every reply and
-reaction, and all linked issues, PRs, screenshots, runs, and commits before
-deciding.
+message that is still unhandled. Read the full Slack parent, every reply, and
+all reactions for the initial classification. Do not follow linked issues,
+PRs, screenshots, runs, or commits until after that classification; an
+actionable item must receive its `👀` marker before that deeper evidence pass.
 
 For GitHub issues and Sentry, use their native state and links as corroborating
 cursor signals: prioritize recent open or unresolved items with no clear
@@ -144,13 +145,13 @@ failure modes, surfaces, or owners.
 1. Record the start cursor and ownership baseline with `git status --short`,
    the current branch, worktrees, and leases. Treat unfamiliar dirty paths as
    peer-owned. Never reset, clean, stash, switch, rebase, or overwrite them.
-2. Read Slack threads, GitHub issues, and Sentry evidence in parallel when
-   their write sets are independent. Search recent Slack, Git history, merged
-   PRs, GitHub issues, and Sentry fingerprints for repeats or an existing fix
-   before opening a new path.
+2. After the `👀` marker, read Slack threads, GitHub issues, and Sentry
+   evidence in parallel when their write sets are independent. Search recent
+   Slack, Git history, merged PRs, GitHub issues, and Sentry fingerprints for
+   repeats or an existing fix before opening a new path.
 3. For each concrete bug or similar-feedback cluster, establish the failing
-   behavior first. Read every grouped Slack thread and linked evidence before
-   dispatching. Prefer a focused regression test or a deterministic
+   behavior first. Read every grouped Slack thread and linked evidence after
+   the `👀` marker and before dispatching. Prefer a focused regression test or a deterministic
    reproduction over a prose-only diagnosis. Keep source, test, built,
    deployed, and observed-live claims separate.
 4. Fix the owning boundary at the altitude selected above. Do not add a
