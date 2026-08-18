@@ -36,7 +36,7 @@ on:
           - factory
           - fw
       ref:
-        description: Git ref or commit SHA to promote (defaults to latest main)
+        description: Branch to promote (use main for the latest production branch)
         required: true
         type: string
         default: main
@@ -88,7 +88,7 @@ jobs:
             const target = process.env.TARGET;
             const ref = process.env.REF?.trim();
             if (!ref) {
-              core.setFailed('A Git ref or commit SHA is required.');
+              core.setFailed('A Git branch is required.');
               return;
             }
             const targets = target === 'all'
@@ -102,8 +102,66 @@ jobs:
             const clearOthers = process.env.CLEAR_OTHERS === 'true';
             const rebuild = process.env.REBUILD === 'true';
             const headers = { Authorization: `Bearer ${token}` };
+            const API = 'https://api.netlify.com/api/v1';
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
             let failed = false;
+
+            async function readJson(response, label) {
+              const text = await response.text();
+              let body;
+              try {
+                body = text ? JSON.parse(text) : null;
+              } catch {
+                body = text;
+              }
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+              }
+              return body;
+            }
+
+            async function buildAndPublish(name, id) {
+              const query = new URLSearchParams({ branch: ref });
+              const build = await readJson(
+                await fetch(`${API}/sites/${id}/builds?${query}`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] build trigger`,
+              );
+              if (!build?.id) {
+                throw new Error(`[${name}] Netlify did not return a build id.`);
+              }
+              core.info(`[${name}] queued production build ${build.id} for branch ${ref}.`);
+
+              const deadline = Date.now() + 30 * 60 * 1000;
+              let completed = build;
+              while (!completed.done && Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, 10_000));
+                completed = await readJson(
+                  await fetch(`${API}/builds/${build.id}`, { headers }),
+                  `[${name}] build status`,
+                );
+              }
+              if (!completed.done) {
+                throw new Error(`[${name}] build ${build.id} did not finish within 30 minutes.`);
+              }
+              if (completed.error) {
+                throw new Error(`[${name}] build ${build.id} failed: ${completed.error}`);
+              }
+              if (!completed.deploy_id) {
+                throw new Error(`[${name}] build ${build.id} completed without a deploy id.`);
+              }
+
+              await readJson(
+                await fetch(`${API}/sites/${id}/deploys/${completed.deploy_id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] publish deploy ${completed.deploy_id}`,
+              );
+              core.info(`[${name}] published deploy ${completed.deploy_id} from ${ref}.`);
+            }
 
             async function cancelQueuedProductionDeploys(name, id, options = {}) {
               const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
@@ -162,15 +220,10 @@ jobs:
 
             for (const [name, targetId] of targets) {
               if (rebuild) {
-                const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, {
-                  method: 'POST',
-                  headers: { ...headers, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ ref }),
-                });
-                if (r.ok) {
-                  core.info(`[${name}] triggered a fresh production build for ${ref}.`);
-                } else {
-                  core.setFailed(`[${name}] build trigger failed: ${r.status} ${await r.text()}`);
+                try {
+                  await buildAndPublish(name, targetId);
+                } catch (error) {
+                  core.setFailed(error?.message || String(error));
                   failed = true;
                   continue;
                 }
