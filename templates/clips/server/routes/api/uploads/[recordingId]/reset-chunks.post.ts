@@ -47,9 +47,11 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
+  getResumableSession,
   deleteResumableSession,
   setResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
@@ -129,22 +131,73 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
+    const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
+    let shouldRetryStreaming = body?.requestStreaming === true;
+
+    const existingResumableSession = await getResumableSession(
+      recordingId,
+    ).catch(() => null);
+    if (existingResumableSession) {
+      const provider = await resolveResumableUploadProvider(
+        existingResumableSession.providerId,
+      ).catch(() => null);
+      try {
+        if (!provider?.resumable?.abortSession) {
+          throw new Error(
+            `Resumable upload provider ${existingResumableSession.providerId} cannot abort this session`,
+          );
+        }
+        await provider.resumable.abortSession({
+          sessionId: existingResumableSession.sessionId,
+          meta: existingResumableSession.meta,
+        });
+        await deleteResumableSession(recordingId).catch(() => {});
+      } catch (err) {
+        console.warn(
+          `[reset-chunks-${recordingId}] existing resumable session cleanup failed:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        if (!bufferedFallbackAvailable) {
+          setResponseStatus(event, 502);
+          return {
+            error:
+              "The previous recording upload could not be cleaned up. Retry the upload restart.",
+          };
+        }
+        // The provider-side session may remain orphaned when abort fails, but
+        // deleting its local handle is required for the next chunk to enter
+        // the buffered handler instead of being routed back to the broken
+        // resumable session. Provider cleanup can still be reclaimed by its
+        // normal lifecycle/TTL without blocking recovery of the local file.
+        await deleteResumableSession(recordingId).catch(() => {});
+        shouldRetryStreaming = false;
+      }
+    } else {
+      // Clear any stale resumable session so a buffered retry does not
+      // accidentally route through handleResumableChunk with stale offsets.
+      await deleteResumableSession(recordingId).catch(() => {});
+    }
+
+    if (!shouldRetryStreaming && !bufferedFallbackAvailable) {
+      setResponseStatus(event, 409);
+      return {
+        error:
+          "Recording upload storage could not start a buffered retry session.",
+      };
+    }
+
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
-    // Clear any stale resumable session so a buffered retry does not
-    // accidentally route through handleResumableChunk with stale offsets.
-    await deleteResumableSession(recordingId).catch(() => {});
 
     let uploadMode: UploadMode = "buffered";
-    if (body?.requestStreaming === true) {
-      const mimeType = normalizeVideoMimeType(body.mimeType);
+    if (shouldRetryStreaming) {
+      const mimeType = normalizeVideoMimeType(body?.mimeType);
       if (!mimeType) {
         setResponseStatus(event, 400);
         return { error: "A supported video mimeType is required for retry" };
       }
 
-      const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
       const uploadProvider = await getActiveFileUploadProviderForRequest();
       if (
         shouldEnableStreamingUpload({

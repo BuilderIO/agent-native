@@ -159,9 +159,13 @@ impl NativeUploadMode {
     }
 }
 
+fn default_native_upload_mode() -> String {
+    NativeUploadMode::Buffered.label().to_string()
+}
+
 #[cfg(test)]
 mod native_upload_mode_tests {
-    use super::NativeUploadMode;
+    use super::{build_reset_upload_chunks_body, NativeUploadMode};
 
     #[test]
     fn uses_streaming_mode_when_retry_session_was_recreated() {
@@ -172,6 +176,17 @@ mod native_upload_mode_tests {
         assert_eq!(
             NativeUploadMode::from_reset_response(r#"{"ok":true}"#),
             NativeUploadMode::Buffered,
+        );
+    }
+
+    #[test]
+    fn native_retry_reset_requests_buffered_reupload() {
+        assert_eq!(
+            build_reset_upload_chunks_body(false, "video/mp4"),
+            serde_json::json!({
+                "requestStreaming": false,
+                "mimeType": "video/mp4",
+            }),
         );
     }
 }
@@ -567,6 +582,12 @@ struct SavedNativeRecording {
     width: Option<u32>,
     height: Option<u32>,
     bytes: u64,
+    // Preserve the mode selected when the recording was created. Retrying a
+    // hosted streaming upload through the buffered path can never succeed
+    // when SQL chunk scratch is disabled. Older metadata defaults to
+    // buffered, matching the local-file recovery path used before this field.
+    #[serde(default = "default_native_upload_mode")]
+    upload_mode: String,
     has_audio: bool,
     // Whether the mic was captured. Drives denoise + (with system audio) the
     // centered-stereo downmix repair for the mic+system L/R split. Defaults to
@@ -1033,6 +1054,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 &server_url,
                 &recording_id,
                 duration_ms,
+                upload_mode,
                 has_audio,
                 has_camera,
             )?;
@@ -1064,6 +1086,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         &server_url,
         &recording_id,
         duration_ms,
+        upload_mode,
         has_audio,
         has_camera,
     )?;
@@ -2093,16 +2116,36 @@ pub async fn native_fullscreen_recording_retry_upload(
     // upload, not the source file's potentially stale MIME type.
     let result = async {
         let (prepared, retry_combined_path) = prepare_saved_recording_file(&app, &saved)?;
+        let request_streaming = saved.upload_mode == NativeUploadMode::Streaming.label();
         let upload_mode = match reset_upload_chunks(
             &saved.server_url,
             &saved.recording_id,
             &prepared.mime_type,
             auth_token.as_deref().unwrap_or(""),
             cookie.as_deref().unwrap_or(""),
+            request_streaming,
         )
         .await
         {
             Ok(upload_mode) => upload_mode,
+            Err(err) if !request_streaming && err.contains("returned 409") => {
+                match reset_upload_chunks(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    &prepared.mime_type,
+                    auth_token.as_deref().unwrap_or(""),
+                    cookie.as_deref().unwrap_or(""),
+                    true,
+                )
+                .await
+                {
+                    Ok(upload_mode) => upload_mode,
+                    Err(streaming_err) => {
+                        cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
+                        return Err(streaming_err);
+                    }
+                }
+            }
             Err(err) => {
                 cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
                 return Err(err);
@@ -2670,6 +2713,7 @@ fn saved_recording_from_session(
     server_url: &str,
     recording_id: &str,
     duration_ms: u128,
+    upload_mode: NativeUploadMode,
     has_audio: bool,
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
@@ -2680,6 +2724,7 @@ fn saved_recording_from_session(
         server_url,
         recording_id,
         duration_ms,
+        upload_mode,
         has_audio,
         has_camera,
     )
@@ -2690,6 +2735,7 @@ fn saved_recording_from_segments(
     server_url: &str,
     recording_id: &str,
     duration_ms: u128,
+    upload_mode: NativeUploadMode,
     has_audio: bool,
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
@@ -2719,6 +2765,7 @@ fn saved_recording_from_segments(
         server_url,
         recording_id,
         duration_ms,
+        upload_mode,
         has_audio,
         has_camera,
     )
@@ -2731,6 +2778,7 @@ fn saved_recording_from_path(
     server_url: &str,
     recording_id: &str,
     duration_ms: u128,
+    upload_mode: NativeUploadMode,
     has_audio: bool,
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
@@ -2760,6 +2808,7 @@ fn saved_recording_from_path(
         segment_paths,
         mime_type: session.mime_type.to_string(),
         duration_ms,
+        upload_mode: upload_mode.label().to_string(),
         width: session.width,
         height: session.height,
         bytes,
@@ -3539,6 +3588,7 @@ async fn reset_upload_chunks(
     mime_type: &str,
     auth_token: &str,
     cookie: &str,
+    request_streaming: bool,
 ) -> Result<NativeUploadMode, String> {
     let base = server_url.trim_end_matches('/');
     let url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/reset-chunks"))
@@ -3551,10 +3601,10 @@ async fn reset_upload_chunks(
         .post(url)
         .header("Content-Type", "application/json")
         .header("X-Request-Source", "clips-desktop")
-        .json(&serde_json::json!({
-            "requestStreaming": true,
-            "mimeType": mime_type,
-        }));
+        .json(&build_reset_upload_chunks_body(
+            request_streaming,
+            mime_type,
+        ));
     let trimmed_token = auth_token.trim();
     if !trimmed_token.is_empty() {
         request = request.bearer_auth(trimmed_token);
@@ -3577,6 +3627,13 @@ async fn reset_upload_chunks(
         ));
     }
     Ok(NativeUploadMode::from_reset_response(&body))
+}
+
+fn build_reset_upload_chunks_body(request_streaming: bool, mime_type: &str) -> serde_json::Value {
+    serde_json::json!({
+        "requestStreaming": request_streaming,
+        "mimeType": mime_type,
+    })
 }
 
 async fn upload_thumbnail_bytes(

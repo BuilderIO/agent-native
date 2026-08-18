@@ -8,9 +8,12 @@ const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
+const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
 const mockSetResumableSession = vi.hoisted(() => vi.fn());
+const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockStartSession = vi.hoisted(() => vi.fn());
+const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockShouldEnableStreamingUpload = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
@@ -80,7 +83,13 @@ vi.mock("../../../../lib/recordings.js", () => ({
 vi.mock("../../../../lib/resumable-session.js", () => ({
   deleteResumableSession: (...args: unknown[]) =>
     mockDeleteResumableSession(...args),
+  getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
   setResumableSession: (...args: unknown[]) => mockSetResumableSession(...args),
+}));
+
+vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
+  resolveResumableUploadProvider: (...args: unknown[]) =>
+    mockResolveResumableUploadProvider(...args),
 }));
 
 vi.mock("../../../../lib/streaming-upload-mode.js", () => ({
@@ -108,6 +117,14 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockDeleteAppStateByPrefix.mockResolvedValue(3);
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockSetResumableSession.mockResolvedValue(undefined);
+    mockGetResumableSession.mockResolvedValue(null);
+    mockAbortSession.mockResolvedValue(undefined);
+    mockResolveResumableUploadProvider.mockResolvedValue({
+      resumable: {
+        abortSession: mockAbortSession,
+        startSession: mockStartSession,
+      },
+    });
     mockWriteAppState.mockResolvedValue(undefined);
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(false);
     mockShouldEnableStreamingUpload.mockReturnValue(true);
@@ -161,5 +178,46 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
 
     expect(mockStartSession).not.toHaveBeenCalled();
     expect(mockSetResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a buffered reset when SQL scratch is unavailable", async () => {
+    mockReadBody.mockResolvedValue({});
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error:
+        "Recording upload storage could not start a buffered retry session.",
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+  });
+
+  it("falls back to buffered retry when stale resumable cleanup fails", async () => {
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+    });
+    mockAllowsSqlRecordingChunkScratch.mockReturnValue(true);
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "session-1",
+      meta: { provider: "test" },
+      bytesUploaded: 128,
+    });
+    mockAbortSession.mockRejectedValue(new Error("provider cleanup failed"));
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ uploadMode: "buffered" }),
+    );
+
+    expect(mockResolveResumableUploadProvider).toHaveBeenCalledWith(
+      "test-provider",
+    );
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      meta: { provider: "test" },
+    });
+    expect(mockStartSession).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
   });
 });
