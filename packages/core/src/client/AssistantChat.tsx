@@ -2363,8 +2363,16 @@ export function useAutoResumeStatus(
 function approvalResolutionIdentity(
   approvalKey: string,
   toolCallId?: string,
+  // Included so a NEW `approval_required` ask for the same toolCallId/
+  // approvalKey (the server re-emitting after a failed resume never
+  // consumed the earlier grant) looks up as unresolved instead of
+  // inheriting the earlier ask's retained "approved" mark forever. Two
+  // asks sharing no askId (older events, non-production-agent approval
+  // sources) still collapse onto the same identity, preserving the
+  // existing remount-survives-as-approved behavior for them.
+  askId?: string,
 ): string {
-  return `${toolCallId ?? ""}\u0000${approvalKey}`;
+  return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
 }
 
 const AssistantChatInner = forwardRef<
