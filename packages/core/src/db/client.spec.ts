@@ -1155,11 +1155,14 @@ describe("Neon foreground statement budgets", () => {
 
   it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const query = vi.fn(async (sql: string) =>
-      sql === "SELECT 1"
+    const query = vi.fn(async (sql: string, args?: unknown[]) => {
+      if (sql.includes(";") && args !== undefined) {
+        throw new Error("multi-command queries require the simple protocol");
+      }
+      return sql === "SELECT 1"
         ? { rows: [{ value: 1 }], rowCount: 1 }
-        : { rows: [], rowCount: 0 },
-    );
+        : { rows: [], rowCount: 0 };
+    });
     const client = {
       query,
       release: vi.fn(),

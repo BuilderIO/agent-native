@@ -1572,13 +1572,15 @@ async function createDbExecInternal(
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs } = dbExecQueryBudget(sql);
         const pgSql = sqliteToPostgresParams(rawSql);
+        // Neon only accepts multiple SQL commands through its simple protocol;
+        // the transaction start has no parameters, so use that overload.
+        const runQuery = () =>
+          args.length === 0 && rawSql.includes(";")
+            ? client.query(pgSql)
+            : client.query(pgSql, args as any[]);
         const result = await withDbTimeout(
           "query",
-          () =>
-            client.query(pgSql, args as any[]) as Promise<{
-              rows: unknown[];
-              rowCount?: number;
-            }>,
+          () => runQuery() as Promise<{ rows: unknown[]; rowCount?: number }>,
           timeoutOverrideMs ?? timeoutMs,
         );
         return {
