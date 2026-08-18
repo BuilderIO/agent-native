@@ -63,7 +63,11 @@ const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 function normalizeWorkspaceAppDefaultVisibility(
   value: unknown,
 ): WorkspaceAppDefaultVisibility {
-  return value === "private" ? "private" : "org";
+  if (value === "private" || value === "org") return value;
+  if (value == null) return "org";
+  throw new Error(
+    "Workspace app default visibility is invalid; refusing to widen access.",
+  );
 }
 
 function getInviteAppUrl(event: H3Event): string {
@@ -158,9 +162,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     const setting = await getOrgSetting(
       ctx.orgId,
       WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
-    )
-      // coercion-ok: An unavailable optional setting preserves the org-wide default.
-      .catch(() => null);
+    );
     workspaceAppDefaultVisibility = normalizeWorkspaceAppDefaultVisibility(
       setting?.visibility,
     );
