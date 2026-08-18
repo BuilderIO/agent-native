@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.161.7
+
+### Patch Changes
+
+- 8a867bc: Fix Cloudflare Pages builds for templates that import the PDF.js legacy entrypoint.
+
 ## 0.161.6
 
 ### Patch Changes
