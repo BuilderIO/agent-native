@@ -36,7 +36,9 @@ function wait(ms: number): Promise<void> {
 export interface CapturedTranscript {
   /** Speaker-labelled text, lines joined by blank lines. */
   text: string;
-  /** Real whisper segments with verbatim timestamps. */
+  /** Whisper's verbatim timestamps where the engine reported them, else one
+   *  synthesized segment per line — the mic-only engines report no timings,
+   *  and a dropped line would lose its speaker along with its text. */
   segments: SourcedTranscriptSegment[];
   /** Source stored with `save-browser-transcript`. */
   source?: "web-speech" | "macos-native" | "whisper";
@@ -332,9 +334,14 @@ export async function startTranscriptionCapture(
     });
   };
 
+  // `source` reports the engine that actually produced this transcript, not
+  // the one we asked for: `startTranscriptionEngine` may have fallen back to
+  // mic-only macos-native. Omitting it made the server default to "whisper"
+  // and treat a mic-only capture as mixed mic + system audio.
   const captured = (): CapturedTranscript => ({
     text: transcriptFullText(lines),
     segments: transcriptSegments(lines),
+    source: engine,
   });
 
   let engine: TranscriptionEngine;

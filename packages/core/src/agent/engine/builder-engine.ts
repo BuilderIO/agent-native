@@ -40,6 +40,7 @@ import {
 import {
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
@@ -62,6 +63,7 @@ import type {
   EngineCapabilities,
   EngineContentPart,
   EngineEvent,
+  EngineRequestShape,
   EngineStreamOptions,
 } from "./types.js";
 
@@ -319,6 +321,18 @@ class BuilderEngine implements AgentEngine {
         : {}),
     };
 
+    // Measured once, from the exact string that goes on the wire, and carried
+    // on every error stop below. A gateway rejection tells us nothing about
+    // what we sent, so without this an oversized or malformed request and a
+    // gateway outage are the same capture.
+    const payload = JSON.stringify(body);
+    const requestShape: EngineRequestShape = {
+      model: opts.model,
+      payloadBytes: new TextEncoder().encode(payload).length,
+      toolCount: cachedTools.length,
+      messageCount: cachedMessages.length,
+    };
+
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
     const gatewayUrl = new URL(
       "messages",
@@ -348,7 +362,7 @@ class BuilderEngine implements AgentEngine {
             ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
-          body: JSON.stringify(body),
+          body: payload,
           signal: gatewayAbort.signal,
         });
       } catch (err) {
@@ -373,6 +387,7 @@ class BuilderEngine implements AgentEngine {
           timedOut,
           gatewayAbort.effectiveTimeoutMs(),
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -382,7 +397,7 @@ class BuilderEngine implements AgentEngine {
       );
 
       if (!response.ok) {
-        yield* emitHttpError(response, { creditsLane });
+        yield* emitHttpError(response, { creditsLane, requestShape });
         return;
       }
 
@@ -419,6 +434,7 @@ class BuilderEngine implements AgentEngine {
               : {}),
           },
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -432,6 +448,7 @@ class BuilderEngine implements AgentEngine {
             statusCode: response.status,
           },
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -444,6 +461,7 @@ class BuilderEngine implements AgentEngine {
         onFirstEvent: gatewayAbort.markFirstEvent,
         gatewayUrl,
         requestStartedAt: tStart,
+        requestShape,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -478,6 +496,10 @@ function isTransientGatewayFailure(
   if (status !== undefined && RETRYABLE_GATEWAY_STATUSES.has(status)) {
     return true;
   }
+  // The gateway's unhandled-500 envelope, which reaches the in-stream error
+  // frame with no status at all. Without this it read as terminal there while
+  // the identical body read as retryable when it arrived as an HTTP 500.
+  if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 
@@ -495,6 +517,7 @@ function isTransientGatewayFailure(
 function gatewayErrorStop(
   details: GatewayErrorStopDetails,
   creditsLane: boolean | undefined,
+  requestShape?: EngineRequestShape,
 ): EngineEvent {
   const { error, errorCode, upgradeUrl, ...retry } = details;
   return {
@@ -510,13 +533,16 @@ function gatewayErrorStop(
     ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
       ? { contextOverflow: true }
       : {}),
+    // Absent before the request is built (missing credentials): a stop with no
+    // shape means nothing was sent, not that the payload measured zero.
+    ...(requestShape ? { requestShape } : {}),
     ...retry,
   };
 }
 
 async function* emitHttpError(
   response: Response,
-  opts: { creditsLane: boolean },
+  opts: { creditsLane: boolean; requestShape?: EngineRequestShape },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
   // Read the body once as text and then try to parse — calling `.json()`
@@ -535,7 +561,7 @@ async function* emitHttpError(
   const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-    gatewayErrorStop(details, opts.creditsLane);
+    gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 
   // Belt-and-suspenders: 402 without a structured `credits-limit` code
   // (e.g. bare proxy response) still means quota → show upgrade CTA.
@@ -642,6 +668,7 @@ async function* parseJsonlStream(
     gatewayUrl?: URL;
     requestStartedAt?: number;
     creditsLane?: boolean;
+    requestShape?: EngineRequestShape;
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -715,6 +742,7 @@ async function* parseJsonlStream(
             providerRetryable: true,
           },
           captureContext.creditsLane,
+          captureContext.requestShape,
         );
         return;
       }
@@ -806,7 +834,11 @@ async function* parseJsonlStream(
 
           const reason = event.reason ?? "end_turn";
           const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-            gatewayErrorStop(details, captureContext.creditsLane);
+            gatewayErrorStop(
+              details,
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
           if (reason === "rate_limited") {
             yield stop({
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
@@ -840,6 +872,8 @@ async function* parseJsonlStream(
             const errMsg =
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
+            const gatewayRequestId =
+              typeof event.requestId === "string" ? event.requestId : undefined;
             const gatewayErrCode = event.errorCode ?? event.code;
             // The gateway already authenticated this request before streaming,
             // so a bare "Unauthorized" here means the account cannot use this
@@ -873,7 +907,7 @@ async function* parseJsonlStream(
                         // record `unknown` on the credits lane alone.
                         classifyTerminalErrorCode(String(errMsg))));
             console.error(
-              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
+              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
             if (isCredentialAuthError) {
               await recordBuilderGatewayAuthFailure({
@@ -890,10 +924,7 @@ async function* parseJsonlStream(
             // it's thrown, but without these tags.
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({
-                requestId:
-                  typeof event.requestId === "string"
-                    ? event.requestId
-                    : undefined,
+                requestId: gatewayRequestId,
                 model,
                 gatewayUrl: captureContext.gatewayUrl,
                 rawEvent: event,
@@ -908,6 +939,10 @@ async function* parseJsonlStream(
               ...(isTransientGatewayFailure(String(errMsg))
                 ? { providerRetryable: true }
                 : {}),
+              // requestId rides the stop event whether or not the gateway sent a
+              // message: a message like "...ERROR ID: <hex>" is as opaque as no
+              // message at all, and this is the only key that reaches upstream.
+              ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (
             reason === "end_turn" ||
@@ -938,6 +973,7 @@ async function* parseJsonlStream(
         errorCode: BUILDER_GATEWAY_STREAM_ENDED_ERROR_CODE,
       },
       captureContext.creditsLane,
+      captureContext.requestShape,
     );
   } catch (err) {
     const timedOut = captureContext.didGatewayTimeout?.() ?? false;
@@ -962,6 +998,7 @@ async function* parseJsonlStream(
       timedOut,
       gatewayTimeoutMs,
       captureContext.creditsLane,
+      captureContext.requestShape,
     );
   } finally {
     // Release the reader on every exit path — early returns (invalid JSONL,
@@ -1234,6 +1271,7 @@ function createBuilderGatewayTimeoutStop(
   timedOut: boolean,
   timeoutMs: number,
   creditsLane: boolean | undefined,
+  requestShape?: EngineRequestShape,
 ): EngineEvent {
   const error = normalizeBuilderGatewayFetchError(err, timedOut, timeoutMs);
   if (timedOut) {
@@ -1243,6 +1281,7 @@ function createBuilderGatewayTimeoutStop(
     return gatewayErrorStop(
       { error, errorCode: "builder_gateway_timeout" },
       creditsLane,
+      requestShape,
     );
   }
   if (isBuilderGatewayNetworkError(err)) {
@@ -1253,6 +1292,7 @@ function createBuilderGatewayTimeoutStop(
         providerRetryable: true,
       },
       creditsLane,
+      requestShape,
     );
   }
   const errorCode = classifyTerminalErrorCode(error);
@@ -1263,6 +1303,7 @@ function createBuilderGatewayTimeoutStop(
       ...(isTransientGatewayFailure(error) ? { providerRetryable: true } : {}),
     },
     creditsLane,
+    requestShape,
   );
 }
 

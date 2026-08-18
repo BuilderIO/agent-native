@@ -1290,7 +1290,10 @@ export function EventDetailPopover({
         toast.error(t("eventForm.customRepeatGoogleCalendar"));
         return;
       }
-      saveField({ recurrence, scope: "all" });
+      saveField({
+        recurrence,
+        scope: isRecurringEvent ? "all" : "single",
+      });
     },
     [
       editTimezone,
@@ -1298,6 +1301,7 @@ export function EventDetailPopover({
       event.startTimeZone,
       masterEvent.data?.start,
       masterEvent.data?.startTimeZone,
+      isRecurringEvent,
       saveField,
       t,
     ],

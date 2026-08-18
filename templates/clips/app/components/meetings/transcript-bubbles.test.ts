@@ -5,6 +5,7 @@ import {
   findParticipant,
   resolveParticipantForSpeaker,
   resolveSpeaker,
+  transcriptDistinguishesSpeakers,
 } from "./transcript-bubbles.js";
 
 const bob: AttendeeStackParticipant = {
@@ -71,6 +72,245 @@ describe("resolveSpeaker", () => {
       undefined,
     );
     expect(speaker.label).toBe("Bob");
+  });
+});
+
+describe("resolveSpeaker placeholder sides", () => {
+  // A source-less "Me" used to fall through to the system side and render in
+  // the "Them" group — the original bug, and it would also have made the
+  // attribution check claim a distinction the UI could not show.
+  it("puts a source-less mic placeholder on the owner's side", () => {
+    const speaker = resolveSpeaker(
+      { startMs: 0, endMs: 1_000, text: "hello", speaker: "Me" },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(true);
+    expect(speaker.label).toBe("Bob");
+  });
+
+  it("keeps a source-less them placeholder on the remote side", () => {
+    const speaker = resolveSpeaker(
+      { startMs: 0, endMs: 1_000, text: "hello", speaker: "Them" },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(false);
+  });
+
+  it("still defaults a segment with no source and no speaker to the remote side", () => {
+    const speaker = resolveSpeaker(
+      { startMs: 0, endMs: 1_000, text: "hello" },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(false);
+  });
+
+  it("lets an explicit source win over a contradicting placeholder", () => {
+    const speaker = resolveSpeaker(
+      {
+        startMs: 0,
+        endMs: 1_000,
+        text: "hello",
+        speaker: "Me",
+        source: "system",
+      },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(false);
+  });
+});
+
+describe("transcriptDistinguishesSpeakers", () => {
+  const seg = (
+    text: string,
+    extra: Partial<{ source: "mic" | "system"; speaker: string }> = {},
+  ) => ({ startMs: 0, endMs: 1_000, text, ...extra });
+
+  // The mic-only fallback engines tag every segment "mic": the remote side
+  // only reaches the transcript as bleed into the same microphone, so naming
+  // the owner would attribute the other person's words to them as fact.
+  it("reports no signal when every segment came from the mic", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" }), seg("there", { source: "mic" })],
+        [bob, alice],
+      ),
+    ).toBe(false);
+  });
+
+  // Cloud transcription of a single mixed track tags nothing at all. This is
+  // the shape behind the original "everything shows as Them" report.
+  it("reports no signal when no segment carries a source", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello"), seg("there")],
+        [bob, alice],
+      ),
+    ).toBe(false);
+  });
+
+  it("reports signal when both streams are present", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" }), seg("there", { source: "system" })],
+        [bob, alice],
+      ),
+    ).toBe(true);
+  });
+
+  // A diarizing provider distinguishes speakers by name even with no source.
+  it("counts distinct per-segment speaker labels as signal", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { speaker: "Bob" }), seg("there", { speaker: "Alice" })],
+        [bob, alice],
+      ),
+    ).toBe(true);
+  });
+
+  it("treats one repeated speaker label as no signal", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { speaker: "Bob" }), seg("there", { speaker: "bob " })],
+        [bob, alice],
+      ),
+    ).toBe(false);
+  });
+
+  // A solo recording that is all mic genuinely is all one person, so the
+  // owner attribution there is a fact rather than a guess.
+  it("attributes freely when only one person could have spoken", () => {
+    // The single participant *is* the owner, so there is no second speaker.
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [bob],
+        bob.email,
+      ),
+    ).toBe(true);
+    // No roster at all: the owner is the only possible speaker.
+    expect(transcriptDistinguishesSpeakers([seg("hello")], [])).toBe(true);
+  });
+
+  // The roster is the calendar attendee list and routinely omits the recording
+  // owner — `create-meeting` does not synthesize a row for a non-attendee
+  // owner. Counting rows alone read owner + one attendee as solo and handed a
+  // mic-only transcript back to attribution, labelling the remote side's mic
+  // bleed as the owner.
+  it("counts an owner missing from the roster as a second speaker", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [alice],
+        bob.email,
+      ),
+    ).toBe(false);
+  });
+
+  // A withheld owner (public share page) still means an owner exists who is
+  // not among the public participants.
+  it("counts a withheld owner as a second speaker", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [alice],
+        null,
+      ),
+    ).toBe(false);
+  });
+
+  // "We were never told who owns this" is not "nobody else is here".
+  it("counts an unknown owner as a second speaker", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [alice],
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  // `resolveSpeaker` treats Me/Self/You/Them as placeholders rather than
+  // identities. Counting `speaker: "Me"` as its own signal alongside a plain
+  // `source: "mic"` segment marked a mic-only transcript distinguishable and
+  // handed the remote side's bleed back to the owner's name.
+  it("does not count a generic placeholder as a speaker distinct from its own side", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [
+          seg("hello", { speaker: "Me", source: "mic" }),
+          seg("there", { source: "mic" }),
+        ],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["Me", "Self", "You", "me", "  YOU  "])(
+    "treats %j as a placeholder rather than an identity",
+    (placeholder) => {
+      expect(
+        transcriptDistinguishesSpeakers(
+          [
+            seg("hello", { speaker: placeholder, source: "mic" }),
+            seg("there", { source: "mic" }),
+          ],
+          [bob, alice],
+          bob.email,
+        ),
+      ).toBe(false);
+    },
+  );
+
+  // Placeholders still carry which side spoke, so a transcript labelled only
+  // with them stays distinguishable when both sides appear.
+  it("reconciles placeholders to their side when no source is present", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { speaker: "Me" }), seg("there", { speaker: "Them" })],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a real name as a signal even next to a placeholder", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [
+          seg("hello", { speaker: "Me", source: "mic" }),
+          seg("there", { speaker: "Alice", source: "mic" }),
+        ],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not double-count an owner already on the roster", () => {
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [bob, alice],
+        bob.email,
+      ),
+    ).toBe(false);
+    // Matching is normalized, so casing must not resurrect the extra count.
+    expect(
+      transcriptDistinguishesSpeakers(
+        [seg("hello", { source: "mic" })],
+        [bob],
+        "BOB@EXAMPLE.COM",
+      ),
+    ).toBe(true);
+  });
+
+  it("treats an empty transcript as unattributable rather than owned", () => {
+    expect(transcriptDistinguishesSpeakers([], [bob, alice])).toBe(false);
   });
 });
 

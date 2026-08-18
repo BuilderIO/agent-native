@@ -503,6 +503,8 @@ const messages = {
     importFromGmail: "استيراد من Gmail",
     signatureHelp:
       "تُضاف إلى المسودات الجديدة قبل سجل الرد المقتبس. تدعم روابط وصور Markdown.",
+    addSignatureImage: "إضافة صورة",
+    signatureImageUploadFailed: "فشل تحميل صورة التوقيع",
     writingStyle: "أسلوب الكتابة",
     writingStylePlaceholder: "قصير ومحدد ودافئ. تجنب الحشو الرسمي.",
     saveDraftingSettings: "حفظ إعدادات المسودات",

@@ -268,6 +268,11 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
+  const viewerCanComment = Boolean(
+    session?.email &&
+    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
+  );
+
   // Expiry check
   const recordingExpired = isRecordingExpired(rec.expiresAt);
   if (recordingExpired) {
@@ -536,11 +541,7 @@ export default defineEventHandler(async (event) => {
             viewerRole === "owner" ||
             viewerRole === "admin" ||
             viewerRole === "editor",
-          canComment:
-            viewerRole === "owner" ||
-            viewerRole === "admin" ||
-            viewerRole === "editor" ||
-            viewerRole === "commenter",
+          canComment: viewerCanComment,
           isOwner: viewerRole === "owner",
           role: viewerRole ?? "viewer",
           canOpenDashboard,
