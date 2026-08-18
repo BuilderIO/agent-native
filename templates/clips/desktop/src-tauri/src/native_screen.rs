@@ -4055,7 +4055,11 @@ fn recording_file_has_bytes(path: &Path) -> bool {
 }
 
 fn remove_empty_recording_artifacts(session: &NativeFullscreenSession) {
-    for path in session.segments.iter().chain(std::iter::once(&session.path)) {
+    for path in session
+        .segments
+        .iter()
+        .chain(std::iter::once(&session.path))
+    {
         if !path.exists() {
             continue;
         }
@@ -4495,8 +4499,7 @@ fn write_bytes_atomically(path: &Path, data: &[u8], label: &str) -> Result<(), S
         .and_then(|value| value.to_str())
         .unwrap_or("recording");
     let temporary = path.with_file_name(format!(".{file_name}.tmp"));
-    std::fs::write(&temporary, data)
-        .map_err(|error| format!("{label} write failed: {error}"))?;
+    std::fs::write(&temporary, data).map_err(|error| format!("{label} write failed: {error}"))?;
     if let Err(error) = std::fs::rename(&temporary, path) {
         let _ = std::fs::remove_file(&temporary);
         return Err(format!("{label} finalize failed: {error}"));
