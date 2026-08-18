@@ -671,7 +671,7 @@ mod macos {
             }));
 
             let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
-            let mut highest_probability = 0.0;
+            let mut highest_probability: f32 = 0.0;
             while self.pending.len() >= frame_size {
                 let mut denoised = [0.0_f32; nnnoiseless::DenoiseState::FRAME_SIZE];
                 let probability = self
