@@ -63,6 +63,7 @@ export function isPathMountedWorkspaceApp(
     try {
       const pathname = new URL(rawUrl).pathname.replace(/\/+$/, "") || "/";
       return pathname !== "/";
+      // coercion-ok: invalid absolute URLs use the mounted path fallback.
     } catch {
       // Fall through to the mounted path for relative manifest values.
     }

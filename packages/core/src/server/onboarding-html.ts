@@ -7,6 +7,7 @@
  * After first account exists, this page acts as a normal login page.
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -64,11 +65,9 @@ function getConnectionLabel(): string {
 }
 
 function isWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
   return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1" ||
-    typeof process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON === "string" ||
-    typeof process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON === "string"
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
   );
 }
 
