@@ -9,7 +9,7 @@ import {
   requireValidTimezone,
   type WeekdayName,
 } from "../server/lib/event-weekday.js";
-import { dateOnlyInTimezone } from "../server/lib/find-time.js";
+import { zonedDateTimeToUtcIso } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
@@ -19,6 +19,7 @@ import {
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 import {
+  findBookedGoogleEventIds,
   listCalendarEvents,
   resolveCalendarEventRange,
 } from "./list-events.js";
@@ -46,6 +47,9 @@ interface EventResult {
   reason?: string;
 }
 
+const BOOKED_EVENT_REASON =
+  "Is the Google event for an active booking; cancel the booking instead";
+
 /** Why this app cannot delete an event, or undefined when it can. */
 function undeletableReason(
   event: CalendarEvent,
@@ -55,7 +59,7 @@ function undeletableReason(
   // deleting that Google event here would leave the booking row confirmed and
   // the event would reappear on the calendar as a local booking.
   if (event.googleEventId && bookedGoogleEventIds.has(event.googleEventId)) {
-    return "Is the Google event for an active booking; cancel the booking instead";
+    return BOOKED_EVENT_REASON;
   }
   if (event.source === "ical") {
     return "Comes from a subscribed ICS feed, which is read-only";
@@ -76,17 +80,18 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
  * post-filters starts with `<= to` so the UI can show an event that begins on
  * the boundary. Re-checking strictly here keeps a destructive filter inside the
  * range the caller actually named. An all-day start carries no instant, so it is
- * compared as a local date against the range's exclusive end date rather than as
- * a UTC midnight that would sort before the zone's own midnight.
+ * anchored to local midnight in the range's own timezone: parsing it as a UTC
+ * date would sort it before the zone's midnight, and comparing it as a date
+ * string would drop a same-day all-day event from a range ending at midday.
  */
 function startsBeforeExclusiveEnd(
   start: string,
   range: { to: string; timezone: string },
 ): boolean {
-  if (DATE_ONLY_RE.test(start)) {
-    return start < dateOnlyInTimezone(new Date(range.to), range.timezone);
-  }
-  return new Date(start).getTime() < new Date(range.to).getTime();
+  const startMs = DATE_ONLY_RE.test(start)
+    ? new Date(zonedDateTimeToUtcIso(start, "00:00", range.timezone)).getTime()
+    : new Date(start).getTime();
+  return startMs < new Date(range.to).getTime();
 }
 
 async function mapWithConcurrency<T, R>(
@@ -255,36 +260,35 @@ export default defineAction({
         args.accountEmail,
         ownerEmail,
       );
-      targets = args.ids!.map((id) => {
-        const googleEventId = normalizeGoogleEventId(id);
-        return {
-          googleEventId,
+      const requested = args.ids!.map(normalizeGoogleEventId);
+      // Explicit ids get the same booking protection as a filtered selection:
+      // naming the event directly does not make leaving its booking confirmed
+      // any less of a silent inconsistency.
+      const booked = await findBookedGoogleEventIds(requested);
+      for (const googleEventId of requested) {
+        const display: EventResult = {
+          id: `google-${googleEventId}`,
           accountEmail,
-          display: {
-            id: `google-${googleEventId}`,
-            accountEmail,
-            outcome: "matched" as Outcome,
-          },
+          outcome: "matched",
         };
-      });
+        if (booked.has(googleEventId)) {
+          results.push({
+            ...display,
+            outcome: "skipped",
+            reason: BOOKED_EVENT_REASON,
+          });
+          continue;
+        }
+        targets.push({ googleEventId, accountEmail, display });
+      }
     } else {
       // Read every source the user can see, not just Google. A weekend event
       // from an ICS feed or a standalone booking is not deletable here, and
       // narrowing the read to Google would drop it from the report entirely --
       // so "deleted 3 of 3" comes back while the user still sees a fourth.
-      // The bookings-only read is unfiltered by Google presence, so it is the
-      // only way to see which Google events are backing an active booking.
-      const [listed, bookingsOnly] = await Promise.all([
-        listCalendarEvents(
-          { query: args.query, accountEmails: args.accountEmails },
-          { range },
-        ),
-        listCalendarEvents({ sources: ["bookings"] }, { range }),
-      ]);
-      const bookedGoogleEventIds = new Set(
-        bookingsOnly.events
-          .map((event) => event.googleEventId)
-          .filter((id): id is string => Boolean(id)),
+      const listed = await listCalendarEvents(
+        { query: args.query, accountEmails: args.accountEmails },
+        { range },
       );
       // A provider read that partially failed is not an empty weekend. Deleting
       // "everything that matched" out of an incomplete inventory would report a
@@ -311,6 +315,12 @@ export default defineAction({
           `${matched.length} events match, over the ${MAX_MATCHED_EVENTS} limit for one bulk delete. Narrow the range or filter and run again.`,
         );
       }
+
+      const bookedGoogleEventIds = await findBookedGoogleEventIds(
+        matched
+          .map((event) => event.googleEventId)
+          .filter((id): id is string => Boolean(id)),
+      );
 
       for (const event of matched) {
         const display: EventResult = {
@@ -339,6 +349,10 @@ export default defineAction({
       daysOfWeek: weekdays,
       matched: targets.length + results.length,
       scope: args.scope,
+      // Same contract as list-events: a source that could not be read means this
+      // sweep does not account for everything the user can see, and that must be
+      // impossible to mistake for a clean full pass.
+      coverageComplete: unreadableSources.length === 0,
       ...(unreadableSources.length > 0 ? { unreadableSources } : {}),
     };
 

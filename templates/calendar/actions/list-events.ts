@@ -554,6 +554,46 @@ async function listLocalBookingEvents(
   });
 }
 
+/**
+ * Which of these Google event ids are backing a still-active booking.
+ *
+ * Deleting such an event without cancelling its booking leaves the row
+ * confirmed, and `shouldShowLocalBookingEvent` then republishes the booking as a
+ * local calendar event — so the "deleted" meeting reappears. Scoped through the
+ * same booking-link access filter as the calendar read.
+ */
+export async function findBookedGoogleEventIds(
+  googleEventIds: readonly string[],
+): Promise<Set<string>> {
+  const ids = Array.from(new Set(googleEventIds.filter(Boolean)));
+  if (ids.length === 0) return new Set();
+
+  const db = getDb();
+  const links = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+  const slugs = links.map((link) => link.slug);
+  if (slugs.length === 0) return new Set();
+
+  const rows = await db
+    .select({ googleEventId: schema.bookings.googleEventId })
+    .from(schema.bookings)
+    .where(
+      and(
+        inArray(schema.bookings.slug, slugs),
+        ne(schema.bookings.status, "cancelled"),
+        inArray(schema.bookings.googleEventId, ids),
+      ),
+    );
+
+  return new Set(
+    rows
+      .map((row) => row.googleEventId)
+      .filter((id): id is string => Boolean(id)),
+  );
+}
+
 function shouldShowLocalBookingEvent({
   event,
   googleEventIds,

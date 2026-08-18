@@ -394,8 +394,15 @@ The result is a per-event report, not a boolean. Read `deleted`, `failed`, and
 `skipped` and give the user the counts; a `failed` entry carries the provider
 error and a `skipped` entry says why the app cannot delete it (ICS feeds are
 read-only; a booking, including the Google event backing one, is cancelled from
-the booking so that deleting the event cannot leave the booking confirmed).
-Never report a bulk delete as done from the absence of a thrown error.
+the booking so that deleting the event cannot leave the booking confirmed — this
+holds for explicit `--ids` too). Never report a bulk delete as done from the
+absence of a thrown error.
+
+`coverageComplete: false` plus `unreadableSources` means a feed could not be
+read, so the sweep does not account for everything the user can see. Deletable
+events are still deleted — a third-party feed outage should not block a cleanup,
+and ICS events were never deletable — but say plainly that the feed was not
+covered instead of reporting a clean pass.
 
 The action refuses rather than guesses when the calendar read was incomplete (an
 expired account token) or when more than 200 events match — narrow the filter

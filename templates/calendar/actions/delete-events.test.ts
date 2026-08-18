@@ -634,6 +634,124 @@ describe("delete-events", () => {
     ).rejects.toThrow(/saved calendar timezone/i);
   });
 
+  it("keeps an explicitly named event that is backing an active booking", async () => {
+    bookingRowsMock.mockResolvedValue([
+      {
+        id: "bk1",
+        name: "Ada",
+        email: "ada@example.com",
+        slug: "intro",
+        start: "2026-04-11T18:00:00.000Z",
+        end: "2026-04-11T18:30:00.000Z",
+        eventTitle: "Intro call",
+        notes: "",
+        meetingLink: "",
+        googleEventId: "linked",
+        status: "confirmed",
+        createdAt: "2026-04-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await run({
+      ids: ["google-linked", "google-plain"],
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "plain",
+    ]);
+    expect(result.deleted).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "google-linked",
+          outcome: "skipped",
+          reason: expect.stringMatching(/cancel the booking/i),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps a same-day all-day event when the end bound carries a time", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({
+          id: "allday-sat",
+          start: "2026-04-11",
+          end: "2026-04-12",
+          allDay: true,
+        }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      // Midday on the same Saturday: local midnight precedes it, so the all-day
+      // event is inside the range even though the date strings are equal.
+      to: "2026-04-11T12:00:00-07:00",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "allday-sat",
+    ]);
+  });
+
+  it("marks coverage incomplete when a source could not be read", async () => {
+    getUserSettingMock.mockImplementation(async (_email, key) =>
+      key === "external-calendars"
+        ? [
+            {
+              id: "feed-3",
+              name: "Down feed",
+              url: "https://example.com/down.ics",
+              color: "#000",
+            },
+          ]
+        : null,
+    );
+    fetchICalEventsMock.mockRejectedValue(new Error("timeout"));
+    listGoogleEventsMock.mockResolvedValue({
+      events: [googleEvent({ id: "sat", start: "2026-04-11T18:00:00.000Z" })],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(result.coverageComplete).toBe(false);
+  });
+
+  it("marks coverage complete when every source was read", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [googleEvent({ id: "sat", start: "2026-04-11T18:00:00.000Z" })],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.coverageComplete).toBe(true);
+    expect(result.unreadableSources).toBeUndefined();
+  });
+
   it("refuses a match set larger than one bulk delete may commit", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: Array.from({ length: 201 }, (_, index) =>
