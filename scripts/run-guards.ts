@@ -4,6 +4,7 @@ import os from "node:os";
 import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 
 const guards = [
+  "guard:hooks-registered",
   "guard:no-drizzle-push",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",

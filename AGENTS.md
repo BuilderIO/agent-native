@@ -131,6 +131,16 @@ editing them, and use `corepack pnpm ship:push` when the user authorizes a
 branch-wide checkpoint. Read `concurrent-agents` before working in a shared
 checkout.
 
+**One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
+`.claude/settings.json`): denies a write when another live session holds the
+file, or when it changed on disk under you. It exists because this is the only
+rule you cannot follow by reading instructions — no amount of guidance tells you
+that a peer session is mid-edit in the same file right now. Re-read and build on
+their change; never force past it. It is a Claude Code mechanism only: it gives
+Codex sessions and plain human edits nothing, so it is a backstop, not a
+guarantee. Read `concurrent-agents` before working in a shared checkout.
+`guard:hooks-registered` keeps this section and that file from drifting apart.
+
 Everything else is guidance — but guidance nobody measures is guidance nobody
 can tell is working. `node scripts/agent-friction-report.mjs --weeks 2` counts
 how often the user has had to repeat each correction, and names the skill that
