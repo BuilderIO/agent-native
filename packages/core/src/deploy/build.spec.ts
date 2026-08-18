@@ -207,6 +207,9 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     const workerAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse/worker="),
     );
+    const pdfJsAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdfjs-dist/legacy/build/pdf.mjs="),
+    );
     const packageAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse="),
     );
@@ -217,8 +220,17 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
       "pdf-parse/worker",
     );
+    expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
+      "pdfjs-dist/legacy/build/pdf.mjs",
+    );
     expect(workerAlias).toBe(
       `--alias:pdf-parse/worker=${path.join(stubDir, "pdf-parse__worker.js")}`,
+    );
+    expect(pdfJsAlias).toBe(
+      `--alias:pdfjs-dist/legacy/build/pdf.mjs=${path.join(
+        stubDir,
+        "pdfjs-dist__legacy__build__pdf.mjs.js",
+      )}`,
     );
     expect(packageAlias).toBe(
       `--alias:pdf-parse=${path.join(stubDir, "pdf-parse", "index.js")}`,
