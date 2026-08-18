@@ -3,18 +3,40 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
+import { Table } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableRow } from "@tiptap/extension-table-row";
+import { EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildHeadingCommands,
+  CommandButton,
+  CONTENT_HEADING_LEVELS,
+  equationNodeContent,
+  excludeCommandsWithDuplicateTitles,
+  getEquationInsertionRange,
+  getSlashMenuVerticalPosition,
   inlineDatabaseBlockContent,
+  insertEquation,
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
+  SlashCommandMenu,
+  setCodeBlockFromSlashCommand,
   setPlainTextBlock,
-  shouldOpenGenerateOnSpace,
 } from "./SlashCommandMenu";
+
+function TestIcon() {
+  return createElement("svg");
+}
 
 function readSlashCommandMenuSource() {
   return readFileSync(
@@ -45,39 +67,463 @@ describe("inline slash generate command parsing", () => {
   });
 });
 
-describe("space generate shortcut", () => {
-  it("opens only from an empty paragraph line", () => {
-    const editor = new Editor({
-      extensions: [StarterKit],
-      content: {
-        type: "doc",
-        content: [{ type: "paragraph" }],
-      },
-    });
+describe("generate command affordances", () => {
+  it("uses slash commands and the shared composer instead of a space shortcut", () => {
+    const source = readSlashCommandMenuSource();
 
-    try {
-      editor.commands.setTextSelection(1);
-      expect(shouldOpenGenerateOnSpace(editor as any)).toBe(true);
-
-      editor.commands.insertContent("Text");
-      expect(shouldOpenGenerateOnSpace(editor as any)).toBe(false);
-    } finally {
-      editor.destroy();
-    }
+    expect(source).toContain("import { PromptComposer }");
+    expect(source).toMatch(
+      /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
+    );
+    expect(source).toContain("icon: IconHierarchy2");
+    expect(source).not.toContain("shouldOpenGenerateOnSpace");
+    expect(source).not.toContain('e.code === "Space"');
   });
 });
 
 describe("slash command menu trigger", () => {
+  it("repositions after an ancestor scroll moves the caret", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain(
+      'document.addEventListener("scroll", updatePosition, true)',
+    );
+    expect(source).toContain(
+      'document.removeEventListener("scroll", updatePosition, true)',
+    );
+    expect(source).toMatch(
+      /requestAnimationFrame\(\(\) => \{[\s\S]*setPosition\(getSlashMenuPosition\(editor\)\)/,
+    );
+  });
+
+  it("opens above a caret near the viewport bottom", () => {
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 760, bottom: 780 },
+        { top: 100, bottom: 1200 },
+        840,
+      ),
+    ).toEqual({ bottom: 444 });
+  });
+
+  it("opens below a caret when the viewport has room", () => {
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 200, bottom: 220 },
+        { top: 100, bottom: 1200 },
+        840,
+      ),
+    ).toEqual({ top: 124 });
+  });
+
+  it("keeps native commands when registry commands have the same visible title", () => {
+    const native = [
+      { title: "Callout" },
+      { title: "Table" },
+      { title: "Code block" },
+    ];
+    const registry = [
+      { title: " callout " },
+      { title: "TABLE" },
+      { title: "API endpoint" },
+    ];
+
+    expect(excludeCommandsWithDuplicateTitles(native, registry)).toEqual([
+      { title: "API endpoint" },
+    ]);
+  });
+
+  it("persists structural slash-command results immediately", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain("const beforeDoc = editor.state.doc");
+    expect(source).toContain("!editor.state.doc.eq(beforeDoc)");
+    expect(source).toContain("await onDraftCommitted?.()");
+    expect(source).toContain("persisted === false");
+  });
+
   it("opens for slash commands at the start of a block", () => {
     expect(parseSlashCommandQuery("/")).toBe("");
     expect(parseSlashCommandQuery("/heading")).toBe("heading");
+    expect(parseSlashCommandQuery("/heading 2")).toBe("heading 2");
+    expect(parseSlashCommandQuery("/numbered list")).toBe("numbered list");
     expect(parseSlashCommandQuery("  /table")).toBe("table");
+  });
+
+  it("still yields multi-word generate prompts to inline submission", () => {
+    expect(parseSlashCommandQuery("/generate outline this PRD")).toBeNull();
   });
 
   it("does not open for slashes embedded in normal prose", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+
+  it("reopens in a trailing paragraph after a code block", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<pre><code>const answer = 42;</code></pre><p></p>",
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      vi.spyOn(editor.view, "coordsAtPos").mockImplementationOnce(() => {
+        throw new RangeError("DOM position is reconciling");
+      });
+      act(() => {
+        editor.commands.focus("end");
+        editor.commands.insertContent("/");
+      });
+      await act(async () => Promise.resolve());
+
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
+  it("executes an exact slash command on Enter when the menu is not visible", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, Table, TableRow, TableHeader, TableCell],
+      content: "<p>/table</p>",
+    });
+    editor.commands.focus("end");
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).not.toContain("/table");
+      expect(editor.view.dom.querySelectorAll("table")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+});
+
+describe("slash command pointer activation", () => {
+  function renderCommandButton(onExecute: () => void) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    act(() => {
+      root.render(
+        createElement(CommandButton, {
+          cmd: {
+            title: "Code Block",
+            description: "Insert a code block",
+            icon: TestIcon,
+            action: vi.fn(),
+          },
+          isSelected: true,
+          onExecute,
+          onHover: vi.fn(),
+        }),
+      );
+    });
+    return {
+      button: container.querySelector("button"),
+      cleanup: () => {
+        act(() => root.unmount());
+        container.remove();
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      },
+    };
+  }
+
+  it("executes on mouse down while preserving selection and deduplicating click", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      const mouseDown = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        button?.dispatchEvent(mouseDown);
+      });
+      expect(mouseDown.defaultPrevented).toBe(true);
+      expect(onExecute).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        button?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 1,
+          }),
+        );
+      });
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("runs before a pointer selection closes and unmounts the menu", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    act(() => {
+      button?.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+        }),
+      );
+    });
+    expect(onExecute).toHaveBeenCalledTimes(1);
+    cleanup();
+    expect(onExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports keyboard-generated button clicks", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      act(() => {
+        button?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 0,
+          }),
+        );
+      });
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("code block slash command", () => {
+  it("deletes the slash query and converts the block in one command chain", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/code</p>",
+    });
+
+    try {
+      editor.commands.setTextSelection(6);
+      expect(setCodeBlockFromSlashCommand(editor, { from: 1, to: 6 })).toBe(
+        true,
+      );
+      expect(editor.getJSON()).toEqual({
+        type: "doc",
+        content: [
+          { type: "codeBlock", attrs: { language: null } },
+          { type: "paragraph" },
+        ],
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("heading slash commands", () => {
+  it("offers all six HTML heading levels for insert and turn-into flows", () => {
+    expect(CONTENT_HEADING_LEVELS).toEqual([1, 2, 3, 4, 5, 6]);
+
+    const toggleCommands = buildHeadingCommands("toggle");
+    const setCommands = buildHeadingCommands("set");
+
+    expect(toggleCommands.map((command) => command.titleKey)).toEqual([
+      "editor.heading1",
+      "editor.heading2",
+      "editor.heading3",
+      "editor.heading4",
+      "editor.heading5",
+      "editor.heading6",
+    ]);
+    expect(toggleCommands.map((command) => command.shortcut)).toEqual([
+      "#",
+      "##",
+      "###",
+      "####",
+      "#####",
+      "######",
+    ]);
+    expect(setCommands.map((command) => command.titleKey)).toEqual(
+      toggleCommands.map((command) => command.titleKey),
+    );
+  });
+
+  it("runs the matching heading command for levels five and six", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      toggleHeading: vi.fn(() => chain),
+      setHeading: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+    const editor = { chain: () => chain } as any;
+
+    buildHeadingCommands("toggle")[4]?.action(editor, {
+      slashRange: null,
+    });
+    buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
+
+    expect(chain.toggleHeading).toHaveBeenCalledWith({ level: 5 });
+    expect(chain.setHeading).toHaveBeenCalledWith({ level: 6 });
+  });
+});
+
+describe("equation slash commands", () => {
+  it("builds the canonical inline and block atom payloads", () => {
+    expect(equationNodeContent("E = mc^2", false)).toEqual({
+      type: "notionInlineAtom",
+      attrs: { tagName: "math", attrsJson: "{}", label: "E = mc^2" },
+    });
+    expect(equationNodeContent("E = mc^2", true)).toEqual({
+      type: "notionBlockAtom",
+      attrs: { tagName: "equation", attrsJson: "{}", label: "E = mc^2" },
+    });
+  });
+
+  it("replaces only the slash range for inline equations", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertEquation({ chain: () => chain } as any, "x^2", false, {
+        from: 4,
+        to: 11,
+      }),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith(
+      { from: 4, to: 11 },
+      equationNodeContent("x^2", false),
+    );
+  });
+
+  it("replaces the paragraph and leaves a trailing paragraph for block equations", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertEquation({ chain: () => chain } as any, "x^2", true, {
+        from: 0,
+        to: 9,
+      }),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith({ from: 0, to: 9 }, [
+      equationNodeContent("x^2", true),
+      { type: "paragraph" },
+    ]);
+  });
+
+  it("expands block insertion to the containing paragraph", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "/equation" }] },
+        ],
+      },
+    });
+
+    try {
+      expect(
+        getEquationInsertionRange(editor as any, { from: 1, to: 10 }, true),
+      ).toEqual({ from: 0, to: 11 });
+      expect(
+        getEquationInsertionRange(editor as any, { from: 1, to: 10 }, false),
+      ).toEqual({ from: 1, to: 10 });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("wires two searchable equation commands to a validated preview", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain('title: t("editor.slash.blockEquation")');
+    expect(source).toContain('title: t("editor.slash.inlineEquation")');
+    expect(source).toContain('searchText: "latex katex math formula"');
+    expect(source).toContain("renderMathToHtml(");
+    expect(source).toContain("disabled={!equationResult.ok}");
   });
 });
 

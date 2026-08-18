@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -20,7 +20,12 @@ import {
 } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
 import { registerShareableResource } from "./registry.js";
-import { createSharesTable, type ShareRole } from "./schema.js";
+import {
+  createSharesTable,
+  ROLE_RANK,
+  roleSatisfies,
+  type ShareRole,
+} from "./schema.js";
 
 const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
@@ -55,6 +60,16 @@ async function insertDoc(values: {
     orgId: values.orgId === undefined ? orgId : values.orgId,
     visibility: values.visibility ?? "private",
   });
+}
+
+let memberSeq = 0;
+function addOrgMember(memberOrgId: string, email: string) {
+  sqlite
+    .prepare(
+      `INSERT INTO org_members (id, org_id, email, role, joined_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(`member-${++memberSeq}`, memberOrgId, email, "member", Date.now());
 }
 
 async function listVisible(
@@ -96,6 +111,13 @@ beforeEach(() => {
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
+    );
   `);
   db = drizzle(sqlite);
   registerShareableResource({
@@ -113,6 +135,13 @@ afterEach(() => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("keeps viewer read-only while granting commenter comment capability", () => {
+    expect(ROLE_RANK.commenter).toBeGreaterThan(ROLE_RANK.viewer);
+    expect(roleSatisfies("viewer", "commenter")).toBe(false);
+    expect(roleSatisfies("commenter", "commenter")).toBe(true);
+    expect(roleSatisfies("commenter", "editor")).toBe(false);
+  });
+
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
@@ -287,6 +316,7 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
+    addOrgMember(orgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -356,6 +386,52 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("grants org-visibility access to a real org member even when a different org is active", async () => {
+    // Regression test: `org` visibility must key off actual `org_members`
+    // rows, not equality with the caller's currently active org. A caller
+    // can be a genuine member of both `orgId` and `otherOrgId` while only
+    // one of them is their active selection at any given moment.
+    await insertDoc({
+      id: "doc-org-cross-active",
+      ownerEmail: outsiderEmail,
+      orgId: otherOrgId,
+      visibility: "org",
+    });
+    addOrgMember(otherOrgId, viewerEmail);
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-cross-active"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(resourceType, "doc-org-cross-active", "viewer"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(resourceType, "doc-org-cross-active", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("denies org-visibility access when the caller has an active org but no real membership in the resource's org", async () => {
+    await insertDoc({
+      id: "doc-org-no-membership",
+      ownerEmail: outsiderEmail,
+      orgId: otherOrgId,
+      visibility: "org",
+    });
+    // viewerEmail has an active org, but is never added to `org_members` for
+    // `otherOrgId` — access must fail rather than fall back to any equality
+    // check.
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-no-membership"),
+      ).resolves.toBe(null);
+      await expect(
+        assertAccess(resourceType, "doc-org-no-membership", "viewer"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
   it("allows a resource registration to explicitly upgrade public-by-link access", async () => {
     const publicEditType = "qa-doc-public-editor";
     registerShareableResource({
@@ -391,6 +467,42 @@ describe("shareable resource access helpers", () => {
         assertAccess(publicEditType, "doc-public-edit", "editor"),
       ).resolves.toMatchObject({ role: "editor" });
     });
+  });
+
+  it("passes a capability principal to a dynamic public access resolver", async () => {
+    const capabilityType = "qa-doc-capability-editor";
+    const capability = "capability:qa-doc:edit:doc-public-edit";
+    registerShareableResource({
+      type: capabilityType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Capability Editable Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource, ctx) =>
+        resource.id === "doc-public-edit" && ctx.authCapability === capability
+          ? "editor"
+          : "viewer",
+    });
+    await insertDoc({
+      id: "doc-public-edit",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ authCapability: capability }, async () => {
+      await expect(
+        resolveAccess(capabilityType, "doc-public-edit"),
+      ).resolves.toMatchObject({ role: "editor" });
+    });
+    await runWithRequestContext(
+      { authCapability: "capability:qa-doc:edit:wrong-doc" },
+      async () => {
+        await expect(
+          resolveAccess(capabilityType, "doc-public-edit"),
+        ).resolves.toMatchObject({ role: "viewer" });
+      },
+    );
   });
 
   it("resolves access when the Drizzle table has additive columns missing from the database", async () => {
@@ -677,6 +789,42 @@ describe("shareable resource access helpers", () => {
     expect(doc).toMatchObject({ visibility: "org" });
   });
 
+  it("delegates visibility persistence to a resource-owned hook", async () => {
+    const persistVisibilityChange = vi.fn(async () => undefined);
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      persistVisibilityChange,
+    });
+    await insertDoc({ id: "doc-hook" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-hook",
+          visibility: "org",
+        }),
+      ).resolves.toEqual({ ok: true, visibility: "org" });
+    });
+
+    expect(persistVisibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceId: "doc-hook",
+        visibility: "org",
+        update: { visibility: "org" },
+        userEmail: ownerEmail,
+        orgId,
+      }),
+    );
+    const [row] = await db.select().from(docs).where(eq(docs.id, "doc-hook"));
+    expect(row).toMatchObject({ visibility: "private" });
+  });
+
   it("upserts and revokes user shares case-insensitively", async () => {
     await insertDoc({ id: "doc-user-case-actions" });
 
@@ -894,6 +1042,7 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         createdAt: "2026-04-30T00:00:00.000Z",
       },
     ]);
+    addOrgMember(orgId, viewerEmail);
 
     const cases: Array<{
       ctx: { userEmail?: string; orgId?: string };

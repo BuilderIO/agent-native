@@ -79,17 +79,17 @@ pnpm typecheck    # type-check
 
 ## Environment Variables
 
-Templates read from `.env` in their own directory. Key variables:
+Templates read from `.env` in their own directory, and workspace development
+loads the root `.env` before app-local values. The complete repository-wide
+index is [docs/environment-variables.md](docs/environment-variables.md). It
+covers framework, template, local/test, build/deploy, CI-only, and credential
+variables, and is checked by `pnpm run guard:env-documentation`.
 
-| Variable                       | Purpose                                                          |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `DATABASE_URL`                 | Database connection string (see below)                           |
-| `ANTHROPIC_API_KEY`            | API key for Claude (required for agent chat)                     |
-| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients; not browser auth |
-| `GOOGLE_SIGN_IN_CLIENT_ID`     | Preferred low-scope Google client ID for app login               |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET` | Preferred low-scope Google client secret for app login           |
-| `GOOGLE_CLIENT_ID`             | Google API integration client ID, or legacy login fallback       |
-| `GOOGLE_CLIENT_SECRET`         | Google API integration secret, or legacy login fallback          |
+For the most common setup variables, start with `DATABASE_URL`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `A2A_SECRET`, and the provider key
+needed by the selected agent engine. User-, organization-, and workspace-scoped
+credentials should be stored through the scoped secret/credential store rather
+than added to `.env`.
 
 ### Database options
 
@@ -118,6 +118,35 @@ Run these from the repo root:
 | `pnpm test`          | Run tests across every workspace package/template with a `test` script |
 | `pnpm run guards`    | Run all security/consistency guard scripts (see Guards below)          |
 | `pnpm run lint`      | Format check + typecheck                                               |
+
+## Concurrency
+
+Each runner sizes itself off the whole machine, which oversubscribes the CPU
+when several agent sessions or checkouts run checks at once. Every lid has an
+env override:
+
+| Variable                                                | Controls                            | Default                         |
+| ------------------------------------------------------- | ----------------------------------- | ------------------------------- |
+| `VITEST_CONCURRENCY`, `AGENT_NATIVE_VITEST_CONCURRENCY` | Workers per vitest suite            | `25%` of cores                  |
+| `GUARD_CONCURRENCY`, `AGENT_NATIVE_GUARD_CONCURRENCY`   | Guards running in parallel          | `cores / 2`, clamped to 2--6    |
+| `WORKSPACE_CONCURRENCY`, `PNPM_WORKSPACE_CONCURRENCY`   | Packages running a task in parallel | per-profile, derived from cores |
+
+`VITEST_CONCURRENCY` takes a percentage (`25%`) or a worker count (`2`). The
+base config every vitest config merges in ships from
+`@agent-native/core/vitest-config`; templates and examples import it by package
+name, and `packages/*` go through the `vitest.shared.ts` re-export at the repo
+root so they need no dependency on core. A package that needs a different value
+sets `test.maxWorkers` in its own config; that wins the merge.
+
+Template configs must import the package path, never the root re-export.
+`agent-native create` extracts a template directory with `--strip-components=1`,
+so anything a template reaches for above its own directory resolves to nothing
+in the scaffolded app.
+
+Vitest's own `VITEST_MAX_WORKERS` still works for a one-off integer, but never
+give it a percentage: vitest applies it as `Number.parseInt`, so `25%` becomes
+25 workers rather than a quarter of the machine (vitest#9631). The config
+throws rather than let that through.
 
 ## Guards
 

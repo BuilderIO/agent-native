@@ -9,10 +9,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getActivePlaybackComments,
+  getPlaybackCommentVisibleMs,
   PlaybackCommentOverlay,
   PLAYBACK_COMMENT_VISIBLE_MS,
   type PlaybackComment,
 } from "./playback-comment-overlay";
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useAvatarUrl: () => null,
+}));
 
 const comment: PlaybackComment = {
   id: "comment-1",
@@ -25,7 +30,7 @@ const comment: PlaybackComment = {
 };
 
 describe("playback comment timing", () => {
-  it("shows a root comment from its timestamp for four seconds", () => {
+  it("shows a root comment from its timestamp for three seconds", () => {
     expect(getActivePlaybackComments([comment], 11_999)).toEqual([]);
     expect(getActivePlaybackComments([comment], 12_000)).toEqual([comment]);
     expect(
@@ -40,6 +45,16 @@ describe("playback comment timing", () => {
         12_000 + PLAYBACK_COMMENT_VISIBLE_MS,
       ),
     ).toEqual([]);
+  });
+
+  it("scales the media-time window with playback speed", () => {
+    expect(getPlaybackCommentVisibleMs(2.5)).toBe(7_500);
+    expect(getActivePlaybackComments([comment], 12_000 + 7_499, 2.5)).toEqual([
+      comment,
+    ]);
+    expect(getActivePlaybackComments([comment], 12_000 + 7_500, 2.5)).toEqual(
+      [],
+    );
   });
 
   it("does not surface replies or resolved comments over playback", () => {
@@ -63,12 +78,36 @@ describe("PlaybackCommentOverlay", () => {
 
     act(() => {
       root.render(
-        <PlaybackCommentOverlay comments={[comment]} currentMs={13_000} />,
+        <PlaybackCommentOverlay comments={[comment]} currentMs={12_500} />,
       );
     });
 
     expect(container.textContent).toContain("Madison");
     expect(container.textContent).toContain("Please take a look at this.");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders inline Markdown without creating heading elements", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, content: "# Label\n\n**Bold** and `code`" }]}
+          currentMs={12_500}
+        />,
+      );
+    });
+
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.textContent).toContain("Label");
 
     act(() => root.unmount());
     container.remove();

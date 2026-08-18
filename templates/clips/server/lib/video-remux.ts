@@ -125,7 +125,11 @@ function startsWithMagic(bytes: Uint8Array, magic: number[]): boolean {
   return true;
 }
 
-async function runFfmpeg(args: string[]): Promise<void> {
+export async function runFfmpeg(
+  args: string[],
+  options: { timeoutMs?: number; label?: string } = {},
+): Promise<void> {
+  const { timeoutMs = REMUX_TIMEOUT_MS, label = "remux" } = options;
   await new Promise<void>((resolve, reject) => {
     const child = spawn(ffmpegCommand(), args, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -133,8 +137,8 @@ async function runFfmpeg(args: string[]): Promise<void> {
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`ffmpeg remux timed out\n${stderr}`));
-    }, REMUX_TIMEOUT_MS);
+      reject(new Error(`ffmpeg ${label} timed out\n${stderr}`));
+    }, timeoutMs);
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
@@ -244,7 +248,12 @@ export async function probeHasAudioStream(
   }
 }
 
-async function withRemuxSlot<T>(fn: () => Promise<T>): Promise<T> {
+/**
+ * Bound concurrent ffmpeg invocations process-wide. Every ffmpeg caller must go
+ * through this, including non-remux jobs — the limit protects the box, not the
+ * remux path specifically.
+ */
+export async function withRemuxSlot<T>(fn: () => Promise<T>): Promise<T> {
   if (activeRemuxes >= MAX_CONCURRENT_REMUXES) {
     await new Promise<void>((resolve) => remuxWaiters.push(resolve));
   }

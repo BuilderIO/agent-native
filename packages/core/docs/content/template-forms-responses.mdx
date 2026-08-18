@@ -1,0 +1,120 @@
+---
+title: "Forms — responses, insights, and destinations"
+description: "Where form submissions live, how to ask the agent for charts and summaries, exporting to CSV or JSON, and routing new responses to Slack, Discord, Sheets, or a webhook."
+---
+
+# Responses, insights, and destinations
+
+This page covers what happens after someone submits a form: where the response is stored, how to ask the agent to analyze it, how to export it, and how to route it to other tools automatically. It's for anyone reviewing form results, whether or not they touch code.
+
+## Collecting responses
+
+Every submission to a published form becomes one row: the answers (keyed by field id), when it arrived, and — unless the form is anonymous — who sent it and where from. You can open any form's Responses tab for a per-response detail view, or just ask:
+
+- "How many responses does the beta signup form have?"
+- "Who submitted today?"
+- "Show me the responses for the customer feedback form."
+
+When a response was submitted through an embedded feedback widget elsewhere (rather than filled out directly on the public form page), the responses table also shows a **Page** and **Source** column — the page the respondent was on and whether they were on web, desktop (Electron), or desktop (Tauri). These only appear when at least one response actually carries that context.
+
+## Response insights {#response-insights}
+
+Ask for trends or summaries instead of scrolling rows — "submissions by day," "how many responses this week," "summarize this week's feedback" — and the agent returns a native chart, table, or combined dashboard rather than a wall of raw data. Which one comes back depends on what you asked for:
+
+<Diagram
+  id="doc-block-forms6"
+  title="Response insights: one action, three shapes"
+  summary={
+    "The same analysis runs every time; only what gets returned changes with what you asked for."
+  }
+>
+
+```html
+<div class="diagram-branch">
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">response-insights</span
+    ><small class="diagram-muted">displayMode</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      chart<br /><small class="diagram-muted"
+        >"submissions by day" — bar chart only</small
+      >
+    </div>
+    <div class="diagram-node">
+      table<br /><small class="diagram-muted"
+        >"show me the rows" — response table only</small
+      >
+    </div>
+    <div class="diagram-node">
+      insights (default)<br /><small class="diagram-muted"
+        >"summarize this" — chart + table + summary</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-branch .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-branch .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-branch .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<WireframeBlock id="doc-block-forms7">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:420px;box-sizing:border-box;padding:32px 48px;justify-content:center'><div class='wf-card' style='max-width:520px;gap:14px'><strong>Beta signup — response insights</strong><div style='display:flex;align-items:flex-end;gap:6px;height:64px'><div style='width:18px;height:20%;background:var(--wf-line)'></div><div style='width:18px;height:45%;background:var(--wf-line)'></div><div style='width:18px;height:30%;background:var(--wf-line)'></div><div style='width:18px;height:70%;background:var(--wf-line)'></div><div style='width:18px;height:55%;background:var(--wf-line)'></div><div style='width:18px;height:90%;background:var(--wf-line)'></div><div style='width:18px;height:60%;background:var(--wf-line)'></div></div><span class='wf-muted' style='font-size:12px'>Submissions by day · last 30 days · 187 responses</span><span class='wf-pill accent'>Open response insights</span></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you don't name a form, the agent scopes the analysis to your most recently updated accessible forms (up to 50 by default, 100 max) instead of just one — useful for "how are submissions trending across all my forms this month?" Every result reports whether it's exact or sampled, along with the row counts, so you always know if you're looking at everything or a preview.
+
+## Exporting
+
+"Export this to CSV" or "give me a JSON export of all responses" uploads a file to your configured file storage and returns the link — exports are never written to local disk, since serverless hosts have a read-only filesystem. CSV rows use field labels as headers, join multi-select answers with semicolons, and neutralize any cell that looks like a spreadsheet formula (a defense against CSV injection from anonymous submitters).
+
+## Routing submissions
+
+Turn on automatic delivery so new responses show up where your team already works, instead of someone having to check the Responses tab:
+
+| Destination   | What it needs                                                                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slack         | An Incoming Webhook URL for the target channel                                                                                                                    |
+| Discord       | A Discord channel webhook URL                                                                                                                                     |
+| Google Sheets | A deployed Apps Script `/exec` URL that calls `JSON.parse(e.postData.contents)` and appends the values — a spreadsheet or `/dev` URL will not receive submissions |
+| Webhook       | Any HTTPS endpoint; receives the full structured submission payload as JSON                                                                                       |
+
+These are configured per form in the builder's Integrations tab and are separate from the app-wide Slack connection under [Messaging](/docs/messaging) — connect that first if you want the agent to post there directly instead. Every destination URL is checked against private IPs, cloud-metadata addresses, and non-`http(s)` schemes both when you save it and again each time a response fires, so a form can't be turned into an internal-network probe.
+
+Turn on `settings.emailOnNewResponses` to also email the form owner's account on every new response, using whichever email provider is configured (Resend or SendGrid). Email delivery is best-effort: a public submission still succeeds even if the email fails to send, so check server logs and provider configuration if an expected email never arrives.
+
+## What's next
+
+- [**Forms**](/docs/template-forms) — the product overview
+- [**Building and publishing a form**](/docs/template-forms-building-publishing) — fields, conditional logic, and public-form protections
+- [**Forms — data model and actions**](/docs/template-forms-developers) — the `response-insights`, `export-responses`, and `list-responses` action contracts
+- [**Messaging**](/docs/messaging) — connecting Slack for direct agent posting

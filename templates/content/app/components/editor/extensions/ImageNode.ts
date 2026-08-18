@@ -7,6 +7,11 @@ import { ImageBlock } from "./ImageBlock";
 export interface ContentImageOptions extends ImageOptions {
   documentId?: string;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onImageFilePickerRequest?: (request: {
+    pickerId: string;
+    position: number;
+    attrs: Record<string, unknown>;
+  }) => void;
 }
 
 function normalizedImageWidth(value: unknown): number | null {
@@ -65,6 +70,7 @@ export const ImageNode = Image.extend<ContentImageOptions>({
       ...this.parent!(),
       documentId: undefined,
       onImageComment: undefined,
+      onImageFilePickerRequest: undefined,
     };
   },
 

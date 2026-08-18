@@ -1,7 +1,7 @@
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 import { lazy, Suspense } from "react";
 
 // Heavy plan-block rendering bundle (diagram/wireframe/api-spec/data-model/…) is

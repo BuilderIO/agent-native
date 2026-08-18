@@ -1,6 +1,11 @@
 import { createError, getHeader, type H3Event } from "h3";
 
 import { resolveOrgIdForEmail, getOrgContext } from "../org/context.js";
+import {
+  ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
+  ANALYTICS_CLIENT_PLATFORM_HEADER,
+  normalizeAnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
 import { getSession } from "./auth.js";
 import {
   runWithRequestContext,
@@ -11,6 +16,12 @@ export type AgentRunOwnerContext = {
   owner: string;
   anonymous: boolean;
   name?: string;
+  /**
+   * Trusted org binding for a cookieless durable worker. Presence matters:
+   * `null` means the authenticated foreground request had no org and must not
+   * fall back to another membership during worker re-entry.
+   */
+  orgId?: string | null;
 };
 
 export const AGENT_RUN_OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
@@ -32,6 +43,13 @@ function eventContext(
 ): Record<string, unknown> {
   event.context = event.context ?? {};
   return event.context;
+}
+
+function requestWaitUntil(
+  event: H3Event,
+): ((promise: Promise<unknown>) => void) | undefined {
+  const waitUntil = event.req?.waitUntil;
+  return typeof waitUntil === "function" ? waitUntil : undefined;
 }
 
 function normalizeId(value: string | null | undefined): string | undefined {
@@ -71,6 +89,42 @@ export function readAgentRunTimezone(event: H3Event): string | undefined {
     : undefined;
 }
 
+/**
+ * The caller's browser analytics session id, when the page sent one.
+ *
+ * Emitted as PostHog's `$session_id` on the run's `$ai_*` events so an agent
+ * trace joins to the session replay it happened in. Distinct from
+ * `$ai_session_id`, which is the conversation thread. Read by both the agent
+ * run path and the HTTP action route, so one visit correlates across the UI's
+ * action calls and the agent's.
+ */
+export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
+  const raw = readHeaderValue(event, "x-agent-native-session-id");
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.trim().length < 128
+    ? value.trim()
+    : undefined;
+}
+
+export function readAnalyticsClientPlatformHeader(
+  event: H3Event,
+):
+  | import("../shared/analytics-platform.js").AnalyticsClientPlatform
+  | undefined {
+  const raw = readHeaderValue(event, ANALYTICS_CLIENT_PLATFORM_HEADER);
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return (
+    normalizeAnalyticsClientPlatform(value) ??
+    normalizeAnalyticsClientPlatform(
+      (event as EventWithAgentRunContext).context?.[
+        ANALYTICS_CLIENT_PLATFORM_BODY_FIELD
+      ],
+    )
+  );
+}
+
 export function seedAgentRunOwnerContext(
   event: H3Event,
   ownerContext: AgentRunOwnerContext,
@@ -83,12 +137,17 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
+  orgId?: string | null,
 ): Promise<AgentRunOwnerContext | null> {
   try {
     const { getRunOwnerEmail } = await import("../agent/run-store.js");
     const owner = await getRunOwnerEmail(runId);
     if (!owner) return null;
-    return seedAgentRunOwnerContext(event, { owner, anonymous: false });
+    return seedAgentRunOwnerContext(event, {
+      owner,
+      anonymous: false,
+      ...(orgId !== undefined ? { orgId } : {}),
+    });
   } catch {
     return null;
   }
@@ -132,6 +191,10 @@ export async function resolveAgentRunOrgId(options: {
   ownerContext: AgentRunOwnerContext;
   resolveOrgId?: OrgIdResolver;
 }): Promise<string | undefined> {
+  if (Object.prototype.hasOwnProperty.call(options.ownerContext, "orgId")) {
+    return normalizeId(options.ownerContext.orgId);
+  }
+
   let resolvedOrgId: string | undefined;
 
   if (options.resolveOrgId) {
@@ -179,14 +242,21 @@ export async function resolveAgentRunRequestContext(options: {
 }): Promise<RequestContext> {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
+  const browserSessionId = readBrowserSessionIdHeader(options.event);
+  const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
+  const waitUntil = requestWaitUntil(options.event);
+  const run = {
+    ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
+    ...(waitUntil ? { waitUntil } : {}),
+  };
   return {
     userEmail: options.ownerContext.owner,
     userName: options.ownerContext.name,
     orgId,
     timezone,
-    ...(options.isBackgroundWorker
-      ? { run: { isBackgroundWorker: true } }
-      : {}),
+    ...(browserSessionId ? { browserSessionId } : {}),
+    ...(clientPlatform ? { clientPlatform } : {}),
+    ...(Object.keys(run).length > 0 ? { run } : {}),
   };
 }
 

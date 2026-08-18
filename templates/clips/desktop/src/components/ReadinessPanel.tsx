@@ -157,6 +157,26 @@ export function ReadinessPanel({
     }
   }, []);
 
+  const requestOrOpenPermission = useCallback(
+    async (pane: MacosPrivacyPane) => {
+      if (mac && pane === "screen") {
+        try {
+          const granted = await invoke<boolean>(
+            "system_audio_request_permission",
+          );
+          await checkStatuses();
+          if (granted) return;
+        } catch {
+          // Fall through to the dedicated privacy pane. The request API may
+          // be unavailable on an older macOS build or the user may already
+          // have denied the prompt once.
+        }
+      }
+      onOpenPermission(pane);
+    },
+    [checkStatuses, mac, onOpenPermission],
+  );
+
   useEffect(() => {
     if (open && !statuses && mac) checkStatuses();
   }, [open, statuses, mac, checkStatuses]);
@@ -219,7 +239,7 @@ export function ReadinessPanel({
                       <button
                         type="button"
                         className="readiness-open-button"
-                        onClick={() => onOpenPermission(item.pane)}
+                        onClick={() => void requestOrOpenPermission(item.pane)}
                       >
                         Open
                       </button>

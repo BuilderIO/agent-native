@@ -689,7 +689,7 @@ export async function runVisualizeRepo(argv: string[]) {
       bridge.result.urlFile
         ? `Open URL written to ${bridge.result.urlFile}`
         : "",
-      "Press Ctrl+C to stop.",
+      "Press Ctrl C to stop.",
     ]
       .filter(Boolean)
       .join("\n") + "\n",

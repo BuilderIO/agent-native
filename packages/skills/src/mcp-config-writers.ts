@@ -27,6 +27,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+const MCP_LEGACY_ROUTE_PREFIX = "/_agent-native/mcp";
+const MCP_PUBLIC_ROUTE_PREFIX = "/mcp";
+
 export type ClientId =
   | "claude-code"
   | "claude-code-cli"
@@ -120,12 +123,13 @@ export function buildLocalMcpEntryForClient(
   client: ClientId,
   args: string[],
   env?: Record<string, string>,
+  command = "agent-native",
 ): Record<string, unknown> {
   const cleanEnv = env ? Object.fromEntries(Object.entries(env)) : {};
   if (client === "opencode") {
     return {
       type: "local",
-      command: ["agent-native", ...args],
+      command: [command, ...args],
       enabled: true,
       ...(Object.keys(cleanEnv).length ? { environment: cleanEnv } : {}),
     };
@@ -133,13 +137,13 @@ export function buildLocalMcpEntryForClient(
   if (client === "github-copilot") {
     return {
       type: "stdio",
-      command: "agent-native",
+      command,
       args,
       ...(Object.keys(cleanEnv).length ? { env: cleanEnv } : {}),
     };
   }
   return {
-    command: "agent-native",
+    command,
     args,
     ...(Object.keys(cleanEnv).length ? { env: cleanEnv } : {}),
   };
@@ -256,6 +260,24 @@ export function configPathFor(
 // ---------------------------------------------------------------------------
 
 /**
+ * Read an existing MCP config without conflating missing and unreadable files.
+ * Only ENOENT means the config is absent; any other read failure must abort
+ * before a caller can overwrite existing user configuration.
+ */
+function readExistingConfigFile(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    const detail = error instanceof Error ? ` (${error.message})` : "";
+    throw new Error(
+      `Cannot read MCP config file: ${file}\n` +
+        `Check that the file is readable and re-run. The file has not been modified.${detail}`,
+    );
+  }
+}
+
+/**
  * Read and parse a JSON config file.
  *
  * - Missing file → returns `{}` (fresh config).
@@ -265,13 +287,8 @@ export function configPathFor(
  *   file with only the new MCP entry (data-loss hazard).
  */
 function readJsonFile(file: string): Record<string, any> {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(file, "utf-8");
-  } catch {
-    // Missing (ENOENT) or unreadable file — treat as empty.
-    return {};
-  }
+  const raw = readExistingConfigFile(file);
+  if (raw === undefined) return {};
   if (!raw.trim()) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -540,9 +557,10 @@ export function buildCodexLocalBlock(
   name: string,
   args: string[],
   env?: Record<string, string>,
+  command = "agent-native",
 ): string {
   const lines: string[] = [codexMcpHeader(name)];
-  lines.push(`command = "agent-native"`);
+  lines.push(`command = ${tomlQuote(command)}`);
   lines.push(`args = [${args.map(tomlQuote).join(", ")}]`);
   const cleanEnv = env ? Object.fromEntries(Object.entries(env)) : {};
   if (Object.keys(cleanEnv).length) {
@@ -571,12 +589,7 @@ export function writeCodexBlock(
   name: string,
   block: string | null,
 ): void {
-  let content = "";
-  try {
-    content = fs.readFileSync(file, "utf-8");
-  } catch {
-    content = "";
-  }
+  const content = readExistingConfigFile(file) ?? "";
 
   const lines = content.split(/\r?\n/);
   const out: string[] = [];
@@ -611,14 +624,12 @@ export function writeCodexBlock(
 }
 
 export function codexHasBlock(file: string, name: string): boolean {
-  try {
-    const content = fs.readFileSync(file, "utf-8");
-    return content
-      .split(/\r?\n/)
-      .some((line) => codexServerNameOfHeader(line) === name);
-  } catch {
-    return false;
-  }
+  const content = readExistingConfigFile(file);
+  return (
+    content
+      ?.split(/\r?\n/)
+      .some((line) => codexServerNameOfHeader(line) === name) ?? false
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +682,13 @@ export function canonicalUrl(value: string | undefined): string | undefined {
     const u = new URL(value);
     u.hash = "";
     u.search = "";
+    const pathname = u.pathname.replace(/\/+$/, "");
+    if (
+      pathname === MCP_LEGACY_ROUTE_PREFIX ||
+      pathname.endsWith(MCP_LEGACY_ROUTE_PREFIX)
+    ) {
+      u.pathname = `${pathname.slice(0, -MCP_LEGACY_ROUTE_PREFIX.length)}${MCP_PUBLIC_ROUTE_PREFIX}`;
+    }
     return u.toString().replace(/\/+$/, "");
   } catch {
     return undefined;

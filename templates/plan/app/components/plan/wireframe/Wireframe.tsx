@@ -1,4 +1,10 @@
-import { useT } from "@agent-native/core/client";
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "@agent-native/core/blocks";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   PlanDiagramBlock,
   PlanLegacyWireframeBlock,
@@ -32,12 +38,6 @@ import {
   RUNTIME_SENTINEL_ATTR,
   mountPrototypeRuntime,
 } from "./prototype-runtime";
-import {
-  sanitizeDiagramHtml,
-  sanitizeWireframeCss,
-  sanitizeWireframeHtml,
-  scopeDesignCss,
-} from "./sanitize-html";
 import { toggleWireframeStyle, useWireframeStyle } from "./use-wireframe-style";
 import { renderWireframeIconHtml } from "./wireframe-icons";
 
@@ -194,7 +194,7 @@ function ArtboardFrame({
   const fitRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
-  const style = useWireframeStyle();
+  const preferredStyle = useWireframeStyle();
   const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
   const height = canvasSize ?? preset.height;
   const width = canvasWidth ?? preset.width;
@@ -202,6 +202,7 @@ function ArtboardFrame({
   const maxFrameWidth = compact ? preset.width * baseScale : width;
   const [fitScale, setFitScale] = useState(baseScale);
   const designMode = renderMode === "design";
+  const style = designMode ? "clean" : preferredStyle;
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
   const paper = designMode
@@ -359,7 +360,7 @@ function HtmlArtboard({
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   // Sanitize model-authored HTML at the render point (defense-in-depth against
-  // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
+  // stored XSS) — see the Core block sanitizer. Memoized so it only re-runs when the
   // html changes, not on every theme/zoom re-render.
   const renderMode = data.renderMode ?? "wireframe";
   const designMode = renderMode === "design";
@@ -560,6 +561,7 @@ function KitWireframe({
       canvasSize={canvasSize}
       canvasWidth={canvasWidth}
       skeleton={data.skeleton}
+      renderMode={data.renderMode}
       showFrame={showFrame}
       selector="[data-rough]"
       caption={data.caption}

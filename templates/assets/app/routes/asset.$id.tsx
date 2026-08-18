@@ -1,9 +1,9 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  sendToAgentChat,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
   IconClipboard,
@@ -41,7 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
-import { assetMediaUrl } from "@/lib/asset-urls";
+import { assetMediaUrl, triggerAssetDownload } from "@/lib/asset-urls";
 import { cn } from "@/lib/utils";
 
 export default function AssetDetailPage() {
@@ -217,19 +217,29 @@ export default function AssetDetailPage() {
               label={t("assetDetail.download")}
               disabled={exportAsset.isPending}
               onClick={() => {
+                const downloadUrl = assetMediaUrl(asset.downloadUrl);
+                if (triggerAssetDownload(downloadUrl)) return;
                 if (isStarterAsset) {
-                  const downloadUrl =
-                    assetMediaUrl(asset.downloadUrl) ?? previewUrl;
-                  if (downloadUrl) window.location.href = downloadUrl;
+                  const starterUrl = assetMediaUrl(previewUrl) ?? previewUrl;
+                  if (!triggerAssetDownload(starterUrl)) {
+                    toast.error(t("assetDetail.downloadFailed"));
+                  }
                   return;
                 }
                 exportAsset.mutate(
                   { assetId: asset.id },
                   {
                     onSuccess: (result: any) => {
-                      window.location.href =
-                        assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
+                      if (
+                        !triggerAssetDownload(
+                          assetMediaUrl(result.downloadUrl) ??
+                            result.downloadUrl,
+                        )
+                      ) {
+                        toast.error(t("assetDetail.downloadFailed"));
+                      }
                     },
+                    onError: () => toast.error(t("assetDetail.downloadFailed")),
                   },
                 );
               }}

@@ -1,0 +1,382 @@
+---
+title: "Brain: Developer Guide"
+description: "Data model, action reference, and extension points for customizing or self-hosting the Brain institutional-memory template."
+---
+
+# Brain: Developer Guide
+
+This page is for anyone customizing the Brain template, running it as a service, or wiring another app to call it. It covers the data model, the full action inventory, how source credentials resolve, and where to make changes.
+
+## Quick start
+
+```bash
+npx @agent-native/core@latest create my-brain --standalone --template brain
+```
+
+See [Getting Started](/docs/getting-started) for `cd`/install/dev steps. Open the app and choose **Start demo** to see cited memory with a seeded product-decision corpus before connecting a real workspace.
+
+## Data model
+
+All data lives in SQL via Drizzle. Brain's schema is `templates/brain/server/db/schema.ts` — **23 tables**, not the nine you'd guess from the core ingest-to-answer flow. The extra tables back three subsystems that don't show up in casual use: per-conversation audience scoping (who is allowed to see a given capture or knowledge entry), a hybrid full-text-plus-semantic search index, and lightweight source grouping ("projects").
+
+Retrieval itself has no vector-database dependency to run or pay for. Full-text search runs on every deployment target (SQLite, Postgres, Neon, D1, Turso). When the deployment is Postgres, Brain also builds a pgvector-backed semantic index automatically and blends its ranking with full-text results — no separate service, no extra configuration flag, and no vectors leave the same `brain_search_embeddings` table everything else lives in.
+
+<DataModel
+  id="doc-block-qwo0b1"
+  title="Brain data model — core ingest-to-answer flow"
+  summary={
+    "Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+  }
+  entities={[
+    {
+      id: "sources",
+      name: "brain_sources",
+      note: "Connector config",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "text",
+          note: "manual / generic / clips / slack / granola / github",
+        },
+        {
+          name: "ingest_token_hash",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "last_synced_at",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "source_shares",
+      name: "brain_source_shares",
+      note: "viewer / editor / admin",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+      ],
+    },
+    {
+      id: "captures",
+      name: "brain_raw_captures",
+      note: "Ingested raw payloads",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "external_id",
+          type: "text",
+          note: "dedupe key",
+        },
+        {
+          name: "content_hash",
+          type: "text",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge",
+      name: "brain_knowledge",
+      note: "Distilled atomic entries",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: "decision / rationale / how-it-works / fact / open-question / process / risk / policy",
+        },
+        {
+          name: "topic",
+          type: "text",
+        },
+        {
+          name: "entities",
+          type: "json",
+        },
+        {
+          name: "confidence",
+          type: "real",
+        },
+        {
+          name: "publish_tier",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge_shares",
+      name: "brain_knowledge_shares",
+      fields: [
+        {
+          name: "knowledge_id",
+          type: "id",
+          fk: "brain_knowledge.id",
+        },
+      ],
+    },
+    {
+      id: "proposals",
+      name: "brain_proposals",
+      note: "Pending review items",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "op",
+          type: "text",
+          note: "create / update / archive",
+        },
+      ],
+    },
+    {
+      id: "proposal_shares",
+      name: "brain_proposal_shares",
+      fields: [
+        {
+          name: "proposal_id",
+          type: "id",
+          fk: "brain_proposals.id",
+        },
+      ],
+    },
+    {
+      id: "sync_runs",
+      name: "brain_sync_runs",
+      note: "Sync audit log",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "stats",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "ingest_queue",
+      name: "brain_ingest_queue",
+      note: "Background distillation queue",
+      fields: [
+        {
+          name: "operation",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "priority",
+          type: "int",
+        },
+        {
+          name: "run_after",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "sources",
+      to: "captures",
+      kind: "1-n",
+      label: "ingested into",
+    },
+    {
+      from: "knowledge",
+      to: "captures",
+      kind: "n-n",
+      label: "evidence",
+    },
+    {
+      from: "knowledge",
+      to: "proposals",
+      kind: "1-n",
+      label: "gated by",
+    },
+    {
+      from: "sources",
+      to: "sync_runs",
+      kind: "1-n",
+      label: "audited by",
+    },
+  ]}
+/>
+
+The remaining 14 tables back the three subsystems above the diagram doesn't show:
+
+| Table                                | Subsystem      | What it holds                                                                                                                                                                                     |
+| ------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brain_audiences`                    | Access scoping | One row per distinct audience (org-wide, a private Slack channel's membership, a meeting's attendee list, or a restricted set), with an ACL hash and membership freshness state                   |
+| `brain_audience_members`             | Access scoping | Principal (user/org) membership in an audience, synced from the upstream provider                                                                                                                 |
+| `brain_audience_dependencies`        | Access scoping | An audience that inherits from another audience                                                                                                                                                   |
+| `brain_audience_source_dependencies` | Access scoping | Which sources an audience's membership depends on refreshing                                                                                                                                      |
+| `brain_capture_audiences`            | Access scoping | Which audience(s) can see a given raw capture                                                                                                                                                     |
+| `brain_sensitivity_events`           | Privacy        | The deterministic pre-storage privacy screen's decisions — suppressed, quarantined, released, discarded, or expired — with policy version and confidence band, never the sensitive content itself |
+| `brain_search_artifacts`             | Search index   | One denormalized, redaction-safe search document per capture (title, question, summary, resolution, systems, code refs)                                                                           |
+| `brain_search_bursts`                | Search index   | Chunked passages of a search artifact for finer-grained full-text and semantic matching                                                                                                           |
+| `brain_search_embeddings`            | Search index   | Vector rows for artifacts/bursts/knowledge, keyed by embedding set — populated only on Postgres deployments                                                                                       |
+| `brain_term_stats`                   | Search index   | Per-term document frequency, used for text-search ranking                                                                                                                                         |
+| `brain_search_corpus_stats`          | Search index   | Corpus-wide document count for ranking normalization                                                                                                                                              |
+| `brain_projects`                     | Projects       | A named grouping of related sources (ownable)                                                                                                                                                     |
+| `brain_project_shares`               | Projects       | Per-project share grants                                                                                                                                                                          |
+| `brain_project_sources`              | Projects       | Which sources belong to which project                                                                                                                                                             |
+
+Every allowed capture and derived row carries an audience id and ACL hash. Retrieval filters by audience before ranking, and an answer that spans multiple sources may only cite the intersection of their evidence audiences — a private Slack thread's content can't leak into an answer a non-member reads. Application state mirrors the current route, filters, and selected IDs so the agent always knows the current navigation and selection.
+
+## Full action inventory
+
+Brain ships 55 actions in `templates/brain/actions/`, grouped by area:
+
+- **Source management** — `create-source`, `update-source`, `delete-source`, `get-source`, `list-sources`, `sync-source`, `sync-due-sources`, `run-slack-pilot`, `test-slack-connection`, `rotate-source-ingest-token`
+- **Capture ingestion** — `import-capture`, `import-transcript`, `list-captures`, `get-capture`, `mark-capture-distilled`, `resanitize-captures`, `remediate-legacy-capture-audiences`
+- **Distillation** — `enqueue-distillation`, `enqueue-captures-distillation`, `claim-distillation`, `retry-distillation`, `list-distillation-queue`
+- **Knowledge & review** — `write-knowledge`, `get-knowledge`, `list-knowledge`, `set-knowledge-canonical`, `preview-canonical-resource`, `list-proposals`, `review-proposal`, `approve-proposal`, `reject-proposal`, `update-proposal`
+- **Search & retrieval** — `ask-brain`, `search-knowledge`, `search-everything`
+- **Projects** — `list-projects`, `manage-project` (create/update/delete/set-default a named grouping of sources)
+- **Health & connections** — `get-brain-health`, `list-connection-providers`, `get-pilot-report`
+- **Settings** — `get-brain-settings`, `update-brain-settings`, `set-settings`, `get-settings`
+- **Evaluation & demo** — `seed-demo-data`, `run-demo-eval`, `run-retrieval-eval`
+- **Context & navigation** — `view-screen`, `navigate`
+- **Provider APIs** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`, `list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`
+
+A few worth calling out specifically:
+
+- **`get-brain-health`** backs the [Ops page](/docs/template-brain-sources#ops) and answers "why isn't X in Brain yet" cheaper than inspecting sources by hand: the same per-source health value shown there, plus distillation queue counts, pending proposals, and ordered next setup steps.
+- **`get-pilot-report`** summarizes one source's sync health, capture counts, queue state, published knowledge, and pending proposals without returning raw capture bodies — call it after a Slack safe-pilot sample sync.
+- **`rotate-source-ingest-token`** is reachable from the Sources UI ("Rotate ingest token" on a source card) but is not agent-callable (`agentTool: false`) — it's a deliberately human-only control since the new token is shown once and can't be recovered.
+- **Staged-dataset actions** (`list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`) let the agent stage a large provider pull with `provider-api-request`'s `stageAs`, then filter/aggregate it without re-fetching — the same pattern used across Agent Native's provider-API surface.
+
+## Connecting sources
+
+Brain resolves every provider-backed source's credential in this order, and never skips ahead to ask for a duplicate token if an earlier tier already has one:
+
+1. A granted workspace connection (`workspace_connections` / `workspace_connection_grants`) for `appId=brain` — a credential Dispatch or another app already connected and granted to Brain.
+2. Backward-compatible Brain-local SQL credentials.
+3. Registered vault secrets scoped to the same user/org/workspace.
+
+Brain source credentials **do not** fall back to raw deploy-level environment variables — `.env`/`.env.local` alone will not satisfy a source's credential check. `list-connection-providers` reports per-provider readiness (`connected`, `granted`, `needs_grant`, `not_connected`) plus credential health; check it before adding a new token.
+
+**Clips and generic webhooks.** Brain exposes a signed webhook for Clips and generic transcript/capture imports. Create a source with a `sourceKey` to receive a bearer token, then send a `RawCapturePayload` with `Authorization: Bearer <ingestToken>`.
+
+<Endpoint id="doc-block-1udptrp" title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token." method="POST" path="/api/_agent-native/brain/ingest" summary="Import a raw capture from Clips or a generic source" auth={"Bearer <ingestToken> issued per source via its sourceKey"} request={{
+  "contentType": "application/json",
+  "example": "RawCapturePayload — bounded transcript / capture body"
+}} responses={[
+  {
+    "status": "200",
+    "description": "Capture accepted and queued for distillation"
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid ingest bearer token"
+  }
+]}>
+
+</Endpoint>
+
+Slack, Granola, and GitHub sources can opt into background `autoSync` with a poll cadence once review quality is proven. See [Connecting & Reviewing Sources](/docs/template-brain-sources) for the per-provider setup flow and the Slack rollout sequence.
+
+## Layout
+
+<FileTree
+  id="doc-block-brain1"
+  title="Brain layout"
+  entries={[
+    {
+      path: "actions/",
+      note: "55 agent-callable operations — source lifecycle, ingestion, distillation, knowledge/review, search, projects, settings, eval",
+    },
+    {
+      path: "app/routes/",
+      note: "Ask (/), Search, Knowledge, Review, Sources, Ops, Settings, Team, Extensions",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "23 tables across sources, captures, knowledge, audience scoping, search index, and projects",
+    },
+    {
+      path: "server/lib/",
+      note: "brain.ts (shared helpers), brain-health.ts, search.ts, hybrid-search.ts, search-index.ts, ingest-queue.ts",
+    },
+    {
+      path: ".agents/skills/brain/",
+      note: "SKILL.md (public-safe workflow) plus RUNBOOK.md (internal architecture/ops detail, not in these docs)",
+    },
+    {
+      path: ".agents/skills/ingestion-and-connectors/",
+      note: "Source lifecycle, health states, and credential resolution",
+    },
+    {
+      path: ".agents/skills/ask-across-everything/",
+      note: "Cross-app delegation rules for federatedCoverage",
+    },
+  ]}
+/>
+
+## Customizing it
+
+Brain follows the agent-native four-area contract — change behavior by editing the matching area, and the agent can make these edits for you:
+
+- `templates/brain/app/routes/` — the UI surface: Ask, Search, Knowledge, Review, Sources, Ops, Settings, Team, and Extensions routes.
+- `templates/brain/actions/` — every agent-callable operation. Add a new file with `defineAction` to expose a new capability.
+- `templates/brain/.agents/skills/` — Brain-specific guidance for ingestion, distillation, and retrieval. Update or add a skill when you teach the agent a new workflow.
+- `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major features.
+- `templates/brain/server/db/schema.ts` — data model. Additive migrations only.
+
+Make these changes in the repository's development workflow. The embedded app
+agent can edit source when its frame is intentionally granted workspace and
+write tooling; otherwise it operates the resulting app through its actions and
+data surface. See [Key Concepts](/docs/key-concepts#agent-modifies-code).
+
+## What's next
+
+- [**Brain overview**](/docs/template-brain) — what Brain is and when to pick it
+- [**Connecting & Reviewing Sources**](/docs/template-brain-sources) — provider setup, the Slack rollout, and source health
+- [**Asking, Citations & Knowledge**](/docs/template-brain-knowledge) — the Ask/Search/Knowledge/Review surfaces
+- [**Talking to the Agent & Cross-App Use**](/docs/template-brain-agent) — prompts, `federatedCoverage`, and A2A
+- [**Actions**](/docs/actions-overview) — the action system Brain is built on
+- [**A2A Protocol**](/docs/a2a-protocol) — cross-app delegation
+- [**Extensions**](/docs/extensions) — the sandboxed widget system available from Brain's Settings page

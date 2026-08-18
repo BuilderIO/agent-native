@@ -66,6 +66,7 @@ export default defineAction({
         const calEvent: CalendarEvent = {
           id: `google-${evt.id}`,
           title: evt.summary || "Untitled",
+          titleIsGenerated: !evt.summary,
           description: evt.description || "",
           start: evt.start?.dateTime || evt.start?.date || "",
           end: evt.end?.dateTime || evt.end?.date || "",

@@ -246,7 +246,7 @@ pnpm dev
 
 Clips 是一個帶有本機紀錄器的較大範本（它附帶了用於本機捕獲的桌面伴侶）。上傳錄音之前需要執行三個設定步驟：
 
-1. **影片儲存（必需）。** 透過入門向導連線儲存後端。最簡單的路徑是 Builder.io（測試期間免費，一鍵式）。對於自託管儲存，請設定 `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` 以及可選的 `S3_REGION` 和 `S3_PUBLIC_BASE_URL`。 Cloudflare R2 和 DigitalOcean Spaces 使用帶有 `R2_*` 前綴的相同環境變數。
+1. **影片儲存（必需）。** 透過入門向導連線儲存後端。最簡單的路徑是 Builder.io（free tier includes video storage and AI credits，一鍵式）。對於自託管儲存，請設定 `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` 以及可選的 `S3_REGION` 和 `S3_PUBLIC_BASE_URL`。 Cloudflare R2 和 DigitalOcean Spaces 使用帶有 `R2_*` 前綴的相同環境變數。
 2. **Google Calendar（可選）。** 要同步即將召開的會議，請從“設定”連線 Google Calendar 帳戶。 dev中的 OAuth 回呼 URL 是`http://localhost:8094/_agent-native/google/callback`。在 [Google Cloud Console](https://console.cloud.google.com/) 中設定 Google OAuth 用戶端，並啟用 Gmail 和 Google Calendar API。
 3. **螢幕捕獲權限。** 在 macOS 上，在系統設定 → 隱私和安全 → 螢幕錄製中向瀏覽器（或桌面配套應用程式）授予螢幕錄製權限。瀏覽器紀錄可以儲存經過編輯的主控台並從紀錄器頁面取得/XHR 診斷資訊。 Chrome 擴充功能清單可用後，啟用 `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`，以便使用者可以選取活動分頁瀏覽器記錄的擴充功能或桌面應用程式以獲得最流暢的本機捕獲路徑。
 4. **Slack 預覽（可選）。** 使用 `links:read`、`links:write` 和 `links.embed:write` 建立 Slack 應用程式；訂閱`link_shared`；在 **App Unfurl Domains** 下新增您的 Clips 共用域；將請求 URL 設定為`https://your-clips.example.com/api/slack/unfurl`；並新增 OAuth 重新導向 URL `https://your-clips.example.com/api/slack/oauth/callback`。設定 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和 `SLACK_SIGNING_SECRET`，然後從剪輯設定連線工作區。
@@ -268,7 +268,7 @@ Clips 是一個帶有本機紀錄器的較大範本（它附帶了用於本機�
 
 2. **設定正式環境狀態。**設定一個持久化的`DATABASE_URL`，正常
    來自 [Deployment](/docs/deployment) 的正式環境授權/秘密變數，以及
-   影片儲存提供者。 Builder.io Connect是最簡單的儲存路徑；對於
+   影片儲存提供者。 Builder.io Connect（free tier includes video storage and AI credits）是最簡單的儲存路徑；對於
    自託管儲存，使用 `S3_*` 或 `R2_*` 變數進行 S3 相容
    桶。
 
@@ -299,7 +299,7 @@ Clips 是一個帶有本機紀錄器的較大範本（它附帶了用於本機�
    不同的擴充功能名清單。
 
 6. **連線可選整合。** Google Calendar 為“會議”分頁提供支援，
-   `GEMINI_API_KEY` 或 Builder.io Connect 支援轉錄清理和標題，
+   `GEMINI_API_KEY` 或 Builder.io Connect（free tier includes AI credits）支援轉錄清理和標題，
    `GROQ_API_KEY` 可以提供語音轉文字回退，而 Slack OAuth
    “設定”中的連線可以展開可玩的 Slack。
 

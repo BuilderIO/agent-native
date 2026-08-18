@@ -1,4 +1,8 @@
-import { agentNativePath, appApiPath, useT } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appApiPath,
+} from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconExternalLink,
   IconCheck,
@@ -163,6 +167,7 @@ export function NotionButton() {
 
     // Poll for connection
     pollRef.current = setInterval(async () => {
+      if (document.hidden) return;
       const result = await refetch();
       if (result.data?.connected) {
         clearInterval(pollRef.current);

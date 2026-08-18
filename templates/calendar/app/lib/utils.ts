@@ -1,4 +1,4 @@
-export { cn } from "@agent-native/core/client";
+export { cn } from "@agent-native/toolkit/utils";
 
 export function isMacPlatform(): boolean {
   return (
@@ -8,5 +8,5 @@ export function isMacPlatform(): boolean {
 }
 
 export function shortcutModifierLabel(): string {
-  return isMacPlatform() ? "\u2318" : "Ctrl";
+  return isMacPlatform() ? "Cmd" : "Ctrl";
 }

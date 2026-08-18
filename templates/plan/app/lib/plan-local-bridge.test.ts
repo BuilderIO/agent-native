@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
   localNetworkAccessPermissionState,
   localPlanBridgeUrlFromLocation,
@@ -123,6 +124,34 @@ This valid introduction stays visible.
           }),
         }),
       ]),
+    );
+  });
+
+  it("reads comments from the localhost bridge instead of the hosted action", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          comments: [
+            { id: "comment-1", message: "Keep this", deletedAt: null },
+            { id: "comment-2", message: "Hide this", deletedAt: "now" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      fetchLocalPlanBridgeComments(
+        "http://127.0.0.1:60166/local-plan.json?token=test-token",
+      ),
+    ).resolves.toEqual([
+      { id: "comment-1", message: "Keep this", deletedAt: null },
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:60166/local-plan-comments.json?token=test-token",
+      { cache: "no-store" },
     );
   });
 

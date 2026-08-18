@@ -1,13 +1,15 @@
-import { useDbSync } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  ErrorReportActions,
-  appPath,
-  getLocaleInitScript,
-  getThemeInitScript,
   createAgentNativeQueryClient,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -21,6 +23,7 @@ import {
   useRouteError,
 } from "react-router";
 
+import { AppToolkitProvider } from "./components/ui/toolkit-provider";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { TAB_ID } from "./lib/tab-id";
@@ -221,7 +224,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <meta name="theme-color" content="#111111" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -254,8 +256,10 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-      <DbSyncSetup />
-      <Outlet />
+      <AppToolkitProvider>
+        <DbSyncSetup />
+        <Outlet />
+      </AppToolkitProvider>
     </AppProviders>
   );
 }
@@ -322,7 +326,7 @@ export function ErrorBoundary() {
           {copy.goHome}
         </Link>
         <ErrorReportActions
-          appName="Agent Native"
+          appName="{{APP_TITLE}}"
           title={title}
           details={details}
           status={status}

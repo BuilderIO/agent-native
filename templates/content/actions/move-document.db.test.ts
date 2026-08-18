@@ -60,6 +60,7 @@ async function createDocument(args: {
   title?: string;
   position?: number;
   ownerEmail?: string;
+  spaceId?: string | null;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -67,6 +68,7 @@ async function createDocument(args: {
   await db.insert(schema.documents).values({
     id,
     ownerEmail: args.ownerEmail ?? OWNER,
+    spaceId: args.spaceId ?? null,
     parentId: args.parentId ?? null,
     title: args.title ?? "Untitled",
     content: "",
@@ -92,6 +94,16 @@ async function childPositions(parentId: string) {
 }
 
 describe("move-document position race", () => {
+  it("rejects a parent in another Content space", async () => {
+    const id = await createDocument({ spaceId: "space-one" });
+    const parentId = await createDocument({ spaceId: "space-two" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id, parentId } as any),
+      ),
+    ).rejects.toThrow("same Content space");
+  });
+
   it("assigns distinct, gapless positions when several documents are reparented into the same parent at an explicit position concurrently", async () => {
     const parentId = await createDocument({ title: "Parent" });
     // Two pre-existing children the resequence branch must also account for.

@@ -96,8 +96,6 @@ Wenn Sie die App öffnen, bleiben der Posteingang und die Thread-Ansicht mit der
 
 Live-Demo: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Google zeigt möglicherweise eine Warnung an:** Die gehostete Demo nutzt die freigegebene Google-App von Agent-Native für den Gmail-Zugriff, daher bittet Google Sie möglicherweise um eine Bestätigung, bevor Sie fortfahren. Lokal ausführen, um Ihren eigenen Google OAuth-Client zu verwenden.
-
 Wenn Sie die App zum ersten Mal öffnen:
 
 1. Klicken Sie in der Seitenleiste auf **Einstellungen**.
@@ -349,7 +347,7 @@ Routen im UI:
 
 Mail kann von Ihnen geändert werden. Alles Wichtige befindet sich an wenigen Orten – fangen Sie dort an.
 
-**Hinzufügen einer Agentenfunktion.** Fügen Sie eine neue Datei unter `templates/mail/actions/` mit `defineAction` hinzu. Ihre Aktion wird über `useActionQuery` / `useActionMutation` zu einem Agententool, einem CLI-Befehl (`pnpm action <name>`) und einer typisierten Frontend-Hook-Oberfläche. Schauen Sie sich `templates/mail/actions/star-email.ts` für ein kurzes Beispiel oder `templates/mail/actions/manage-automations.ts` für eines mit mehreren Sub-actions an. Das vollständige Muster finden Sie in den [actions](/docs/actions)-Dokumenten.
+**Hinzufügen einer Agentenfunktion.** Fügen Sie eine neue Datei unter `templates/mail/actions/` mit `defineAction` hinzu. Ihre Aktion wird über `useActionQuery` / `useActionMutation` zu einem Agententool, einem CLI-Befehl (`pnpm action <name>`) und einer typisierten Frontend-Hook-Oberfläche. Schauen Sie sich `templates/mail/actions/star-email.ts` für ein kurzes Beispiel oder `templates/mail/actions/manage-automations.ts` für eines mit mehreren Sub-actions an. Das vollständige Muster finden Sie in den [actions](/docs/actions-overview)-Dokumenten.
 
 **Änderung des UI.** Routen sind in `templates/mail/app/routes/` und Komponenten in `templates/mail/app/components/email/` und `templates/mail/app/components/layout/`. Die App verwendet shadcn/ui-Grundelemente von `app/components/ui/` und Tabler Icons – bleiben Sie dabei.
 
@@ -361,7 +359,7 @@ Mail kann von Ihnen geändert werden. Alles Wichtige befindet sich an wenigen Or
 
 **Tastaturkürzel ändern.** Keybind-Handler leben in `templates/mail/app/components/email/` – suchen Sie nach `useHotkeys` oder `addEventListener("keydown"`, um herauszufinden, wo jede Taste verkabelt ist.
 
-Bitten Sie den Agenten, diese Änderungen für Sie vorzunehmen. Der Agent kann seine eigene Quelle bearbeiten – siehe [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Nehmen Sie diese Änderungen in Ihrem Repository- und Entwicklungsworkflow vor. Der eingebettete Agent kann nur dann bei Quelländerungen helfen, wenn der Host bewusst Repository-/Workspace-Schreibwerkzeuge bereitstellt; andernfalls arbeitet er über Actions und Daten. Siehe [Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## Wie geht es weiter?
 
@@ -369,4 +367,4 @@ Bitten Sie den Agenten, diese Änderungen für Sie vorzunehmen. Der Agent kann s
 - [**Erste Schritte**](/docs/getting-started) – die Grundlagen des Frameworks: Aktionen, Anwendungsstatus und Live-Synchronisierung
 - [**Kalender**](/docs/template-calendar) – eine verwandte Domänenvorlage für Terminplanung und Buchungen
 - [**Automatisierungen**](/docs/automations) – die ereignisgesteuerte Engine hinter den Regeln für die automatische Mail-Sortierung
-- [**Aktionen**](/docs/actions) – das Aktionssystem, das Chat, Tastenkürzel und Automatisierungen aufrufen
+- [**Aktionen**](/docs/actions-overview) – das Aktionssystem, das Chat, Tastenkürzel und Automatisierungen aufrufen

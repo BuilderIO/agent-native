@@ -1,0 +1,50 @@
+import { useT } from "@agent-native/core/client/i18n";
+import type { Document } from "@shared/api";
+
+import { DescriptionField } from "./DescriptionField";
+import { DocumentProperties } from "./DocumentProperties";
+
+interface DocumentInfoPanelProps {
+  document: Document;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
+  canEdit: boolean;
+  onSaveDescription: (description: string) => Promise<unknown> | unknown;
+}
+
+export function DocumentInfoPanel({
+  document,
+  databaseId,
+  databaseDocumentId,
+  canEdit,
+  onSaveDescription,
+}: DocumentInfoPanelProps) {
+  const t = useT();
+  const isLocalFileDocument = document.source?.mode === "local-files";
+
+  return (
+    <div className="px-4 pb-8 pt-3" data-document-info-panel>
+      <DescriptionField
+        description={document.description}
+        canEdit={canEdit}
+        label={t("editor.properties.description")}
+        placeholder={
+          document.database
+            ? t("editor.properties.addDatabaseDescription")
+            : t("editor.properties.addPageDescription")
+        }
+        onSave={onSaveDescription}
+      />
+      {document.databaseMembership && !isLocalFileDocument ? (
+        <DocumentProperties
+          documentId={document.id}
+          databaseId={databaseId ?? document.databaseMembership.databaseId}
+          databaseDocumentId={
+            databaseDocumentId ?? document.databaseMembership.databaseDocumentId
+          }
+          canEdit={canEdit}
+        />
+      ) : null}
+    </div>
+  );
+}

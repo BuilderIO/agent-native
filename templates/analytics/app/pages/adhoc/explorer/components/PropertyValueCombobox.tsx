@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { formatExplorerPropertyLabel } from "../property-label";
 import { usePropertyValues } from "../use-dynamic-schema";
 
 interface PropertyValueComboboxProps {
@@ -61,7 +62,7 @@ export function PropertyValueCombobox({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[240px] p-0" align="start">
+      <PopoverContent className="w-[280px] p-0" align="start">
         <Command shouldFilter={true}>
           <CommandInput
             placeholder={t("explorer.searchOrTypeValue")}
@@ -96,7 +97,9 @@ export function PropertyValueCombobox({
             </CommandEmpty>
             {values.length > 0 && (
               <CommandGroup
-                heading={t("explorer.topValuesForProperty", { property })}
+                heading={t("explorer.topValuesForProperty", {
+                  property: formatExplorerPropertyLabel(property),
+                })}
               >
                 {values.map((v) => (
                   <CommandItem

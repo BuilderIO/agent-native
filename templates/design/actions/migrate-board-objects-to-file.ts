@@ -31,6 +31,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { seedFromText } from "@agent-native/core/collab";
+import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -181,8 +182,7 @@ export default defineAction({
         .map((entry) => boardObjectEntryToHtmlFragment(entry))
         .join("\n");
 
-      // Insert fragments before </body>.
-      boardHtml = boardHtml.replace("</body>", `${fragments}\n</body>`);
+      boardHtml = injectDocumentMarkup(boardHtml, `${fragments}\n`);
     }
 
     const now = new Date().toISOString();

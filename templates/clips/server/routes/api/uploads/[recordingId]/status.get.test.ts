@@ -1,18 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
+const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
+const mockReadAppState = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRouterParam: (...args: unknown[]) => mockGetRouterParam(...args),
+  setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
   createError: ({ statusCode, message }: any) =>
     Object.assign(new Error(message), { statusCode }),
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: (...args: unknown[]) => mockReadAppState(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -68,6 +75,7 @@ describe("/api/uploads/:recordingId/status route", () => {
     });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
+    mockReadAppState.mockResolvedValue(null);
   });
 
   it("returns owner-scoped recording status for private recovery", async () => {
@@ -98,6 +106,11 @@ describe("/api/uploads/:recordingId/status route", () => {
         hasCamera: false,
       },
     });
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      {},
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
   });
 
   it("returns 404 when the recording is not owned by the caller", async () => {
@@ -105,5 +118,30 @@ describe("/api/uploads/:recordingId/status route", () => {
 
     await expect(handler({} as any)).resolves.toEqual({ error: "Not found" });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 404);
+  });
+
+  it("exposes durable media verification without caching the status", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "rec-1",
+          status: "processing",
+          videoUrl: "s3://private/rec-1.webm",
+          durationMs: 1234,
+          hasAudio: true,
+          hasCamera: false,
+        },
+      ]),
+    );
+    mockReadAppState.mockResolvedValue({ pendingMediaVerification: true });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        recording: expect.objectContaining({
+          status: "processing",
+          verificationPending: true,
+        }),
+      }),
+    );
   });
 });

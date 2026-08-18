@@ -40,6 +40,21 @@ describe("agent-access server helpers", () => {
     ).toEqual({ ok: true, viewerEmail: "viewer@example.com" });
   });
 
+  it("carries a signed agent label for display", () => {
+    const token = signScopedAgentAccessToken({
+      resourceKind: "clip-agent-context",
+      resourceId: "rec-1",
+      agentLabel: "Fusion",
+    });
+
+    expect(
+      verifyScopedAgentAccessToken(token, {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1",
+      }),
+    ).toEqual({ ok: true, viewerEmail: undefined, agentLabel: "Fusion" });
+  });
+
   it("rejects tokens for the wrong scope", () => {
     const token = signScopedAgentAccessToken({
       resourceKind: "clip-agent-context",

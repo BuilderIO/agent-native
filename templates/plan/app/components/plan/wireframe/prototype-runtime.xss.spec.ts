@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 
+import { sanitizeWireframeHtml } from "@agent-native/core/blocks";
 import { describe, expect, it } from "vitest";
 
 import { mountPrototypeRuntime } from "./prototype-runtime";
-import { sanitizeWireframeHtml } from "./sanitize-html";
 
 /**
  * ADVERSARIAL — prototype runtime attribute-binding XSS.

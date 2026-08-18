@@ -3,18 +3,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "agent-native dev",
+    "dev": "agent-native dev --inspect",
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
     "doctor": "agent-native doctor",
+    "agent-native:doctor": "agent-native doctor",
     "action": "agent-native action",
     "script": "agent-native script",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "skills:update": "agent-native skills update scaffold --project",
     "upgrade:agent-native": "agent-native upgrade"
   },
   "dependencies": {
     "@agent-native/core": "latest",
+    "@agent-native/toolkit": "latest",
     "@assistant-ui/react": "^0.12.19",
     "@assistant-ui/react-markdown": "^0.12.6",
     "@fontsource-variable/inter": "^5.2.8",

@@ -1,4 +1,5 @@
-import { agentNativePath, useT } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 import {
   IconBrowser,
@@ -6,34 +7,29 @@ import {
   IconChevronDown,
   IconDeviceDesktop,
   IconDeviceScreen,
-  IconLink,
   IconMicrophone,
-  IconPlayerRecord,
-  IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { ImportMenu } from "@/components/import-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -77,13 +73,15 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
-  /** Called when the user submits a Loom URL to import. */
-  onImportLoom?: (url: string) => Promise<void> | void;
-  importingLoom?: boolean;
+  /** When set, includes an "Import Loom" option in the shared import menu. */
+  importLoomHref?: string;
   onCancel?: () => void;
   busy?: boolean;
   cameraSize?: CameraBubbleSize;
   onCameraSizeChange?: (size: CameraBubbleSize) => void;
+  /** Opens the file picker once on mount, e.g. when arriving from a
+   * dedicated upload entry point elsewhere in the app. */
+  autoOpenUpload?: boolean;
 }
 
 type MicTestState = {
@@ -151,16 +149,16 @@ export function PreRecordPanel({
   initialMode,
   initialDisplaySurface,
   onUpload,
-  onImportLoom,
-  importingLoom,
+  importLoomHref,
   onCancel,
   busy,
   cameraSize = "md",
   onCameraSizeChange,
+  autoOpenUpload,
 }: PreRecordPanelProps) {
   const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const loomInputRef = useRef<HTMLInputElement>(null);
+  const autoOpenUploadTriggeredRef = useRef(false);
   const browserTabCaptureSupported = useMemo(
     () => supportsBrowserTabCapture(),
     [],
@@ -178,9 +176,6 @@ export function PreRecordPanel({
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
-  const [loomImportOpen, setLoomImportOpen] = useState(false);
-  const [loomUrl, setLoomUrl] = useState("");
-  const [loomError, setLoomError] = useState<string | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>(
@@ -271,6 +266,13 @@ export function PreRecordPanel({
     }
     if (initialMode) setMode(initialMode);
   }, [initialMode, isMobile]);
+
+  useEffect(() => {
+    if (!autoOpenUpload || autoOpenUploadTriggeredRef.current) return;
+    if (!onUpload || busy) return;
+    autoOpenUploadTriggeredRef.current = true;
+    fileInputRef.current?.click();
+  }, [autoOpenUpload, busy, onUpload]);
 
   useEffect(() => {
     if (initialDisplaySurface) {
@@ -434,6 +436,35 @@ export function PreRecordPanel({
     );
   }, [micId, micLabel, mics, t]);
 
+  const [micWarningOpen, setMicWarningOpen] = useState(false);
+
+  const buildStartOpts = useCallback(
+    () => ({
+      // If the user toggled off the camera inside screen+camera mode,
+      // downgrade to screen-only so the recorder engine doesn't try
+      // to acquire a webcam stream.
+      mode: (mode === "screen+camera" && !needsCamera
+        ? "screen"
+        : mode) as RecordingMode,
+      displaySurface: normalizeDisplaySurfaceForRuntime(displaySurface),
+      micDeviceId: micId === "default" ? null : micId,
+      micDeviceLabel:
+        micId === "default" || micId === NO_MIC_DEVICE_ID
+          ? null
+          : selectedMicLabel,
+      cameraDeviceId: needsCamera && cameraId !== "default" ? cameraId : null,
+    }),
+    [mode, needsCamera, displaySurface, micId, selectedMicLabel, cameraId],
+  );
+
+  const handleStartClick = useCallback(() => {
+    if (micId === NO_MIC_DEVICE_ID) {
+      setMicWarningOpen(true);
+      return;
+    }
+    onStart(buildStartOpts());
+  }, [micId, buildStartOpts, onStart]);
+
   const selectedCameraLabel = useMemo(() => {
     if (!needsCamera) return null;
     if (cameraId === "default") return t("preRecord.defaultCamera");
@@ -512,35 +543,6 @@ export function PreRecordPanel({
   const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {
     setCameraTest((prev) => ({ ...prev, hasPreview }));
   }, []);
-
-  const handleLoomImport = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const url = loomUrl.trim();
-      if (!url || !onImportLoom) return;
-
-      setLoomError(null);
-      try {
-        await onImportLoom(url);
-        setLoomUrl("");
-        setLoomImportOpen(false);
-      } catch (err) {
-        setLoomError(
-          err instanceof Error ? err.message : t("preRecord.loomImportFailed"),
-        );
-      }
-    },
-    [loomUrl, onImportLoom, t],
-  );
-
-  useEffect(() => {
-    if (!loomImportOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      loomInputRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [loomImportOpen]);
-
   useEffect(() => {
     if (needsCamera) return;
     setCameraTest({ status: "idle", error: null, hasPreview: false });
@@ -580,13 +582,6 @@ export function PreRecordPanel({
         testError: cameraTest.error,
       },
       updatedAt: new Date().toISOString(),
-      import: onImportLoom
-        ? {
-            loomPanelOpen: loomImportOpen,
-            loomUrlPresent: loomUrl.trim().length > 0,
-            loomImporting: Boolean(importingLoom),
-          }
-        : undefined,
     }).catch(() => {});
   }, [
     cameraId,
@@ -604,10 +599,6 @@ export function PreRecordPanel({
     mics.length,
     mode,
     needsCamera,
-    importingLoom,
-    loomImportOpen,
-    loomUrl,
-    onImportLoom,
     selectedCameraLabel,
     selectedMicLabel,
   ]);
@@ -941,114 +932,22 @@ export function PreRecordPanel({
           )}
           <Button
             disabled={startDisabled}
-            onClick={() =>
-              onStart({
-                // If the user toggled off the camera inside screen+camera mode,
-                // downgrade to screen-only so the recorder engine doesn't try
-                // to acquire a webcam stream.
-                mode:
-                  mode === "screen+camera" && !needsCamera ? "screen" : mode,
-                displaySurface:
-                  normalizeDisplaySurfaceForRuntime(displaySurface),
-                micDeviceId: micId === "default" ? null : micId,
-                micDeviceLabel:
-                  micId === "default" || micId === NO_MIC_DEVICE_ID
-                    ? null
-                    : selectedMicLabel,
-                cameraDeviceId:
-                  needsCamera && cameraId !== "default" ? cameraId : null,
-              })
-            }
-            className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}
+            onClick={handleStartClick}
+            className={cn("h-12", onCancel ? "flex-1" : "w-full")}
           >
-            <IconPlayerRecord className="h-4 w-4" />
             {t("preRecord.startRecording")}
           </Button>
         </div>
 
-        {(onUpload || onImportLoom) && (
+        {(onUpload || importLoomHref) && (
           <>
-            <div
-              className={cn(
-                "grid gap-2",
-                onUpload && onImportLoom && "sm:grid-cols-2",
-              )}
-            >
-              {onUpload ? (
-                <button
-                  type="button"
-                  disabled={busy || importingLoom}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <IconUpload className="h-4 w-4" />
-                  {t("preRecord.uploadVideo")}
-                </button>
-              ) : null}
-
-              {onImportLoom ? (
-                <Popover
-                  open={loomImportOpen}
-                  onOpenChange={(open) => {
-                    setLoomImportOpen(open);
-                    setLoomError(null);
-                  }}
-                >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={busy || importingLoom}
-                      className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <IconLink className="h-4 w-4" />
-                      {t("preRecord.importLoom")}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    className="w-80 max-w-[calc(100vw-2rem)] p-3"
-                    onOpenAutoFocus={(event) => {
-                      event.preventDefault();
-                      window.requestAnimationFrame(() => {
-                        loomInputRef.current?.focus();
-                      });
-                    }}
-                  >
-                    <form onSubmit={handleLoomImport}>
-                      <div className="flex gap-2">
-                        <Input
-                          ref={loomInputRef}
-                          value={loomUrl}
-                          onChange={(event) => {
-                            setLoomUrl(event.target.value);
-                            setLoomError(null);
-                          }}
-                          disabled={busy || importingLoom}
-                          placeholder="https://www.loom.com/share/..."
-                          className="h-9 text-sm"
-                          inputMode="url"
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="h-9 shrink-0"
-                          disabled={busy || importingLoom || !loomUrl.trim()}
-                        >
-                          {importingLoom
-                            ? t("preRecord.importing")
-                            : t("preRecord.import")}
-                        </Button>
-                      </div>
-                      {loomError ? (
-                        <p className="mt-2 text-xs leading-relaxed text-destructive">
-                          {loomError}
-                        </p>
-                      ) : null}
-                    </form>
-                  </PopoverContent>
-                </Popover>
-              ) : null}
-            </div>
+            <ImportMenu
+              onUpload={
+                onUpload ? () => fileInputRef.current?.click() : undefined
+              }
+              importLoomHref={importLoomHref}
+              disabled={busy}
+            />
 
             {onUpload ? (
               <input
@@ -1066,6 +965,31 @@ export function PreRecordPanel({
           </>
         )}
       </div>
+
+      <AlertDialog open={micWarningOpen} onOpenChange={setMicWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("preRecord.micOffConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("preRecord.micOffConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                setMicWarningOpen(false);
+                onStart(buildStartOpts());
+              }}
+            >
+              {t("preRecord.startWithoutMic")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

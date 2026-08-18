@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Textarea } from "@/components/ui/textarea";
@@ -29,9 +29,10 @@ interface CanvasEditorProps {
   userNotesMd?: string;
   /** Save user notes. Called on blur after edit. */
   onUserNotesChange?: (next: string) => void;
-  /** AI-generated summary (renders muted-gray). For the "ai" view. */
+  /** AI-generated summary — primary content, so it renders full-strength
+   * foreground like user notes. For the "ai" view. */
   summaryMd?: string;
-  /** AI-generated bullets (renders muted-gray). For the "ai" view. */
+  /** AI-generated bullets — same weight as the summary. For the "ai" view. */
   bullets?: string[];
   /** Save AI summary when the user edits the summary section. */
   onSummaryChange?: (next: string) => void;
@@ -76,7 +77,7 @@ export function CanvasEditor({
         />
       )}
 
-      {/* AI bullets — muted gray, with optional BulletLink wrappers */}
+      {/* AI bullets — with optional BulletLink wrappers */}
       {showAi && bullets.length > 0 && (
         <AiBulletsBlock bullets={bullets} renderBullet={renderBullet} />
       )}
@@ -181,7 +182,7 @@ function AiSummaryBlock({
     return (
       <div className="space-y-1.5">
         <AiTabIndicator />
-        <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+        <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
           {value}
         </p>
       </div>
@@ -234,7 +235,7 @@ function AiSummaryBlock({
             >
               <p
                 className={cn(
-                  "text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground rounded -mx-1 px-1 group-hover:bg-accent/30",
+                  "text-sm leading-relaxed whitespace-pre-wrap text-foreground rounded -mx-1 px-1 group-hover:bg-accent/30",
                 )}
               >
                 {value}
@@ -263,7 +264,7 @@ function AiBulletsBlock({
       <ul className="space-y-1.5">
         {bullets.map((b, i) => {
           const content = (
-            <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+            <div className="flex gap-2 text-sm leading-relaxed text-foreground">
               <span>•</span>
               <span className="flex-1">{b}</span>
             </div>

@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 **データプログラム（data program）**とは、名前付きで保存された、エージェントが作成した JS スクリプトのことです。データを取得・結合・フィルタ・集計し——`providerFetch` / `providerFetchAll` / `providerSearchAll` 経由の provider API、`appAction` 経由の app データ、または Resources に基づく workspace ファイルを使い——結果に対してちょうど一度だけ `emit(rows, schema)` を呼び出します。結果は SQL にキャッシュされ、どのチャート/テーブルコンポーネントでもレンダリングでき、ページビューのたびにではなく、選択したポリシーに従って更新されます。
 
-[`run-code`](/docs/actions) が利用可能な場所ではどこでも自動的に利用可能になります——app ごとにマウントや設定を行う必要はありません。あなたの app ですでに run-code が有効になっていれば、`save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program`、`delete-data-program` はすでに登録済みの actions です。
+[`run-code`](/docs/actions-overview) が利用可能な場所ではどこでも自動的に利用可能になります——app ごとにマウントや設定を行う必要はありません。あなたの app ですでに run-code が有効になっていれば、`save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program`、`delete-data-program` はすでに登録済みの actions です。
 
 <Diagram id="doc-block-dp-overview" title={"アドホッククエリからライブパネルへ"} summary={"run-code スクリプトは emit() を呼び出した時点で保存されたプログラムになります。どの dashboard パネルもそれにバインドでき、以降はキャッシュ/更新ポリシーが引き継ぎます。"}>
 
@@ -324,6 +324,6 @@ emit(rows, [
 ## 関連ドキュメント {#related}
 
 - [拡張機能](/docs/extensions) ——データプログラムがセキュリティ姿勢と共有モデルを共有する、サンドボックス化された mini-app プリミティブ。ただし独自の UI を持ちます。
-- [Actions](/docs/actions) ——データプログラムが構築される基盤となる `run-code` の規約とサンドボックスのグローバル（`providerFetch`、`appAction` など）。
+- [Actions](/docs/actions-overview) ——データプログラムが構築される基盤となる `run-code` の規約とサンドボックスのグローバル（`providerFetch`、`appAction` など）。
 - [共有とプライバシー](/docs/sharing) ——データプログラムが使用する、組織内限定で決して公開されない共有モデル。
 - [セキュリティ](/docs/security) ——フレームワークの認証情報の取り扱いとアクセスのスコープに関する不変条件。

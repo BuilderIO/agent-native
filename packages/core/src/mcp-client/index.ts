@@ -24,6 +24,7 @@ export {
 export {
   listRemoteServers,
   addRemoteServer,
+  addOAuthRemoteServer,
   addFirstPartyRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
   removeRemoteServer,
@@ -38,6 +39,19 @@ export {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+
+export {
+  finishMcpOAuthAuthorization,
+  getMcpOAuthAccessToken,
+  readMcpOAuthCredentials,
+  saveMcpOAuthCredentials,
+  startMcpOAuthAuthorization,
+  type McpOAuthCallbackResult,
+  type McpOAuthCredentialBundle,
+  type McpOAuthDiscoveryState,
+  type McpOAuthProviderOptions,
+  type McpOAuthStartResult,
+} from "./oauth-client.js";
 
 export {
   areBuiltinMcpCapabilitiesSupported,
@@ -64,6 +78,7 @@ export {
   buildMergedConfig,
   builtinMergedConfigKey,
   startMcpConfigRefresh,
+  McpConfigUnreadableError,
   type ClientBuiltinCapability,
 } from "./routes.js";
 
@@ -80,6 +95,13 @@ export {
 export { fetchHubServers } from "./hub-client.js";
 
 export { isMcpToolAllowedForRequest } from "./visibility.js";
+export {
+  callMcpTool,
+  listVisibleMcpTools,
+  McpAppApiError,
+  type AppMcpTool,
+  type ListVisibleMcpToolsOptions,
+} from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 export {
   classifyMcpToolCall,
@@ -92,12 +114,21 @@ export {
 } from "./tool-policy.js";
 export {
   configureScreenMemory,
+  queryScreenMemoryForAgent,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
   type ScreenMemoryConfig,
+  type ScreenMemoryAgentQueryResult,
   type ScreenMemoryContextItem,
+  type ScreenMemoryCoverageGap,
+  type ScreenMemoryEvidenceItem,
+  type ScreenMemoryEvidenceSourceType,
   type ScreenMemoryQueryResult,
+  type ScreenMemoryRetrievalCoverage,
+  type ScreenMemorySegmentReference,
   type ScreenMemoryStatus,
+  type ScreenMemoryTimeRange,
+  type ScreenMemoryTruncation,
 } from "./screen-memory-local.js";
 export {
   MCP_ACTION_RESULT_MARKER,
@@ -136,6 +167,8 @@ import {
 
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
+  /** Restrict the generated entries to an explicit background capability set. */
+  toolNames?: readonly string[];
 }
 
 export function mcpToolsToActionEntries(
@@ -143,7 +176,11 @@ export function mcpToolsToActionEntries(
   options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
+  const selectedToolNames = options.toolNames
+    ? new Set(options.toolNames)
+    : undefined;
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
+    if (selectedToolNames && !selectedToolNames.has(tool.name)) continue;
     entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;
@@ -185,6 +222,12 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    planMode: {
+      effect: (args) =>
+        evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,
+      description:
+        "Plan mode allows MCP calls classified as read-only from annotations, operation names, and runtime arguments.",
+    },
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
     run: async (args: Record<string, unknown>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it

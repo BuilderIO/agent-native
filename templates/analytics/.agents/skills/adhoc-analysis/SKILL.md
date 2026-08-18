@@ -2,12 +2,12 @@
 name: adhoc-analysis
 description: >-
   How to conduct ad-hoc analyses: gather data from multiple sources, synthesize
-  findings, save reusable analysis artifacts that anyone can re-run for fresh results.
+  findings, and save durable results as dashboard artifacts that anyone can re-run.
 ---
 
 # Ad-Hoc Analysis
 
-Ad-hoc analyses are deep-dive investigations that cross-reference multiple data sources and produce a written report with findings. Saving a reusable artifact is optional: answer in chat first unless the user explicitly asks to save the analysis, create a reusable artifact, or re-run/update an existing saved analysis.
+Ad-hoc analyses are deep-dive investigations that cross-reference multiple data sources and produce a written report with findings. The durable user-facing result is a dashboard. Answer in chat first unless the user explicitly asks to save the result, create a reusable artifact, or re-run/update an existing saved analysis.
 
 ## When to Use
 
@@ -17,21 +17,20 @@ Use the ad-hoc analysis workflow when:
 - The investigation involves cross-referencing (e.g., CRM deals matched against call recordings)
 - The user explicitly asks for an "analysis" or "deep dive"
 
-Save a reusable analysis only when:
+Save a reusable dashboard artifact when:
 
 - The user explicitly asks to save, create, publish, or re-run a saved analysis
 - The user is already viewing or re-running an existing saved analysis
 - The output needs a durable artifact because it includes generated chart images or a reusable refresh workflow
 
-For one-off questions and exploratory deep dives, query the data and answer in chat. Do not call `save-analysis` just because the user said "analysis" or "deep dive".
+For one-off questions and exploratory deep dives, query the data and answer in chat. Do not create a dashboard or call the legacy `save-analysis` action just because the user said "analysis" or "deep dive".
 
 If the user asks for an analysis output that needs a bespoke interactive
 surface, custom visualization, multi-step workflow, or UI that cannot be
-faithfully represented as saved-analysis Markdown, generated chart images, and
-structured `resultData`, create an extension instead of forcing the request into
-the saved-analysis format. In production mode, call `create-extension`
-automatically and tell the user the requested analysis needed bespoke UI/code, so
-you built it as an extension.
+faithfully represented by native dashboard panels, create an extension and
+immediately embed it in the dashboard as one or more `chartType: "extension"`
+panels with `config.extensionId`. Never leave the extension as a standalone
+Analytics result or direct the user to an Extensions page.
 
 ## Workflow
 
@@ -69,11 +68,10 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
   associated companies/contacts/tickets/notes/emails, Gong call detail, compact
   transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`
   or `gong-calls` follow-ups only when that bundle leaves a specific gap.
-- Structure named deal/account reports like Fusion Analytics: executive summary,
-  company/deal overview, key contacts and roles, dated timeline, Gong evidence
-  with call dates/titles, current state, risks/blockers, recommended next steps,
-  and methodology/gaps. Do not answer from an all-deals dump or Gong metadata
-  alone.
+- Structure named deal/account reports as: executive summary, company/deal
+  overview, key contacts and roles, dated timeline, Gong evidence with call
+  dates/titles, current state, risks/blockers, recommended next steps, and
+  methodology/gaps. Do not answer from an all-deals dump or Gong metadata alone.
 - Use action filters such as `query`, `properties`, `objectType`, `company`, and
   `limit` to narrow results before cross-referencing
 - For HubSpot deal cohorts, use `hubspot-deals` structured filters (`product`,
@@ -103,25 +101,27 @@ Don't just dump raw data. Synthesize findings:
 
 ### Step 4: Generate Charts (when useful)
 
-When the analysis benefits from a visual — trends over time, distributions, comparisons between categories — call `generate-chart` before formatting the report. The action returns a `url` you embed directly in the markdown.
+When the analysis benefits from a visual — trends over time, distributions, or
+comparisons between categories — query the data first, then use the live
+`/chart` embed described in `data-querying` for an in-chat answer. Do not call
+`generate-chart` for a one-off chat result: it produces a static image for
+saved artifacts, requires pre-stringified JSON, and does not count as a real
+data query for the final response guard.
 
-```
-generate-chart
-  --title "Closed-lost deals by month"
-  --type bar
-  --labels '["Jan","Feb","Mar"]'
-  --data '[18, 22, 14]'
-```
+For a stacked multi-series bar chart, keep the query in long form and emit a
+panel with `chartType: "bar"`, `config.pivot` containing `xKey`, `seriesKey`,
+and `valueKey`, plus `config.stacked: true`. The live chart route pivots the
+rows and renders one stack per x-axis category. See `data-querying`'s
+"Inline Charts In Chat" section for the exact `embed` fence and encoding.
 
-Embed the returned URL in `resultMarkdown` using standard markdown image syntax:
+Only use `generate-chart` when a saved analysis artifact explicitly needs a
+static image. If it returns an error while answering in chat, switch to the
+live embed instead of retrying reformatted `labels` or `data` parameters.
 
-```markdown
-![Closed-lost deals by month](/api/media/closed-lost-deals-by-month-1234567890.png?v=1234567890)
-```
-
-You can include multiple charts in one analysis. Reach for a chart when it communicates the finding faster than a table — don't force visuals on every analysis.
-
-Include the re-generation step in your saved `instructions` so re-runs produce fresh charts.
+You can include multiple live charts in one analysis. Reach for a chart when it
+communicates the finding faster than a table - don't force visuals on every
+analysis. Include the query and embed configuration in saved `instructions` so
+re-runs produce fresh charts.
 
 ### Step 5: Format Results as Markdown
 
@@ -159,46 +159,33 @@ Time range: Jan 1 – Mar 31, 2026
 Filters: S1+ pipeline, closed-lost only
 ```
 
-### Step 6: Save the Analysis (only when requested)
+### Step 6: Save the Dashboard Artifact (only when requested)
 
-Call `save-analysis` with all required fields only when the user asked for a saved/re-runnable analysis or this turn is updating an existing saved analysis:
+Call `update-dashboard` with a complete dashboard config when the user asks for a saved/re-runnable analysis or this turn is creating a durable report. If the requested report needs bespoke UI, create the extension first and include its id in an extension panel.
 
 ```
-save-analysis
-  --id "closed-lost-q1-2026"
-  --name "Q1 2026 Closed-Lost Analysis"
-  --description "Deep dive into 54 Fusion deals closed-lost in Q1, cross-referenced with Gong calls and Slack activity"
-  --question "Why are we losing deals in Q1? Cross-reference with Gong calls and Slack."
-  --dataSources '["hubspot", "gong", "slack"]'
-  --instructions "1. Fetch closed-lost S1+ deals from HubSpot (pipeline: Fusion, close date: Q1 2026)
-2. For each deal, fetch associated contacts and their emails
-3. Search Gong calls matching those contact emails (lookback: 6 months before close date)
-4. For top 15 deals by amount, search Slack for '{company name} fusion'
-5. Calculate: total deals, avg deal size, win rate, Gong coverage rate
-6. Break down by: lost reason, stage reached, deal size tier
-7. Highlight deals with no Gong coverage (blind spots)
-8. Save results with save-analysis using id='closed-lost-q1-2026'"
-  --resultMarkdown "[the full markdown report]"
-  --resultData '{"deals": [...], "metrics": {...}}'
+update-dashboard
+  --dashboardId "closed-lost-q1-2026"
+  --config '{"name":"Q1 2026 Closed-Lost Analysis","panels":[{"id":"findings","title":"Findings","source":"first-party","chartType":"table","width":2,"sql":"...","config":{"description":"Evidence-backed report for the requested cohort."}}]}'
 ```
 
-`resultData` is required. Fill it with compact structured evidence from the real data-source action results you used: row samples, aggregate metrics, match decisions, call/message IDs, short transcript/message excerpts, coded themes, sentiment labels, and explicit provider errors for any gaps. Do not include full Gong transcripts, full tool outputs, or raw provider payload dumps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
+The dashboard config must preserve compact evidence from the real data-source action results you used: row samples, aggregate metrics, match decisions, call/message IDs, short transcript/message excerpts, coded themes, sentiment labels, and explicit provider errors for any gaps. Do not include full Gong transcripts, full tool outputs, or raw provider payload dumps. If you cannot query a source, do not save guessed dashboard content; report the unavailable/error result instead.
 
-**Critical: Write good instructions.** The `instructions` field is what gets sent to the agent on re-run. Be specific:
+**Critical: Write good dashboard definitions.** The dashboard description/config is what the agent uses on re-run. Be specific:
 
 - Which actions to call with which parameters
 - What filters to apply
 - How to match records across sources
 - What metrics to calculate
 - What structure the output should have
-- End with "Save results with save-analysis using id='...'"
+- End with "Update dashboard with id='...'"
 
 ### Step 7: Navigate to the Result
 
-After saving, navigate the user to see the saved analysis:
+After saving, navigate the user to see the saved dashboard:
 
 ```
-navigate --view=analyses --analysisId=closed-lost-q1-2026
+navigate --view=adhoc --dashboardId=closed-lost-q1-2026
 ```
 
 ## Re-Running an Analysis
@@ -209,7 +196,7 @@ When a user clicks "Re-run" on a saved analysis, the agent receives:
 - The saved instructions (step-by-step)
 - The analysis ID to update
 
-Follow the instructions to gather fresh data, then call `save-analysis` with the same `id` to update the results. The `createdAt` timestamp is preserved; `updatedAt` is refreshed.
+Follow the instructions to gather fresh data, then call `update-dashboard` with the same `dashboardId` to update the panels/report. Existing legacy analysis deep links remain readable, but new durable results must be written to dashboards.
 
 If the user challenges the coverage of a chat answer or saved analysis ("why
 aren't you pulling more deals?", "where is the updated response?"), rerun the
@@ -221,21 +208,19 @@ showing it or saving it.
 
 | Action            | Purpose                                                          |
 | ----------------- | ---------------------------------------------------------------- |
-| `save-analysis`   | Save or update an analysis (id, name, instructions, results)     |
-| `get-analysis`    | Retrieve a saved analysis by ID                                  |
-| `list-analyses`   | List all saved analyses (id, name, description, timestamps)      |
-| `delete-analysis` | Delete a saved analysis                                          |
-| `navigate`        | Navigate to analyses view: `--view=analyses [--analysisId=<id>]` |
+| `update-dashboard` | Save or update the dashboard artifact and its panels             |
+| `get-sql-dashboard` | Retrieve a dashboard by ID                                      |
+| `list-sql-dashboards` | List dashboard artifacts                                       |
+| `navigate`        | Navigate to a dashboard: `--view=adhoc --dashboardId=<id>`       |
 
 ## Storage
 
-Analyses are stored in the SQL settings table with key prefix `adhoc-analysis-{id}`. They respect org/user scoping — org-scoped analyses are visible to all org members.
+Dashboard artifacts are stored in SQL and respect the normal dashboard access model. Legacy analyses remain in their existing SQL tables for compatibility and should not be used for new artifacts.
 
 API endpoints (for UI consumption):
 
-- `GET /api/analyses` — list all
-- `GET /api/analyses/{id}` — get one
-- `DELETE /api/analyses/{id}` — delete one
+- `GET /api/sql-dashboards` — list dashboard artifacts
+- `GET /api/sql-dashboards/{id}` — get one
 
 ## Best Practices
 
@@ -257,7 +242,7 @@ hold everything in one pass:
    from the primary source (HubSpot, BigQuery, etc.).
 2. **Chunk and persist** — process 5-10 items per iteration. For each chunk,
    write a short per-item findings note (key signals, gaps, theme tags) as an
-   intermediate result to `save-analysis` or agent scratch.
+   intermediate result to the dashboard definition or agent scratch.
 3. **Synthesize** — after all chunks are complete, read the intermediate notes
    back in and produce the final cross-item synthesis (patterns, rankings,
    themes, recommendations).

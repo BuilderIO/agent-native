@@ -6,6 +6,11 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { isComponentInstance } from "@shared/component-model";
+import {
+  ELEMENT_PROVENANCE_METHODS,
+  type ElementProvenanceFramework,
+  type ElementProvenanceMethod,
+} from "@shared/source-mode";
 export {
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
@@ -80,6 +85,69 @@ export function codeLayerSelectorAliases(
         .map((selector) => selector.trim())
         .filter(Boolean),
     ),
+  );
+}
+
+/**
+ * Selector candidate groups for a host-initiated removal in the LIVE iframe
+ * (the bridge's `delete-element`), one group per node to remove.
+ *
+ * A live/localhost screen runs two different node-id namespaces: the document
+ * carries the ids the injected bridge assigned there, while every host-side
+ * projection is built from the fetched source snapshot that
+ * `ensureCodeLayerNodeIdsInHtml` stamped separately. A selector taken from the
+ * source projection therefore matches nothing in the running document — and
+ * `delete-element` is fire-and-forget, so the editor reported success and
+ * cleared the selection while the element stayed on screen.
+ *
+ * Order of trust: the runtime layer model's aliases (Layers-panel selection on
+ * a runtime-projected screen), then the source-projection selectors carrying
+ * the bridge-reported identities as extra candidates, then those identities
+ * alone. `findRuntimeTarget` in the bridge takes the first candidate that
+ * resolves, so a group may safely mix namespaces.
+ */
+export function liveDeleteSelectorGroups(args: {
+  runtimeAliasGroups: readonly (readonly string[])[];
+  liveSelectionSelectors: readonly string[];
+  fallbackSelectors: readonly string[];
+}): string[][] {
+  const runtimeGroups = args.runtimeAliasGroups
+    .map((aliases) => aliases.filter(Boolean))
+    .filter((aliases) => aliases.length > 0);
+  if (runtimeGroups.length > 0) return runtimeGroups;
+  const liveSelectors = Array.from(
+    new Set(args.liveSelectionSelectors.filter(Boolean)),
+  );
+  if (args.fallbackSelectors.length > 0) {
+    return args.fallbackSelectors.map((selector) =>
+      Array.from(new Set([selector, ...liveSelectors])),
+    );
+  }
+  return liveSelectors.length > 0 ? [liveSelectors] : [];
+}
+
+/**
+ * Whether Delete must run the LIVE-screen removal path (delete the running
+ * DOM node + queue a pending live edit for the coding agent) instead of
+ * rewriting the screen's stored source, mirroring the `localhost` branch
+ * handleVisualStructureChange already takes for a drag-move.
+ *
+ * Deliberately does NOT require a source-snapshot node: a Layers-panel
+ * selection on a runtime-projected screen only exists in the runtime id
+ * namespace, so gating the delete on a resolved source snapshot meant such a
+ * row could be selected and never deleted at all. The runtime alias groups
+ * ARE the target here.
+ */
+export function shouldDeleteThroughLiveScreen(args: {
+  screenSourceType: string | null | undefined;
+  runtimeAliasGroups: readonly (readonly string[])[];
+  liveSelectionSelectors: readonly string[];
+}): boolean {
+  if (args.screenSourceType !== "localhost") return false;
+  return (
+    args.runtimeAliasGroups.some((aliases) =>
+      aliases.some((alias) => Boolean(alias)),
+    ) || args.liveSelectionSelectors.some((selector) => Boolean(selector))
   );
 }
 
@@ -326,12 +394,86 @@ function provenanceForCodeLayerNode(
     node.dataAttributes["data-source-column"],
   );
   const component = node.dataAttributes["data-component-name"]?.trim();
-  if (!sourceFile && !line && !column && !component) return undefined;
+  const declaredFramework =
+    node.dataAttributes["data-source-framework"]?.trim();
+  const framework =
+    declaredFramework === "html" ||
+    declaredFramework === "react" ||
+    declaredFramework === "vue" ||
+    declaredFramework === "svelte" ||
+    declaredFramework === "angular" ||
+    declaredFramework === "lwc"
+      ? (declaredFramework as ElementProvenanceFramework)
+      : undefined;
+  const ownerSourceFile = node.dataAttributes["data-source-owner-file"]?.trim();
+  const ownerLine = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-owner-line"],
+  );
+  const ownerColumn = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-owner-column"],
+  );
+  const ownerComponentName =
+    node.dataAttributes["data-source-owner-component"]?.trim();
+  const ownerKey = node.dataAttributes["data-source-owner-key"]?.trim();
+  const declaredMethod = node.dataAttributes["data-source-method"]?.trim();
+  const declaredOwnerMethod =
+    node.dataAttributes["data-source-owner-method"]?.trim();
+  // The owner site has its own tier: an authored `data-attribute` element can
+  // still owe its owner line to a transformed React 19 owner stack. Unlike
+  // `method` below there is no build-time convention to fall back on — this
+  // bridge is the only writer of data-source-owner-*, and it always labels the
+  // tier — so an unlabelled owner position stays "unknown" rather than
+  // inheriting a claim of authored coordinates.
+  const ownerMethod = ELEMENT_PROVENANCE_METHODS.includes(
+    declaredOwnerMethod as ElementProvenanceMethod,
+  )
+    ? (declaredOwnerMethod as ElementProvenanceMethod)
+    : undefined;
+  // The bridge stamps the tier alongside the position; a projection carrying a
+  // position with no tier came from a build-time transform's own attributes.
+  const method = ELEMENT_PROVENANCE_METHODS.includes(
+    declaredMethod as ElementProvenanceMethod,
+  )
+    ? (declaredMethod as ElementProvenanceMethod)
+    : sourceFile
+      ? "data-attribute"
+      : undefined;
+  const unavailable = node.dataAttributes["data-source-unavailable"]?.trim();
+  // The bridge only stamps a reason when the node resolved to no location, so
+  // a resolved anchor must never carry one back out of the projection.
+  const unavailableReason =
+    !sourceFile &&
+    (unavailable === "not-framework" ||
+      unavailable === "not-react" ||
+      unavailable === "no-debug-info")
+      ? unavailable
+      : undefined;
+  if (
+    !sourceFile &&
+    !line &&
+    !column &&
+    !component &&
+    !framework &&
+    !ownerSourceFile &&
+    !ownerKey &&
+    !unavailableReason
+  ) {
+    return undefined;
+  }
   return {
+    ...(framework ? { framework } : {}),
     ...(sourceFile ? { sourceFile } : {}),
     ...(line ? { line } : {}),
     ...(column ? { column } : {}),
     ...(component ? { component } : {}),
+    ...(ownerSourceFile ? { ownerSourceFile } : {}),
+    ...(ownerLine ? { ownerLine } : {}),
+    ...(ownerColumn ? { ownerColumn } : {}),
+    ...(ownerComponentName ? { ownerComponentName } : {}),
+    ...(ownerKey ? { ownerKey } : {}),
+    ...(method ? { method } : {}),
+    ...(ownerMethod ? { ownerMethod } : {}),
+    ...(unavailableReason ? { unavailableReason } : {}),
   };
 }
 
@@ -465,11 +607,44 @@ export function codeLayerNodeMatchesBridgeTarget(
   return codeLayerSelectorMatches(node, selector);
 }
 
-export function resolveCodeLayerNodeFromBridge(
+/**
+ * `absent` and `ambiguous` must stay distinguishable all the way to the UI —
+ * five matching instances is a scoping question, a gone element is a different
+ * failure. Collapsing both into `null` is what made a style commit on a repeated
+ * component claim the element no longer existed while it was on screen.
+ */
+export type CodeLayerResolution =
+  | { status: "resolved"; node: CodeLayerNode }
+  | { status: "absent" }
+  | { status: "ambiguous"; candidates: CodeLayerNode[] };
+
+/**
+ * A client-rendered app serves `<html><body><div id="root">`, so its projection
+ * holds none of the markup the user can select and every selection reads as
+ * "absent" — a different fact, with a different remedy, from a removed element.
+ * The bound is deliberate: an authored page worth editing has more nodes, and a
+ * false positive only costs a more specific refusal message.
+ */
+const MOUNT_SHELL_MAX_NODES = 4;
+
+export function isClientRenderedMountShell(projection: {
+  nodes: CodeLayerNode[];
+}): boolean {
+  if (projection.nodes.length > MOUNT_SHELL_MAX_NODES) return false;
+  return projection.nodes.every(
+    (node) =>
+      node.tag === "html" ||
+      node.tag === "head" ||
+      node.tag === "body" ||
+      (node.children.length === 0 && !collapsedElementText(node.textSnippet)),
+  );
+}
+
+export function resolveCodeLayerTargetFromBridge(
   projection: { nodes: CodeLayerNode[] },
   selector?: string,
   sourceId?: string,
-): CodeLayerNode | null {
+): CodeLayerResolution {
   // Id-based match first, across the WHOLE projection (not just up to
   // whichever node the old combined-predicate `.find()` reached first) — a
   // sourceId identifies one node by its own stable id/data-attribute, which
@@ -482,7 +657,7 @@ export function resolveCodeLayerNodeFromBridge(
     const idMatch = projection.nodes.find((node) =>
       codeLayerNodeMatchesSourceId(node, sourceId),
     );
-    if (idMatch) return idMatch;
+    if (idMatch) return { status: "resolved", node: idMatch };
   }
   // No sourceId (or no node carries it yet, e.g. a bridge target minted a
   // fresh pending id the projection hasn't picked up) — fall back to the
@@ -493,29 +668,49 @@ export function resolveCodeLayerNodeFromBridge(
   // selector that matches more than one node rather than silently picking
   // the first DOM-order match — mirror that discipline here so a duplicate/
   // move/style edit can never silently land on the wrong sibling instance.
-  if (!selector) return null;
+  if (!selector) return { status: "absent" };
   const selectorMatches = projection.nodes.filter((node) =>
     codeLayerSelectorMatches(node, selector),
   );
-  return selectorMatches.length === 1 ? selectorMatches[0]! : null;
+  if (selectorMatches.length === 1) {
+    return { status: "resolved", node: selectorMatches[0]! };
+  }
+  return selectorMatches.length === 0
+    ? { status: "absent" }
+    : { status: "ambiguous", candidates: selectorMatches };
+}
+
+export function resolveCodeLayerNodeFromBridge(
+  projection: { nodes: CodeLayerNode[] },
+  selector?: string,
+  sourceId?: string,
+): CodeLayerNode | null {
+  const resolution = resolveCodeLayerTargetFromBridge(
+    projection,
+    selector,
+    sourceId,
+  );
+  return resolution.status === "resolved" ? resolution.node : null;
 }
 
 export function collapsedElementText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
-export function resolveCodeLayerNodeFromElementInfo(
+export function resolveCodeLayerTargetFromElementInfo(
   projection: { nodes: CodeLayerNode[] },
   info: ElementInfo | null | undefined,
-): CodeLayerNode | null {
-  if (!info) return null;
-  const direct = resolveCodeLayerNodeFromBridge(
+): CodeLayerResolution {
+  if (!info) return { status: "absent" };
+  const direct = resolveCodeLayerTargetFromBridge(
     projection,
     info.selector,
     info.sourceId ?? info.id,
   );
-  if (direct) return direct;
+  if (direct.status === "resolved") return direct;
 
+  // Score even an ambiguous selector: text/class/id evidence it does not carry
+  // can single out one instance. Ambiguity only survives if scoring ties too.
   const tagName = info.tagName.toLowerCase();
   const text = collapsedElementText(info.textContent);
   const classes = new Set(info.classes);
@@ -541,11 +736,25 @@ export function resolveCodeLayerNodeFromElementInfo(
     .filter((candidate) => candidate.score >= 4)
     .sort((a, b) => b.score - a.score);
 
-  if (scored.length === 0) return null;
   const [best, next] = scored;
-  if (!best) return null;
-  if (next && next.score === best.score) return null;
-  return best.node;
+  if (!best) return direct;
+  if (next && next.score === best.score) {
+    return {
+      status: "ambiguous",
+      candidates: scored
+        .filter((candidate) => candidate.score === best.score)
+        .map((candidate) => candidate.node),
+    };
+  }
+  return { status: "resolved", node: best.node };
+}
+
+export function resolveCodeLayerNodeFromElementInfo(
+  projection: { nodes: CodeLayerNode[] },
+  info: ElementInfo | null | undefined,
+): CodeLayerNode | null {
+  const resolution = resolveCodeLayerTargetFromElementInfo(projection, info);
+  return resolution.status === "resolved" ? resolution.node : null;
 }
 
 export function canonicalElementInfoForCodeLayerNode(
@@ -554,6 +763,11 @@ export function canonicalElementInfoForCodeLayerNode(
 ): ElementInfo {
   return {
     ...info,
+    // Keep the bridge's own identity before overwriting it — it is the only
+    // one that resolves in a live document. Idempotent: re-canonicalizing an
+    // already-canonicalized info must not overwrite it with the source id.
+    runtimeSelector: info.runtimeSelector ?? info.selector,
+    runtimeSourceId: info.runtimeSourceId ?? info.sourceId,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
@@ -590,6 +804,56 @@ export function elementInfoIsRuntimeOnly(
       (capability) => capability.kind === "unsupported",
     ),
   );
+}
+
+/**
+ * Per-node refinement of a file's "layers panel is showing the runtime
+ * (localhost-hydrated) tree" flag into an actual "this node has no
+ * resolvable source counterpart" signal.
+ *
+ * `fileIsRuntimeProjected` alone is true for basically every hydrated
+ * localhost screen, React or not — see shouldPreferRuntimeLayerProjection's
+ * doc comment in design-editor/pending-edits.ts — so callers that gated a
+ * React-semantic-handoff requirement on that file-level flag treated every
+ * node on every localhost screen as unresolvable, including on a page with
+ * no React at all.
+ *
+ * Match on the stamped `data-agent-native-node-id` attribute, NOT
+ * CodeLayerNode.id: `id` is `hashStable(sourceKey:...)` (see nodeIdFor in
+ * shared/code-layer.ts), and sourceKey differs between the runtime and
+ * source projection parses of the very same content, so `id` never lines up
+ * even for the identical element — the stamped DOM attribute does.
+ */
+export function isCodeLayerNodeRuntimeOnly(args: {
+  fileIsRuntimeProjected: boolean;
+  nodeIdAttr: string | undefined;
+  sourceNodeIdAttrs: ReadonlySet<string>;
+}): boolean {
+  if (!args.fileIsRuntimeProjected) return false;
+  if (!args.nodeIdAttr) return true;
+  return !args.sourceNodeIdAttrs.has(args.nodeIdAttr);
+}
+
+/**
+ * Whether a Layers-panel hide/lock toggle on a runtime (localhost-hydrated)
+ * node can be handed off to the agent to make durable in React source.
+ *
+ * The handoff is about DURABILITY — writing `data-agent-native-hidden` /
+ * `-locked` into JSX. The visual effect is host state that DesignCanvas
+ * mirrors into the iframe as a `layer-states` message; the source attribute
+ * has no rendering power of its own. A localhost target with no React
+ * debug-source provenance (plain HTML, or a React build without the source
+ * plugin) can never resolve an anchor, so gating the preview on the handoff
+ * made hide/lock a total no-op there and reported "source anchors still
+ * loading" for a load that will never happen. "Nothing to write into" and
+ * "source not loaded yet" must stay different answers.
+ */
+export function runtimeLayerStateHandoffMode(args: {
+  runtimeOnly: boolean;
+  provenanceSourceFile: string | null | undefined;
+}): "handoff" | "preview-only" {
+  if (!args.runtimeOnly) return "preview-only";
+  return args.provenanceSourceFile?.trim() ? "handoff" : "preview-only";
 }
 
 export function codeLayerPatchMessage(
@@ -1028,4 +1292,93 @@ export function parseInlineStyleAttribute(
     if (property && value) result[property] = value;
   }
   return result;
+}
+
+/**
+ * Resolve the selected element against the projection the Layers panel is
+ * actually rendering.
+ *
+ * A running-app screen (fusion / localhost) has TWO projections: the source one
+ * built from `design_files.content` — which for these screens is the route URL,
+ * not markup — and the runtime one built from the live DOM snapshot. The panel
+ * renders the runtime tree (see `shouldUseRuntimeLayerProjection`), and the two
+ * trees mint different node ids, so resolving selection against source returns
+ * an id no rendered row carries: the selected layer never highlights and has to
+ * be found by hand.
+ *
+ * Runtime first, then source, so an inline screen — and a live screen before
+ * its first snapshot arrives — resolves exactly as it did before.
+ */
+export function resolveSelectedCodeLayerNode(args: {
+  selectedElement: ElementInfo | null | undefined;
+  sourceProjection: CodeLayerProjection;
+  runtimeProjection?: CodeLayerProjection | null;
+}): CodeLayerNode | null {
+  if (!args.selectedElement) return null;
+  if (args.runtimeProjection) {
+    const runtimeNode = resolveCodeLayerNodeFromElementInfo(
+      args.runtimeProjection,
+      args.selectedElement,
+    );
+    if (runtimeNode) return runtimeNode;
+  }
+  return resolveCodeLayerNodeFromElementInfo(
+    args.sourceProjection,
+    args.selectedElement,
+  );
+}
+
+/**
+ * The document a keyboard nudge should resolve its intent against.
+ *
+ * Returns "" when a running-app screen has no live snapshot yet, which makes
+ * `resolveElementNudgeIntent` fall back to a plain translate rather than
+ * projecting a route URL as if it were markup.
+ */
+export function nudgeBaseContentForScreen(args: {
+  isRunningApp: boolean;
+  runtimeSnapshotHtml?: string | null;
+  liveSnapshotHtml?: string | null;
+  sourceContent: string;
+}): string {
+  if (!args.isRunningApp) return args.sourceContent;
+  return args.runtimeSnapshotHtml ?? args.liveSnapshotHtml ?? "";
+}
+
+export interface LiveNudgeReorderHandoff {
+  /** Selector the pending-edit pipeline anchors the move against. */
+  anchorSelector: string;
+  placement: "before" | "after";
+  /** Bridge-assigned id for the anchor, when it carries one. */
+  anchorSourceId?: string;
+}
+
+/**
+ * Translate a nudge reorder intent into the arguments a LIVE structure edit
+ * needs, or null when it cannot be expressed as one.
+ *
+ * `resolveElementNudgeIntent` reports the anchor as a PROJECTION node id, but
+ * `recordPendingLiveStructureEdit` addresses the running document by SELECTOR
+ * — the projection ids never reached the live DOM. Returning null (rather than
+ * guessing) makes the caller drop the keypress instead of queueing an edit
+ * that would anchor against nothing.
+ */
+export function liveNudgeReorderHandoff(args: {
+  content: string;
+  anchorNodeId: string;
+  placement: "before" | "after";
+}): LiveNudgeReorderHandoff | null {
+  const projection = buildCodeLayerProjection(args.content);
+  const anchorNode = projection.nodes.find(
+    (node) => node.id === args.anchorNodeId,
+  );
+  const anchorSelector = codeLayerSelectorAliases(anchorNode)[0];
+  if (!anchorSelector) return null;
+  const anchorSourceId =
+    anchorNode?.dataAttributes["data-agent-native-node-id"]?.trim();
+  return {
+    anchorSelector,
+    placement: args.placement,
+    ...(anchorSourceId ? { anchorSourceId } : {}),
+  };
 }

@@ -24,15 +24,19 @@
  * Route: POST /api/uploads/:recordingId/reset-chunks
  */
 
+import { randomUUID } from "node:crypto";
+
 import {
+  compareAndSetAppState,
+  readAppState,
   writeAppState,
-  deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -41,18 +45,26 @@ import {
   type H3Event,
 } from "h3";
 
+import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
-  getResumableSession,
   deleteResumableSession,
+  getResumableSession,
   setResumableSession,
+  type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
-import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
+import {
+  renewUploadLease,
+  uploadLeaseExpiry,
+} from "../../../../lib/upload-lease.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
@@ -61,6 +73,66 @@ interface CompressionMeta {
   ratio?: number;
   elapsedMs?: number;
   outputMimeType?: string;
+}
+
+interface PendingResumableCleanup {
+  recordingId: string;
+  generationId: string | null;
+  ownerGenerationId: string | null;
+  claimId: string | null;
+  session: StoredResumableSession;
+}
+
+function parsePendingResumableCleanup(
+  raw: Record<string, unknown> | null,
+  recordingId: string,
+): PendingResumableCleanup | null {
+  if (!raw) return null;
+  const session = raw.session;
+  const generationId = raw.generationId;
+  const ownerGenerationId = raw.ownerGenerationId;
+  const claimId = raw.claimId;
+  if (
+    raw.recordingId !== recordingId ||
+    !session ||
+    typeof session !== "object" ||
+    Array.isArray(session) ||
+    !(generationId === null || typeof generationId === "string") ||
+    (ownerGenerationId !== undefined &&
+      ownerGenerationId !== null &&
+      typeof ownerGenerationId !== "string") ||
+    (claimId !== undefined && claimId !== null && typeof claimId !== "string")
+  ) {
+    throw new Error(
+      `Invalid resumable cleanup state for recording ${recordingId}`,
+    );
+  }
+
+  const candidate = session as Record<string, unknown>;
+  if (
+    typeof candidate.providerId !== "string" ||
+    typeof candidate.sessionId !== "string" ||
+    !candidate.meta ||
+    typeof candidate.meta !== "object" ||
+    Array.isArray(candidate.meta) ||
+    typeof candidate.bytesUploaded !== "number" ||
+    !Number.isFinite(candidate.bytesUploaded) ||
+    (candidate.lastCommittedIndex !== undefined &&
+      typeof candidate.lastCommittedIndex !== "number")
+  ) {
+    throw new Error(
+      `Invalid resumable session in cleanup state for recording ${recordingId}`,
+    );
+  }
+
+  return {
+    recordingId,
+    generationId,
+    ownerGenerationId:
+      ownerGenerationId === undefined ? null : ownerGenerationId,
+    claimId: claimId === undefined ? null : claimId,
+    session: candidate as unknown as StoredResumableSession,
+  };
 }
 
 function normalizeVideoMimeType(value: unknown): string | null {
@@ -98,7 +170,15 @@ export default defineEventHandler(async (event: H3Event) => {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
     mimeType?: string;
+    attemptId?: string;
+    uploadGenerationId?: string;
+    useGenerationFence?: boolean;
   } | null;
+  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
+    userEmail: ownerEmail,
+    userKey: ownerEmail,
+    orgId,
+  });
 
   // Sanitize compression metadata. The recorder is the only client we trust
   // here, but the values land in Sentry extras — so we still bound them to
@@ -117,7 +197,13 @@ export default defineEventHandler(async (event: H3Event) => {
     const db = getDb();
 
     const [existing] = await db
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
+      })
       .from(schema.recordings)
       .where(
         and(
@@ -131,68 +217,201 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
-    const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
-    let shouldRetryStreaming = body?.requestStreaming === true;
-
-    const existingResumableSession = await getResumableSession(
-      recordingId,
-    ).catch(() => null);
-    if (existingResumableSession) {
-      const provider = await resolveResumableUploadProvider(
-        existingResumableSession.providerId,
-      ).catch(() => null);
-      try {
-        if (!provider?.resumable?.abortSession) {
-          throw new Error(
-            `Resumable upload provider ${existingResumableSession.providerId} cannot abort this session`,
-          );
-        }
-        await provider.resumable.abortSession({
-          sessionId: existingResumableSession.sessionId,
-          meta: existingResumableSession.meta,
-        });
-        await deleteResumableSession(recordingId).catch(() => {});
-      } catch (err) {
-        console.warn(
-          `[reset-chunks-${recordingId}] existing resumable session cleanup failed:`,
-          err instanceof Error ? err.message : String(err),
-        );
-        if (!bufferedFallbackAvailable) {
-          setResponseStatus(event, 502);
-          return {
-            error:
-              "The previous recording upload could not be cleaned up. Retry the upload restart.",
-          };
-        }
-        // The provider-side session may remain orphaned when abort fails, but
-        // deleting its local handle is required for the next chunk to enter
-        // the buffered handler instead of being routed back to the broken
-        // resumable session. Provider cleanup can still be reclaimed by its
-        // normal lifecycle/TTL without blocking recovery of the local file.
-        await deleteResumableSession(recordingId).catch(() => {});
-        shouldRetryStreaming = false;
-      }
-    } else {
-      // Clear any stale resumable session so a buffered retry does not
-      // accidentally route through handleResumableChunk with stale offsets.
-      await deleteResumableSession(recordingId).catch(() => {});
+    if (existing.status === "ready" && existing.videoUrl) {
+      setResponseStatus(event, 409);
+      return { error: "Recording is already ready" };
     }
 
-    if (!shouldRetryStreaming && !bufferedFallbackAvailable) {
+    const requestedAttemptId =
+      typeof body?.attemptId === "string" &&
+      body.attemptId.length > 0 &&
+      body.attemptId.length <= 128
+        ? body.attemptId
+        : null;
+    const existingAttemptId = existing.uploadAttemptId ?? null;
+    const existingGenerationId = existing.uploadGenerationId ?? null;
+    if (recoveryEnabled && existingAttemptId !== requestedAttemptId) {
       setResponseStatus(event, 409);
       return {
-        error:
-          "Recording upload storage could not start a buffered retry session.",
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+    const requestedGenerationId =
+      typeof body?.uploadGenerationId === "string" &&
+      body.uploadGenerationId.length > 0 &&
+      body.uploadGenerationId.length <= 128
+        ? body.uploadGenerationId
+        : null;
+    if (recoveryEnabled && existingGenerationId !== requestedGenerationId) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload generation is already active.",
+        staleAttempt: true,
       };
     }
 
-    const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}-`,
+    if (
+      await isMediaVerificationPending({
+        ownerEmail,
+        recordingId,
+        recordingStatus: existing.status,
+      })
+    ) {
+      setResponseStatus(event, 409);
+      return { error: "Recording is still being verified" };
+    }
+    if (existing.status !== "uploading" && existing.status !== "failed") {
+      setResponseStatus(event, 409);
+      return { error: "Recording upload is no longer resettable" };
+    }
+
+    // Fence this reset before deleting any provider or buffered state. A
+    // retry that lost the token race must not tear down the winner's session.
+    const now = new Date().toISOString();
+    // Only clients that can carry the returned generation may opt into the
+    // fence. Retry claims always opt in; legacy reset callers keep the null
+    // generation wire contract until they are upgraded.
+    const useGenerationFence =
+      recoveryEnabled &&
+      (requestedAttemptId !== null ||
+        requestedGenerationId !== null ||
+        body?.useGenerationFence === true);
+    const nextGenerationId = useGenerationFence ? randomUUID() : null;
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadStateSnapshot = await readAppState(uploadStateKey);
+    const cleanupStateKey = `recording-resumable-cleanup-${recordingId}`;
+    const cleanupStateSnapshot = await readAppState(cleanupStateKey);
+    const parsedCleanup = parsePendingResumableCleanup(
+      cleanupStateSnapshot,
+      recordingId,
     );
+    const pendingCleanup =
+      parsedCleanup &&
+      (parsedCleanup.ownerGenerationId === null
+        ? !useGenerationFence
+        : parsedCleanup.ownerGenerationId === existingGenerationId)
+        ? parsedCleanup
+        : null;
+    const discardedGenerationId = pendingCleanup
+      ? pendingCleanup.generationId
+      : existingGenerationId;
+    const discardedResumableSession =
+      pendingCleanup?.session ??
+      (await getResumableSession(recordingId, existingGenerationId));
+    const reset = await db
+      .update(schema.recordings)
+      .set({
+        status: "uploading",
+        failureReason: null,
+        uploadProgress: 0,
+        uploadGenerationId: nextGenerationId,
+        ...(!recoveryEnabled ? { uploadAttemptId: null } : {}),
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          eq(schema.recordings.status, existing.status),
+          existingAttemptId === null
+            ? isNull(schema.recordings.uploadAttemptId)
+            : eq(schema.recordings.uploadAttemptId, existingAttemptId),
+          existingGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+
+    if (reset.length !== 1) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
+    let cleanupClaim: PendingResumableCleanup | null = null;
+    if (discardedResumableSession) {
+      // A cleanup claim belongs to the generation that won this fence. A
+      // losing reset must never resurrect a claim after the winner releases
+      // it, and a later winner must be able to transfer an unfinished claim.
+      const candidate: PendingResumableCleanup = {
+        recordingId,
+        generationId: discardedGenerationId,
+        ownerGenerationId: nextGenerationId,
+        claimId: randomUUID(),
+        session: discardedResumableSession,
+      };
+      const claimed = await compareAndSetAppState(
+        cleanupStateKey,
+        cleanupStateSnapshot,
+        candidate as unknown as Record<string, unknown>,
+      );
+      if (claimed) cleanupClaim = candidate;
+    }
+
+    let resumableCleanupFailed = false;
+    if (discardedResumableSession) {
+      if (cleanupClaim) {
+        const cleaned = await abortResumableUploadSession(
+          discardedResumableSession,
+          { label: `reset-${recordingId}` },
+        );
+        if (!cleaned) {
+          if (!allowsSqlRecordingChunkScratch()) {
+            setResponseStatus(event, 502);
+            return {
+              error:
+                "The previous recording upload could not be cleaned up. Retry the upload restart.",
+            };
+          }
+          // The provider-side session may remain orphaned when abort fails,
+          // but local buffered scratch is a complete recovery path for the
+          // saved file. Keep the cleanup claim for a later retry, remove the
+          // stale local session handle, and force the new chunks through the
+          // buffered handler instead of returning the same 502 repeatedly.
+          console.warn(
+            `[reset-chunks-${recordingId}] provider cleanup failed; using buffered retry and retaining cleanup claim`,
+          );
+          resumableCleanupFailed = true;
+        }
+        if (!resumableCleanupFailed) {
+          const released = await compareAndSetAppState(
+            cleanupStateKey,
+            cleanupClaim as unknown as Record<string, unknown>,
+            null,
+          );
+          if (!released) {
+            console.warn(
+              `[reset-chunks-${recordingId}] cleanup claim changed while releasing it`,
+            );
+          }
+        }
+      }
+    }
+    const cleared = await deleteRecordingChunks(
+      ownerEmail,
+      recordingId,
+      discardedGenerationId,
+    );
+    // Clear any stale resumable session so a buffered retry does not
+    // accidentally route through handleResumableChunk with stale offsets.
+    if (!discardedResumableSession || cleanupClaim || resumableCleanupFailed) {
+      await deleteResumableSession(recordingId, discardedGenerationId).catch(
+        () => {},
+      );
+    }
 
     let uploadMode: UploadMode = "buffered";
+    let compensateStartedSession: (() => Promise<void>) | null = null;
+    const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
+    const shouldRetryStreaming =
+      body?.requestStreaming === true && !resumableCleanupFailed;
     if (shouldRetryStreaming) {
-      const mimeType = normalizeVideoMimeType(body?.mimeType);
+      const mimeType = normalizeVideoMimeType(body.mimeType);
       if (!mimeType) {
         setResponseStatus(event, 400);
         return { error: "A supported video mimeType is required for retry" };
@@ -215,17 +434,33 @@ export default defineEventHandler(async (event: H3Event) => {
             mimeType,
             MAX_RECORDING_UPLOAD_BYTES,
           );
-          await setResumableSession(recordingId, {
-            providerId: uploadProvider.id,
-            sessionId: session.sessionId,
-            meta: {
-              ...session.meta,
-              stableUrl: true,
-              recordAsset: false,
+          await setResumableSession(
+            recordingId,
+            {
+              providerId: uploadProvider.id,
+              sessionId: session.sessionId,
+              meta: {
+                ...session.meta,
+                stableUrl: true,
+                recordAsset: false,
+              },
+              bytesUploaded: 0,
+              lastCommittedIndex: -1,
             },
-            bytesUploaded: 0,
-            lastCommittedIndex: -1,
-          });
+            nextGenerationId,
+          );
+          compensateStartedSession = async () => {
+            if (!uploadProvider.resumable?.abortSession) {
+              throw new Error(
+                `Resumable upload provider ${uploadProvider.id} cannot abort the discarded retry session`,
+              );
+            }
+            await uploadProvider.resumable.abortSession({
+              sessionId: session.sessionId,
+              meta: session.meta,
+            });
+            await deleteResumableSession(recordingId, nextGenerationId);
+          };
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
@@ -250,19 +485,72 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    if (!shouldRetryStreaming && !bufferedFallbackAvailable) {
+      setResponseStatus(event, 409);
+      return {
+        error:
+          "Recording upload storage could not start a buffered retry session.",
+      };
+    }
+
+    const resetLease = await renewUploadLease(recordingId, {
+      attemptId: recoveryEnabled ? existingAttemptId : null,
+      generationId: nextGenerationId,
+    });
+    if (!resetLease.held) {
+      await compensateStartedSession?.();
+      setResponseStatus(event, 409);
+      return {
+        error: "Recording upload changed while its retry was starting.",
+        staleAttempt: true,
+      };
+    }
+
     // Reset the per-recording upload progress so the UI poller sees the
     // re-upload restart from 0 and doesn't briefly show "100% then
     // re-running" on the post-compression chunked upload pass.
-    const now = new Date().toISOString();
-    await writeAppState(`recording-upload-${recordingId}`, {
-      recordingId,
-      status: "uploading",
-      progress: 0,
-      chunksReceived: 0,
-      bytesReceived: 0,
-      maxBytes: MAX_RECORDING_UPLOAD_BYTES,
-      updatedAt: now,
-    });
+    const uploadStateUpdated = await compareAndSetAppState(
+      uploadStateKey,
+      uploadStateSnapshot,
+      {
+        recordingId,
+        status: "uploading",
+        progress: 0,
+        chunksReceived: 0,
+        bytesReceived: 0,
+        uploadAttemptId: recoveryEnabled ? existingAttemptId : null,
+        uploadGenerationId: nextGenerationId,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        updatedAt: now,
+      },
+    );
+    if (!uploadStateUpdated) {
+      const [current] = await db
+        .select({
+          status: schema.recordings.status,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
+          uploadGenerationId: schema.recordings.uploadGenerationId,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (
+        current?.status !== "uploading" ||
+        (current.uploadAttemptId ?? null) !==
+          (recoveryEnabled ? existingAttemptId : null) ||
+        (current.uploadGenerationId ?? null) !== nextGenerationId
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Recording upload changed while its retry was starting.",
+          staleAttempt: true,
+        };
+      }
+    }
 
     // Stash compression metadata under its own key. We don't merge it into
     // `recording-upload-{id}` because the recorder client overwrites that
@@ -276,22 +564,13 @@ export default defineEventHandler(async (event: H3Event) => {
       });
     }
 
-    await db
-      .update(schema.recordings)
-      .set({
-        status: "uploading",
-        failureReason: null,
-        uploadProgress: 0,
-        updatedAt: now,
-      })
-      .where(eq(schema.recordings.id, recordingId));
-
     return {
       ok: true,
       recordingId,
       chunksCleared: cleared,
       compressionRecorded: !!compression,
       uploadMode,
+      uploadGenerationId: nextGenerationId,
     };
   });
 });

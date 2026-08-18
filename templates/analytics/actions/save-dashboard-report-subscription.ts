@@ -5,7 +5,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { saveDashboardReportSubscription } from "../server/lib/dashboard-report-subscriptions";
+import {
+  MAX_DASHBOARD_REPORT_RECIPIENTS,
+  saveDashboardReportSubscription,
+} from "../server/lib/dashboard-report-subscriptions";
 
 export default defineAction({
   description:
@@ -14,7 +17,12 @@ export default defineAction({
     id: z.string().optional().describe("Existing subscription ID to update"),
     dashboardId: z.string().describe("Dashboard ID to email"),
     name: z.string().optional().describe("Human-readable subscription name"),
-    recipients: z.array(z.string().email()).min(1).describe("Email recipients"),
+    recipients: z
+      .array(z.string().email())
+      .min(1)
+      .describe(
+        `Email recipients (maximum ${MAX_DASHBOARD_REPORT_RECIPIENTS}; use a mailing-list address for larger audiences)`,
+      ),
     filters: z
       .record(z.string(), z.string())
       .optional()

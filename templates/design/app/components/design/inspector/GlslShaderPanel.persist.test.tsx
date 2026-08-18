@@ -35,10 +35,13 @@ const mutateAsyncCalls: Array<{ name: string; params: unknown }> = [];
 const mockCallAction = vi.hoisted(() => vi.fn());
 const mockUseActionMutation = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
   useActionMutation: (...args: unknown[]) => mockUseActionMutation(...args),
   useActionQuery: () => ({ data: undefined, isLoading: false, error: null }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string): string =>

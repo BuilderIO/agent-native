@@ -5,6 +5,7 @@ import {
   assertAccess,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -131,6 +132,11 @@ export default defineAction({
     const requester = normalizeEmail(commentRequestEmail);
     const author = normalizeEmail(existing.authorEmail);
     const isAuthor = Boolean(requester && author && requester === author);
+    if (!roleSatisfies(access.role, "commenter")) {
+      throw new ForbiddenError(
+        "Commenting on this plan requires commenter access or higher.",
+      );
+    }
     if (!isAuthor) {
       try {
         await assertAccess(

@@ -2,18 +2,88 @@ import {
   formatGuidedAnswersForAgent,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { loadDesignSystemGenerationContext } from "@/pages/design-editor/generation-prompt-directives";
+
+export interface QuestionFlowModelSelection {
+  model?: string;
+  engine?: string;
+  effort?: PromptComposerSubmitOptions["effort"];
+}
+
+/**
+ * What the user actually supplied at kickoff. The intake turn is forced to emit
+ * only a questionnaire and then stop, so THIS continuation is the turn that
+ * writes HTML — and a fresh thread inherits nothing. Re-sending the brief here
+ * is the only thing that puts the user's own prompt, reference screenshots, and
+ * design system in front of the model at the moment it generates.
+ */
+export interface QuestionFlowGenerationBrief {
+  /** The user's original words, replayed verbatim — never a paraphrase. */
+  prompt?: string;
+  designSystemId?: string | null;
+  /** Data URLs; re-attached so the reference screenshot survives the hop. */
+  images?: string[];
+  /** Extracted text from uploaded files (specs, outlines, token dumps). */
+  uploadedFileContext?: string;
+}
 
 interface UseQuestionFlowOptions {
+  enabled?: boolean;
   continuationTabId?: string | null;
   onContinue?: (tabId: string) => void;
+  /**
+   * The model this generation started with, read AT SEND TIME. The continuation
+   * is the turn that generates and it opens a fresh thread, which has no
+   * override to inherit. A getter, not a value: the caller's source is a ref
+   * filled after render, so a snapshot taken here would be the pre-kickoff one.
+   */
+  getModelSelection?: () => QuestionFlowModelSelection | null | undefined;
+  /** Read at send time, for the same reason as `getModelSelection`. */
+  getGenerationBrief?: () => QuestionFlowGenerationBrief | null | undefined;
 }
 
 function designQuestionsStateKey(designId: string | undefined): string {
   return designId ? `show-questions:${designId}` : "show-questions";
+}
+
+/**
+ * Render the kickoff brief as prompt context for the continuation turn.
+ * Exported and pure so the carry-through is testable without a DOM — this is
+ * the whole fix for "the agent ignored my design system / screenshot / brief".
+ */
+export function buildGenerationBriefContext(
+  brief: QuestionFlowGenerationBrief | null | undefined,
+  designSystemContext: string,
+): string {
+  return [
+    brief?.prompt?.trim()
+      ? [
+          "## The user's original request (verbatim)",
+          "This is the spec for what to build. The answers below refine it;",
+          "they do not replace it. Do not restate it as a looser paraphrase.",
+          "",
+          brief.prompt.trim(),
+        ].join("\n")
+      : "",
+    brief?.images?.length
+      ? [
+          `## ${brief.images.length} reference image(s) re-attached to this message`,
+          "Treat an attached UI screenshot as a layout specification to",
+          "reproduce — its structure, hierarchy, density, and component",
+          "grammar — not as loose inspiration. Match it unless an answer",
+          "below explicitly overrides a part of it.",
+        ].join("\n")
+      : "",
+    brief?.uploadedFileContext?.trim() ?? "",
+    designSystemContext,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 const RESPONSIVE_GENERATION_REQUIREMENTS =
@@ -27,10 +97,17 @@ const RESPONSIVE_GENERATION_REQUIREMENTS =
  */
 export function useQuestionFlow(
   designId: string | undefined,
-  { continuationTabId, onContinue }: UseQuestionFlowOptions = {},
+  {
+    enabled = true,
+    continuationTabId,
+    onContinue,
+    getModelSelection,
+    getGenerationBrief,
+  }: UseQuestionFlowOptions = {},
 ) {
   const stateKey = designQuestionsStateKey(designId);
   const flow = useGuidedQuestionFlow({
+    enabled,
     stateKey,
     queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",
@@ -58,7 +135,21 @@ export function useQuestionFlow(
   });
 
   const sendContinuation = useCallback(
-    (message: string, context?: string) => {
+    async (message: string, context?: string) => {
+      const selection = getModelSelection?.() ?? {};
+      const { model, engine, effort } = selection;
+      const brief = getGenerationBrief?.() ?? null;
+      // Re-hydrated rather than snapshotted at kickoff: the user can link or
+      // change the design system while the questionnaire is open. This never
+      // throws — a load failure returns instruction text telling the agent to
+      // stop rather than improvise a generic style.
+      const designSystemContext = brief?.designSystemId
+        ? await loadDesignSystemGenerationContext(brief.designSystemId)
+        : "";
+      const briefContext = buildGenerationBriefContext(
+        brief,
+        designSystemContext,
+      );
       // Always request `newTab` (mirroring useAgentGenerating.submit's
       // default). Without it, when there is no continuationTabId yet the
       // message goes to whatever tab is currently active, but the id we
@@ -73,15 +164,26 @@ export function useQuestionFlow(
       // real destination thread.
       const tabId = sendToDesignAgentChat({
         message,
-        context,
+        context: [briefContext, context].filter(Boolean).join("\n\n"),
         submit: true,
         newTab: true,
+        ...(brief?.images?.length ? { images: brief.images } : {}),
         ...(continuationTabId ? { tabId: continuationTabId } : {}),
+        ...(model ? { model } : {}),
+        ...(engine ? { engine } : {}),
+        ...(effort ? { effort } : {}),
       });
       onContinue?.(tabId);
       flow.clear();
     },
-    [continuationTabId, flow, onContinue],
+    [
+      continuationTabId,
+      designId,
+      flow,
+      getGenerationBrief,
+      getModelSelection,
+      onContinue,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -103,13 +205,13 @@ export function useQuestionFlow(
         .filter(Boolean)
         .join("\n");
 
-      sendContinuation("Here are my answers — go ahead.", context);
+      void sendContinuation("Here are my answers — go ahead.", context);
     },
     [designId, sendContinuation],
   );
 
   const handleSkip = useCallback(() => {
-    sendContinuation(
+    void sendContinuation(
       "Skip the questions — decide for me.",
       designId
         ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`

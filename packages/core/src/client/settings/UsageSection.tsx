@@ -1,401 +1,956 @@
-import { IconLoader2, IconRefresh } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { Skeleton } from "@agent-native/toolkit/design-system";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import {
+  IconArrowUpRight,
+  IconBell,
+  IconChartLine,
+  IconChevronDown,
+  IconLoader2,
+  IconMail,
+  IconPencil,
+  IconPlus,
+  IconRefresh,
+  IconUsers,
+  IconX,
+} from "@tabler/icons-react";
+import { useState } from "react";
+import { Link } from "react-router";
 
-import { agentNativePath } from "../api-path.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 
-interface UsageBucket {
-  key: string;
-  cents: number;
-  cost: UsageCostAggregate;
-  calls: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-}
+type UsageScope = "me" | "workspace";
+type AlertUnit = "usd" | "builder-credits" | "tokens";
+type AlertPeriod = "day" | "month";
+type AlertChannel = "in-app" | "email";
 
-interface DailyBucket {
-  date: string;
-  cents: number;
-  cost: UsageCostAggregate;
-  calls: number;
-}
-
-interface UsageRecentEntry {
-  id: number;
-  createdAt: number;
-  label: string;
-  app: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  cents: number;
-  costSource: "reported" | "estimated" | "unavailable";
-}
-
-type UsageCostAggregate =
-  | { status: "known"; knownCents: number; unavailableCalls: 0 }
-  | { status: "partial"; knownCents: number; unavailableCalls: number }
-  | { status: "unavailable"; knownCents: 0; unavailableCalls: number };
-
-interface UsageBillingMode {
+interface UsageBilling {
   unit: "usd" | "builder-credits";
   label: string;
-  shortLabel: string;
-  source: "estimated-provider-cost" | "builder-agent-credits";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
 
-interface UsageSummary {
-  billing?: UsageBillingMode;
-  totalCents: number;
-  totalCost: UsageCostAggregate;
-  totalCalls: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCacheReadTokens: number;
-  totalCacheWriteTokens: number;
-  sinceMs: number;
-  byLabel: UsageBucket[];
-  byModel: UsageBucket[];
-  byApp: UsageBucket[];
-  byDay: DailyBucket[];
-  recent: UsageRecentEntry[];
+interface UsageMetricBucket {
+  key: string;
+  label: string;
+  costCents: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  activeUsers: number;
 }
 
-const RANGES = [
-  { value: 1, label: "24h" },
+interface UsageDailyMetric {
+  date: string;
+  costCents: number;
+  calls: number;
+  tokens: number;
+}
+
+interface UsageRecentMetric {
+  id: number;
+  createdAt: number;
+  ownerEmail: string;
+  app: string;
+  label: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  prompt: string | null;
+}
+
+interface UsageMetricsData {
+  billing: UsageBilling;
+  app: string;
+  viewScope: UsageScope;
+  selectedUserEmail: string | null;
+  availableUsers: Array<{ email: string; role: string | null }>;
+  access: {
+    canViewWorkspace: boolean;
+    totalUsers: number;
+  };
+  totals: {
+    costCents: number;
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    activeUsers: number;
+  };
+  currentDay: {
+    costCents: number;
+    credits: number;
+    calls: number;
+    tokens: number;
+  };
+  byLabel: UsageMetricBucket[];
+  byModel: UsageMetricBucket[];
+  daily: UsageDailyMetric[];
+  recent: UsageRecentMetric[];
+}
+
+interface UsageAlertRule {
+  id: string;
+  appId: string | null;
+  unit: AlertUnit;
+  period: AlertPeriod;
+  limit: number;
+  channels: AlertChannel[];
+  enabled: boolean;
+  isDefault: boolean;
+  status: "ok" | "triggered" | "dismissed";
+  current: number;
+  percent: number;
+  dismissedAt: number | null;
+}
+
+interface AlertDraft {
+  ruleId?: string;
+  appId: string | null;
+  unit: AlertUnit;
+  period: AlertPeriod;
+  limit: string;
+  inApp: boolean;
+  email: boolean;
+}
+
+interface AlertMutationInput {
+  operation: "save" | "set-enabled" | "dismiss";
+  scope: "user" | "workspace";
+  ruleId?: string;
+  appId?: string | null;
+  unit?: AlertUnit;
+  period?: AlertPeriod;
+  limit?: number;
+  channels?: AlertChannel[];
+  enabled?: boolean;
+}
+
+interface AlertMutationResult {
+  rule?: UsageAlertRule;
+}
+
+const LOOKBACKS = [
   { value: 7, label: "7d" },
   { value: 30, label: "30d" },
   { value: 90, label: "90d" },
-];
+] as const;
 
-const USD_BILLING: UsageBillingMode = {
-  unit: "usd",
-  label: "Estimated spend",
-  shortLabel: "Cost",
-  source: "estimated-provider-cost",
-};
-
-function displayAmountFromCostCents(
-  cents: number,
-  billing: UsageBillingMode,
-): number {
-  if (billing.unit !== "builder-credits") return cents;
-  const margin = billing.hardCostMarginMultiplier ?? 1.25;
-  const creditsPerUsd = billing.creditsPerUsd ?? 20;
-  const credits = (cents / 100) * margin * creditsPerUsd;
-  return credits <= 0 ? 0 : Math.ceil(credits * 1000) / 1000;
-}
-
-function formatCredits(credits: number): string {
-  if (!Number.isFinite(credits) || credits === 0) return "0 credits";
-  const maximumFractionDigits = credits < 1 ? 3 : credits < 10 ? 2 : 1;
-  const value = credits.toLocaleString(undefined, {
-    maximumFractionDigits,
-  });
-  return `${value} ${credits === 1 ? "credit" : "credits"}`;
-}
-
-function formatSpend(cents: number, billing: UsageBillingMode): string {
-  if (billing.unit === "builder-credits") {
-    return formatCredits(displayAmountFromCostCents(cents, billing));
+function asAlertRules(value: unknown): UsageAlertRule[] {
+  if (Array.isArray(value)) return value as UsageAlertRule[];
+  if (value && typeof value === "object") {
+    const rules = (value as { rules?: unknown }).rules;
+    if (Array.isArray(rules)) return rules as UsageAlertRule[];
   }
-  // Sub-cent values (e.g. a single LLM call at $0.0045 = 0.45¢) — keep
-  // three decimals so tiny calls don't round to 0.00¢. The prior impl
-  // multiplied by 100 in this branch, overstating small costs 100×.
-  if (cents < 1) return `${cents.toFixed(3)}¢`;
+  return [];
+}
+
+function compactNumber(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "0";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return Math.round(value).toLocaleString();
+}
+
+function formatCost(cents: number, billing: UsageBilling): string {
+  if (billing.unit === "builder-credits") {
+    const credits =
+      (cents / 100) *
+      (billing.hardCostMarginMultiplier ?? 1.25) *
+      (billing.creditsPerUsd ?? 20);
+    return `${credits.toLocaleString(undefined, { maximumFractionDigits: 1 })} credits`;
+  }
   if (cents < 100) return `${cents.toFixed(2)}¢`;
-  return `$${(cents / 100).toFixed(2)}`;
+  return `$${(cents / 100).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
-function formatAggregateCost(
-  cost: UsageCostAggregate,
-  billing: UsageBillingMode,
-): string {
-  if (cost.status === "known") return formatSpend(cost.knownCents, billing);
-  if (cost.status === "unavailable") return "Unknown";
-  return `${formatSpend(cost.knownCents, billing)} + ${cost.unavailableCalls} unpriced`;
+function formatAlertValue(rule: UsageAlertRule, value: number): string {
+  if (rule.unit === "usd") {
+    return value.toLocaleString(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    });
+  }
+  return `${value.toLocaleString(undefined, {
+    maximumFractionDigits: rule.unit === "tokens" ? 0 : 2,
+  })} ${rule.unit === "builder-credits" ? "credits" : "tokens"}`;
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
+function appLabel(value: string | null | undefined): string {
+  if (!value) return "All apps";
+  const normalized = value.replace(/^agent-native-/i, "").replaceAll("-", " ");
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function BucketBars({
-  buckets,
-  emptyMessage,
+function Trend({
+  daily,
   billing,
 }: {
-  buckets: UsageBucket[];
-  emptyMessage: string;
-  billing: UsageBillingMode;
+  daily: UsageDailyMetric[];
+  billing: UsageBilling;
 }) {
-  if (buckets.length === 0) {
+  if (daily.length === 0) {
     return (
-      <p className="text-[10px] text-muted-foreground py-1.5">{emptyMessage}</p>
+      <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border/70 text-sm text-muted-foreground">
+        No usage recorded in this lookback.
+      </div>
     );
   }
-  const max = Math.max(
-    ...buckets.map((b) => displayAmountFromCostCents(b.cents, billing)),
-    0.0001,
+
+  const values = daily.map((day) =>
+    billing.unit === "builder-credits"
+      ? (day.costCents / 100) *
+        (billing.hardCostMarginMultiplier ?? 1.25) *
+        (billing.creditsPerUsd ?? 20)
+      : day.costCents,
   );
+  const max = Math.max(...values, 0.01);
+  const points = values.map((value, index) => {
+    const x = daily.length === 1 ? 50 : (index / (daily.length - 1)) * 100;
+    const y = 88 - (value / max) * 72;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+  const line = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point}`)
+    .join(" ");
+  const area = `${line} L 100,96 L 0,96 Z`;
+
   return (
-    <div className="space-y-1">
-      {buckets.map((b) => (
-        <div key={b.key} className="text-[10px]">
-          <div className="flex items-center justify-between gap-2 mb-0.5">
-            <span
-              className="truncate text-foreground"
-              title={b.key || "(none)"}
-            >
-              {b.key || "(none)"}
-            </span>
-            <span className="shrink-0 text-muted-foreground tabular-nums">
-              {formatAggregateCost(b.cost, billing)}
-              <span className="ms-1 opacity-60">
-                · {formatTokens(b.inputTokens + b.outputTokens)} tok
-              </span>
-            </span>
-          </div>
-          <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
-            <div
-              className="h-full bg-foreground/70"
-              style={{
-                width: `${(displayAmountFromCostCents(b.cents, billing) / max) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
-      ))}
+    <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 px-3 pb-2 pt-3">
+      <svg
+        aria-label="Daily usage trend"
+        className="h-32 w-full text-primary"
+        viewBox="0 0 100 96"
+        preserveAspectRatio="none"
+        role="img"
+      >
+        <path d={area} className="fill-current opacity-10" />
+        <path
+          d={line}
+          className="fill-none stroke-current"
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <div className="flex justify-between text-[11px] text-muted-foreground">
+        <span>
+          {new Date(`${daily[0]!.date}T00:00:00`).toLocaleDateString(
+            undefined,
+            { month: "short", day: "numeric" },
+          )}
+        </span>
+        <span>
+          {new Date(`${daily.at(-1)!.date}T00:00:00`).toLocaleDateString(
+            undefined,
+            { month: "short", day: "numeric" },
+          )}
+        </span>
+      </div>
     </div>
   );
 }
 
-function DailySparkline({
-  days,
+function MetricCard({
+  label,
+  value,
+  detail,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border/70 bg-card px-4 py-4">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div
+        className={`mt-1 truncate text-xl font-semibold tracking-[-0.02em] tabular-nums ${accent ? "text-primary" : "text-foreground"}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1 truncate text-xs text-muted-foreground">
+        {detail}
+      </div>
+    </div>
+  );
+}
+
+function DriverList({
+  title,
+  rows,
   billing,
 }: {
-  days: DailyBucket[];
-  billing: UsageBillingMode;
+  title: string;
+  rows: UsageMetricBucket[];
+  billing: UsageBilling;
 }) {
-  if (days.length === 0) return null;
-  const max = Math.max(
-    ...days.map((d) => displayAmountFromCostCents(d.cents, billing)),
-    0.0001,
-  );
+  const max = Math.max(...rows.map((row) => row.costCents), 1);
   return (
-    <div className="flex items-end gap-[2px] h-8 pt-2">
-      {days.map((d) => (
-        <div
-          key={d.date}
-          className="flex-1 bg-foreground/60 rounded-sm min-h-[1px]"
-          style={{
-            height: `${Math.max(
-              2,
-              (displayAmountFromCostCents(d.cents, billing) / max) * 100,
-            )}%`,
-          }}
-          title={`${d.date}: ${formatAggregateCost(d.cost, billing)} (${d.calls} calls)`}
-        />
-      ))}
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <span className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+          Spend
+        </span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No usage recorded yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {rows.slice(0, 5).map((row) => (
+            <div key={row.key}>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span
+                  className="min-w-0 truncate text-foreground"
+                  title={row.label}
+                >
+                  {row.label}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {formatCost(row.costCents, billing)}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary/70"
+                  style={{
+                    width: `${Math.max(4, (row.costCents / max) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-export function UsageSection() {
-  const [days, setDays] = useState(30);
-  const [data, setData] = useState<UsageSummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const billing = data?.billing ?? USD_BILLING;
+function UsageLoadingState() {
+  return (
+    <div className="space-y-5" role="status" aria-label="Loading usage">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {["w-24", "w-16", "w-20"].map((width) => (
+          <div key={width} className="rounded-lg border border-border/70 p-4">
+            <Skeleton className={`h-3 ${width}`} />
+            <Skeleton className="mt-3 h-6 w-24" />
+            <Skeleton className="mt-2 h-3 w-28" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-border/70 p-4">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="mt-3 h-32 w-full" />
+      </div>
+    </div>
+  );
+}
 
-  const load = async (rangeDays: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/usage?sinceDays=${rangeDays}`),
-      );
-      if (!res.ok) {
-        throw new Error(`Failed (${res.status})`);
-      }
-      const json = (await res.json()) as UsageSummary;
-      setData(json);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load usage");
-    } finally {
-      setLoading(false);
-    }
-  };
+function AlertEditor({
+  draft,
+  onChange,
+  onSave,
+  onCancel,
+  isPending,
+}: {
+  draft: AlertDraft;
+  onChange: (patch: Partial<AlertDraft>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const channelCount = Number(draft.inApp) + Number(draft.email);
+  return (
+    <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr]">
+        <label className="space-y-1.5 text-xs text-muted-foreground">
+          <span>Unit</span>
+          <Select
+            value={draft.unit}
+            onValueChange={(value) => onChange({ unit: value as AlertUnit })}
+          >
+            <SelectTrigger className="h-9 bg-background text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="usd">Dollars</SelectItem>
+              <SelectItem value="builder-credits">Builder credits</SelectItem>
+              <SelectItem value="tokens">Tokens</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1.5 text-xs text-muted-foreground">
+          <span>Threshold</span>
+          <Input
+            type="number"
+            min="0.01"
+            step={draft.unit === "tokens" ? "1" : "0.01"}
+            value={draft.limit}
+            onChange={(event) => onChange({ limit: event.target.value })}
+            className="h-9 bg-background text-sm"
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted-foreground">
+          <span>Window</span>
+          <Select
+            value={draft.period}
+            onValueChange={(value) =>
+              onChange({ period: value as AlertPeriod })
+            }
+          >
+            <SelectTrigger className="h-9 bg-background text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="day">Per day</SelectItem>
+              <SelectItem value="month">Per month</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Deliver via</span>
+        <label className="inline-flex items-center gap-2">
+          <Checkbox
+            checked={draft.inApp}
+            onCheckedChange={(checked) => onChange({ inApp: checked === true })}
+          />
+          <IconBell className="size-3.5" /> In app
+        </label>
+        <label className="inline-flex items-center gap-2">
+          <Checkbox
+            checked={draft.email}
+            onCheckedChange={(checked) => onChange({ email: checked === true })}
+          />
+          <IconMail className="size-3.5" /> Email
+        </label>
+        <div className="ms-auto flex items-center gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={onSave}
+            disabled={isPending || channelCount === 0}
+          >
+            {isPending ? <IconLoader2 className="animate-spin" /> : null}
+            Save alert
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    load(days);
-  }, [days]);
+function UsageAlertsSection({ appId }: { appId: string | null }) {
+  const query = useActionQuery<unknown>("get-usage-alerts", {
+    scope: "user",
+    appId,
+  });
+  const mutation = useActionMutation<AlertMutationResult, AlertMutationInput>(
+    "manage-usage-alert",
+  );
+  const [editing, setEditing] = useState<AlertDraft | null>(null);
+  const rules = asAlertRules(query.data);
+
+  function saveDraft() {
+    if (!editing) return;
+    const limit = Number(editing.limit);
+    const channels: AlertChannel[] = [];
+    if (editing.inApp) channels.push("in-app");
+    if (editing.email) channels.push("email");
+    if (!Number.isFinite(limit) || limit <= 0 || channels.length === 0) return;
+    mutation.mutate({
+      operation: "save",
+      scope: "user",
+      ruleId: editing.ruleId,
+      appId: editing.appId,
+      unit: editing.unit,
+      period: editing.period,
+      limit,
+      channels,
+      enabled: true,
+    });
+    setEditing(null);
+  }
+
+  function editRule(rule: UsageAlertRule) {
+    setEditing({
+      ruleId: rule.id,
+      appId: rule.appId,
+      unit: rule.unit,
+      period: rule.period,
+      limit: String(rule.limit),
+      inApp: rule.channels.includes("in-app"),
+      email: rule.channels.includes("email"),
+    });
+  }
 
   return (
-    <div className="space-y-3">
-      {/* Range selector + refresh */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1 rounded-md border border-border p-0.5">
-          {RANGES.map((r) => (
-            <button
-              key={r.value}
-              onClick={() => setDays(r.value)}
-              className={`px-2 py-0.5 text-[10px] rounded ${
-                days === r.value
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
+    <section className="rounded-lg border border-border/70 bg-card">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 py-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+            <IconBell className="size-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              Usage alerts
+            </h2>
+            <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
+              Inherited defaults and app-specific thresholds for this app.
+            </p>
+          </div>
         </div>
-        <button
-          onClick={() => load(days)}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-          disabled={loading}
-        >
-          {loading ? (
-            <IconLoader2 size={11} className="animate-spin" />
-          ) : (
-            <IconRefresh size={11} />
-          )}
-        </button>
+        {appId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setEditing({
+                appId,
+                unit: "usd",
+                period: "day",
+                limit: "100",
+                inApp: true,
+                email: true,
+              })
+            }
+            disabled={mutation.isPending}
+          >
+            <IconPlus /> Add app alert
+          </Button>
+        ) : null}
       </div>
-
-      {error && <p className="text-[10px] text-red-500">{error}</p>}
-
-      {data && (
-        <>
-          {/* Totals */}
-          <div className="rounded-md border border-border px-2.5 py-2">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <div className="text-[10px] text-muted-foreground">
-                  {billing.unit === "builder-credits"
-                    ? "Builder.io credit spend"
-                    : "Total spend"}
-                </div>
-                <div className="text-[18px] font-semibold tabular-nums">
-                  {formatAggregateCost(data.totalCost, billing)}
-                </div>
-              </div>
-              <div className="text-end">
-                <div className="text-[10px] text-muted-foreground">
-                  {data.totalCalls} calls
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {formatTokens(data.totalInputTokens)} in ·{" "}
-                  {formatTokens(data.totalOutputTokens)} out
-                </div>
-                {data.totalCacheReadTokens > 0 && (
-                  <div className="text-[10px] text-green-500/80">
-                    {formatTokens(data.totalCacheReadTokens)} cached
+      <div className="divide-y divide-border/70">
+        {query.isLoading && rules.length === 0 ? (
+          <div className="space-y-3 px-4 py-5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-72" />
+          </div>
+        ) : null}
+        {query.isError ? (
+          <div className="px-4 py-5 text-sm text-destructive">
+            Usage alerts are unavailable for this account.
+          </div>
+        ) : null}
+        {!query.isLoading && !query.isError && rules.length === 0 ? (
+          <div className="px-4 py-5 text-sm text-muted-foreground">
+            No alert rules are configured.
+          </div>
+        ) : null}
+        {rules.map((rule) => {
+          const isEditing = editing?.ruleId === rule.id;
+          const statusLabel =
+            rule.status === "triggered"
+              ? "Over limit"
+              : rule.status === "dismissed"
+                ? "Dismissed"
+                : "On track";
+          return (
+            <div key={rule.id} className="px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">
+                      {rule.isDefault ? "All apps" : appLabel(rule.appId)}
+                    </span>
+                    {rule.isDefault ? (
+                      <Badge variant="secondary">Inherited default</Badge>
+                    ) : null}
+                    <Badge
+                      variant={
+                        rule.status === "triggered"
+                          ? "destructive"
+                          : rule.status === "dismissed"
+                            ? "secondary"
+                            : "outline"
+                      }
+                    >
+                      {statusLabel}
+                    </Badge>
                   </div>
-                )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatAlertValue(rule, rule.current)} of{" "}
+                    {formatAlertValue(rule, rule.limit)} · per {rule.period}
+                    {rule.percent > 0 ? ` · ${rule.percent}%` : ""}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                    {rule.channels.includes("in-app") ? (
+                      <span className="inline-flex items-center gap-1">
+                        <IconBell className="size-3.5" /> In app
+                      </span>
+                    ) : null}
+                    {rule.channels.includes("email") ? (
+                      <span className="inline-flex items-center gap-1">
+                        <IconMail className="size-3.5" /> Email
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={rule.enabled}
+                    onCheckedChange={(checked) =>
+                      mutation.mutate({
+                        operation: "set-enabled",
+                        scope: "user",
+                        ruleId: rule.id,
+                        enabled: checked === true,
+                      })
+                    }
+                    aria-label={`${rule.enabled ? "Disable" : "Enable"} usage alert`}
+                    disabled={mutation.isPending}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => editRule(rule)}
+                    aria-label="Edit usage alert"
+                    disabled={mutation.isPending}
+                  >
+                    <IconPencil />
+                  </Button>
+                  {rule.status === "triggered" ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        mutation.mutate({
+                          operation: "dismiss",
+                          scope: "user",
+                          ruleId: rule.id,
+                        })
+                      }
+                      aria-label="Dismiss usage alert"
+                      disabled={mutation.isPending}
+                    >
+                      <IconX />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
+              {isEditing && editing ? (
+                <AlertEditor
+                  draft={editing}
+                  onChange={(patch) =>
+                    setEditing((current) =>
+                      current ? { ...current, ...patch } : current,
+                    )
+                  }
+                  onSave={saveDraft}
+                  onCancel={() => setEditing(null)}
+                  isPending={mutation.isPending}
+                />
+              ) : null}
             </div>
-            <DailySparkline days={data.byDay} billing={billing} />
+          );
+        })}
+        {editing && !editing.ruleId ? (
+          <div className="px-4 py-4">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              {appLabel(editing.appId)}
+            </div>
+            <AlertEditor
+              draft={editing}
+              onChange={(patch) =>
+                setEditing((current) =>
+                  current ? { ...current, ...patch } : current,
+                )
+              }
+              onSave={saveDraft}
+              onCancel={() => setEditing(null)}
+              isPending={mutation.isPending}
+            />
           </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
 
-          {/* By label */}
-          <div>
-            <div className="text-[10px] font-medium text-foreground mb-1">
-              By label
-            </div>
-            <BucketBars
-              buckets={data.byLabel}
-              emptyMessage="No labeled calls yet."
-              billing={billing}
+export function UsageSection({
+  appId = null,
+  viewAllHref,
+}: {
+  appId?: string | null;
+  viewAllHref?: string;
+}) {
+  const [sinceDays, setSinceDays] = useState(30);
+  const [scope, setScope] = useState<UsageScope>("me");
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(
+    null,
+  );
+  const query = useActionQuery<UsageMetricsData>("get-usage-metrics", {
+    sinceDays,
+    scope,
+    userEmail:
+      scope === "workspace" ? (selectedUserEmail ?? undefined) : undefined,
+    appId: appId ?? undefined,
+  });
+  const data = query.data;
+  const billing = data?.billing ?? {
+    unit: "usd" as const,
+    label: "Estimated spend",
+  };
+  const totalTokens = data
+    ? data.totals.inputTokens +
+      data.totals.outputTokens +
+      (data.totals.cacheReadTokens ?? 0) +
+      (data.totals.cacheWriteTokens ?? 0)
+    : 0;
+
+  return (
+    <div className="mx-auto w-full max-w-5xl space-y-6">
+      <header className="flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.1em] text-primary">
+            <IconChartLine className="size-4" /> Usage
+          </div>
+          <h1 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-foreground">
+            {appLabel(appId)} usage
+          </h1>
+          <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
+            A focused view of spend, capacity, and the prompts driving this app.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {data?.access.canViewWorkspace ? (
+            <Select
+              value={scope}
+              onValueChange={(value) => {
+                setScope(value as UsageScope);
+                setSelectedUserEmail(null);
+              }}
+            >
+              <SelectTrigger className="h-9 w-32 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="me">My usage</SelectItem>
+                <SelectItem value="workspace">Workspace</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : null}
+          {scope === "workspace" && data ? (
+            <Select
+              value={selectedUserEmail ?? "all"}
+              onValueChange={(value) =>
+                setSelectedUserEmail(value === "all" ? null : value)
+              }
+            >
+              <SelectTrigger className="h-9 w-44 text-xs">
+                <SelectValue placeholder="All users" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All users</SelectItem>
+                {data.availableUsers.map((user) => (
+                  <SelectItem key={user.email} value={user.email}>
+                    {user.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <div className="flex items-center rounded-md border border-border/70 p-0.5">
+            {LOOKBACKS.map((range) => (
+              <Button
+                key={range.value}
+                type="button"
+                variant={sinceDays === range.value ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8 px-2.5 text-xs"
+                onClick={() => setSinceDays(range.value)}
+              >
+                {range.label}
+              </Button>
+            ))}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+            aria-label="Refresh usage"
+            title="Refresh usage"
+          >
+            {query.isFetching ? (
+              <IconLoader2 className="animate-spin" />
+            ) : (
+              <IconRefresh />
+            )}
+          </Button>
+        </div>
+      </header>
+
+      {query.isError && !data ? (
+        <div
+          className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-sm"
+          role="alert"
+        >
+          <div className="font-medium text-destructive">
+            Usage data couldn’t be loaded.
+          </div>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="mt-1 h-auto p-0"
+            onClick={() => void query.refetch()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
+      {!data && query.isLoading ? <UsageLoadingState /> : null}
+      {data ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricCard
+              label={billing.label}
+              value={formatCost(data.totals.costCents, billing)}
+              detail={`${sinceDays} day lookback`}
+              accent
+            />
+            <MetricCard
+              label="Calls"
+              value={data.totals.calls.toLocaleString()}
+              detail={`${data.currentDay.calls.toLocaleString()} today`}
+            />
+            <MetricCard
+              label="Tokens"
+              value={compactNumber(totalTokens)}
+              detail={`${compactNumber(data.currentDay.tokens)} today`}
             />
           </div>
 
-          {/* By model */}
-          <div>
-            <div className="text-[10px] font-medium text-foreground mb-1">
-              By model
-            </div>
-            <BucketBars
-              buckets={data.byModel}
-              emptyMessage="No calls recorded."
-              billing={billing}
-            />
-          </div>
-
-          {/* By app — only show when multiple apps contribute */}
-          {data.byApp.filter((b) => b.key).length > 1 && (
-            <div>
-              <div className="text-[10px] font-medium text-foreground mb-1">
-                By app
+          <section className="rounded-lg border border-border/70 bg-card p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">
+                  Daily trend
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatCost(data.currentDay.costCents, billing)} used today ·{" "}
+                  {data.currentDay.calls.toLocaleString()} calls
+                </p>
               </div>
-              <BucketBars
-                buckets={data.byApp}
-                emptyMessage=""
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {scope === "workspace" ? (
+                  <IconUsers className="size-3.5" />
+                ) : null}
+                {scope === "workspace"
+                  ? (selectedUserEmail ?? "All users")
+                  : "Your usage"}
+              </div>
+            </div>
+            <div className="mt-4">
+              <Trend daily={data.daily} billing={billing} />
+            </div>
+          </section>
+
+          <details className="group rounded-lg border border-border/70 bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">
+                  Top usage drivers
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Breakdowns stay collapsed until you need them.
+                </span>
+              </span>
+              <IconChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="grid gap-6 border-t border-border/70 px-4 py-4 md:grid-cols-2">
+              <DriverList
+                title="By workflow"
+                rows={data.byLabel}
+                billing={billing}
+              />
+              <DriverList
+                title="By model"
+                rows={data.byModel}
                 billing={billing}
               />
             </div>
-          )}
+          </details>
 
-          {/* Recent calls */}
-          {data.recent.length > 0 && (
-            <details>
-              <summary className="text-[10px] font-medium text-foreground cursor-pointer select-none hover:text-foreground/80">
-                Recent calls ({data.recent.length})
-              </summary>
-              <div className="mt-1.5 max-h-48 overflow-y-auto space-y-0.5 rounded border border-border">
-                {data.recent.map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex items-center justify-between gap-2 px-2 py-1 text-[10px] border-b border-border last:border-b-0"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-foreground" title={r.label}>
-                        {r.label}
-                        {r.app ? (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            · {r.app}
-                          </span>
-                        ) : null}
+          <details className="group rounded-lg border border-border/70 bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">
+                  Recent prompts
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Latest recorded prompts for the selected app and user scope.
+                </span>
+              </span>
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                {data.recent.length}
+                <IconChevronDown className="size-4 transition-transform group-open:rotate-180" />
+              </span>
+            </summary>
+            <div className="border-t border-border/70">
+              {data.recent.length === 0 ? (
+                <p className="px-4 py-5 text-sm text-muted-foreground">
+                  No recent prompts recorded.
+                </p>
+              ) : (
+                <div className="divide-y divide-border/60">
+                  {data.recent.map((entry) => (
+                    <div key={entry.id} className="px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span>
+                          {entry.label} · {entry.model}
+                        </span>
+                        <span>{entry.ownerEmail}</span>
                       </div>
-                      <div className="truncate text-muted-foreground">
-                        {new Date(r.createdAt).toLocaleString()} · {r.model}
-                      </div>
+                      <p className="mt-1 line-clamp-2 text-sm text-foreground">
+                        {entry.prompt ??
+                          "Prompt text was not captured for this call."}
+                      </p>
                     </div>
-                    <div className="shrink-0 text-end tabular-nums text-muted-foreground">
-                      {r.costSource === "unavailable"
-                        ? "Unknown"
-                        : formatSpend(r.cents, billing)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
 
-          {billing.unit === "builder-credits" ? (
-            <p className="text-[10px] text-muted-foreground">
-              Builder.io credits are estimated from hard token cost, a{" "}
-              {billing.hardCostMarginMultiplier ?? 1.25}x margin, and{" "}
-              {billing.creditsPerUsd ?? 20} credits per dollar.
-            </p>
-          ) : (
-            <p className="text-[10px] text-muted-foreground">
-              Spend is estimated from published Anthropic pricing and your own
-              recorded token counts. Cached input is priced at ~10% of regular
-              input. Calls without provider pricing are marked unknown and
-              excluded from known-cost subtotals.
-            </p>
-          )}
+          <UsageAlertsSection appId={appId} />
+
+          {viewAllHref ? (
+            <div className="flex justify-end">
+              <Button asChild variant="link" size="sm" className="gap-1.5">
+                <Link to={viewAllHref}>
+                  View all usage
+                  <IconArrowUpRight />
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

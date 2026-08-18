@@ -12,6 +12,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   discoverAgents,
   getBuiltinAgents,
+  normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
 import { z } from "zod";
@@ -26,8 +27,10 @@ export default defineAction({
       (m) => m.getDispatchConfig(),
     );
     const discovered = await discoverAgents("dispatch");
-    const builtinIds = new Set(
-      getBuiltinAgents("dispatch").map((agent) => agent.id),
+    const builtins = getBuiltinAgents("dispatch");
+    const builtinIds = new Set(builtins.map((agent) => agent.id));
+    const builtinHomeUrls = new Map(
+      builtins.map((agent) => [agent.id, agent.url]),
     );
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -58,8 +61,12 @@ export default defineAction({
       const manifest = parseRemoteAgentManifest(full.content, resource.path);
       if (!manifest) continue;
       if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
-      if (builtinIds.has(manifest.id)) continue;
-      customById.set(manifest.id, {
+      // discoverAgents keys agents by the normalized id (image/images/asset
+      // all collapse to assets). Keying this map by the raw manifest id makes
+      // the id lookups below miss, so the same agent lands in the list twice.
+      const manifestId = normalizeAgentId(manifest.id);
+      if (builtinIds.has(manifestId)) continue;
+      customById.set(manifestId, {
         resourceId: resource.id,
         path: resource.path,
         scope: resource.owner === SHARED_OWNER ? "shared" : "personal",
@@ -73,8 +80,10 @@ export default defineAction({
     const connected = discovered.map((agent) => {
       const custom = customById.get(agent.id);
       const isBuiltin = builtinIds.has(agent.id);
+      const homeUrl = isBuiltin ? builtinHomeUrls.get(agent.id) : undefined;
       return {
         ...agent,
+        ...(homeUrl ? { homeUrl } : {}),
         source: isBuiltin ? "builtin" : custom ? "custom" : "workspace",
         resourceId: custom?.resourceId,
         path: custom?.path,

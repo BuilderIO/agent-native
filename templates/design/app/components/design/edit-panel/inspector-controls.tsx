@@ -28,36 +28,41 @@ export function SectionIconButton({
 
   return (
     <Tooltip>
+      {/* The span carries the hover, not the Button: a disabled Button stops
+          pointer events, so a disabled control would silently lose the very
+          tooltip that explains why it is disabled. */}
       <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
-            className,
-          )}
-          disabled={disabled}
-          onPointerDown={(event) => {
-            if (!activateOnPointerDown || disabled || event.button !== 0) {
-              return;
-            }
-            pointerActivatedRef.current = true;
-            event.preventDefault();
-            event.stopPropagation();
-            onClick?.();
-          }}
-          onClick={() => {
-            if (pointerActivatedRef.current) {
-              pointerActivatedRef.current = false;
-              return;
-            }
-            onClick?.();
-          }}
-          aria-label={label}
-        >
-          {children}
-        </Button>
+        <span className="flex shrink-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
+              className,
+            )}
+            disabled={disabled}
+            onPointerDown={(event) => {
+              if (!activateOnPointerDown || disabled || event.button !== 0) {
+                return;
+              }
+              pointerActivatedRef.current = true;
+              event.preventDefault();
+              event.stopPropagation();
+              onClick?.();
+            }}
+            onClick={() => {
+              if (pointerActivatedRef.current) {
+                pointerActivatedRef.current = false;
+                return;
+              }
+              onClick?.();
+            }}
+            aria-label={label}
+          >
+            {children}
+          </Button>
+        </span>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>

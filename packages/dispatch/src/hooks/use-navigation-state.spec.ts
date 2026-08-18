@@ -10,6 +10,27 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("keeps the active simple agent on the chat navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/chat/thread-1",
+        "?agent=agents/research-partner.md",
+      ),
+    ).toEqual({
+      view: "chat",
+      path: "/chat/thread-1",
+      threadId: "thread-1",
+      agentPath: "agents/research-partner.md",
+    });
+  });
+
+  it("recognizes the embedded browser chat route", () => {
+    expect(buildDispatchNavigationState("/browser-chat")).toEqual({
+      view: "browser-chat",
+      path: "/browser-chat",
+    });
+  });
+
   it("exposes the current extension id from extension routes", () => {
     expect(
       buildDispatchNavigationState("/extensions/ext-1/github-stars-over-time"),
@@ -18,6 +39,39 @@ describe("buildDispatchNavigationState", () => {
       path: "/extensions/ext-1/github-stars-over-time",
       extensionId: "ext-1",
       extensionSlug: "github-stars-over-time",
+    });
+  });
+
+  it("keeps the embedded app identity on workspace app routes", () => {
+    expect(buildDispatchNavigationState("/apps/mail")).toEqual({
+      view: "workspace-app",
+      path: "/apps/mail",
+      workspaceAppId: "mail",
+      workspaceAppPath: "/",
+    });
+    expect(buildDispatchNavigationState("/apps/mail/inbox")).toEqual({
+      view: "workspace-app",
+      path: "/apps/mail/inbox",
+      workspaceAppId: "mail",
+      workspaceAppPath: "/inbox",
+    });
+  });
+
+  it("still treats the apps index as the list", () => {
+    expect(buildDispatchNavigationState("/apps")).toEqual({
+      view: "apps",
+      path: "/apps",
+    });
+    expect(buildDispatchNavigationState("/apps/")).toEqual({
+      view: "apps",
+      path: "/apps/",
+    });
+  });
+
+  it("reports an undecodable app route as a workspace app with no id", () => {
+    expect(buildDispatchNavigationState("/apps/%E0%A4%A")).toEqual({
+      view: "workspace-app",
+      path: "/apps/%E0%A4%A",
     });
   });
 
@@ -40,6 +94,73 @@ describe("buildDispatchNavigationState", () => {
     expect(buildDispatchNavigationState("/automations")).toEqual({
       view: "automations",
       path: "/automations",
+    });
+  });
+
+  it("recognizes Admin routes without losing the underlying view", () => {
+    expect(buildDispatchNavigationState("/admin/metrics")).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+    });
+    expect(buildDispatchNavigationState("/admin")).toEqual({
+      view: "admin",
+      path: "/admin",
+    });
+  });
+
+  it("keeps simple agents and connected-agent admin routes distinct", () => {
+    expect(buildDispatchNavigationState("/agents")).toEqual({
+      view: "agents",
+      path: "/agents",
+    });
+    expect(buildDispatchNavigationState("/admin/agents")).toEqual({
+      view: "connected-agents",
+      path: "/admin/agents",
+    });
+  });
+
+  it("preserves thread debug filters and selection", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/thread-debug",
+        "?mode=failures&source=all&inspectSource=mail&owner=ops%40example.com&status=errored&range=7d&query=timeout&runId=run-1&threadId=thread-1",
+      ),
+    ).toEqual({
+      view: "thread-debug",
+      path: "/thread-debug",
+      threadDebugMode: "failures",
+      sourceId: "all",
+      inspectSourceId: "mail",
+      ownerEmail: "ops@example.com",
+      failureStatus: "errored",
+      range: "7d",
+      query: "timeout",
+      runId: "run-1",
+      threadId: "thread-1",
+    });
+  });
+
+  it("omits empty thread debug query values", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/thread-debug",
+        "?mode=&source=&inspectSource=&owner=&status=&range=&query=&runId=&threadId=",
+      ),
+    ).toEqual({
+      view: "thread-debug",
+      path: "/thread-debug",
+    });
+  });
+
+  it("does not expose thread debug query state on unrelated routes", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/overview",
+        "?mode=failures&source=all&inspectSource=mail&owner=ops%40example.com&status=errored&range=7d&query=timeout&runId=run-1&threadId=thread-1",
+      ),
+    ).toEqual({
+      view: "overview",
+      path: "/overview",
     });
   });
 });

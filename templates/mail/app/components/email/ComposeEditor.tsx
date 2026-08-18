@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";

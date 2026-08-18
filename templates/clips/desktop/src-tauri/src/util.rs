@@ -8,11 +8,12 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
+    DictationActive, PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor,
+    VoiceWakePopover,
 };
 
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
-const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
+const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 
 // ---------------------------------------------------------------------------
@@ -21,10 +22,10 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 //
 // Clips-owned recording chrome (toolbar / countdown / finalizing /
 // recording-pill) gets `NSWindow.sharingType = NSWindowSharingNone` so it does
-// not leak into the recorded video. The main popover is different: users expect
-// to screenshot it for feedback, so it stays shareable during normal idle /
-// settings use and is flipped to NSWindowSharingNone only while it is parked as
-// the hidden recording controller.
+// not leak into the recorded video. The main popover follows the same user
+// preference: private by default, shareable only when "Show Clips in screen
+// captures" is enabled. Reopening it during a recording must not silently
+// override that choice.
 // Recording-time exclusion has two effects on macOS: screen pickers don't list
 // excluded windows, and full-screen captures omit them from the compositor
 // output. This is the same mechanism Loom, 1Password, and CleanShot use to keep
@@ -168,6 +169,46 @@ pub fn configure_overlay_behavior(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Spaces are a macOS concept.
 }
 
+/// Raise a window to NSStatusWindowLevel (25).
+///
+/// Tauri's `always_on_top` maps to NSFloatingWindowLevel (3). Within a level
+/// macOS still orders the *active* app's windows ahead of a background app's,
+/// and the recording overlays are deliberately never key — so another app's
+/// floating chrome (call controls, launchers) covers them. Level 25 clears
+/// that whole class while staying below NSPopUpMenuWindowLevel (101) so
+/// context menus still draw on top.
+#[cfg(target_os = "macos")]
+pub fn raise_to_status_level(window: &WebviewWindow) {
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] raise_to_status_level({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] raise_to_status_level({label}): ns_window is null");
+            return;
+        }
+        // SAFETY: ns_window() returns a live NSWindow*; called on main thread.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setLevel: 25isize];
+        }
+        dlog!("[clips-tray] raise_to_status_level({label}): NSStatusWindowLevel");
+    }) {
+        eprintln!("[clips-tray] raise_to_status_level: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn raise_to_status_level(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Window levels are an AppKit concept.
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn set_capture_excluded(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Screen-capture exclusion isn't a public
@@ -189,12 +230,9 @@ pub fn set_capture_included(_window: &WebviewWindow) {
 /// immediately on anything currently on screen. Called from
 /// `set_feature_config` when the toggle flips.
 ///
-/// The popover is intentionally skipped — its sharing-type is dynamic
-/// (`set_capture_included` while shown, `set_capture_excluded` while
-/// parked at 2x2 px during recording). Both of those helpers now consult
-/// the toggle, so the next `show_popover` / `park_popover_offscreen` call
-/// picks up the new setting. Rewriting it here would clobber the parked
-/// state mid-recording.
+/// The popover follows the same preference as ordinary Clips chrome. Applying
+/// it here makes the toggle take effect immediately whether the popover is
+/// visible or parked as the 2x2 recording controller.
 ///
 /// Region-guide overlays are private recorder aids, not Clips chrome demos, so
 /// they stay excluded even when the debug toggle makes the rest visible.
@@ -204,9 +242,6 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
         let visible = crate::config::show_in_screen_capture(app);
         let windows = app.webview_windows();
         for (label, window) in &windows {
-            if label.as_str() == "popover" {
-                continue;
-            }
             // The meeting reminder is a notification, not Clips recording
             // chrome — keep it visible in captures regardless of the debug
             // toggle so it never gets re-excluded on a config change.
@@ -341,6 +376,16 @@ pub fn present_interactive_window(window: &WebviewWindow) {
 /// instead of `primary_monitor_physical_size` for any overlay that should appear
 /// on the same screen as the recording.
 pub fn tray_monitor_physical_rect(app: &AppHandle) -> (i32, i32, u32, u32) {
+    // A monitor picked in the multi-monitor screen picker wins over the tray
+    // icon's monitor for every overlay shown during that recording
+    // (countdown, toolbar, finalizing, region guides, ...) — see
+    // `SelectedRecordingDisplay`'s doc comment for its lifecycle.
+    if let Some(id) = SelectedRecordingDisplay::get(app) {
+        if let Some(rect) = crate::native_screen::monitor_rect_for_display_id(app, id) {
+            return rect;
+        }
+    }
+
     let tray_rect = app
         .try_state::<TrayAnchor>()
         .and_then(|a| a.0.lock().ok().and_then(|g| *g));

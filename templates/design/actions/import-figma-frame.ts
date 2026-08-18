@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   buildScreenFilesFromFigmaNodes,
   fetchFigmaNode,
+  isFigmaRateLimitError,
   resolveTargetNodeId,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
@@ -78,29 +79,41 @@ export default defineAction({
     const designId = await resolveImportDesignId(args.designId);
     await assertAccess("design", designId, "editor");
 
-    const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
-    const rootNode = await fetchFigmaNode(fileKey, nodeId);
+    try {
+      const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
+      const rootNode = await fetchFigmaNode(fileKey, nodeId);
 
-    const { files, fidelityEntries } = await buildScreenFilesFromFigmaNodes(
-      fileKey,
-      { [nodeId]: rootNode },
-      {
-        source: () => ({ figmaUrl: args.figmaUrl ?? null }),
-      },
-    );
+      const { files, fidelityEntries } = await buildScreenFilesFromFigmaNodes(
+        fileKey,
+        { [nodeId]: rootNode },
+        {
+          source: () => ({ figmaUrl: args.figmaUrl ?? null }),
+        },
+      );
 
-    const saved = await saveImportedDesignFiles({
-      designId,
-      sourceType: "figma-import",
-      files,
-    });
+      const saved = await saveImportedDesignFiles({
+        designId,
+        sourceType: "figma-import",
+        files,
+      });
 
-    return {
-      ...saved,
-      figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
-      fidelityReport: summarizeFidelity(fidelityEntries),
-      guidance:
-        "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",
-    };
+      return {
+        ...saved,
+        figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
+        fidelityReport: summarizeFidelity(fidelityEntries),
+        guidance:
+          "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",
+      };
+    } catch (err) {
+      if (isFigmaRateLimitError(err)) {
+        throw Object.assign(err, {
+          rateLimitRetryAfter: err.retryAfterSeconds,
+          rateLimitPlanTier: err.figmaPlanTier,
+          rateLimitType: err.figmaRateLimitType,
+          rateLimitUpgradeUrl: err.figmaUpgradeUrl,
+        });
+      }
+      throw err;
+    }
   },
 });

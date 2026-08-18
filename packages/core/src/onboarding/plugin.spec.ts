@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSessionMock = vi.hoisted(() => vi.fn());
 const appStateGetMock = vi.hoisted(() => vi.fn());
 const appStatePutMock = vi.hoisted(() => vi.fn());
+const getOrgContextMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -17,10 +18,19 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: any[]) => appStatePutMock(...args),
 }));
 
+vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: any[]) => getOrgContextMock(...args),
+}));
+
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+  FIRST_RUN_ONBOARDING_COOKIE,
+  FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+} from "../shared/first-run-onboarding.js";
 import { createOnboardingPlugin } from "./plugin.js";
 import {
   __resetOnboardingRegistry,
@@ -31,14 +41,19 @@ function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
 }
 
-async function dispatch(nitroApp: any, pathname: string, method = "GET") {
+async function dispatch(
+  nitroApp: any,
+  pathname: string,
+  method = "GET",
+  headers: HeadersInit = {},
+) {
   const url = `https://app.test${pathname}`;
   const event = {
     method,
     url: new URL(url),
     path: pathname,
     context: {},
-    req: new Request(url, { method }),
+    req: new Request(url, { method, headers }),
     res: {
       status: 200,
       headers: new Headers(),
@@ -65,7 +80,7 @@ async function dispatch(nitroApp: any, pathname: string, method = "GET") {
     return middleware(event, next);
   };
   const body = await next();
-  return { body, status: event.res.status };
+  return { body, status: event.res.status, headers: event.res.headers };
 }
 
 function registerRequestContextProbeStep() {
@@ -89,6 +104,12 @@ describe("onboarding plugin routes", () => {
     getSessionMock.mockResolvedValue({
       email: "alice@example.com",
       orgId: "org-1",
+    });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "org-1",
+      orgName: "Alice's workspace",
+      role: "owner",
     });
     appStateGetMock.mockResolvedValue(null);
     appStatePutMock.mockResolvedValue(undefined);
@@ -132,5 +153,95 @@ describe("onboarding plugin routes", () => {
       "alice@example.com",
       "onboarding:dismissed",
     );
+  });
+
+  it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+
+    const pending = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      { cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1` },
+    );
+    expect(pending.body).toEqual({ firstRun: true });
+
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_COMPLETED_KEY ? { completed: true } : null,
+    );
+    const completed = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      { cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1` },
+    );
+    expect(completed.body).toEqual({ firstRun: false });
+
+    appStateGetMock.mockResolvedValue(null);
+    const finish = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      {
+        cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1`,
+        "content-type": "application/json",
+      },
+    );
+    expect(finish.body).toEqual({ ok: true });
+    expect(appStatePutMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+      { completed: true, at: expect.any(String) },
+      { requestSource: "agent" },
+    );
+    expect(finish.headers.get("set-cookie")).toContain(
+      `${FIRST_RUN_ONBOARDING_COOKIE}=`,
+    );
+  });
+
+  it("does not show first-run onboarding to a member of an existing organization", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "org-existing",
+      orgName: "Existing organization",
+      role: "member",
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      { cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1` },
+    );
+
+    expect(result.body).toEqual({ firstRun: false });
+    expect(getOrgContextMock).toHaveBeenCalledOnce();
+    expect(result.headers.get("set-cookie")).toContain(
+      `${FIRST_RUN_ONBOARDING_COOKIE}=`,
+    );
+  });
+
+  it("requires an authenticated user to complete first-run onboarding", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+    );
+
+    expect(result.status).toBe(401);
+    expect(result.body).toEqual({ error: "Authentication required" });
+    expect(appStatePutMock).not.toHaveBeenCalled();
   });
 });

@@ -3,9 +3,12 @@
  *
  * Resolution priority for an attendee's IANA timezone:
  * 1. Self attendee (`attendee.self` or email matches accountEmail) →
- *    event.startTimeZone, else the browser timezone
+ *    the browser timezone, so an event owner's timezone is never shown as
+ *    the signed-in user's local time
  * 2. Optional `attendee.timeZone` on the attendee object
  * 3. User-stored override from the `attendee-timezones` setting map
+ * 4. The event start timezone for the organizer when no more specific zone is
+ *    available
  *
  * When no timezone is known, returns null — never invent a zone.
  */
@@ -13,6 +16,7 @@
 export type AttendeeTimezoneSource = {
   email: string;
   self?: boolean;
+  organizer?: boolean;
   timeZone?: string;
 };
 
@@ -61,15 +65,16 @@ export function resolveAttendeeTimeZone(
   } = input;
 
   if (isSelfAttendee(attendee, accountEmail)) {
-    if (isValidIanaTimeZone(eventStartTimeZone)) {
-      return eventStartTimeZone!.trim();
-    }
     const browser =
       browserTimeZone?.trim() ||
       (typeof Intl !== "undefined"
         ? Intl.DateTimeFormat().resolvedOptions().timeZone
         : undefined);
-    return isValidIanaTimeZone(browser) ? browser!.trim() : null;
+    if (isValidIanaTimeZone(browser)) return browser!.trim();
+
+    return isValidIanaTimeZone(eventStartTimeZone)
+      ? eventStartTimeZone!.trim()
+      : null;
   }
 
   if (isValidIanaTimeZone(attendee.timeZone)) {
@@ -80,6 +85,10 @@ export function resolveAttendeeTimeZone(
   const override = overrides?.[key];
   if (isValidIanaTimeZone(override)) {
     return override!.trim();
+  }
+
+  if (attendee.organizer && isValidIanaTimeZone(eventStartTimeZone)) {
+    return eventStartTimeZone!.trim();
   }
 
   return null;

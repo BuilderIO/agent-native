@@ -6,8 +6,8 @@ const getDealOwners = vi.fn();
 const getVisiblePipelines = vi.fn();
 const getAssociatedHubSpotObjects = vi.fn();
 const searchCallsForQueries = vi.fn();
-const getCallDetail = vi.fn();
-const getCallTranscript = vi.fn();
+const getCallDetails = vi.fn();
+const getCallTranscripts = vi.fn();
 
 vi.mock("../server/lib/hubspot", () => ({
   getAssociatedHubSpotObjects,
@@ -23,8 +23,8 @@ vi.mock("../server/lib/hubspot", () => ({
 }));
 
 vi.mock("../server/lib/gong", () => ({
-  getCallDetail,
-  getCallTranscript,
+  getCallDetails,
+  getCallTranscripts,
   searchCallsForQueries,
 }));
 
@@ -128,6 +128,12 @@ function setupHappyPath() {
         id: "call-1",
         title: "The Knot Worldwide POC readout",
         started: "2026-03-27T17:00:00Z",
+        url: "https://gong.example/call-1",
+        duration: 1800,
+        parties: [{ name: "Susan Cunningham", affiliation: "External" }],
+        brief: "Successful POC readout.",
+        keyPoints: ["They have what they need."],
+        outline: ["POC validation", "Procurement next steps"],
         matchedQueries: ["theknotww.com"],
       },
     ],
@@ -138,18 +144,20 @@ function setupHappyPath() {
     queryCount: 3,
     coverageTruncated: false,
   });
-  getCallDetail.mockResolvedValue({
-    id: "call-1",
-    title: "The Knot Worldwide POC readout",
-    url: "https://gong.example/call-1",
-    started: "2026-03-27T17:00:00Z",
-    duration: 1800,
-    parties: [{ name: "Susan Cunningham", affiliation: "External" }],
-    brief: "Successful POC readout.",
-    keyPoints: ["They have what they need."],
-    outline: ["POC validation", "Procurement next steps"],
-  });
-  getCallTranscript.mockResolvedValue({
+  getCallDetails.mockResolvedValue([
+    {
+      id: "call-1",
+      title: "The Knot Worldwide POC readout",
+      url: "https://gong.example/call-1",
+      started: "2026-03-27T17:00:00Z",
+      duration: 1800,
+      parties: [{ name: "Susan Cunningham", affiliation: "External" }],
+      brief: "Successful POC readout.",
+      keyPoints: ["They have what they need."],
+      outline: ["POC validation", "Procurement next steps"],
+    },
+  ]);
+  getCallTranscripts.mockResolvedValue({
     callTranscripts: [
       {
         callId: "call-1",
@@ -175,8 +183,8 @@ describe("account-deep-dive action", () => {
     getVisiblePipelines.mockReset();
     getAssociatedHubSpotObjects.mockReset();
     searchCallsForQueries.mockReset();
-    getCallDetail.mockReset();
-    getCallTranscript.mockReset();
+    getCallDetails.mockReset();
+    getCallTranscripts.mockReset();
     setupHappyPath();
   });
 
@@ -222,8 +230,8 @@ describe("account-deep-dive action", () => {
       180,
       3,
     );
-    expect(getCallDetail).toHaveBeenCalledWith("call-1");
-    expect(getCallTranscript).toHaveBeenCalledWith("call-1");
+    expect(getCallDetails).toHaveBeenCalledWith(["call-1"]);
+    expect(getCallTranscripts).toHaveBeenCalledWith(["call-1"]);
 
     expect(result.hubspot.deals[0].properties.stage_name).toBe(
       "S2 - POV Active",
@@ -253,9 +261,11 @@ describe("account-deep-dive action", () => {
       contactCount: 1,
       gongCallCount: 1,
       transcriptCount: 1,
+      productUsageIncluded: false,
       gaps: [],
     });
-    expect(result.guidance).toContain("Fusion-style deal deep dive");
+    expect(result.guidance).toContain("does not include product usage");
+    expect(result.guidance).toContain("account-health checks");
   });
 
   it("honors string false for transcript loading from GET query params", async () => {
@@ -269,7 +279,50 @@ describe("account-deep-dive action", () => {
       transcriptMaxChars: 5_000,
     })) as Record<string, any>;
 
-    expect(getCallTranscript).not.toHaveBeenCalled();
+    expect(getCallTranscripts).not.toHaveBeenCalled();
     expect(result.gong.transcripts).toEqual([]);
+  });
+
+  it("degrades gracefully with a gap when pipelines and owners lookups fail", async () => {
+    getDealPipelines.mockRejectedValue(new Error("pipelines endpoint down"));
+    getDealOwners.mockRejectedValue(new Error("owners endpoint down"));
+
+    const result = (await accountDeepDive.run({
+      query: "The Knot",
+      dealLimit: 1,
+      days: 180,
+      gongLimit: 3,
+      includeTranscripts: true,
+      transcriptLimit: 1,
+      transcriptMaxChars: 5_000,
+    })) as Record<string, any>;
+
+    expect(result.hubspot.deals[0].properties.stage_name).toBe("stage-pov");
+    expect(result.hubspot.deals[0].properties.owner_name).toBe("42");
+    expect(result.coverage.gaps).toEqual(
+      expect.arrayContaining([
+        "HubSpot deal pipelines: pipelines endpoint down",
+        "HubSpot deal owners: owners endpoint down",
+      ]),
+    );
+    expect(result.hubspot.deals).toHaveLength(1);
+  });
+
+  it("surfaces a contextual error when the primary deal search fails", async () => {
+    searchHubSpotObjects.mockRejectedValue(new Error("HubSpot 500"));
+    getDealPipelines.mockReturnValue(new Promise(() => {}));
+    getDealOwners.mockReturnValue(new Promise(() => {}));
+
+    await expect(
+      accountDeepDive.run({
+        query: "The Knot",
+        dealLimit: 1,
+        days: 180,
+        gongLimit: 3,
+        includeTranscripts: true,
+        transcriptLimit: 1,
+        transcriptMaxChars: 5_000,
+      }),
+    ).rejects.toThrow('HubSpot deal search failed for "The Knot": HubSpot 500');
   });
 });
