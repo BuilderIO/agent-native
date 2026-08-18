@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.161.19
+
+### Patch Changes
+
+- efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
+- 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
+
 ## 0.161.18
 
 ### Patch Changes
