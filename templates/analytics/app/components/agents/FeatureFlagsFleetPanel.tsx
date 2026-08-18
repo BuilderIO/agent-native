@@ -40,6 +40,41 @@ export interface FlagDirectory {
   apps?: FlagApp[];
 }
 
+interface VerifiedFlagMutation {
+  contractVersion: 3;
+  status: "verified";
+  key: string;
+  rules: FeatureFlagMetadata["rules"];
+  enabledForCurrentUser: boolean;
+}
+
+export function reconcileVerifiedFleetMutation(
+  value: unknown,
+  targetAppId: string,
+  verified: VerifiedFlagMutation,
+): FlagDirectory {
+  const data = asDirectory(value);
+  return {
+    ...data,
+    apps: data.apps?.map((app) =>
+      appId(app) !== targetAppId
+        ? app
+        : {
+            ...app,
+            flags: app.flags?.map((flag) =>
+              flag.key === verified.key
+                ? {
+                    ...flag,
+                    rules: verified.rules,
+                    enabledForCurrentUser: verified.enabledForCurrentUser,
+                  }
+                : flag,
+            ),
+          },
+    ),
+  };
+}
+
 function asDirectory(value: unknown): FlagDirectory {
   return value && typeof value === "object" ? (value as FlagDirectory) : {};
 }
@@ -76,9 +111,10 @@ export function FeatureFlagsFleetPanel() {
     { retry: false },
   );
   const mutation = useActionMutation<
-    unknown,
+    VerifiedFlagMutation | unknown,
     { appId: string } & SetFeatureFlagInput
   >("set-workspace-feature-flag", {
+    skipActionQueryInvalidation: true,
     onMutate: async (input) => {
       await client.cancelQueries({
         queryKey: ["action", "list-workspace-feature-flags"],
@@ -122,10 +158,23 @@ export function FeatureFlagsFleetPanel() {
     onError: (_error, _input, context: any) => {
       if (context) client.setQueryData(context.key, context.previous);
     },
-    onSettled: () =>
-      void client.invalidateQueries({
-        queryKey: ["action", "list-workspace-feature-flags"],
-      }),
+    onSuccess: (result, input, context: any) => {
+      if (
+        !result ||
+        typeof result !== "object" ||
+        (result as Partial<VerifiedFlagMutation>).contractVersion !== 3 ||
+        (result as Partial<VerifiedFlagMutation>).status !== "verified"
+      ) {
+        void client.invalidateQueries({
+          queryKey: ["action", "list-workspace-feature-flags"],
+        });
+        return;
+      }
+      const verified = result as VerifiedFlagMutation;
+      client.setQueryData(context.key, (old: unknown) =>
+        reconcileVerifiedFleetMutation(old, input.appId, verified),
+      );
+    },
   });
   const directory = asDirectory(flags.data);
   const apps = directory.apps ?? [];
@@ -134,7 +183,11 @@ export function FeatureFlagsFleetPanel() {
     return (
       <StatusState
         title={t("agents.flagsUnavailable")}
-        detail={flags.error?.message || t("agents.flagsUnreachable")}
+        detail={
+          mutation.error?.message ||
+          flags.error?.message ||
+          t("agents.flagsUnreachable")
+        }
         onRetry={() => void flags.refetch()}
       />
     );
@@ -179,22 +232,19 @@ export function FeatureFlagsFleetPanel() {
           </div>
           {isReady(app) ? (
             <div className="p-4">
+              {mutation.variables?.appId === appId(app) && mutation.error ? (
+                <p className="mb-3 text-sm text-destructive">
+                  {mutation.error.message}
+                </p>
+              ) : null}
               <FeatureFlagsEditor
                 flags={(app.flags ?? []).filter(
                   (flag): flag is FeatureFlagMetadata =>
                     !!flag.rules && typeof flag.defaultValue === "boolean",
                 )}
                 isPending={mutation.isPending}
-                error={
-                  mutation.variables?.appId === appId(app)
-                    ? mutation.error
-                    : null
-                }
-                errorFlagKey={
-                  mutation.variables?.appId === appId(app)
-                    ? mutation.variables.key
-                    : null
-                }
+                error={null}
+                errorFlagKey={null}
                 showHeader={false}
                 onMutate={(input) =>
                   mutation.mutate(qualifyFleetMutation(appId(app), input))
