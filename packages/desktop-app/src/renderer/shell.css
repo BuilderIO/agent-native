@@ -3177,7 +3177,7 @@ body {
   gap: 14px;
   padding: 16px 18px 14px;
   background: hsl(var(--card));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid hsl(var(--border));
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   -webkit-app-region: no-drag;
@@ -3224,13 +3224,13 @@ body {
 .update-prompt-title {
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: hsl(var(--card-foreground));
 }
 
 .update-prompt-subtitle {
   font-size: 12px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.55);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-actions {
@@ -3254,12 +3254,12 @@ body {
 
 .update-prompt-btn--ghost {
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: hsl(var(--foreground) / 0.06);
+  color: hsl(var(--foreground));
 }
 
 .update-prompt-btn--primary {
@@ -3284,14 +3284,14 @@ body {
   justify-content: center;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+  color: hsl(var(--muted-foreground) / 0.8);
   border-radius: 5px;
   cursor: pointer;
 }
 
 .update-prompt-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
+  background: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground) / 0.85);
 }
 
 /* ─── Full-page settings ──────────────────────────────────────
