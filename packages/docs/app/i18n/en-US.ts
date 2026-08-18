@@ -932,7 +932,7 @@ const enUS = {
       s005: "All Apps",
       s006: "Open-Source Figma",
       s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
-      s008: "Try It",
+      s008: "Design Something",
       s009: "How it works",
       s010: "Everything you need",
       s011: "A prototype studio with an agent that writes and refines the source.",

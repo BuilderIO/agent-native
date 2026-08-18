@@ -942,7 +942,7 @@ const esES = {
       s005: "Todas las plantillas",
       s006: "El estudio de creación de prototipos de código abierto AI HTML",
       s007: "Genere prototipos Alpine/Tailwind interactivos desde un mensaje, compare variantes, refine con controles de ajuste y exporte archivos reales de su propiedad.",
-      s008: "Probar",
+      s008: "Diseña algo",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
       s011: "Un estudio prototipo con un agente que escribe y refina la fuente.",

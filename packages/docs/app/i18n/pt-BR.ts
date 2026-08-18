@@ -940,7 +940,7 @@ const ptBR = {
       s005: "Todos os modelos",
       s006: "O estúdio de prototipagem de código aberto AI HTML",
       s007: "Gere protótipos Alpine/Tailwind interativos a partir de um prompt, compare variantes, refine com controles de ajuste e exporte arquivos reais de sua propriedade.",
-      s008: "Experimentar",
+      s008: "Crie algo",
       s009: "Como funciona",
       s010: "Tudo que você precisa",
       s011: "Um protótipo de estúdio com um agente que escreve e refina a fonte.",

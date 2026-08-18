@@ -943,7 +943,7 @@ const frFR = {
       s005: "Tous les modèles",
       s006: "Le studio de prototypage open source AI HTML",
       s007: "Générez des prototypes interactifs Alpine/Tailwind à partir d'une invite, comparez les variantes, affinez avec des contrôles d'ajustement et exportez les fichiers réels que vous possédez.",
-      s008: "Essayer",
+      s008: "Créez quelque chose",
       s009: "Comment ça marche",
       s010: "Tout ce dont vous avez besoin",
       s011: "Un studio prototype avec un agent qui écrit et affine le source.",
