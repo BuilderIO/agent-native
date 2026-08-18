@@ -3713,6 +3713,44 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("auto-continues the Builder gateway internal-error envelope", async () => {
+    const message =
+      "Sorry, we ran into an issue processing your request. " +
+      "ERROR ID: bebaeb5da13441539790834b63ff955a";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "builder_gateway_internal_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway-internal",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "builder_gateway_internal_error",
+      recoverable: true,
+    });
+    // The correlation id is the only part support can act on, so it stays —
+    // just not as the whole sentence the user reads.
+    expect((err as AgentAutoContinueSignal).errorInfo?.details).toContain(
+      "bebaeb5da13441539790834b63ff955a",
+    );
+    expect((err as AgentAutoContinueSignal).errorInfo?.message).not.toContain(
+      "ERROR ID",
+    );
+  });
+
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

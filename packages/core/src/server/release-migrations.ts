@@ -32,6 +32,10 @@ import {
   USAGE_ALERT_MIGRATIONS,
   USAGE_ALERT_MIGRATIONS_TABLE,
 } from "../usage/migrations.js";
+import {
+  WORKSPACE_CONNECTIONS_MIGRATIONS,
+  WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+} from "../workspace-connections/migrations.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 
@@ -76,6 +80,9 @@ export async function runFrameworkReleaseMigrations(
   })(nitroApp);
   await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
     table: "_observational_memory_migrations",
+  })(nitroApp);
+  await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
+    table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
   })(nitroApp);
   await runAutomationRunMigrations(nitroApp);
   await runAutomationSchedulerHealthMigrations(nitroApp);

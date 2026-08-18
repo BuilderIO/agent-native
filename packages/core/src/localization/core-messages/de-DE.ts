@@ -455,6 +455,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "Der Anbieter hinter diesem Modell hat die Anfrage abgelehnt. Wähle ein anderes Modell und versuche es erneut.",
   "errorMessages.errorPrefix": "Fehler: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
   "errorMessages.inactivityTimeout":

@@ -50,12 +50,6 @@ describe("dashboard-panel-query: program source", () => {
       expect(normalizeDashboardPanelQuery("program", raw)).toBe(raw);
     });
 
-    it("rejects a plain program id instead of treating it as a descriptor", () => {
-      expect(() =>
-        normalizeDashboardPanelQuery("program", "dp_plain_id"),
-      ).toThrow(/program panel sql must be a JSON object/);
-    });
-
     it("throws on a missing programId in object form", () => {
       expect(() =>
         normalizeDashboardPanelQuery("program", { params: {} }),
@@ -74,7 +68,23 @@ describe("dashboard-panel-query: program source", () => {
     it("throws on a non-object, non-string descriptor", () => {
       expect(() =>
         serializeProgramDescriptorInput(["not", "an", "object"]),
-      ).toThrow(/JSON string or object/);
+      ).toThrow(/program id or a JSON object/);
+    });
+
+    it("accepts a bare program id and stores it as a descriptor", () => {
+      // Production: a panel saved as `dp_01c5e3d...` threw `is not valid JSON`
+      // on every render because the writer passed any string through untouched
+      // while the reader required JSON. With no params the id IS the whole
+      // descriptor, so both sides have to accept it.
+      expect(normalizeDashboardPanelQuery("program", "dp_01c5e3d")).toBe(
+        JSON.stringify({ programId: "dp_01c5e3d" }),
+      );
+    });
+
+    it("still rejects a string that is neither a program id nor JSON", () => {
+      expect(() => normalizeDashboardPanelQuery("program", "not json")).toThrow(
+        /program id or a JSON object/,
+      );
     });
   });
 
@@ -255,8 +265,30 @@ describe("dashboard-panel-query: program source", () => {
           query: "not json",
           ctx,
         }),
-      ).rejects.toThrow(/program panel sql must be a JSON object/);
+      ).rejects.toThrow(
+        /program panel sql must be a program id or a JSON object/,
+      );
       expect(mocks.runDataProgram).not.toHaveBeenCalled();
+    });
+
+    it("resolves a panel whose sql is a bare program id", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ n: 1 }],
+        schema: [{ name: "n", type: "number" }],
+        stale: false,
+        cacheHit: false,
+        asOfMs: Date.now(),
+      });
+      const result = await runDashboardPanelQuery({
+        source: "program",
+        query: "dp_01c5e3d",
+        ctx,
+      });
+      expect(result).toMatchObject({ rows: [{ n: 1 }] });
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({ programId: "dp_01c5e3d" }),
+      );
     });
 
     it("throws a clear error when the descriptor is missing programId", async () => {
