@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.161.23
+
+### Patch Changes
+
+- 112547e: Resolve Agent Native model selections through request, org/user defaults, and the global catalog before sending a concrete model to the Builder gateway.
+
 ## 0.161.22
 
 ### Patch Changes
