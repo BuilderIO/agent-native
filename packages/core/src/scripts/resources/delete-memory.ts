@@ -9,7 +9,10 @@ import {
   resourceGetByPath,
   resourceDeleteByPath,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function deleteMemoryScript(
@@ -20,7 +23,7 @@ export default async function deleteMemoryScript(
   const name = parsed.name;
   if (!name) fail("--name is required (e.g. 'coding-style')");
 
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
       "delete-memory requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

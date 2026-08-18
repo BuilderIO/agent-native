@@ -18,7 +18,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 ```
 app/
   components/
-    layout/      # AppLayout, Sidebar
+    layout/      # Layout, Sidebar
     builder/     # FieldRenderer, FieldPropertiesPanel
     fill/        # (public form filling components)
     ui/          # shadcn/ui components

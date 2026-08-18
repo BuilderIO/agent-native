@@ -89,6 +89,28 @@ describe("DiagramBlock expand affordance", () => {
     expect(styleButton()?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("keeps design-mode html diagrams clean without a style toggle", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-design"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{
+            html: "<div class='diagram-card'>Service</div>",
+            renderMode: "design",
+          }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+    expect(frame?.getAttribute("data-style")).toBe("clean");
+    expect(frame?.hasAttribute("data-rough-ready")).toBe(false);
+    expect(styleButton()).toBeNull();
+    expect(expandButton()).toBeTruthy();
+    expect(container.querySelector(".plan-rough-overlay")).toBeNull();
+  });
+
   it("renders html diagrams with the dark theme marker when the document is dark", () => {
     document.documentElement.classList.add("dark");
 
@@ -112,6 +134,38 @@ describe("DiagramBlock expand affordance", () => {
     expect(frame?.getAttribute("data-theme")).toBe("dark");
     expect(frame?.querySelector(".diagram-card[data-rough]")).toBeTruthy();
     expect(frame?.querySelector(".diagram-box")).toBeTruthy();
+  });
+
+  it("turns diagram arrow glyphs into directional drawing metadata", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-arrows"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{
+            html: [
+              "<span class='diagram-arrow diagram-muted'>&rarr;</span>",
+              "<span class='diagram-arrow diagram-muted'>&darr;</span>",
+              "<span class='diagram-arrow diagram-muted'>&harr;</span>",
+              "<span class='diagram-arrow diagram-muted'>&#10145;&#65039;</span>",
+              "<span class='diagram-arrow diagram-muted'>&#8635;</span>",
+            ].join(""),
+          }}
+        />,
+      );
+    });
+
+    const arrows = Array.from(
+      container.querySelectorAll<HTMLElement>(".diagram-arrow"),
+    );
+    expect(arrows.map((arrow) => arrow.dataset.arrow)).toEqual([
+      "right",
+      "down",
+      "both",
+      "right",
+      "refresh",
+    ]);
+    expect(arrows.every((arrow) => arrow.textContent === "")).toBe(true);
   });
 
   it("shows the diagram frame by default", () => {
@@ -241,7 +295,7 @@ describe("DiagramBlock expand affordance", () => {
               {
                 from: "start",
                 to: "guard",
-                label: "already on /_agent-native/sign-in",
+                label: "already on /sign-in",
               },
             ],
           }}
@@ -250,7 +304,7 @@ describe("DiagramBlock expand affordance", () => {
     });
 
     const label = Array.from(container.querySelectorAll("span")).find((node) =>
-      node.textContent?.includes("/_agent-native/sign-in"),
+      node.textContent?.includes("/sign-in"),
     );
 
     expect(label?.className).toContain("whitespace-normal");

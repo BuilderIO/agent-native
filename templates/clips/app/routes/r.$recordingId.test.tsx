@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { BackToLibraryButton } from "./r.$recordingId";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

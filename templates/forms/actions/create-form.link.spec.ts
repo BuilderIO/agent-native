@@ -14,6 +14,14 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 const { default: createFormAction } = await import("./create-form");
 
 describe("create-form result links", () => {
+  it("describes the canonical public URL contract", () => {
+    expect(createFormAction.tool.description).toContain("publicUrl");
+    expect(createFormAction.tool.description).toContain("/f/<slug>");
+    expect(createFormAction.tool.description).toContain(
+      "instead of deriving a URL from slug",
+    );
+  });
+
   it("returns the anonymous response URL for a published form", () => {
     expect(
       createFormAction.link?.({

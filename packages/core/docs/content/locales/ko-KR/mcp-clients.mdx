@@ -245,6 +245,53 @@ MCP 도구는 노드 런타임(Cloudflare 작업자 및 기타 에지)에서만 
 
 MCP(모델 컨텍스트 프로토콜) 서버는 에이전트에 Zapier, Cloudflare, Composio 또는 회사 내부 도구에 연결하는 것과 같은 새로운 기능을 제공합니다. 일단 연결되면 에이전트는 내장된 도구와 마찬가지로 해당 도구를 사용할 수 있습니다.
 
+프리셋 ID는 `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`, `webflow`, `paypal`, `box`, `netlify`, `zapier`입니다.
+
+디렉터리는 일반 OAuth 흐름을 지원하는 엔드포인트와 공급자가 승인한 클라이언트
+또는 사전 등록된 OAuth 앱이 필요한 공급자를 구분합니다. 후자의 항목도 검색을
+위해 표시하고 공식 설정 안내로 연결하지만, 지원되지 않는 경우 오해를 부르는
+원클릭 연결 버튼은 표시하지 않습니다. 샌드박스 확장은 호스트 액션을 통해
+`agentNative.mcp.listTools`, `agentNative.mcp.callTool`,
+`agentNative.providerApi.catalog(...)`, `agentNative.providerApi.docs(...)`를
+사용해 연결된 데이터를 검색할 수 있으며, 연결 URL이나 액세스 토큰, 리프레시
+토큰은 절대 받지 않습니다. 원시 `provider-api-request`는 의도적으로 호스트와
+에이전트에서만 사용할 수 있습니다. 임의의 메서드/경로 요청을 공유 확장에
+노출하면 해당 확장이 인증된 쓰기 프록시가 될 수 있기 때문입니다. 확장은
+대신 범위가 제한된 공급자 작업을 위해 `agentNative.mcp.callTool(...)`이나
+목적에 맞게 만들어진 앱 액션을 사용해야 합니다.
+
+로컬 파일 확장은 `extension.json`에서 `list-mcp-tools`, `call-mcp-tool` 및
+사용하는 지원되는 공급자 액션을 명시적으로 허용해야 합니다. 검색 도우미는
+`agentNative.connectors.mcp` 및 `agentNative.connectors.providerApi`에서도
+사용할 수 있습니다.
+
+### Atlassian / Jira
+
+Atlassian 프리셋은 Atlassian Rovo MCP의 OAuth 2.1 엔드포인트인
+`https://mcp.atlassian.com/v1/mcp/authv2`를 사용하며 Jira 및 Confluence
+도구를 제공합니다. Jira 티켓을 만들려면 Jira 쓰기를 허용하는 Atlassian
+권한이 필요합니다. 사용자는 계속해서 자신의 Atlassian 계정에 허용된
+프로젝트와 콘텐츠만 볼 수 있습니다.
+
+Atlassian 조직 관리자는 OAuth 클라이언트의 연결 허용 여부를 제어할 수
+있습니다. 연결하기 전에 관리자가 앱의 실제 HTTPS 오리진을
+**Atlassian Administration → Rovo → Rovo MCP server → Domains**의 신뢰할 수
+있는 도메인 목록에 추가하고, **Permissions**에서 필요한 **Read**,
+**Write**, **Search** 권한을 활성화해야 할 수 있습니다. 도메인은
+Agent-Native 앱이 실행되는 호스트여야 합니다. 실제 오리진이 아니라면 다른
+배포에 `https://builder.io/**`를 복사하지 마세요. Atlassian의 [Rovo MCP 설정
+가이드](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)와
+[관리자 제어](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/)를 참조하세요.
+
+카탈로그는 엔드포인트와 설정 안내를 제공합니다. 일반 설정 양식은 엔드포인트와
+선택적 암호화 헤더를 저장하지만, Atlassian의 대화형 OAuth 동의 흐름을
+대체하지 않습니다. Atlassian에서 대화형 OAuth를 요구하는 경우 OAuth를 지원하는
+MCP 클라이언트 또는 런타임을 사용하세요. 공급자 또는 런타임에서 정적 Bearer
+토큰을 지원하는 경우 승인된 비밀 관리 절차를 따르고 프롬프트나 커밋된 설정에
+토큰을 붙여 넣지 마세요.
+
 ### 원격 MCP 서버 연결 방법
 
 1. **서버 이름** — 참조용 짧은 라벨(예: "zapier", "slack-tools").
@@ -263,7 +310,7 @@ MCP(모델 컨텍스트 프로토콜) 서버는 에이전트에 Zapier, Cloudfla
 
 실행 중인 MCP 관리자에 핫 리로드를 추가 및 제거합니다. 프로세스를 다시 시작하지 않고 서버를 다시 시작하지 않습니다. 새로운 `mcp__<scope>-<name>__*` 도구는 다음 메시지에서 상담원에게 나타나며 `tool-search`를 통해 검색할 수 있습니다.
 
-HTTPS URL는 모든 곳에서 허용됩니다. 일반 `http://`는 개발 중에 `localhost`에만 허용됩니다. 선택적 인증은 모든 요청에서 `Authorization: Bearer …`를 통해 전송되는 Bearer 토큰으로 들어갑니다.
+HTTPS URL는 모든 곳에서 허용됩니다. 일반 `http://`는 개발 중에 `localhost`에만 허용됩니다. 선택적 인증은 모든 요청에서 `Authorization: Bearer …`를 통해 전송되는 Bearer 토큰으로 들어갑니다. Atlassian Rovo MCP를 포함한 OAuth 전용 공급자는 정적 헤더 대신 공급자의 OAuth 흐름을 사용해야 합니다.
 
 내부적으로 이러한 서버는 `u:<email>:mcp-servers-remote`(개인) 또는 `o:<orgId>:mcp-servers-remote`(팀) 키 아래 프레임워크의 `settings` 테이블에 유지되며 시작 시 `mcp.config.json`와 병합됩니다.
 
@@ -292,7 +339,9 @@ Dispatch는 기존의 허브로 이미 앱 전체를 조정하고 있습니다.
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">조직 범위 MCP 서버</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -454,7 +503,7 @@ Reports which configured servers connected, the total live tool count, the merge
 
 개별 MCP 서버 오류로 인해 에이전트가 중단되지는 않습니다.
 
-- 잘못 구성된 `command` → 서버를 건너뛰고 해당 오류가 `errors.<server-id>` 아래의 `/mcp/status`에 나타나고 다른 모든 서버는 계속 작동합니다.
+- 잘못 구성된 `command` → 서버를 건너뛰고 해당 오류가 `errors.<server-id>` 아래의 `/_agent-native/mcp/status`에 나타나고 다른 모든 서버는 계속 작동합니다.
 - MCP SDK는 `node_modules`에서 누락되었습니다. → 모든 MCP 기능은 경고와 함께 건너뛰었습니다. 에이전트 채팅은 MCP 도구 없이도 계속 작동합니다.
 - 에지 런타임에서 실행 → MCP 클라이언트는 작동하지 않습니다.
 

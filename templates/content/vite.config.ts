@@ -413,7 +413,6 @@ const cloudflareSsrStubs =
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
-        "katex",
         "lowlight",
         "prettier",
         "react-markdown",
@@ -430,6 +429,7 @@ export default defineConfig({
     contentLocalComponentsPlugin(),
     ...reactRouterPlugins(),
     ...agentNativePlugins({
+      clientCompatibilityVersion: "content-spaces-v1",
       fsAllow: [
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,

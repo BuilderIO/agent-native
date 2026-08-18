@@ -1,11 +1,11 @@
 import {
-  agentNativePath,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconCopy, IconPlugConnected } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { useLocation } from "react-router";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -14,8 +14,10 @@ import {
   type ConnectedAgent,
 } from "../../components/agents-panel";
 import { DispatchShell } from "../../components/dispatch-shell";
+import { SimpleAgentsPanel } from "../../components/simple-agents-panel";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Skeleton } from "../../components/ui/skeleton";
 import { Switch } from "../../components/ui/switch";
 
 export function meta() {
@@ -39,7 +41,7 @@ interface McpAccessState {
 }
 
 function dispatchMcpUrl(): string {
-  const path = agentNativePath("/_agent-native/mcp");
+  const path = "/mcp";
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.origin).href;
 }
@@ -103,7 +105,7 @@ function DispatchMcpAccessPanel() {
   }
 
   return (
-    <section className="rounded-2xl border bg-card p-5">
+    <section className="rounded-2xl bg-card p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -124,9 +126,11 @@ function DispatchMcpAccessPanel() {
                 : t("dispatch.pages.selectedApps")}
             </div>
             <div className="text-xs text-muted-foreground">
-              {isLoading
-                ? t("dispatch.pages.loading")
-                : t("dispatch.pages.grantedCount", { count: grantedCount })}
+              {isLoading ? (
+                <Skeleton className="h-3 w-16" />
+              ) : (
+                t("dispatch.pages.grantedCount", { count: grantedCount })
+              )}
             </div>
           </div>
           <Switch
@@ -201,7 +205,7 @@ function DispatchMcpAccessPanel() {
   );
 }
 
-export default function AgentsRoute() {
+function ConnectedAgentsRoute() {
   const t = useT();
   const agentsQuery = useActionQuery("list-connected-agents", {});
 
@@ -226,4 +230,22 @@ export default function AgentsRoute() {
       </div>
     </DispatchShell>
   );
+}
+
+export default function AgentsRoute() {
+  const t = useT();
+  const location = useLocation();
+
+  if (!location.pathname.startsWith("/admin/agents")) {
+    return (
+      <DispatchShell
+        title={t("dispatch.nav.agents")}
+        description={t("dispatch.pages.simpleAgentsDescription")}
+      >
+        <SimpleAgentsPanel />
+      </DispatchShell>
+    );
+  }
+
+  return <ConnectedAgentsRoute />;
 }

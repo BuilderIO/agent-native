@@ -4,6 +4,12 @@ Macros is an agent-native voice and nutrition tracking app. The agent works with
 foods, meals, calories/macros, voice corrections, stats, and navigation through
 actions and SQL state.
 
+## Skills
+
+- `update-calories` — read before changing calorie/macro behavior.
+- `turn-into-app`, `turn-into-skill` — promote a recurring workflow or
+  procedure into its own app or reusable skill.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -25,8 +31,7 @@ actions and SQL state.
 - `navigation` exposes current day, meal, food entry, stats, and settings view.
 - `navigate` moves the UI to log, meals, stats, and settings.
 
-## Skills
+## Source Changes
 
-Read `update-calories` before changing calorie/macro behavior. Use `actions`,
-`storing-data`, `security`, `frontend-design`, and `shadcn-ui` for framework
-work.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

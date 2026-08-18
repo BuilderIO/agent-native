@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── app_state (task records + thread reverse-lookup) ──────────────────────
 const appState = vi.hoisted(() => new Map<string, Record<string, unknown>>());
+const requestContextState = vi.hoisted(() => ({
+  active: false,
+  orgId: undefined as string | undefined,
+  allowedActionNames: undefined as readonly string[] | undefined,
+}));
 
 vi.mock("../application-state/script-helpers.js", () => ({
   readAppState: vi.fn(async (key: string) => appState.get(key) ?? null),
@@ -17,11 +22,15 @@ vi.mock("../application-state/script-helpers.js", () => ({
 }));
 
 // ── spawn-path collaborators (kept inert; we only assert the depth guard) ──
-vi.mock("../chat-threads/store.js", () => ({
-  createThread: vi.fn(async (_owner: string, opts: { title?: string }) => ({
+const createThreadMock = vi.hoisted(() =>
+  vi.fn(async (_owner: string, opts: { title?: string; source?: unknown }) => ({
     id: `thread-${Math.random().toString(36).slice(2, 8)}`,
     title: opts?.title ?? "",
+    source: opts?.source ?? null,
   })),
+);
+vi.mock("../chat-threads/store.js", () => ({
+  createThread: createThreadMock,
   updateThreadData: vi.fn(async () => {}),
   getThread: vi.fn(async () => null),
 }));
@@ -38,8 +47,11 @@ vi.mock("./self-dispatch.js", () => ({
   fireInternalDispatch: fireInternalDispatchMock,
 }));
 
+const resolveOrgIdForEmailMock = vi.hoisted(() =>
+  vi.fn(async () => "email-selected-org" as string | null),
+);
 vi.mock("../org/context.js", () => ({
-  resolveOrgIdForEmail: vi.fn(async () => null),
+  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
 vi.mock("../progress/registry.js", () => ({
@@ -49,7 +61,12 @@ vi.mock("../progress/registry.js", () => ({
 }));
 
 vi.mock("./request-context.js", () => ({
+  getRequestOrgId: () => requestContextState.orgId,
+  getRequestRunContext: () => ({
+    allowedActionNames: requestContextState.allowedActionNames,
+  }),
   getRequestUserEmail: () => "owner@example.com",
+  hasRequestContext: () => requestContextState.active,
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 
@@ -75,6 +92,12 @@ describe("agent-teams delegation-depth guardrail", () => {
     appState.clear();
     enqueueAgentTeamRunMock.mockClear();
     fireInternalDispatchMock.mockClear();
+    createThreadMock.mockClear();
+    resolveOrgIdForEmailMock.mockClear();
+    resolveOrgIdForEmailMock.mockResolvedValue("email-selected-org");
+    requestContextState.active = false;
+    requestContextState.orgId = undefined;
+    requestContextState.allowedActionNames = undefined;
     delete process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH;
   });
 
@@ -97,6 +120,93 @@ describe("agent-teams delegation-depth guardrail", () => {
     },
     FIRST_AGENT_TEAMS_IMPORT_TIMEOUT_MS,
   );
+
+  it("persists the exact spawned action surface for durable execution", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+    requestContextState.allowedActionNames = ["agent-teams"];
+
+    await spawnTask({
+      ...baseSpawnOptions(),
+      actions: {
+        allowed: {
+          tool: { description: "Allowed", parameters: {} },
+          run: async () => "ok",
+        },
+      },
+    });
+
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          allowedActionNames: ["allowed"],
+        }),
+      }),
+    );
+  });
+
+  it("keeps unscoped durable tasks on their legacy action behavior", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+
+    await spawnTask({
+      ...baseSpawnOptions(),
+      actions: {
+        reader: {
+          tool: { description: "Reader", parameters: {} },
+          run: async () => "ok",
+        },
+      },
+    });
+
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.not.objectContaining({
+          allowedActionNames: expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it("persists the active parent organization instead of resolving another membership by email", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+    requestContextState.active = true;
+    requestContextState.orgId = "parent-org";
+
+    await spawnTask(baseSpawnOptions());
+
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "parent-org" }),
+    );
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicitly org-less parent request", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+    requestContextState.active = true;
+    requestContextState.orgId = undefined;
+
+    await spawnTask(baseSpawnOptions());
+
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: null }),
+    );
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("scopes a spawned thread to the parent app", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+
+    await spawnTask({
+      ...baseSpawnOptions(),
+      parentSourceAppId: "calendar",
+    });
+
+    expect(createThreadMock).toHaveBeenCalledWith(
+      OWNER,
+      expect.objectContaining({
+        source: { appId: "calendar" },
+      }),
+    );
+  });
 
   it("allows a depth-1 sub-agent to spawn a depth-2 sub-agent (still within MAX=2)", async () => {
     const { spawnTask } = await import("./agent-teams.js");

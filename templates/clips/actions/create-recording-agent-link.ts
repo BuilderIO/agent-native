@@ -16,6 +16,7 @@ import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../shared/agent-context.js";
+import { BUG_REPORT_AGENT_ACCESS_TTL_SECONDS } from "../shared/bug-report.js";
 
 function appOrigin(): string {
   const origin =
@@ -35,6 +36,24 @@ export default defineAction({
     "Create a temporary private agent-readable link for one Clips recording. The URL is scoped to that recording and expires after two hours.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    agentLabel: z
+      .string()
+      .trim()
+      .min(1)
+      .max(60)
+      .optional()
+      .describe(
+        "Name of the agent that will read this link (e.g. 'Fusion', 'Claude Code'). Recorded against every read the link produces, so the owner sees a name instead of an unidentified agent.",
+      ),
+    ttlSeconds: z
+      .number()
+      .int()
+      .positive()
+      .max(BUG_REPORT_AGENT_ACCESS_TTL_SECONDS)
+      .optional()
+      .describe(
+        "Optional scoped-link lifetime in seconds, capped at seven days. Defaults to two hours.",
+      ),
   }),
   readOnly: true,
   run: async (args) => {
@@ -58,7 +77,8 @@ export default defineAction({
       resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
       resourceId: recording.id,
       viewerEmail: getRequestUserEmail() || undefined,
-      ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
+      agentLabel: args.agentLabel,
+      ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
     const origin = appOrigin();
     const basePath = getServerAppBasePath();

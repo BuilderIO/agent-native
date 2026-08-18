@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockAssertAccess = vi.hoisted(() => vi.fn());
+const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockResolveSlidesRequestAuthContext = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
@@ -31,6 +32,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
   ForbiddenError: class ForbiddenError extends Error {
     statusCode = 403;
   },
@@ -47,6 +49,7 @@ vi.mock("../db", () => ({
       title: "title_col",
       slides: "slides_col",
       aspectRatio: "aspect_ratio_col",
+      designSystemData: "design_system_data_col",
       createdAt: "created_at_col",
     },
   },
@@ -77,6 +80,7 @@ describe("shareDeck", () => {
         title: "Launch review",
         data: JSON.stringify({
           aspectRatio: "16:9",
+          designSystemId: "design-system-1",
           slides: [
             {
               id: "slide-1",
@@ -96,6 +100,21 @@ describe("shareDeck", () => {
               ],
             },
           ],
+        }),
+      },
+    });
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          colors: {
+            primary: "#123456",
+            secondary: "#234567",
+            accent: "#345678",
+            background: "#000000",
+            surface: "#111111",
+            text: "#ffffff",
+            textMuted: "#aaaaaa",
+          },
         }),
       },
     });
@@ -129,5 +148,22 @@ describe("shareDeck", () => {
         ],
       },
     ]);
+    expect(row.designSystemData).toBe(
+      JSON.stringify({
+        colors: {
+          primary: "#123456",
+          secondary: "#234567",
+          accent: "#345678",
+          background: "#000000",
+          surface: "#111111",
+          text: "#ffffff",
+          textMuted: "#aaaaaa",
+        },
+      }),
+    );
+    expect(mockResolveAccess).toHaveBeenCalledWith(
+      "design-system",
+      "design-system-1",
+    );
   });
 });

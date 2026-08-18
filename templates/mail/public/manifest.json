@@ -1,9 +1,8 @@
 {
-  "name": "Agent Native Mail",
+  "name": "Mail",
   "short_name": "Mail",
   "description": "Email client",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#3B82F6",
   "icons": [

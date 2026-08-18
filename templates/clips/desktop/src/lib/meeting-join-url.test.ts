@@ -29,6 +29,16 @@ describe("resolveDesktopMeetingJoinUrl", () => {
     ).toBe("zoommtg://us02web.zoom.us/join?action=join&confno=99988877766");
   });
 
+  it("opens Zoom web-client links in the native desktop app", () => {
+    expect(
+      resolveDesktopMeetingJoinUrl(
+        "https://us02web.zoom.us/wc/99988877766/join?pwd=fake-passcode",
+      ),
+    ).toBe(
+      "zoommtg://us02web.zoom.us/join?action=join&confno=99988877766&pwd=fake-passcode",
+    );
+  });
+
   it.each([
     "https://meet.google.com/abc-defg-hij",
     "https://zoom.us/my/example",

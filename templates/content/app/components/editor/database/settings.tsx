@@ -1,8 +1,8 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
@@ -52,6 +52,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -176,6 +177,7 @@ function NotionLogoMark({ className }: { className?: string }) {
 export function DatabaseSettingsPanelSheet({
   open,
   panel,
+  databaseId,
   documentId,
   canEdit,
   activeView,
@@ -208,6 +210,7 @@ export function DatabaseSettingsPanelSheet({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
+  databaseId: string;
   documentId: string;
   canEdit: boolean;
   activeView: ContentDatabaseView;
@@ -348,6 +351,7 @@ export function DatabaseSettingsPanelSheet({
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
             documentId={documentId}
+            databaseId={databaseId}
             properties={properties}
             activeView={activeView}
             items={items}
@@ -449,6 +453,9 @@ export function builderReviewableChangeSets(
   return source.changeSets.filter(
     (changeSet) =>
       changeSet.direction === "outbound" &&
+      !changeSet.executions.some(
+        (execution) => execution.state === "succeeded",
+      ) &&
       (changeSet.state === "pending_push" ||
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
@@ -530,6 +537,7 @@ export function buildClientBuilderReviewPayload(
       (field) => field.localFieldKey === "title",
     );
     const proposedTitle = titleChange?.proposedValue;
+    const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
 
     return {
       changeSetId: changeSet.id,
@@ -539,12 +547,14 @@ export function buildClientBuilderReviewPayload(
         typeof proposedTitle === "string" && proposedTitle.trim()
           ? proposedTitle
           : sourceRow?.sourceDisplayKey || "Untitled",
+      targetEntryId:
+        effect === "create_draft" ? null : (sourceRow?.sourceRowId ?? null),
       fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
-      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
+      effect,
       execution: latestExecution,
     };
   });
@@ -667,16 +677,13 @@ function DatabaseSettingsSourcePanel({
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
+  const reviewableBuilderChangeSets = builderReviewableChangeSets(source);
   const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
+    source?.sourceType === "builder-cms"
+      ? reviewableBuilderChangeSets
+      : (source?.changeSets.filter(
+          (changeSet) => changeSet.direction === "outbound",
+        ) ?? []);
   const conflictChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.conflictState === "source_changed",
@@ -765,20 +772,19 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onAddDetails={() =>
-          secondary
-            ? onNavPush({
-                kind: "keyConfirm",
-                candidate: {
-                  sourceType: secondary.sourceType,
-                  sourceName: secondary.sourceName,
-                  sourceTable: secondary.sourceTable,
-                  displayName: secondary.sourceName,
-                  existingSourceId: secondary.id,
-                },
-              })
-            : undefined
-        }
+        onAddDetails={() => {
+          if (!secondary || secondary.sourceType === "local-folder") return;
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: secondary.sourceType,
+              sourceName: secondary.sourceName,
+              sourceTable: secondary.sourceTable,
+              displayName: secondary.sourceName,
+              existingSourceId: secondary.id,
+            },
+          });
+        }}
         onAddItems={async () => {
           if (!secondary) return;
           await onChangeSourceRole(secondary.id, "items");
@@ -1139,12 +1145,16 @@ function DatabaseSettingsSourcePanel({
 
         <SourceRoleCard
           source={source}
-          canAddDetails={sources.some(
-            (item) => item.id !== source.id && !sourceAddsDetails(item),
-          )}
+          canAddDetails={
+            source.sourceType !== "local-folder" &&
+            sources.some(
+              (item) => item.id !== source.id && !sourceAddsDetails(item),
+            )
+          }
           canEdit={canEdit}
           pending={sourceActionPending}
-          onAddDetails={() =>
+          onAddDetails={() => {
+            if (source.sourceType === "local-folder") return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -1154,8 +1164,8 @@ function DatabaseSettingsSourcePanel({
                 displayName: source.sourceName,
                 existingSourceId: source.id,
               },
-            })
-          }
+            });
+          }}
           onAddItems={async () => {
             await onChangeSourceRole(source.id, "items");
             onNavReplace([]);
@@ -1467,19 +1477,28 @@ function CanonicalKeyConfirmView({
         type="button"
         size="sm"
         disabled={!canEdit || pending || matchedCount === 0}
-        onClick={() =>
-          onCommit({
-            canonicalKey: suggestion.canonicalKey,
-            primary: {
-              keyField: primaryKeyField,
-              normalizationFormula: primaryFormula,
-            },
-            secondary: {
-              keyField: secondaryKeyField,
-              normalizationFormula: secondaryFormula,
-            },
-          })
-        }
+        onClick={async () => {
+          try {
+            await onCommit({
+              canonicalKey: suggestion.canonicalKey,
+              primary: {
+                keyField: primaryKeyField,
+                normalizationFormula: primaryFormula,
+              },
+              secondary: {
+                keyField: secondaryKeyField,
+                normalizationFormula: secondaryFormula,
+              },
+            });
+          } catch (error) {
+            toast.error(dbText("failedToAttachSource"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : dbText("somethingWentWrong"),
+            });
+          }
+        }}
       >
         {pending ? (
           <Spinner className="mr-1.5 size-3.5" />
@@ -1525,6 +1544,12 @@ function AddSourceView({
             <Spinner className="size-3.5" />
             {dbText("loadingTables")}
           </div>
+        ) : query.isError ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
             {dbText("noOtherDatabasesAvailableToAdd")}
@@ -2790,6 +2815,7 @@ function DatabaseOpenPagesInSetting({
 
 function DatabaseSettingsPropertyVisibilityPanel({
   documentId,
+  databaseId,
   properties,
   activeView,
   items,
@@ -2800,6 +2826,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
@@ -2899,6 +2926,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           label={dbText("newProperty")}
           source={source}
           sources={sources}

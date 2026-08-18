@@ -39,6 +39,7 @@ const supportedBulkPropertyTypes = new Set<DocumentPropertyType>([
   "url",
   "email",
   "phone",
+  "files_media",
 ]);
 
 function parseSourceValues(
@@ -577,7 +578,9 @@ const fieldSchema = z.object({
         .passthrough(),
       z.null(),
     ])
-    .describe("Value to set on the mapped Builder-backed field."),
+    .describe(
+      "Value to set on the mapped Builder-backed field. Builder File fields accept one http(s) URL as a string or one-item array; no media-picker upload is required.",
+    ),
 });
 
 export const stageBuilderSourceBulkUpdateSchema = z
@@ -645,7 +648,7 @@ export { stageBuilderSourceBulkUpdateWithDeps };
 
 export default defineAction({
   description:
-    "Preview or stage one bounded bulk update across selected source-backed Builder CMS rows. This only stages local reviewable diffs; Builder writeback still goes through the existing review and execution actions.",
+    "Preview or stage one bounded bulk update across selected source-backed Builder CMS rows, including Builder File fields backed by Content Files & media properties. This only stages local reviewable diffs; Builder writeback still goes through the existing review and execution actions.",
   schema: stageBuilderSourceBulkUpdateSchema,
   run: async (
     args: StageBuilderSourceBulkUpdateRequest,

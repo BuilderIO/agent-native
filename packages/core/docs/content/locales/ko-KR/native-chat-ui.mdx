@@ -247,6 +247,12 @@ export default defineAction({
 자사 앱 UI에 사용하세요. `mcpApp`에 크로스 호스트 iframe UI를 유지하고
 채팅에서 원시 SQL가 아닌 입력된 읽기 actions 뒤에 임의 쿼리가 실행됩니다.
 
+renderer의 크기는 백분율이 아니라 절대 단위로 지정하세요. 트랜스크립트는 메시지에
+맞춰 늘어나므로 renderer의 컨테이너에는 백분율을 계산할 확정된 높이가 없습니다.
+차트 막대의 `height: 40%`는 오류를 내지 않고 0으로 붕괴하며, 이는 renderer가 그려지지
+않은 것처럼 보입니다. 차트를 비롯해 높이에 의존하는 시각 요소에는 픽셀(또는 `rem`)
+기준을 주세요. 트랜스크립트 열은 확정된 너비를 가지므로 너비는 백분율로 두어도 됩니다.
+
 ## BYO 에이전트 런타임 {#byo-agent-runtimes}
 
 `AgentChatRuntime`는 채팅 셸을 위한 자체 에이전트 가져오기 계약이며,
@@ -408,7 +414,7 @@ OpenAI, AG-UI, Claude 에이전트 SDK 및 Vercel AI SDK 스트림은 표준을 
 
 ## 관련 문서 {#related-docs}
 
-- [Actions](/docs/actions) — 기본 위젯 데이터를 반환하는 작업을 정의합니다.
+- [Actions](/docs/actions-overview) — 기본 위젯 데이터를 반환하는 작업을 정의합니다.
 - [Agent Surfaces](/docs/agent-surfaces) — 헤드리스, 채팅, 사이드카 또는 전체 앱이 필요한지 결정하세요.
 - [Drop-in Agent](/docs/drop-in-agent) — 표준 채팅 런타임 마운트를 위한 튜토리얼
 - [Component API](/docs/components) — 채팅 레이어, 런타임 및 도구 렌더러를 위한 내보내기별 API 맵입니다.

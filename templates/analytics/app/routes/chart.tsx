@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
@@ -16,6 +16,9 @@ const VALID_CHART_TYPES = new Set([
   "metric",
   "table",
   "pie",
+  "funnel",
+  "heatmap",
+  "callout",
 ]);
 // Embed URLs accept external sources plus the restricted first-party analytics
 // source. They intentionally do not expose arbitrary app database querying.
@@ -105,7 +108,7 @@ export default function ChartRoute() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-transparent p-2">
+    <div className="flex h-screen w-screen flex-col overflow-visible bg-transparent p-2">
       {result.title && (
         <div className="mb-1 px-1 text-xs font-medium text-muted-foreground">
           {result.title}

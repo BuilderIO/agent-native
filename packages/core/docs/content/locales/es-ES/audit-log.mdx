@@ -82,8 +82,7 @@ Hay tres lecturas actions disponibles para el agente **y** la interfaz de cada a
 Cree una fuente de actividad o una línea "quién cambió esto" llamando a `list-audit-events` desde UI con `useActionQuery`; nunca escriba a mano una búsqueda en la tabla de auditoría:
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,
@@ -106,7 +105,7 @@ Configurar a través del entorno:
 
 ## ¿Qué sigue?
 
-- [**Actions**](/docs/actions): la costura `defineAction` donde se produce la captura
+- [**Actions**](/docs/actions-overview): la costura `defineAction` donde se produce la captura
 - [**Human-in-the-Loop Approvals**](/docs/human-approval): actions cerrado, registrado como `denied`
 - [**Security & Data Scoping**](/docs/security): la auditoría del modelo de propiedad dice reutilización
 - [**Observability**](/docs/observability): telemetría ejecutada por el agente (el otro "qué pasó")

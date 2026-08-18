@@ -2,7 +2,7 @@
   "mcpServers": {
     "agent-native-design": {
       "type": "http",
-      "url": "https://design.agent-native.com/_agent-native/mcp"
+      "url": "https://design.agent-native.com/mcp"
     }
   }
 }

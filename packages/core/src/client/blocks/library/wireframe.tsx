@@ -142,7 +142,7 @@ function ArtboardFrame({
   const fitRef = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const theme: "light" | "dark" = isDark ? "dark" : "light";
-  const style = useWireframeStyle();
+  const preferredStyle = useWireframeStyle();
   const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
   const width = canvasWidth ?? preset.width;
   // AUTO-HEIGHT: with no explicit `canvasSize` the artboard height is driven by
@@ -164,6 +164,7 @@ function ArtboardFrame({
     fixedHeight ?? null,
   );
   const designMode = renderMode === "design";
+  const style = designMode ? "clean" : preferredStyle;
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
   const frameBorder = skeleton
@@ -409,6 +410,7 @@ function KitArtboard({
       surface={data.surface}
       compact={compact}
       skeleton={data.skeleton}
+      renderMode={data.renderMode}
       showFrame={showFrame}
       selector="[data-rough]"
       caption={data.caption}

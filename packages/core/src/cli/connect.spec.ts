@@ -252,7 +252,7 @@ function makeFetch(
     if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
       return new Response(
         JSON.stringify({
-          resource: `${new URL(String(url)).origin}/_agent-native/mcp`,
+          resource: `${new URL(String(url)).origin}/mcp`,
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -290,7 +290,7 @@ describe("runDeviceFlow", () => {
         {
           status: "approved",
           token: "tok-abc",
-          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          mcpUrl: "https://app.example.com/mcp",
           serverName: "agent-native-app",
         },
       ]),
@@ -305,7 +305,7 @@ describe("runDeviceFlow", () => {
     );
     expect(grant).toEqual({
       token: "tok-abc",
-      mcpUrl: "https://app.example.com/_agent-native/mcp",
+      mcpUrl: "https://app.example.com/mcp",
       serverName: "agent-native-app",
     });
     expect(open).toHaveBeenCalledWith(
@@ -324,7 +324,7 @@ describe("runDeviceFlow", () => {
         {
           status: "approved",
           token: "tok-abc",
-          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          mcpUrl: "https://app.example.com/mcp",
           serverName: "agent-native-app",
         },
       ]),
@@ -353,11 +353,11 @@ describe("runDeviceFlow", () => {
           {
             status: "approved",
             token: "",
-            mcpUrl: "http://localhost:4321/_agent-native/mcp",
+            mcpUrl: "http://localhost:4321/mcp",
             serverName: "agent-native-analytics-local",
             mcpServerEntry: {
               type: "http",
-              url: "http://localhost:4321/_agent-native/mcp",
+              url: "http://localhost:4321/mcp",
               headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
             },
           },
@@ -368,7 +368,7 @@ describe("runDeviceFlow", () => {
     );
     expect(grant).toEqual({
       token: undefined,
-      mcpUrl: "http://localhost:4321/_agent-native/mcp",
+      mcpUrl: "http://localhost:4321/mcp",
       serverName: "agent-native-analytics-local",
       headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
     });
@@ -488,7 +488,7 @@ describe("runDeviceFlow", () => {
         JSON.stringify({
           status: "approved",
           token: "tok-after-blip",
-          mcpUrl: "https://app.example.com/_agent-native/mcp",
+          mcpUrl: "https://app.example.com/mcp",
           serverName: "app",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -555,7 +555,7 @@ describe("writeConfigs", () => {
     const written = writeConfigs(
       ["claude-code"],
       "agent-native-mail",
-      "https://mail.agent-native.com/_agent-native/mcp",
+      "https://mail.agent-native.com/mcp",
       "tok-1",
       "project",
       root,
@@ -565,7 +565,7 @@ describe("writeConfigs", () => {
     const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
       headers: { Authorization: "Bearer tok-1" },
     });
   });
@@ -575,7 +575,7 @@ describe("writeConfigs", () => {
     const written = writeConfigs(
       ["claude-code"],
       "agent-native-analytics-local",
-      "http://localhost:4321/_agent-native/mcp",
+      "http://localhost:4321/mcp",
       undefined,
       "project",
       root,
@@ -584,7 +584,7 @@ describe("writeConfigs", () => {
     const cfg = JSON.parse(fs.readFileSync(written[0].file, "utf-8"));
     expect(cfg.mcpServers["agent-native-analytics-local"]).toEqual({
       type: "http",
-      url: "http://localhost:4321/_agent-native/mcp",
+      url: "http://localhost:4321/mcp",
       headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
     });
   });
@@ -594,7 +594,7 @@ describe("writeConfigs", () => {
     writeConfigs(
       ["claude-code"],
       "agent-native-mail",
-      "https://mail.agent-native.com/_agent-native/mcp",
+      "https://mail.agent-native.com/mcp",
       "tok-1",
       "project",
       root,
@@ -602,7 +602,7 @@ describe("writeConfigs", () => {
     writeConfigs(
       ["claude-code"],
       "agent-native-mail",
-      "https://mail.agent-native.com/_agent-native/mcp",
+      "https://mail.agent-native.com/mcp",
       "tok-2",
       "project",
       root,
@@ -625,7 +625,7 @@ describe("writeConfigs", () => {
     writeConfigs(
       ["claude-code"],
       "agent-native-mail",
-      "https://mail.agent-native.com/_agent-native/mcp",
+      "https://mail.agent-native.com/mcp",
       "tok-1",
       "project",
       root,
@@ -647,7 +647,7 @@ describe("writeConfigs", () => {
       const written = writeConfigs(
         ["codex"],
         "agent-native-mail",
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
         "tok-1",
         "project",
         root,
@@ -656,15 +656,13 @@ describe("writeConfigs", () => {
       expect(f).toBe(path.join(codexHome, ".codex", "config.toml"));
       const toml = fs.readFileSync(f, "utf-8");
       expect(toml).toContain('[mcp_servers."agent-native-mail"]');
-      expect(toml).toContain(
-        'url = "https://mail.agent-native.com/_agent-native/mcp"',
-      );
+      expect(toml).toContain('url = "https://mail.agent-native.com/mcp"');
       expect(toml).toContain('"Authorization" = "Bearer tok-1"');
       // Re-run is idempotent (single block).
       writeConfigs(
         ["codex"],
         "agent-native-mail",
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
         "tok-2",
         "project",
         root,
@@ -688,7 +686,7 @@ describe("writeConfigs", () => {
       const written = writeConfigs(
         ["codex"],
         "agent-native-analytics-local",
-        "http://localhost:4321/_agent-native/mcp",
+        "http://localhost:4321/mcp",
         undefined,
         "project",
         root,
@@ -711,7 +709,7 @@ describe("writeConfigs", () => {
       const written = writeConfigs(
         ["codex"],
         'agent.native "mail"',
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
         "tok-1",
         "project",
         root,
@@ -738,7 +736,7 @@ describe("writeConfigs", () => {
       writeConfigs(
         ["codex"],
         "agent-native-mail",
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
         "tok-1",
         "project",
         root,
@@ -746,9 +744,7 @@ describe("writeConfigs", () => {
       const toml = fs.readFileSync(codexFile, "utf-8");
       expect(toml).not.toContain("[mcp_servers.agent-native-mail]");
       expect(toml).toContain('[mcp_servers."agent-native-mail"]');
-      expect(toml).toContain(
-        'url = "https://mail.agent-native.com/_agent-native/mcp"',
-      );
+      expect(toml).toContain('url = "https://mail.agent-native.com/mcp"');
     } finally {
       process.env.HOME = HOME;
     }
@@ -826,7 +822,7 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
       headers: {
         Authorization: "Bearer tok-fallback",
       },
@@ -846,7 +842,7 @@ describe("runConnect", () => {
           {
             status: "approved",
             token: "tok-plan-device",
-            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            mcpUrl: "https://plan.agent-native.com/mcp",
             serverName: "agent-native-plan",
           },
         ]),
@@ -879,7 +875,7 @@ describe("runConnect", () => {
       codexFile,
       [
         '[mcp_servers."custom-plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer old-token" }',
         "",
       ].join("\n"),
@@ -894,7 +890,7 @@ describe("runConnect", () => {
             {
               status: "approved",
               token: "new-token",
-              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              mcpUrl: "https://plan.agent-native.com/mcp",
               serverName: "agent-native-plan",
             },
           ]),
@@ -926,7 +922,7 @@ describe("runConnect", () => {
       codexFile,
       [
         '[mcp_servers."plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         "",
       ].join("\n"),
       "utf-8",
@@ -940,7 +936,7 @@ describe("runConnect", () => {
             {
               status: "approved",
               token: "fresh-token",
-              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              mcpUrl: "https://plan.agent-native.com/mcp",
               serverName: "plan",
             },
           ]),
@@ -971,7 +967,7 @@ describe("runConnect", () => {
       codexFile,
       [
         '[mcp_servers."agent-native-plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer stale-token" }',
         "",
       ].join("\n"),
@@ -986,7 +982,7 @@ describe("runConnect", () => {
             {
               status: "approved",
               token: "fresh-token",
-              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              mcpUrl: "https://plan.agent-native.com/mcp",
               serverName: "agent-native-plan",
             },
           ]),
@@ -1018,15 +1014,15 @@ describe("runConnect", () => {
       codexFile,
       [
         '[mcp_servers."agent-native-plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer stale-1" }',
         "",
         '[mcp_servers."plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer stale-2" }',
         "",
         '[mcp_servers."agent-native-plans"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer stale-3" }',
         "",
       ].join("\n"),
@@ -1046,7 +1042,7 @@ describe("runConnect", () => {
           {
             status: "approved",
             token: "fresh-token",
-            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            mcpUrl: "https://plan.agent-native.com/mcp",
             serverName: "agent-native-plan",
           },
         ]),
@@ -1089,7 +1085,7 @@ describe("runConnect", () => {
       codexFile,
       [
         '[mcp_servers."plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer stale-token" }',
         "",
       ].join("\n"),
@@ -1114,7 +1110,7 @@ describe("runConnect", () => {
             {
               status: "approved",
               token: "fresh-token",
-              mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+              mcpUrl: "https://plan.agent-native.com/mcp",
               serverName: "plan",
             },
           ]),
@@ -1286,7 +1282,7 @@ describe("runConnect", () => {
       {
         status: "approved",
         token: "tok-publish-mint",
-        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://plan.agent-native.com/mcp",
         serverName: "agent-native-plan",
       },
     ]);
@@ -1315,7 +1311,7 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers.plan).toEqual({
       type: "http",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
     });
   });
 
@@ -1332,7 +1328,7 @@ describe("runConnect", () => {
       if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
         return new Response(
           JSON.stringify({
-            resource: "https://plan.agent-native.com/_agent-native/mcp",
+            resource: "https://plan.agent-native.com/mcp",
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -1373,7 +1369,7 @@ describe("runConnect", () => {
       expect(init?.method).toBe("GET");
       return new Response(
         JSON.stringify({
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -1399,7 +1395,7 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
     });
   });
 
@@ -1412,7 +1408,7 @@ describe("runConnect", () => {
       );
       return new Response(
         JSON.stringify({
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -1420,7 +1416,7 @@ describe("runConnect", () => {
 
     await runConnect(
       [
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
         "--client",
         "claude-code",
         "--scope",
@@ -1435,7 +1431,43 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
+    });
+  });
+
+  it("normalizes a legacy MCP URL without losing its app base path", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(String(url)).toBe(
+        "https://mail.agent-native.com/mail/.well-known/oauth-protected-resource",
+      );
+      return new Response(
+        JSON.stringify({
+          resource: "https://mail.agent-native.com/mail/_agent-native/mcp",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com/mail/_agent-native/mcp",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers["agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://mail.agent-native.com/mail/mcp",
     });
   });
 
@@ -1471,7 +1503,7 @@ describe("runConnect", () => {
           mcpServers: {
             "agent-native-mail": {
               type: "http",
-              url: "https://mail.agent-native.com/_agent-native/mcp",
+              url: "https://mail.agent-native.com/mcp",
               headers: { Authorization: "Bearer old-connect-token" },
             },
           },
@@ -1489,7 +1521,7 @@ describe("runConnect", () => {
     const fetchImpl = vi.fn(async () => {
       return new Response(
         JSON.stringify({
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -1512,7 +1544,7 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
     });
     const joinedOutput = output.join("");
     expect(joinedOutput).toContain("Replaced legacy bearer headers");
@@ -1529,7 +1561,7 @@ describe("runConnect", () => {
       {
         status: "approved",
         token: "tok-device",
-        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://mail.agent-native.com/mcp",
         serverName: "agent-native-mail",
       },
     ]);
@@ -1552,7 +1584,7 @@ describe("runConnect", () => {
       );
       expect(claudeCfg.mcpServers["agent-native-mail"]).toEqual({
         type: "http",
-        url: "https://mail.agent-native.com/_agent-native/mcp",
+        url: "https://mail.agent-native.com/mcp",
       });
       const codexToml = fs.readFileSync(
         path.join(home, ".codex", "config.toml"),
@@ -1597,7 +1629,7 @@ describe("runConnect", () => {
           JSON.stringify({
             status: "approved",
             token: "tok-device",
-            mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+            mcpUrl: "https://mail.agent-native.com/mcp",
             serverName: "agent-native-mail",
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -1789,14 +1821,14 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers["agent-native-calendar"]).toEqual({
       type: "http",
-      url: "https://calendar.agent-native.com/_agent-native/mcp",
+      url: "https://calendar.agent-native.com/mcp",
       headers: {
         Authorization: "Bearer tok",
       },
     });
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
       headers: {
         Authorization: "Bearer tok",
       },
@@ -1831,7 +1863,7 @@ describe("runConnect", () => {
           mcpServers: {
             "agent-native-mail": {
               type: "http",
-              url: "https://mail.agent-native.com/_agent-native/mcp",
+              url: "https://mail.agent-native.com/mcp",
               headers: {
                 Authorization: `Bearer ${fakeJwt("u@example.com")}`,
               },
@@ -1867,7 +1899,7 @@ describe("runConnect", () => {
     );
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "http://127.0.0.1:8080/mail/_agent-native/mcp",
+      url: "http://127.0.0.1:8080/mail/mcp",
       headers: {
         "X-Agent-Native-Owner-Email": "u@example.com",
       },
@@ -1879,7 +1911,7 @@ describe("runConnect", () => {
       expect.objectContaining({
         kind: "json",
         entry: expect.objectContaining({
-          url: "https://mail.agent-native.com/_agent-native/mcp",
+          url: "https://mail.agent-native.com/mcp",
         }),
       }),
     ]);
@@ -1900,7 +1932,7 @@ describe("runConnect", () => {
     cfg = JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"));
     expect(cfg.mcpServers["agent-native-mail"]).toEqual({
       type: "http",
-      url: "https://mail.agent-native.com/_agent-native/mcp",
+      url: "https://mail.agent-native.com/mcp",
       headers: {
         Authorization: `Bearer ${fakeJwt("u@example.com")}`,
       },
@@ -1918,7 +1950,7 @@ describe("runConnect", () => {
       codexFile,
       [
         '[mcp_servers."agent-native-mail"]',
-        'url = "https://mail.agent-native.com/_agent-native/mcp"',
+        'url = "https://mail.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer prod-token" }',
         "",
       ].join("\n"),
@@ -1948,9 +1980,7 @@ describe("runConnect", () => {
       );
 
       let toml = fs.readFileSync(codexFile, "utf-8");
-      expect(toml).toContain(
-        'url = "http://127.0.0.1:8080/mail/_agent-native/mcp"',
-      );
+      expect(toml).toContain('url = "http://127.0.0.1:8080/mail/mcp"');
       expect(toml).toContain('"X-Agent-Native-Owner-Email" = "u@example.com"');
       expect(toml).not.toContain("X-Agent-Native-MCP-Full-Catalog");
 
@@ -1959,9 +1989,7 @@ describe("runConnect", () => {
       });
 
       toml = fs.readFileSync(codexFile, "utf-8");
-      expect(toml).toContain(
-        'url = "https://mail.agent-native.com/_agent-native/mcp"',
-      );
+      expect(toml).toContain('url = "https://mail.agent-native.com/mcp"');
       expect(toml).toContain('"Authorization" = "Bearer prod-token"');
     } finally {
       process.env.HOME = oldHome;
@@ -2044,7 +2072,7 @@ describe("runConnect --service-token", () => {
           JSON.stringify({
             status: "approved",
             token: "personal-grant-token",
-            mcpUrl: "https://plan.example.com/_agent-native/mcp",
+            mcpUrl: "https://plan.example.com/mcp",
             serverName: "agent-native-plan",
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -2178,7 +2206,7 @@ describe("reconnect — URL-based discovery", () => {
       codexFile,
       [
         '[mcp_servers."plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer old-token" }',
         "",
       ].join("\n"),
@@ -2191,7 +2219,7 @@ describe("reconnect — URL-based discovery", () => {
           {
             status: "approved",
             token: "refreshed-token",
-            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            mcpUrl: "https://plan.agent-native.com/mcp",
             serverName: "plan",
           },
         ]),
@@ -2221,11 +2249,11 @@ describe("reconnect — URL-based discovery", () => {
           mcpServers: {
             plan: {
               type: "http",
-              url: "https://plan.agent-native.com/_agent-native/mcp",
+              url: "https://plan.agent-native.com/mcp",
             },
             "agent-native-plans": {
               type: "http",
-              url: "https://plan.agent-native.com/_agent-native/mcp",
+              url: "https://plan.agent-native.com/mcp",
             },
           },
         },
@@ -2254,7 +2282,7 @@ describe("reconnect — URL-based discovery", () => {
     // Canonical entry should be present and updated.
     expect(cfg.mcpServers["plan"]).toMatchObject({
       type: "http",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
     });
     // Alias duplicate must have been removed.
     expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
@@ -2270,11 +2298,11 @@ describe("reconnect — URL-based discovery", () => {
           mcpServers: {
             plan: {
               type: "http",
-              url: "https://plan.agent-native.com/_agent-native/mcp",
+              url: "https://plan.agent-native.com/mcp",
             },
             "agent-native-plans": {
               type: "http",
-              url: "https://plan.agent-native.com/_agent-native/mcp",
+              url: "https://plan.agent-native.com/mcp",
             },
           },
         },
@@ -2311,7 +2339,7 @@ describe("reconnect — URL-based discovery", () => {
           JSON.stringify({
             status: "approved",
             token: "tok-fallback",
-            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            mcpUrl: "https://plan.agent-native.com/mcp",
             serverName: "plan",
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -2338,7 +2366,7 @@ describe("reconnect — URL-based discovery", () => {
     );
     expect(cfg.mcpServers.plan).toMatchObject({
       type: "http",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
       headers: {
         Authorization: "Bearer tok-fallback",
       },
@@ -2362,15 +2390,15 @@ describe("reconnect — URL-based discovery", () => {
       codexFile,
       [
         '[mcp_servers."agent-native-plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer old1" }',
         "",
         '[mcp_servers."agent-native-plans"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer old2" }',
         "",
         '[mcp_servers."plan"]',
-        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        'url = "https://plan.agent-native.com/mcp"',
         'http_headers = { "Authorization" = "Bearer old3" }',
         "",
       ].join("\n"),
@@ -2383,7 +2411,7 @@ describe("reconnect — URL-based discovery", () => {
           {
             status: "approved",
             token: "refreshed-token",
-            mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+            mcpUrl: "https://plan.agent-native.com/mcp",
             serverName: "plan",
           },
         ]),
@@ -2417,11 +2445,11 @@ describe("reconnect — URL-based discovery", () => {
           mcpServers: {
             plan: {
               type: "http",
-              url: "https://plan.agent-native.com/_agent-native/mcp",
+              url: "https://plan.agent-native.com/mcp",
             },
             "agent-native-mail": {
               type: "http",
-              url: "https://mail.agent-native.com/_agent-native/mcp",
+              url: "https://mail.agent-native.com/mcp",
             },
           },
         },

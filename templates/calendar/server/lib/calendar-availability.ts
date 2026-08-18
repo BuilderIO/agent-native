@@ -5,6 +5,7 @@ type AvailabilityEvent = Pick<
   | "accountEmail"
   | "attendees"
   | "end"
+  | "eventType"
   | "responseStatus"
   | "start"
   | "status"
@@ -25,6 +26,7 @@ function findSelfAttendee(event: AvailabilityEvent) {
 export function eventBlocksAvailability(event: AvailabilityEvent): boolean {
   if (!event.start || !event.end) return false;
   if (event.status === "cancelled") return false;
+  if (event.eventType === "workingLocation") return false;
   if (event.transparency === "transparent") return false;
 
   const selfAttendee = findSelfAttendee(event);

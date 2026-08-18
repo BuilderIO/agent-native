@@ -5,8 +5,9 @@
  * Registered as a native tool in every template. sendEmail() checks the
  * scoped Resend/SendGrid configuration at call time.
  *
- * SAFETY: the action description instructs the agent to draft-first and only
- * send when the user explicitly confirms, matching the mail template convention.
+ * SAFETY: interactive runs are draft-first. Unattended automation runs are
+ * already authorized when the automation is created, so they get a separate
+ * description that permits delivery without interactive confirmation.
  *
  * COLLISION: the mail template registers its own richer "send-email" action.
  * The template's registration comes after this one in the spread, so it wins
@@ -15,117 +16,35 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  markdownToHtml,
+  markdownToText,
+  wrapInEmailTemplate,
+} from "./email-markdown.js";
 import { sendEmail } from "./email.js";
 
-function markdownToText(md: string): string {
-  return md
-    .replace(/!\[([^\]]*)\]\([^\s)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^\s)]+\)/g, "$1 ($2)")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .trim();
-}
-
-function markdownToHtml(md: string): string {
-  const normalized = md.replace(/\r\n/g, "\n").trim();
-  if (!normalized) return "<p></p>";
-
-  // Escape HTML entities in a string, preserving already-encoded references.
-  const esc = (s: string) =>
-    s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-
-  // Inline markdown: links, bold, italic, code, bare URLs.
-  const inline = (s: string): string =>
-    s
-      .replace(
-        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-        (_m, label: string, url: string) =>
-          `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`,
-      )
-      .replace(
-        /(^|[^\w"'=])(https?:\/\/[^\s<]+)/g,
-        (_m, pre: string, url: string) =>
-          `${pre}<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`,
-      )
-      .replace(/`([^`]+)`/g, (_m, code: string) => `<code>${esc(code)}</code>`)
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
-
-  const blocks = normalized.split(/\n{2,}/);
-  const html = blocks
-    .map((block) => {
-      const trimmed = block.trim();
-
-      // Fenced code block
-      if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
-        const code = trimmed
-          .replace(/^```[^\n]*\n?/, "")
-          .replace(/\n?```$/, "");
-        return `<pre><code>${esc(code)}</code></pre>`;
-      }
-
-      // Heading
-      const hm = trimmed.match(/^(#{1,6})\s+(.+)$/);
-      if (hm) {
-        const level = hm[1].length;
-        return `<h${level}>${inline(hm[2])}</h${level}>`;
-      }
-
-      // Unordered list
-      if (/^[-*+]\s+/m.test(trimmed)) {
-        const items = trimmed
-          .split("\n")
-          .filter(Boolean)
-          .map((l) => `<li>${inline(l.replace(/^[-*+]\s+/, ""))}</li>`)
-          .join("");
-        return `<ul style="margin:0 0 1em;padding-left:1.5em">${items}</ul>`;
-      }
-
-      // Ordered list
-      if (/^\d+\.\s+/m.test(trimmed)) {
-        const items = trimmed
-          .split("\n")
-          .filter(Boolean)
-          .map((l) => `<li>${inline(l.replace(/^\d+\.\s+/, ""))}</li>`)
-          .join("");
-        return `<ol style="margin:0 0 1em;padding-left:1.5em">${items}</ol>`;
-      }
-
-      // Blockquote
-      if (trimmed.startsWith("> ")) {
-        const inner = trimmed
-          .split("\n")
-          .map((l) => (l.startsWith("> ") ? l.slice(2) : l))
-          .join("\n");
-        return `<blockquote style="margin:0 0 1em 1em;border-left:3px solid #ccc;padding-left:0.75em;color:#555">${inline(inner)}</blockquote>`;
-      }
-
-      return `<p style="margin:0 0 1em">${inline(trimmed).replace(/\n/g, "<br />")}</p>`;
-    })
-    .join("");
-
-  return html;
-}
-
-export function createCoreEmailActionEntries(): Record<string, ActionEntry> {
+export function createCoreEmailActionEntries(options?: {
+  unattended?: boolean;
+}): Record<string, ActionEntry> {
+  const unattended = options?.unattended === true;
   return {
     "core-send-email": {
       tool: {
         description: [
           "Send a transactional email via the app's configured email provider (Resend or SendGrid).",
           "",
-          "IMPORTANT — DRAFT-FIRST SAFETY RULE: Never call this tool until the user has explicitly",
-          "confirmed they want to send. Always compose the full email content first, show it to the",
-          "user, and wait for an explicit 'yes, send it' before invoking this action.",
+          ...(unattended
+            ? [
+                "This is an explicitly authorized unattended automation run. Send the email without asking for an interactive confirmation.",
+              ]
+            : [
+                "IMPORTANT — DRAFT-FIRST SAFETY RULE: Never call this tool until the user has explicitly",
+                "confirmed they want to send. Always compose the full email content first, show it to the",
+                "user, and wait for an explicit 'yes, send it' before invoking this action.",
+              ]),
           "",
           "The body is written in markdown. Tables, lists, bold, italic, links, and code blocks",
-          "are all supported and will render correctly in email clients.",
+          "are all supported and will render correctly in email clients. Write the body in markdown; do not hand-write HTML.",
           "",
           "This sends via the framework transport (Resend/SendGrid). It is NOT the Gmail-based",
           "send-email action in the mail template — use this for system/notification emails from",
@@ -199,7 +118,7 @@ export function createCoreEmailActionEntries(): Record<string, ActionEntry> {
           await sendEmail({
             to,
             subject,
-            html: markdownToHtml(bodyMd),
+            html: wrapInEmailTemplate(markdownToHtml(bodyMd)),
             text: markdownToText(bodyMd),
             ...(from ? { from } : {}),
             ...(cc ? { cc } : {}),

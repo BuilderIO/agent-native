@@ -10,6 +10,7 @@ export default defineAction({
   description: "Get HubSpot deal pipelines and their stages.",
   schema: z.object({}),
   http: { method: "GET" },
+  grounding: true,
   run: async () => {
     const allPipelines = await getDealPipelines();
     const pipelines = getVisiblePipelines(allPipelines);

@@ -1,10 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import type {
   BuilderCmsModelFieldSummary,
-  ContentDatabaseResponse,
+  ContentDatabaseSourceAttachmentResult,
   ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
@@ -25,6 +27,7 @@ import {
   importBuilderCmsEntriesAsDatabaseItems,
   insertSecondarySource,
   mapBuilderCmsEntriesToLocalItems,
+  replaceMockSourceRows,
   replaceSourceMetadata,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
@@ -41,11 +44,48 @@ import {
   readLocalTableEntries,
   resolveReadableLocalTableSource,
 } from "./_local-table-source.js";
+import { listPropertiesForDatabase } from "./_property-utils.js";
 
 const sourceTypeSchema = z
   .enum(["mock-local", "builder-cms", "local-table", "notion-database"])
   .default("mock-local");
 const BUILDER_CMS_ATTACH_INITIAL_PAGES = 1;
+const BUILDER_CMS_ATTACH_METADATA_LIMIT = 10_000;
+
+export function shouldBootstrapLocalDetailsSource(args: {
+  relationshipMode: "items" | "details" | undefined;
+  hasExistingSource: boolean;
+}) {
+  return args.relationshipMode === "details" && !args.hasExistingSource;
+}
+
+export function assertDetailsSourceJoin(args: {
+  relationshipMode: "items" | "details" | undefined;
+  hasJoin: boolean;
+}) {
+  if (args.relationshipMode === "details" && !args.hasJoin) {
+    throw new Error("Choose a match key before adding source details.");
+  }
+}
+
+export async function readBeforeLocalDetailsBootstrap<
+  T extends {
+    readState: BuilderCmsReadResult["state"];
+    readMessage: string | null;
+  },
+>(args: {
+  readCandidate: () => Promise<T>;
+  bootstrapLocalSource: () => Promise<void>;
+}) {
+  const candidate = await args.readCandidate();
+  if (candidate.readState !== "live") {
+    throw new Error(
+      candidate.readMessage ?? "Source read failed before connection.",
+    );
+  }
+  await args.bootstrapLocalSource();
+  return candidate;
+}
 
 export async function readInitialBuilderCmsAttachEntries(
   sourceTable: string,
@@ -64,24 +104,43 @@ export async function readInitialBuilderCmsAttachSource(
   dependencies: {
     readModelFields?: typeof readBuilderCmsModelFields;
     readEntries?: typeof readBuilderCmsContentEntries;
+    fieldPaths?: readonly string[];
   } = {},
 ) {
   const readModelFields =
     dependencies.readModelFields ?? readBuilderCmsModelFields;
   const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
-  let modelFields: BuilderCmsModelFieldSummary[] = [];
-  let modelFieldsError: unknown = null;
-  try {
-    modelFields = await readModelFields({ model: sourceTable });
-  } catch (error) {
-    modelFieldsError = error;
-  }
-  const read = await readInitialBuilderCmsAttachEntries(
-    sourceTable,
-    readEntries,
-    modelFields.map((field) => `data.${field.name}`),
-  );
-  if (modelFieldsError) throw modelFieldsError;
+  const [modelFields, read] = await Promise.all([
+    readModelFields({ model: sourceTable }),
+    readInitialBuilderCmsAttachEntries(
+      sourceTable,
+      readEntries,
+      dependencies.fieldPaths,
+    ),
+  ]);
+  return { read, modelFields };
+}
+
+export async function readCompleteBuilderCmsAttachSource(
+  sourceTable: string,
+  dependencies: {
+    readModelFields?: typeof readBuilderCmsModelFields;
+    readEntries?: typeof readBuilderCmsContentEntries;
+    fieldPaths?: readonly string[];
+  } = {},
+) {
+  const readModelFields =
+    dependencies.readModelFields ?? readBuilderCmsModelFields;
+  const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
+  const [modelFields, read] = await Promise.all([
+    readModelFields({ model: sourceTable }),
+    readEntries({
+      model: sourceTable,
+      fieldPaths: dependencies.fieldPaths,
+      allowCached: true,
+      limit: BUILDER_CMS_ATTACH_METADATA_LIMIT,
+    }),
+  ]);
   return { read, modelFields };
 }
 
@@ -120,6 +179,32 @@ export function builderCmsAttachReadMetadata(read: BuilderCmsReadResult) {
     activeReadSourceRowIds: builderReadActiveSourceRowIds(read),
     syncState,
   };
+}
+
+export function initialBuilderAttachmentSetupOptions(args: {
+  builderRead: BuilderCmsReadResult | null;
+  importedEntriesByDocumentId: ReadonlyMap<string, BuilderCmsSourceEntry>;
+}) {
+  if (
+    args.builderRead?.state !== "live" ||
+    args.importedEntriesByDocumentId.size !== args.builderRead.entries.length
+  ) {
+    return undefined;
+  }
+  const documentIds = [...args.importedEntriesByDocumentId.keys()];
+  return {
+    documentIds,
+    limit: Math.max(1, documentIds.length),
+    offset: 0,
+  };
+}
+
+export function builderAttachDurableItemCount(
+  builderEntriesByDocumentId:
+    | ReadonlyMap<string, BuilderCmsSourceEntry>
+    | undefined,
+) {
+  return builderEntriesByDocumentId?.size ?? 0;
 }
 
 // Per-source key mapping the UI commits after the canonical-key confirm step.
@@ -194,6 +279,65 @@ function identityFederation(
   };
 }
 
+async function readDetailsSourceCandidate(args: {
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  limit: number;
+  offset: number;
+  now: string;
+}) {
+  const adapter = getContentDatabaseSourceAdapter(args.sourceType);
+  if (adapter) {
+    const read = await adapter.read({
+      sourceTable: args.sourceTable,
+      limit: args.limit,
+      offset: args.offset,
+    });
+    return {
+      readState: read.state,
+      readMessage: read.message,
+      entries: read.state === "live" ? read.entries : [],
+      modelFields: read.fields,
+      builderRead:
+        args.sourceType === "builder-cms"
+          ? ({
+              state: read.state,
+              entries: read.entries,
+              fetchedAt: read.fetchedAt,
+              message: read.message,
+              progress: read.progress!,
+            } satisfies BuilderCmsReadResult)
+          : null,
+      adapterMetadata: read.metadata,
+      adapterFetchedAt: read.fetchedAt,
+      adapterMessage: read.message,
+    };
+  }
+  if (args.sourceType === "builder-cms") {
+    const initial = await readInitialBuilderCmsAttachSource(args.sourceTable);
+    return {
+      readState: initial.read.state,
+      readMessage: initial.read.message,
+      entries: initial.read.state === "live" ? initial.read.entries : [],
+      modelFields: initial.modelFields,
+      builderRead: initial.read,
+      adapterMetadata: undefined,
+      adapterFetchedAt: args.now,
+      adapterMessage: null,
+    };
+  }
+  return {
+    readState: "live" as const,
+    readMessage: null,
+    entries: [] as BuilderCmsSourceEntry[],
+    modelFields: [] as BuilderCmsModelFieldSummary[],
+    builderRead: null,
+    adapterMetadata: undefined,
+    adapterFetchedAt: args.now,
+    adapterMessage: null,
+  };
+}
+
 export default defineAction({
   description:
     "Attach or replace a safe local source binding for a content database. Builder CMS bindings store source metadata, field mappings, row identity, provenance, freshness, capabilities, and local-only diff state without calling external APIs.",
@@ -211,6 +355,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Source table/model name, for example content_items."),
+    builderFieldPaths: z.array(z.string().max(500)).max(200).optional(),
     relationshipMode: z
       .enum(["items", "details"])
       .optional()
@@ -231,7 +376,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseResponse> => {
+  run: async (args): Promise<ContentDatabaseSourceAttachmentResult> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -266,37 +411,60 @@ export default defineAction({
     const relationshipMode =
       args.relationshipMode ?? (args.mode === "add" ? "items" : undefined);
 
+    // Validate before bootstrapping the local primary so an invalid details
+    // attach cannot leave a source record behind.
+    assertDetailsSourceJoin({
+      relationshipMode,
+      hasJoin: Boolean(args.join),
+    });
+
     // A normal local Content database has rows but no explicit source record.
-    // Bootstrap that local snapshot before attaching a read-only details source
-    // so Notion federation works without forcing users to attach Builder first.
+    // A details join needs that local snapshot to remain the primary side;
+    // otherwise the candidate source would fall through to replacement semantics.
+    let initialDetailsSource:
+      | Awaited<ReturnType<typeof readDetailsSourceCandidate>>
+      | undefined;
     if (
-      sourceType === "notion-database" &&
-      relationshipMode === "details" &&
-      !existingSource
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode,
+        hasExistingSource: Boolean(existingSource),
+      })
     ) {
-      const setup = await sourceSetupPayload(database.id);
-      const localSourceId = await replaceSourceMetadata({
-        database,
-        source: null,
-        sourceType: "mock-local",
-        sourceName: "Local Content database",
-        sourceTable: database.id,
-        now,
-      });
-      await seedMockSourceFields({
-        sourceId: localSourceId,
-        ownerEmail: database.ownerEmail,
-        sourceType: "mock-local",
-        properties: setup.properties,
-        now,
-      });
-      await seedMockSourceRows({
-        sourceId: localSourceId,
-        ownerEmail: database.ownerEmail,
-        sourceType: "mock-local",
-        sourceTable: database.id,
-        items: setup.response.items,
-        now,
+      initialDetailsSource = await readBeforeLocalDetailsBootstrap({
+        readCandidate: () =>
+          readDetailsSourceCandidate({
+            sourceType,
+            sourceTable,
+            limit: args.limit,
+            offset: args.offset,
+            now,
+          }),
+        bootstrapLocalSource: async () => {
+          const setup = await sourceSetupPayload(database.id);
+          const localSourceId = await replaceSourceMetadata({
+            database,
+            source: null,
+            sourceType: "mock-local",
+            sourceName: "Local Content database",
+            sourceTable: database.id,
+            now,
+          });
+          await seedMockSourceFields({
+            sourceId: localSourceId,
+            ownerEmail: database.ownerEmail,
+            sourceType: "mock-local",
+            properties: setup.properties,
+            now,
+          });
+          await seedMockSourceRows({
+            sourceId: localSourceId,
+            ownerEmail: database.ownerEmail,
+            sourceType: "mock-local",
+            sourceTable: database.id,
+            items: setup.response.items,
+            now,
+          });
+        },
       });
       existingSource = await getExistingSource(database.id);
     }
@@ -308,45 +476,26 @@ export default defineAction({
       if (!args.join) {
         throw new Error("Choose a match key before adding source details.");
       }
-      let entries: BuilderCmsSourceEntry[];
-      let modelFields: BuilderCmsModelFieldSummary[];
-      let builderRead: BuilderCmsReadResult | null = null;
-      let adapterMetadata: Record<string, unknown> | undefined;
-      let adapterFetchedAt = now;
-      let adapterMessage: string | null = null;
-      const adapter = getContentDatabaseSourceAdapter(sourceType);
-      if (adapter) {
-        const read = await adapter.read({
+      const {
+        entries,
+        modelFields,
+        builderRead,
+        adapterMetadata,
+        adapterFetchedAt,
+        adapterMessage,
+      } =
+        initialDetailsSource ??
+        (await readDetailsSourceCandidate({
+          sourceType,
           sourceTable,
           limit: args.limit,
           offset: args.offset,
-        });
-        entries = read.state === "live" ? read.entries : [];
-        modelFields = read.fields;
-        adapterMetadata = read.metadata;
-        adapterFetchedAt = read.fetchedAt;
-        adapterMessage = read.message;
-        if (sourceType === "builder-cms") {
-          builderRead = {
-            state: read.state,
-            entries: read.entries,
-            fetchedAt: read.fetchedAt,
-            message: read.message,
-            progress: read.progress!,
-          };
-        }
-      } else if (sourceType === "builder-cms") {
-        const initial = await readInitialBuilderCmsAttachSource(sourceTable);
-        modelFields = initial.modelFields;
-        builderRead = initial.read;
-        entries = builderRead.state === "live" ? builderRead.entries : [];
-      } else {
-        entries = [];
-        modelFields = [];
-      }
+          now,
+        }));
 
       const secondaryId = await insertSecondarySource({
         database,
+        expectedPrimarySourceId: existingSource.id,
         sourceType,
         sourceName,
         sourceTable,
@@ -440,16 +589,20 @@ export default defineAction({
         additionalRead.state === "live" ? additionalRead.entries : [];
       const additionalSourceId = await insertSecondarySource({
         database,
+        expectedPrimarySourceId: existingSource.id,
         sourceType,
         sourceName,
         sourceTable,
         now,
       });
-      // Snapshot existing items BEFORE importing so we can bind the new source
-      // to ONLY the rows it imports — never the primary's existing rows.
-      const beforeSetup = await sourceSetupPayload(database.id);
+      // Snapshot membership IDs before importing so the new source binds only
+      // its own rows without serializing the existing database.
+      const priorItems = await getDb()
+        .select({ documentId: schema.contentDatabaseItems.documentId })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
       const priorDocumentIds = new Set(
-        beforeSetup.response.items.map((item) => item.document.id),
+        priorItems.map((item) => item.documentId),
       );
       let importedEntriesByDocumentId = new Map<
         string,
@@ -458,6 +611,7 @@ export default defineAction({
       if (additionalRead.state === "live") {
         const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
+          sourceId: additionalSourceId,
           entries: additionalEntries,
           now,
           sourceTable,
@@ -466,7 +620,12 @@ export default defineAction({
         });
         importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
       }
-      const additionalSetup = await sourceSetupPayload(database.id);
+      const importedDocumentIds = [...importedEntriesByDocumentId.keys()];
+      const additionalSetup = await sourceSetupPayload(database.id, {
+        documentIds: importedDocumentIds,
+        limit: Math.max(1, importedDocumentIds.length),
+        offset: 0,
+      });
       // Only the items this collection just created — exclude the primary's.
       const importedItems = additionalSetup.response.items.filter(
         (item) => !priorDocumentIds.has(item.document.id),
@@ -550,7 +709,9 @@ export default defineAction({
       : [];
     const builderInitial =
       sourceType === "builder-cms"
-        ? await readInitialBuilderCmsAttachSource(sourceTable)
+        ? await readCompleteBuilderCmsAttachSource(sourceTable, {
+            fieldPaths: args.builderFieldPaths,
+          })
         : null;
     const sourceId = await replaceSourceMetadata({
       database,
@@ -562,26 +723,48 @@ export default defineAction({
     });
     const builderModelFields = builderInitial?.modelFields ?? [];
     const builderRead = builderInitial?.read ?? null;
+    const builderPropertiesPromise = builderRead
+      ? listPropertiesForDatabase(database.id)
+      : null;
     const builderEntries =
       builderRead?.state === "live" ? builderRead.entries : [];
     let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
+    let importedItems: Awaited<
+      ReturnType<typeof importBuilderCmsEntriesAsDatabaseItems>
+    >["importedItems"] = [];
     if (builderRead?.state === "live") {
       const importResult = await importBuilderCmsEntriesAsDatabaseItems({
         database,
+        sourceId,
         entries: builderEntries,
         now,
         sourceTable,
         existingSourceRows,
       });
       importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
+      importedItems = importResult.importedItems;
     }
-
-    const refreshedSetup = await sourceSetupPayload(database.id);
+    const canUseImportedBuilderItems =
+      builderRead?.state === "live" &&
+      importedItems.length === builderRead.entries.length &&
+      importedItems.length === importedEntriesByDocumentId.size;
+    const refreshedSetup = canUseImportedBuilderItems
+      ? null
+      : await sourceSetupPayload(
+          database.id,
+          initialBuilderAttachmentSetupOptions({
+            builderRead,
+            importedEntriesByDocumentId,
+          }),
+        );
+    const refreshedProperties =
+      refreshedSetup?.properties ?? (await builderPropertiesPromise) ?? [];
+    const refreshedItems = refreshedSetup?.response.items ?? importedItems;
     const builderEntriesByDocumentId =
       builderRead?.state === "live"
         ? mapBuilderCmsEntriesToLocalItems({
             entries: builderEntries,
-            items: refreshedSetup.response.items,
+            items: refreshedItems,
             sourceTable,
             now,
             existingRows: existingSourceRows,
@@ -591,48 +774,65 @@ export default defineAction({
       builderEntriesByDocumentId?.set(documentId, entry);
     }
 
-    await seedMockSourceFields({
-      sourceId,
-      ownerEmail: database.ownerEmail,
-      sourceType,
-      properties: refreshedSetup.properties,
-      builderModelFields,
-      builderSampleEntries: builderEntries,
-      now,
-    });
-    await seedMockSourceRows({
-      sourceId,
-      ownerEmail: database.ownerEmail,
-      sourceType,
-      sourceTable,
-      items: refreshedSetup.response.items,
-      now,
-      builderEntriesByDocumentId,
-    });
-    if (sourceType === "builder-cms" && builderRead?.state === "live") {
-      await enqueueBuilderBodyHydrationForItems({
+    await (async () => {
+      await seedMockSourceFields({
         sourceId,
         ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        sourceTable,
-        items: refreshedSetup.response.items,
-        builderEntriesByDocumentId,
-        now,
-      });
-    }
-    if (sourceType === "builder-cms" && builderRead) {
-      await updateBuilderCmsSourceReadMetadata({
-        sourceId,
-        sourceTable,
-        readState: builderRead.state,
-        entryCount: builderRead.entries.length,
-        matchedRowCount: builderEntriesByDocumentId?.size ?? 0,
-        fetchedAt: builderRead.fetchedAt,
-        now,
-        message: builderRead.message,
+        sourceType,
+        properties: refreshedProperties,
         builderModelFields,
-        ...builderCmsAttachReadMetadata(builderRead),
+        builderSampleEntries: builderEntries,
+        now,
       });
+      await replaceMockSourceRows({
+        sourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType,
+        sourceTable,
+        items: refreshedItems,
+        now,
+        builderEntriesByDocumentId,
+      });
+      if (sourceType === "builder-cms" && builderRead?.state === "live") {
+        await enqueueBuilderBodyHydrationForItems({
+          sourceId,
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+          sourceTable,
+          items: refreshedItems,
+          builderEntriesByDocumentId,
+          now,
+          processInBackground: false,
+        });
+      }
+      if (sourceType === "builder-cms" && builderRead) {
+        await updateBuilderCmsSourceReadMetadata({
+          sourceId,
+          sourceTable,
+          readState: builderRead.state,
+          entryCount: builderRead.entries.length,
+          matchedRowCount: builderEntriesByDocumentId?.size ?? 0,
+          fetchedAt: builderRead.fetchedAt,
+          now,
+          message: builderRead.message,
+          builderModelFields,
+          ...builderCmsAttachReadMetadata(builderRead),
+        });
+      }
+    })();
+    if (sourceType === "builder-cms") {
+      return {
+        responseProjection: "ack",
+        databaseId: database.id,
+        documentId: database.documentId,
+        sourceId,
+        sourceType,
+        sourceTable,
+        importedItemCount: builderAttachDurableItemCount(
+          builderEntriesByDocumentId,
+        ),
+        fetchedAt: builderRead?.fetchedAt ?? now,
+      };
     }
 
     return getContentDatabaseResponse(database.id, {

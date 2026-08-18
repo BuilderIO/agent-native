@@ -10,6 +10,7 @@ import { nanoid } from "./_property-utils.js";
 import {
   createContentDatabaseRecord,
   databaseTitleForPage,
+  resolveContentDatabaseSpace,
 } from "./create-content-database.js";
 
 function createInlineDatabaseBlockId(): string {
@@ -22,23 +23,30 @@ export default defineAction({
   schema: z.object({
     hostDocumentId: z.string().describe("Host page document ID"),
     title: z.string().optional().describe("Database title"),
+    description: z.string().optional().describe("Stable database guidance"),
   }),
   run: async ({
     hostDocumentId,
     title,
+    description,
   }): Promise<CreateInlineDatabaseResponse> => {
     const db = getDb();
     const ownerBlockId = createInlineDatabaseBlockId();
     let databaseId: string | null = null;
     let databaseDocumentId: string | null = null;
+    const spaceId = await resolveContentDatabaseSpace(
+      { parentId: hostDocumentId },
+      db,
+    );
 
     await db.transaction(async (tx) => {
       databaseId = await createContentDatabaseRecord(
         {
           parentId: hostDocumentId,
           title: databaseTitleForPage(title),
+          description,
         },
-        { db: tx },
+        { db: tx, spaceId },
       );
 
       const [updated] = await tx

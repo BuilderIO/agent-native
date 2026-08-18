@@ -3,7 +3,12 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import {
   encryptSecretValue,
   decryptSecretValue,
+  encryptSharedSecretValue,
+  decryptSharedSecretValue,
+  decryptSharedSecretValueDetailed,
+  getSharedSecretEncryptionKey,
   getSecretEncryptionKey,
+  hasSharedSecretEncryptionKeyMaterial,
   isEncryptedSecretValue,
 } from "./crypto.js";
 
@@ -115,6 +120,36 @@ describe("getSecretEncryptionKey", () => {
     expect(appScoped.equals(expected)).toBe(true);
   });
 
+  it("uses shared key material for workspace secrets", () => {
+    process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures a deploy-level app scope.
+    process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "shared-material";
+    const shared = getSharedSecretEncryptionKey();
+
+    delete process.env.APP_NAME; // guard:allow-env-credential — test removes the deploy-level app scope.
+    delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test removes deploy-level app encryption material.
+    const expected = getSharedSecretEncryptionKey();
+
+    expect(shared.equals(expected)).toBe(true);
+  });
+
+  it("falls back to the app-scoped key when shared material is absent", () => {
+    process.env.NODE_ENV = "production";
+    process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures a deploy-level app scope.
+    process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.BETTER_AUTH_SECRET;
+
+    const fallback = getSharedSecretEncryptionKey();
+
+    delete process.env.APP_NAME; // guard:allow-env-credential — test removes the deploy-level app scope.
+    delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test removes deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "analytics-material";
+    const expected = getSharedSecretEncryptionKey();
+
+    expect(fallback.equals(expected)).toBe(true);
+  });
+
   it("derives a stable 32-byte AES key from the configured material", () => {
     process.env.SECRETS_ENCRYPTION_KEY = "stable-material";
     const a = getSecretEncryptionKey();
@@ -143,5 +178,200 @@ describe("getSecretEncryptionKey", () => {
     expect(() => getSecretEncryptionKey()).toThrow(
       /Refusing to start in production without an encryption key/,
     );
+  });
+});
+
+describe("hosted workspace shared secret material (derived from A2A_SECRET)", () => {
+  const ORIGINAL_KEY = process.env.SECRETS_ENCRYPTION_KEY;
+  const ORIGINAL_WORKSPACE_KEY = process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
+  const ORIGINAL_PREVIOUS_WORKSPACE_KEY =
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS;
+  const ORIGINAL_AUTH = process.env.BETTER_AUTH_SECRET;
+  const ORIGINAL_APP_NAME = process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app configuration.
+  const ORIGINAL_WORKSPACE = process.env.AGENT_NATIVE_WORKSPACE;
+  const ORIGINAL_A2A_SECRET = process.env.A2A_SECRET;
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+  const ORIGINAL_DISPATCH_KEY = process.env.DISPATCH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test isolates deploy-level app encryption configuration.
+  const ORIGINAL_COACH_KEY = process.env.COACH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test isolates deploy-level app encryption configuration.
+
+  afterEach(() => {
+    if (ORIGINAL_KEY === undefined) delete process.env.SECRETS_ENCRYPTION_KEY;
+    else process.env.SECRETS_ENCRYPTION_KEY = ORIGINAL_KEY;
+    if (ORIGINAL_WORKSPACE_KEY === undefined) {
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
+    } else {
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY = ORIGINAL_WORKSPACE_KEY;
+    }
+    if (ORIGINAL_PREVIOUS_WORKSPACE_KEY === undefined) {
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS;
+    } else {
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS =
+        ORIGINAL_PREVIOUS_WORKSPACE_KEY;
+    }
+    if (ORIGINAL_AUTH === undefined) delete process.env.BETTER_AUTH_SECRET;
+    else process.env.BETTER_AUTH_SECRET = ORIGINAL_AUTH;
+    if (ORIGINAL_APP_NAME === undefined)
+      delete process.env.APP_NAME; // guard:allow-env-credential — test restores deploy-level app configuration.
+    else process.env.APP_NAME = ORIGINAL_APP_NAME; // guard:allow-env-credential — test restores deploy-level app configuration.
+    if (ORIGINAL_WORKSPACE === undefined)
+      delete process.env.AGENT_NATIVE_WORKSPACE;
+    else process.env.AGENT_NATIVE_WORKSPACE = ORIGINAL_WORKSPACE;
+    if (ORIGINAL_A2A_SECRET === undefined) delete process.env.A2A_SECRET;
+    else process.env.A2A_SECRET = ORIGINAL_A2A_SECRET;
+    if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+    if (ORIGINAL_DISPATCH_KEY === undefined)
+      delete process.env.DISPATCH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+    else process.env.DISPATCH_SECRETS_ENCRYPTION_KEY = ORIGINAL_DISPATCH_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+    if (ORIGINAL_COACH_KEY === undefined)
+      delete process.env.COACH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+    else process.env.COACH_SECRETS_ENCRYPTION_KEY = ORIGINAL_COACH_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+  });
+
+  it("derives shared material from A2A_SECRET on a hosted workspace deploy with no literal keys set", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app configuration.
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(hasSharedSecretEncryptionKeyMaterial()).toBe(true);
+
+    const enc = encryptSharedSecretValue("academy-site-url-value");
+    expect(enc).not.toContain("academy-site-url-value");
+    expect(decryptSharedSecretValue(enc)).toBe("academy-site-url-value");
+  });
+
+  it("derives the SAME shared key for two different APP_NAME values, even with different per-app keys set", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.BETTER_AUTH_SECRET;
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    process.env.APP_NAME = "dispatch"; // guard:allow-env-credential — test switches deploy-level app scope.
+    process.env.DISPATCH_SECRETS_ENCRYPTION_KEY = "dispatch-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    const dispatchShared = getSharedSecretEncryptionKey();
+
+    process.env.APP_NAME = "coach"; // guard:allow-env-credential — test switches deploy-level app scope.
+    process.env.COACH_SECRETS_ENCRYPTION_KEY = "coach-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    const coachShared = getSharedSecretEncryptionKey();
+
+    // The app-scoped *_SECRETS_ENCRYPTION_KEY vars differ per app, but neither
+    // is used for the shared key once A2A_SECRET-derived material is
+    // available — both apps must land on the identical workspace-shared key.
+    expect(dispatchShared.equals(coachShared)).toBe(true);
+  });
+
+  it("uses the A2A-derived key across apps with different auth secrets", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    process.env.APP_NAME = "dispatch"; // guard:allow-env-credential — test switches deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "dispatch-auth-secret";
+    const ciphertext = encryptSharedSecretValue("builder-private-value");
+
+    process.env.APP_NAME = "slides"; // guard:allow-env-credential — test switches deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "slides-auth-secret";
+    expect(decryptSharedSecretValueDetailed(ciphertext)).toEqual({
+      value: "builder-private-value",
+      needsReencrypt: false,
+    });
+  });
+
+  it("reads legacy auth-secret ciphertext and marks it for re-encryption", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    delete process.env.A2A_SECRET;
+    delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "legacy-dispatch-auth-secret";
+    const legacyCiphertext = encryptSharedSecretValue("builder-public-value");
+
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+    expect(decryptSharedSecretValueDetailed(legacyCiphertext)).toEqual({
+      value: "builder-public-value",
+      needsReencrypt: true,
+    });
+  });
+
+  it("uses explicit A2A trust for vault sharing without a workspace wrapper flag", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(hasSharedSecretEncryptionKeyMaterial()).toBe(true);
+    expect(
+      decryptSharedSecretValue(
+        encryptSharedSecretValue("independently-deployed-sibling"),
+      ),
+    ).toBe("independently-deployed-sibling");
+  });
+
+  it("keeps app-local ciphertext stable when a workspace-only key is added", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
+    delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS;
+    delete process.env.A2A_SECRET;
+    delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "app-local-auth-material";
+
+    const appLocalCiphertext = encryptSecretValue("oauth-token-value");
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+      "stable-workspace-vault-material";
+
+    expect(decryptSecretValue(appLocalCiphertext)).toBe("oauth-token-value");
+    expect(
+      decryptSharedSecretValue(
+        encryptSharedSecretValue("workspace-vault-value"),
+      ),
+    ).toBe("workspace-vault-value");
+  });
+
+  it("reads a previous workspace key and marks the ciphertext for rotation", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+    delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS;
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+      "old-workspace-vault-material";
+    const oldCiphertext = encryptSharedSecretValue("rotating-vault-value");
+
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+      "new-workspace-vault-material";
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS =
+      "old-workspace-vault-material";
+    expect(decryptSharedSecretValueDetailed(oldCiphertext)).toEqual({
+      value: "rotating-vault-value",
+      needsReencrypt: true,
+    });
+
+    const refreshedCiphertext = encryptSharedSecretValue(
+      "rotating-vault-value",
+    );
+    delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS;
+    expect(decryptSharedSecretValueDetailed(refreshedCiphertext)).toEqual({
+      value: "rotating-vault-value",
+      needsReencrypt: false,
+    });
+  });
+
+  it("survives A2A trust rotation when the workspace vault key is stable", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+    delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS;
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+      "stable-workspace-vault-material";
+    process.env.A2A_SECRET = "old-a2a-trust-material";
+    const ciphertext = encryptSharedSecretValue("rotation-safe-value");
+
+    process.env.A2A_SECRET = "new-a2a-trust-material";
+    expect(decryptSharedSecretValueDetailed(ciphertext)).toEqual({
+      value: "rotation-safe-value",
+      needsReencrypt: false,
+    });
   });
 });

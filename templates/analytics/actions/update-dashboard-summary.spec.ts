@@ -93,7 +93,7 @@ function panel(id: string) {
     source: "first-party",
     chartType: "metric",
     width: 1,
-    sql: "SELECT COUNT(*) AS value FROM analytics_events",
+    sql: "SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '2020-01-01'",
   };
 }
 
@@ -114,6 +114,40 @@ describe("update-dashboard proof-of-done summary", () => {
 
   it("is exposed to the dashboard editor's browser action client", () => {
     expect(updateDashboard.http).toEqual({ method: "POST" });
+  });
+
+  it("does not mark frontend saves as AI edits", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    const config = { name: "Weekly", panels: [panel("a")] };
+
+    await updateDashboard.run(
+      { dashboardId: "weekly", config },
+      { caller: "frontend" },
+    );
+
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-weekly",
+      JSON.stringify(config),
+      "content",
+      undefined,
+    );
+  });
+
+  it("marks agent tool edits as AI edits", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    const config = { name: "Weekly", panels: [panel("a")] };
+
+    await updateDashboard.run(
+      { dashboardId: "weekly", config },
+      { caller: "tool" },
+    );
+
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-weekly",
+      JSON.stringify(config),
+      "content",
+      "agent",
+    );
   });
 
   it("returns panelCount + summary on a full config replace", async () => {

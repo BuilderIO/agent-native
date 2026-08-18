@@ -8,8 +8,8 @@ import {
   MCP_TOOL_PREFIX,
 } from "./manager.js";
 
-// Fake MCP Client + StdioClientTransport. These stand in for the real
-// @modelcontextprotocol/sdk exports via vi.mock below.
+// Fake MCP Client + transports. These stand in for the split MCP v2 packages
+// via vi.mock below.
 
 type FakeTool = {
   name: string;
@@ -151,16 +151,13 @@ class FakeHttp {
   }
 }
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.doMock("@modelcontextprotocol/client", () => ({
   Client: FakeClient,
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
-  StdioClientTransport: FakeStdio,
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: FakeHttp,
+}));
+
+vi.doMock("@modelcontextprotocol/client/stdio", () => ({
+  StdioClientTransport: FakeStdio,
 }));
 
 describe("parseMcpToolName", () => {
@@ -282,6 +279,9 @@ describe("McpClientManager", () => {
       [MCP_APP_EXTENSION_ID]: {
         mimeTypes: [MCP_APP_MIME_TYPE],
       },
+    });
+    expect(fakeClients[0]?.capabilities.versionNegotiation).toEqual({
+      mode: "auto",
     });
   });
 
@@ -438,9 +438,7 @@ describe("McpClientManager", () => {
       const firstPartyPayload = decodeJwtPayload(
         httpCallHeaders[0].Authorization.replace(/^Bearer\s+/i, ""),
       );
-      expect(firstPartyPayload.aud).toBe(
-        "https://assets.example.com/_agent-native/mcp",
-      );
+      expect(firstPartyPayload.aud).toBe("https://assets.example.com/mcp");
       expect(httpCallHeaders[0]["x-agent-native-mcp-inline-apps"]).toBe("1");
       expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
       expect(
@@ -508,7 +506,7 @@ describe("McpClientManager", () => {
     expect(payload.org_id).toBe("org-123");
     expect(payload.scope).toBe("mcp-connect");
     expect(payload.agent_native_first_party_mcp).toBe(true);
-    expect(payload.aud).toBe("https://assets.example.com/_agent-native/mcp");
+    expect(payload.aud).toBe("https://assets.example.com/mcp");
   });
 
   it("throws a clear error for unknown server prefixes", async () => {
@@ -564,6 +562,27 @@ describe("McpClientManager", () => {
     } finally {
       FakeClient.prototype.connect = origConnect;
     }
+  });
+
+  it("hydrates an initially empty manager through reconfigure", async () => {
+    serverFixtures["late-bin"] = {
+      tools: [{ name: "late_tool" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const manager = new McpClientManager(null);
+    const changed = vi.fn();
+    manager.onChange(changed);
+
+    const result = await manager.reconfigure({
+      servers: { late: { command: "late-bin" } },
+    });
+
+    expect(result.added).toEqual(["late"]);
+    expect(manager.connectedServers).toEqual(["late"]);
+    expect(manager.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__late__late_tool",
+    ]);
+    expect(changed).toHaveBeenCalledOnce();
   });
 
   it("retries unchanged servers left in an error state on reconfigure", async () => {
@@ -686,7 +705,7 @@ describe("McpClientManager", () => {
     // errors through `this.onerror?.(...)`. On AWS Lambda the long-lived
     // socket gets reaped ~60s after the function returns, surfacing as a
     // `socket hang up` unhandled rejection — see `processStream()` in
-    // @modelcontextprotocol/sdk/client/streamableHttp.js. The manager must
+    // @modelcontextprotocol/client. The manager must
     // attach a transport.onerror handler BEFORE client.connect() so those
     // errors are captured even when Client's wiring hasn't run yet.
     const seenOnError: Array<((error: unknown) => void) | undefined> = [];

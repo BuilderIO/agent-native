@@ -40,7 +40,9 @@ export function inspectorObjectTitle(element: ElementInfo): string {
 export function componentNameForElementInfo(
   element: ElementInfo | null | undefined,
 ): string {
-  return element?.componentName?.trim() ?? "";
+  const explicitName = element?.componentName?.trim();
+  if (explicitName) return explicitName;
+  return element?.provenance?.component?.trim() ?? "";
 }
 
 export function elementIsComponentSelection(

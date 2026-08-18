@@ -5,9 +5,9 @@ description: "Automações programadas e acionadas por eventos com condições d
 
 # Automações
 
-Uma **automação** é uma regra: _quando X acontecer, faça Y_ — descrita em linguagem natural. O agente executa as instruções, para que as automações tenham acesso a todas as ações, ferramentas e servidores MCP que o agente pode usar em um chat interativo.
+Uma **automação** é uma tarefa executada pelo agente em um horário ou quando ocorre um evento: _quando X acontecer, faça Y_. **Scheduled** e **Event** são dois tipos de gatilho, não produtos separados.
 
-As automações estendem o [recurring jobs](/docs/recurring-jobs) com **gatilhos de eventos**, **condições de linguagem natural** e **HTTP de saída** por meio da ferramenta `web-request`. Eles usam o mesmo formato de arquivo `jobs/<name>.md`, armazenamento e fluxo de trabalho de "criação de três maneiras" como trabalhos recorrentes - consulte [Recurring Jobs](/docs/recurring-jobs#job-file) para o formato compartilhado. Esta página aborda apenas o que há de novo em automações orientadas a eventos.
+O framework originalmente expunha automações agendadas como **Recurring Jobs**. Esse nome, o caminho `jobs/<name>.md` e a ferramenta `manage-jobs` permanecem por compatibilidade. A nova orientação usa **Automations** como conceito geral; consulte [Recurring Jobs](/docs/recurring-jobs) ao manter um job agendado antigo ou usar escopo de organização e campos avançados.
 
 <Diagram id="doc-block-cg714a" title={"Quando X acontecer, faça Y"} summary={"Um evento é acionado no barramento, uma condição opcional de linguagem natural o bloqueia e o agente executa o corpo de automação com acesso total à ferramenta."}>
 
@@ -72,9 +72,15 @@ Os gatilhos de eventos podem incluir um `condition` — uma string de linguagem 
 
 O agente descobre os eventos disponíveis, confirma o plano e escreve a automação para você.
 
-### Nas configurações UI
+### Na interface Automations
 
-Automações aparecem no painel de configurações. Os usuários podem visualizar, ativar/desativar e excluí-los lá.
+Abra **Automations** na página completa do Agent para ver e gerenciar automações agendadas e acionadas por eventos. A URL de compatibilidade continua sendo `/agent#jobs`, portanto links e favoritos existentes continuam funcionando.
+
+<Callout tone="warning">
+
+`manage-automations` oferece automações pessoais e de organização para gatilhos Scheduled e Event. Automações Event da organização são visíveis aos membros, mas sempre executam como seu criador; administradores podem gerenciá-las sem alterar essa identidade.
+
+</Callout>
 
 O terceiro caminho — escrever o arquivo `jobs/<name>.md` manualmente via `resourcePut` — funciona exatamente como para [recurring jobs](/docs/recurring-jobs#creating). Para uma automação orientada a eventos, você adiciona o frontmatter do acionador de eventos abaixo ao mesmo arquivo. Um trabalho acionado por evento define `schedule: ""` e fornece `triggerType: event`, um nome `event` e um `condition` opcional:
 
@@ -172,11 +178,11 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-O `owner` nos escopos de metadados de emissão que as automações disparam — somente as automações pertencentes ao mesmo usuário (ou automações compartilhadas) são avaliadas.
+O `owner` nos metadados de emissão determina quais automações podem disparar. Automações Event pessoais e da organização exigem correspondência exata com `createdBy`.
 
 ## Condições {#conditions}
 
@@ -228,7 +234,7 @@ Chaves são segredos ad hoc criados pelos usuários ou pelo agente para uso de a
 
 ## Ferramentas do agente {#agent-tools}
 
-Todas as operações de automação são acessadas através de uma única ferramenta `manage-automations` com um parâmetro `action`:
+Automações pessoais e da organização usam `manage-automations` com um parâmetro `action`:
 
 | Ação          | Propósito                                                                |
 | ------------- | ------------------------------------------------------------------------ |
@@ -240,6 +246,8 @@ Todas as operações de automação são acessadas através de uma única ferram
 | `fire-test`   | Emitir um evento `test.event.fired` para validar automações              |
 
 Ferramenta adicional: `web-request` — saída HTTP com substituição `${keys.NAME}`.
+
+`manage-automations` oferece escopo de organização, substituições de modelo e listas de permissões MCP aplicadas estritamente. `manage-jobs` continua como ferramenta de compatibilidade para integrações antigas apenas agendadas e metadados de entrega.
 
 ## Extremidades API {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ notificação para meu webhook."_
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"
@@ -382,6 +392,6 @@ para obter a referência completa da carga `plan.commented` e todos os quatro ev
 ## O que vem a seguir
 
 - [**Recurring Jobs**](/docs/recurring-jobs) — automações acionadas por agendamento reutilizam o mesmo agendador
-- [**Actions**](/docs/actions) — as automações podem chamar qualquer ação registrada por meio do loop do agente
+- [**Actions**](/docs/actions-overview) — as automações podem chamar qualquer ação registrada por meio do loop do agente
 - [**Security**](/docs/security) — validação de entrada e tratamento de segredos
 - [**Visual Plans — Events**](/docs/template-plan#events) — planejar eventos de referência e receitas de automação

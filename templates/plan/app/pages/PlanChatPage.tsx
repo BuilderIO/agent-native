@@ -1,8 +1,8 @@
 import {
   AgentChatHome,
   markAgentChatHomeHandoff,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect } from "react";
 
 import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
@@ -30,7 +30,6 @@ export function PlanChatPage() {
       contentClassName="max-w-5xl"
       surfaceClassName="border-0 bg-transparent shadow-none"
       storageKey="plans"
-      restoreActiveThread={false}
       showHeader={false}
       showTabBar={false}
       dynamicSuggestions={false}

@@ -26,30 +26,26 @@ export default createAuthPlugin({
     "https://www.googleapis.com/auth/calendar.events",
   ],
   marketing: {
-    appName: "Agent-Native Mail",
+    appName: "Mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",
       "Multi-account Gmail in a single unified inbox",
       "Autonomous triage, archiving, and follow-ups",
     ],
-    runLocalCommand:
-      "npx @agent-native/core@latest create my-mail-app --template mail",
-  },
-  googleSignInNotice: {
-    host: "mail.agent-native.com",
-    title: "Google may show a warning",
-    body: [
-      "You'll see this screen because this demo uses Agent-Native's Google app, not a Google-reviewed public app.",
-      "It's safe to continue: click Advanced, then “Go to … (unsafe)” to finish signing in.",
-    ],
-    continueLabel: "Continue to Google",
-    cancelLabel: "Run locally",
   },
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when
   // GMAIL_PUSH_AUDIENCE is configured.
   // Cloud Scheduler POSTs to /api/gmail/watch/renew every 6h for watch
   // lifecycle; same OIDC-verification pattern.
-  publicPaths: ["/api/gmail/push", "/api/gmail/watch/renew", "/api/tracking"],
+  // Attachment upload capabilities carry their own short-lived, owner-bound
+  // bearer credential because a local MCP caller cannot attach the browser's
+  // session cookie to the subsequent raw-byte PUT.
+  publicPaths: [
+    "/api/gmail/push",
+    "/api/gmail/watch/renew",
+    "/api/tracking",
+    "/api/media/attachment-upload",
+  ],
 });

@@ -1,5 +1,6 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
+import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { z } from "zod";
 
 import { processAutomations } from "../lib/automation-engine.js";
@@ -18,6 +19,10 @@ import {
 
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
+// Backstop for the whole tick (job sends + Gmail watch renewal, both outbound
+// network calls with no timeout of their own), reported through the job's
+// onError so a wedged tick is loud rather than silent.
+const TICK_ABORT_MS = Math.max(10_000, INTERVAL_MS * 4);
 let lastWatchRenewalAt = 0;
 // Vite's dev server initializes Nitro plugins more than once during boot
 // (initial load + post-init). Module-scope flag ensures the "skipping" log
@@ -48,7 +53,7 @@ async function processJobs(): Promise<void> {
   const due = await getDuePendingJobs(now);
 
   for (const job of due) {
-    await markJobProcessing(job.id);
+    if (!(await markJobProcessing(job.id))) continue;
 
     try {
       const ownerEmail = job.ownerEmail || job.accountEmail;
@@ -124,24 +129,38 @@ export default () => {
     return;
   }
 
-  setInterval(async () => {
-    try {
-      await processJobs();
-    } catch (err) {
-      console.error("[mail-jobs] processJobs failed:", err);
-    }
-    try {
-      await processAutomations();
-    } catch (err) {
-      console.error("[mail-jobs] processAutomations failed:", err);
-    }
-    if (Date.now() - lastWatchRenewalAt > WATCH_RENEW_INTERVAL_MS) {
-      lastWatchRenewalAt = Date.now();
+  // The overlap guard and the hung-tick timeout both come from
+  // startIntervalJob rather than a module-level `running` flag here: these
+  // are outbound Google calls with no timeout of their own, and releasing the
+  // guard on the timeout while a hung call kept running is what let a tick
+  // overlap the next one and send duplicate mail.
+  startIntervalJob(
+    async () => {
       try {
-        await renewAllWatches();
+        await processJobs();
       } catch (err) {
-        console.error("[mail-jobs] renewAllWatches failed:", err);
+        console.error("[mail-jobs] processJobs failed:", err);
       }
-    }
-  }, INTERVAL_MS);
+      try {
+        await processAutomations();
+      } catch (err) {
+        console.error("[mail-jobs] processAutomations failed:", err);
+      }
+      if (Date.now() - lastWatchRenewalAt > WATCH_RENEW_INTERVAL_MS) {
+        lastWatchRenewalAt = Date.now();
+        try {
+          await renewAllWatches();
+        } catch (err) {
+          console.error("[mail-jobs] renewAllWatches failed:", err);
+        }
+      }
+    },
+    {
+      intervalMs: INTERVAL_MS,
+      timeoutMs: TICK_ABORT_MS,
+      leading: false,
+      onError: (err) =>
+        console.error("[mail-jobs] tick exceeded time budget:", err),
+    },
+  );
 };

@@ -13,7 +13,7 @@ Agent-Native 附带了完整的侧边栏，但侧边栏不是合同。
 从聚焦的客户端子路径导入浏览器UI：
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -173,8 +173,9 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## 聊天字段和作曲家 {#composer}
 
-当您需要进行相同的聊天时，请使用`@agent-native/core/client/composer`
-自定义UI内的侧边栏使用的字段。
+当您需要在自定义 UI 中使用与侧边栏相同的聊天字段时，请使用 `@agent-native/core/client/composer`。
+`@agent-native/toolkit/composer` 提供可移植的纯 Tiptap 和 UI 实现；要使用框架服务，
+请用 `ComposerRuntimeAdaptersProvider` 包裹它并提供这些服务。Core 是已连接附件、提及、技能、语音和模型选择的包装器。
 
 | API                               | 何时使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -205,12 +206,11 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 使用 `@agent-native/core/client/conversation` 进行转录样式渲染
 在完整代理运行时之外。
 
-| API                                             | 何时使用                             |
-| ----------------------------------------------- | ------------------------------------ |
-| `<AgentConversation>`                           | 呈现标准化代理消息列表。             |
-| `<AgentConversationMessageView>`                | 渲染一条标准化消息。                 |
-| `normalizeCodeAgentTranscriptForConversation()` | 将代码代理转录事件转换为对话消息。   |
-| `useNearBottomAutoscroll()`                     | 在流式传输时将自定义脚本固定在底部。 |
+| API                                             | 何时使用                           |
+| ----------------------------------------------- | ---------------------------------- |
+| `<AgentConversation>`                           | 呈现标准化代理消息列表。           |
+| `<AgentConversationMessageView>`                | 渲染一条标准化消息。               |
+| `normalizeCodeAgentTranscriptForConversation()` | 将代码代理转录事件转换为对话消息。 |
 
 这一层有意做到数据优先：您拥有消息的来源，并且
 渲染器拥有一致的降价、附件、通知、工件和
@@ -495,6 +495,6 @@ export default defineAction({
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — 通过教程优先的引导挂载 `<AgentSidebar>` 和 `<AgentPanel>`
 - [**Native Chat UI**](/docs/native-chat-ui) — 数据小组件和自定义渲染器背后的操作结果契约
-- [**Actions**](/docs/actions) — `defineAction()`、模式以及这些组件调用的操作表面
+- [**Actions**](/docs/actions-overview) — `defineAction()`、模式以及这些组件调用的操作表面
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — 深入了解协作钩子和在线状态组件
 - [**Sharing**](/docs/sharing) — 为可拥有资源连接 `<ShareButton>` 和 `<ShareDialog>`

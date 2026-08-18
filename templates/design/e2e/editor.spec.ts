@@ -69,9 +69,23 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
 
   await sendTab.click();
   await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+  const copyPromptButton = page.getByRole("button", {
+    name: "Copy agent prompt",
+  });
+  await expect(copyPromptButton).toBeVisible();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(page.url()).origin,
+  });
+  await copyPromptButton.click();
   await expect(
-    page.getByRole("button", { name: "Copy agent prompt" }),
+    page.getByText("Agent prompt copied", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText("Clipboard blocked", { exact: true }),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+    "Build this design as production code: E2E Seed Design",
+  );
 
   const popover = page
     .locator("[data-radix-popper-content-wrapper]")

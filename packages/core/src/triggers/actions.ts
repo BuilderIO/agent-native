@@ -5,25 +5,31 @@
  * available in every template. The agent uses them to create, list, and
  * manage automations from chat.
  *
- * All six operations are consolidated into a single `manage-automations` tool
+ * All seven operations are consolidated into a single `manage-automations` tool
  * with an `action` discriminator to keep the tool registry compact.
  */
 
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  defineAutomation,
+  deleteAutomation,
+  listAutomationDefinitions,
+  updateAutomation,
+  type AutomationScope,
+} from "../automations/service.js";
 import { listEvents } from "../event-bus/index.js";
 import {
-  resourceListAllOwners,
-  resourcePut,
-  resourceDelete,
-  resourceGetByPath,
-  SHARED_OWNER,
-} from "../resources/store.js";
+  getRemoteExecutionCapabilities,
+  listRemoteDevicesForOwner,
+} from "../integrations/remote-devices-store.js";
+import { describeCron, effectiveTimezone } from "../jobs/cron.js";
+import { queueAutomationRunNow } from "../jobs/run-now.js";
 import {
-  parseTriggerFrontmatter,
-  buildTriggerContent,
-  refreshEventSubscriptions,
-} from "./dispatcher.js";
-import type { TriggerFrontmatter } from "./types.js";
+  getIntegrationRequestContext,
+  getRequestOrgId,
+} from "../server/request-context.js";
+import { refreshEventSubscriptions } from "./dispatcher.js";
 
 /* ------------------------------------------------------------------ */
 /*  Individual action handlers                                        */
@@ -53,60 +59,98 @@ async function handleListEvents(): Promise<string> {
   return lines.join("\n");
 }
 
-async function handleList(
-  args: Record<string, string>,
-  getCurrentUser: () => string,
-): Promise<string> {
-  const owner = getCurrentUser();
-  const resources = await resourceListAllOwners("jobs/");
-  const triggers = resources
-    .filter((r) => r.owner === owner || r.owner === SHARED_OWNER)
-    .filter((r) => r.path.endsWith(".md"))
-    .map((r) => {
-      const { meta, body } = parseTriggerFrontmatter(r.content);
-      const name = r.path.replace(/^jobs\//, "").replace(/\.md$/, "");
-      return { name, meta, body, owner: r.owner, id: r.id };
-    })
-    .filter((t) => {
-      if (args.domain && t.meta.domain !== args.domain) return false;
-      if (args.enabled_only === "true" && !t.meta.enabled) return false;
-      return true;
-    });
-
-  if (triggers.length === 0) return "No automations found.";
-
-  const lines = triggers.map((t) => {
-    const type =
-      t.meta.triggerType === "event"
-        ? `on ${t.meta.event || "?"}`
-        : `cron: ${t.meta.schedule}`;
-    const status = t.meta.enabled ? "enabled" : "disabled";
-    const lastStatus = t.meta.lastStatus ? ` (last: ${t.meta.lastStatus})` : "";
-    const condition = t.meta.condition
-      ? `\n  Condition: "${t.meta.condition}"`
-      : "";
-    const domain = t.meta.domain ? ` [${t.meta.domain}]` : "";
-    return `- **${t.name}**${domain}: ${type} → ${t.meta.mode} (${status}${lastStatus})${condition}\n  Body: ${t.body.slice(0, 100)}${t.body.length > 100 ? "..." : ""}`;
+async function handleListHosts(getCurrentUser: () => string): Promise<string> {
+  const devices = await listRemoteDevicesForOwner({
+    ownerEmail: getCurrentUser(),
+    orgId: getRequestOrgId(),
+    status: "active",
+    limit: 50,
   });
-  return lines.join("\n\n");
+  const now = Date.now();
+  return JSON.stringify(
+    devices.map((device) => ({
+      id: device.id,
+      name: device.label,
+      platform: device.platform,
+      hostName: device.hostName,
+      status: device.status,
+      online: device.lastSeenAt !== null && now - device.lastSeenAt <= 90_000,
+      lastSeenAt: device.lastSeenAt
+        ? new Date(device.lastSeenAt).toISOString()
+        : null,
+      executionCapabilities: getRemoteExecutionCapabilities(device),
+    })),
+    null,
+    2,
+  );
+}
+
+async function handleList(
+  args: Record<string, unknown>,
+  getCurrentUser: () => string,
+  appId?: string,
+): Promise<string> {
+  const scope = automationScope(args.scope);
+  const definitions = await listAutomationDefinitions(
+    { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
+    scope,
+  );
+  const automations = definitions
+    .filter(({ meta }) => !args.domain || meta.domain === args.domain)
+    .filter(({ meta }) => args.enabled_only !== "true" || meta.enabled)
+    .map(({ name, meta, body, canUpdate }) => ({
+      name,
+      scope,
+      triggerType: meta.triggerType,
+      event: meta.event ?? null,
+      schedule: meta.schedule || null,
+      timezone: meta.timezone ? effectiveTimezone(meta.timezone) : null,
+      scheduleDescription: meta.schedule
+        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+        : null,
+      condition: meta.condition ?? null,
+      mode: meta.mode,
+      domain: meta.domain ?? null,
+      appId: meta.appId ?? null,
+      enabled: meta.enabled,
+      lastRun: meta.lastRun ?? null,
+      lastStatus: meta.lastStatus ?? null,
+      lastError: meta.lastError ?? null,
+      nextRun: meta.nextRun ?? null,
+      createdBy: meta.createdBy ?? null,
+      runAs: meta.runAs ?? null,
+      model: meta.model ?? null,
+      executionHostId: meta.executionHostId ?? null,
+      executionEngine: meta.executionEngine ?? null,
+      executionCwd: meta.executionCwd ?? null,
+      mcpTools: meta.mcpTools ?? [],
+      originScopeId: meta.originScopeId ?? null,
+      deliveryPlatform: meta.deliveryPlatform ?? null,
+      deliveryDestination: meta.deliveryDestination ?? null,
+      deliveryThreadRef: meta.deliveryThreadRef ?? null,
+      deliveryTenantId: meta.deliveryTenantId ?? null,
+      body,
+      canUpdate,
+    }));
+  return JSON.stringify(automations, null, 2);
+}
+
+function automationScope(value: unknown): AutomationScope {
+  if (value === undefined || value === null || value === "") return "personal";
+  if (value === "personal" || value === "organization") return value;
+  throw new Error('scope must be "personal" or "organization".');
+}
+
+function automationTriggerType(value: unknown): "schedule" | "event" {
+  if (value === "schedule" || value === "event") return value;
+  throw new Error('trigger_type must be "schedule" or "event".');
 }
 
 async function handleDefine(
-  args: Record<string, string>,
+  args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
-  const owner = getCurrentUser();
-  const name = (args.name || "").replace(/[^a-z0-9-]/g, "-");
-  if (!name) return "Error: name is required (lowercase, hyphens).";
-
-  const path = `jobs/${name}.md`;
-
-  // Check if it already exists
-  const existing = await resourceGetByPath(owner, path);
-  if (existing) {
-    return `Error: An automation named "${name}" already exists. Use a different name or delete the existing one first.`;
-  }
-
   if (args.mode === "deterministic") {
     return (
       "Error: Deterministic mode was removed — it was never implemented and " +
@@ -114,90 +158,203 @@ async function handleDefine(
       "mode (agentic), and describe the exact fixed steps in the automation body."
     );
   }
+  const integration = getIntegrationRequestContext();
+  try {
+    const definition = await defineAutomation(
+      {
+        userEmail: getCurrentUser(),
+        orgId: getRequestOrgId(),
+        appId,
+      },
+      {
+        name: typeof args.name === "string" ? args.name : "",
+        scope: automationScope(args.scope),
+        triggerType: automationTriggerType(args.trigger_type),
+        body: typeof args.body === "string" ? args.body : "",
+        schedule: typeof args.schedule === "string" ? args.schedule : undefined,
+        timezone: typeof args.timezone === "string" ? args.timezone : undefined,
+        event: typeof args.event === "string" ? args.event : undefined,
+        condition:
+          typeof args.condition === "string" ? args.condition : undefined,
+        domain: typeof args.domain === "string" ? args.domain : undefined,
+        delegatedPolicyId:
+          typeof args.delegated_policy_id === "string"
+            ? args.delegated_policy_id
+            : undefined,
+        model: typeof args.model === "string" ? args.model : undefined,
+        executionHostId:
+          typeof args.execution_host_id === "string"
+            ? args.execution_host_id
+            : undefined,
+        executionEngine:
+          typeof args.execution_engine === "string"
+            ? args.execution_engine
+            : undefined,
+        executionCwd:
+          typeof args.execution_cwd === "string"
+            ? args.execution_cwd
+            : undefined,
+        mcpTools: args.mcpTools,
+        delivery: integration
+          ? {
+              originScopeId: integration.scopeId,
+              platform: integration.incoming.platform,
+              destination:
+                typeof integration.incoming.platformContext.channelId ===
+                "string"
+                  ? integration.incoming.platformContext.channelId
+                  : undefined,
+              threadRef:
+                typeof integration.incoming.threadRef === "string"
+                  ? integration.incoming.threadRef
+                  : undefined,
+              tenantId: integration.incoming.tenantId,
+            }
+          : undefined,
+      },
+    );
 
-  const triggerType = args.trigger_type === "schedule" ? "schedule" : "event";
-  const meta: TriggerFrontmatter = {
-    schedule: args.schedule || "",
-    enabled: true,
-    triggerType,
-    event: args.event || undefined,
-    condition: args.condition || undefined,
-    mode: "agentic",
-    domain: args.domain || undefined,
-    createdBy: owner,
-    runAs: "creator",
-  };
-
-  const content = buildTriggerContent(meta, args.body || "");
-  await resourcePut(owner, path, content);
-
-  // Refresh event subscriptions so the new trigger is active immediately
-  await refreshEventSubscriptions();
-
-  const summary =
-    triggerType === "event"
-      ? `on ${meta.event || "?"}${meta.condition ? ` when "${meta.condition}"` : ""}`
-      : `on schedule "${meta.schedule}"`;
-
-  return `Automation "${name}" created. Fires ${summary} in ${meta.mode} mode.`;
+    await refreshEventSubscriptions();
+    return JSON.stringify({
+      created: true,
+      name: definition.name,
+      scope: definition.scope,
+      triggerType: definition.meta.triggerType,
+      event: definition.meta.event ?? null,
+      schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
+      nextRun: definition.meta.nextRun ?? null,
+      createdBy: definition.meta.createdBy,
+      runAs: definition.meta.runAs,
+      model: definition.meta.model ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
+      mcpTools: definition.meta.mcpTools ?? [],
+      originScopeId: definition.meta.originScopeId ?? null,
+      deliveryPlatform: definition.meta.deliveryPlatform ?? null,
+      deliveryDestination: definition.meta.deliveryDestination ?? null,
+      deliveryThreadRef: definition.meta.deliveryThreadRef ?? null,
+      deliveryTenantId: definition.meta.deliveryTenantId ?? null,
+    });
+  } catch (error) {
+    return `Error: ${(error as Error).message}`;
+  }
 }
 
 async function handleUpdate(
-  args: Record<string, string>,
+  args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
-  const owner = getCurrentUser();
-  const name = args.name;
-  const path = `jobs/${name}.md`;
-
-  const resource = await resourceGetByPath(owner, path);
-  if (!resource) {
-    return `Automation "${name}" not found (or you don't own it).`;
+  try {
+    const definition = await updateAutomation(
+      { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
+      {
+        name: typeof args.name === "string" ? args.name : "",
+        scope: automationScope(args.scope),
+        enabled:
+          args.enabled === undefined
+            ? undefined
+            : args.enabled === true || args.enabled === "true",
+        condition:
+          args.condition === undefined
+            ? undefined
+            : typeof args.condition === "string"
+              ? args.condition
+              : null,
+        delegatedPolicyId:
+          args.delegated_policy_id === undefined
+            ? undefined
+            : typeof args.delegated_policy_id === "string"
+              ? args.delegated_policy_id
+              : null,
+        body: typeof args.body === "string" ? args.body : undefined,
+        schedule: typeof args.schedule === "string" ? args.schedule : undefined,
+        timezone: typeof args.timezone === "string" ? args.timezone : undefined,
+        model:
+          args.model === undefined
+            ? undefined
+            : typeof args.model === "string"
+              ? args.model
+              : null,
+        executionHostId:
+          args.execution_host_id === undefined
+            ? undefined
+            : typeof args.execution_host_id === "string"
+              ? args.execution_host_id
+              : null,
+        executionEngine:
+          args.execution_engine === undefined
+            ? undefined
+            : typeof args.execution_engine === "string"
+              ? args.execution_engine
+              : null,
+        executionCwd:
+          args.execution_cwd === undefined
+            ? undefined
+            : typeof args.execution_cwd === "string"
+              ? args.execution_cwd
+              : null,
+        mcpTools: args.mcpTools,
+      },
+    );
+    await refreshEventSubscriptions();
+    return JSON.stringify({
+      updated: true,
+      name: definition.name,
+      scope: definition.scope,
+      triggerType: definition.meta.triggerType,
+      enabled: definition.meta.enabled,
+      schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
+      nextRun: definition.meta.nextRun ?? null,
+      createdBy: definition.meta.createdBy,
+      runAs: definition.meta.runAs,
+      model: definition.meta.model ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
+      mcpTools: definition.meta.mcpTools ?? [],
+      originScopeId: definition.meta.originScopeId ?? null,
+      deliveryPlatform: definition.meta.deliveryPlatform ?? null,
+      deliveryDestination: definition.meta.deliveryDestination ?? null,
+      deliveryThreadRef: definition.meta.deliveryThreadRef ?? null,
+      deliveryTenantId: definition.meta.deliveryTenantId ?? null,
+    });
+  } catch (error) {
+    return `Error: ${(error as Error).message}`;
   }
-
-  const { meta, body } = parseTriggerFrontmatter(resource.content);
-
-  if (args.enabled !== undefined) {
-    meta.enabled = args.enabled !== "false";
-  }
-  if (args.condition !== undefined) {
-    meta.condition = args.condition || undefined;
-  }
-  const newBody = args.body ?? body;
-
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(meta, newBody),
-  );
-  await refreshEventSubscriptions();
-
-  return `Automation "${name}" updated.`;
 }
 
 async function handleDelete(
-  args: Record<string, string>,
+  args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
-  const owner = getCurrentUser();
-  const path = `jobs/${args.name}.md`;
-
-  const resource = await resourceGetByPath(owner, path);
-  if (!resource) return `Automation "${args.name}" not found.`;
-
-  await resourceDelete(resource.id);
-  return `Automation "${args.name}" deleted.`;
+  const name = typeof args.name === "string" ? args.name : "";
+  try {
+    await deleteAutomation(
+      { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
+      automationScope(args.scope),
+      name,
+    );
+    await refreshEventSubscriptions();
+    return JSON.stringify({ deleted: true, name });
+  } catch (error) {
+    return `Error: ${(error as Error).message}`;
+  }
 }
 
 async function handleFireTest(
-  args: Record<string, string>,
+  args: Record<string, unknown>,
   getCurrentUser: () => string,
 ): Promise<string> {
   // Dynamic import to avoid circular dependency at module load time
   const { emit } = await import("../event-bus/index.js");
 
   let data: Record<string, unknown> = {};
-  if (args.data) {
+  if (typeof args.data === "string" && args.data) {
     try {
       data = JSON.parse(args.data);
     } catch {
@@ -212,21 +369,47 @@ async function handleFireTest(
   return `Test event fired with payload: ${JSON.stringify({ data })}. Any automations subscribed to "test.event.fired" will be evaluated.`;
 }
 
+async function handleRunNow(
+  args: Record<string, unknown>,
+  getCurrentUser: () => string,
+  appId?: string,
+  context?: ActionRunContext,
+): Promise<string> {
+  if (context?.caller === "automation") {
+    return "Error: an automation cannot run another automation.";
+  }
+  try {
+    const result = await queueAutomationRunNow({
+      userEmail: getCurrentUser(),
+      orgId: getRequestOrgId(),
+      appId,
+      scope: automationScope(args.scope),
+      name: typeof args.name === "string" ? args.name : "",
+    });
+    return JSON.stringify(result);
+  } catch (error) {
+    return `Error: ${(error as Error).message}`;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Consolidated tool entry                                           */
 /* ------------------------------------------------------------------ */
 
 const VALID_ACTIONS = [
   "list-events",
+  "list-hosts",
   "list",
   "define",
   "update",
   "delete",
   "fire-test",
+  "run-now",
 ] as const;
 
 export function createAutomationToolEntries(
   getCurrentUser: () => string,
+  appId?: string,
 ): Record<string, ActionEntry> {
   return {
     "manage-automations": {
@@ -234,24 +417,32 @@ export function createAutomationToolEntries(
         description: `Manage automations (event-triggered and scheduled tasks). Use the "action" parameter to choose an operation:
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
-- **list**: List all automations (triggers). Shows name, event, condition, mode, status, and domain. Optional params: domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: event, schedule, condition, mode, domain.
-- **update**: Update an existing automation's settings (enabled, condition, body, etc.). Required param: name. Optional: enabled, condition, body.
+- **list-hosts**: List paired execution hosts and their non-secret capabilities. Call this before assigning execution_host_id.
+- **list**: List all automations (triggers). Shows trigger, status, model, execution host, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, execution_host_id, execution_engine, execution_cwd, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event trigger when it should run only when something changes. Host-targeted automations queue code-agent work on that host and do not silently fall back to this server.
+- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
-- **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).`,
+- **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
+- **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name; optional scope.`,
         parameters: {
           type: "object" as const,
           properties: {
             action: {
               type: "string",
               description:
-                "The operation to perform: list-events, list, define, update, delete, or fire-test.",
+                "The operation to perform: list-events, list-hosts, list, define, update, delete, fire-test, or run-now.",
               enum: [...VALID_ACTIONS],
             },
             name: {
               type: "string",
               description:
-                "Slug name for the automation (lowercase, hyphens). Used by define, update, and delete.",
+                "Slug name for the automation (lowercase, hyphens). Used by define, update, delete, and run-now.",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Personal or organization scope. Organization automations are visible to the active organization but always execute as their creator.",
+              enum: ["personal", "organization"],
             },
             trigger_type: {
               type: "string",
@@ -263,10 +454,15 @@ export function createAutomationToolEntries(
               description:
                 "For event triggers: the event name to subscribe to. Call with action=list-events first to see available events.",
             },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone the cron clock time is read in, e.g. 'America/New_York'. Optional; defaults to the user's saved scheduling timezone, then the caller's browser zone. Always pass this when the user names a time of day.",
+            },
             schedule: {
               type: "string",
               description:
-                'For schedule triggers: cron expression. Example: "0 9 * * 1-5" (9am weekdays).',
+                'For schedule triggers: cron expression. If omitted, defaults to "0 * * * *" (once per hour). Example: "0 9 * * 1-5" (9am weekdays).',
             },
             condition: {
               type: "string",
@@ -283,6 +479,37 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "Domain tag for grouping (mail, calendar, clips, etc.). Used by define and list.",
+            },
+            model: {
+              type: "string",
+              description:
+                "Optional model id for this automation. The default model is used when omitted.",
+            },
+            execution_host_id: {
+              type: "string",
+              description:
+                "Optional exact paired host id for scheduled code-agent execution. Call list-hosts first; a selected host is never silently replaced by another host.",
+            },
+            execution_engine: {
+              type: "string",
+              description:
+                "Optional host engine id, such as codex-cli or claude-cli. It must be advertised by the selected host when host capabilities include an engine list.",
+            },
+            execution_cwd: {
+              type: "string",
+              description:
+                "Optional workspace path on the execution host. Use the host connector's configured workspace when omitted.",
+            },
+            mcpTools: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                'Optional explicit MCP capabilities. Use exact advertised tool names, for example ["mcp__meeting-notes__list_meetings"]. Credentials stay in the connector.',
+            },
+            delegated_policy_id: {
+              type: "string",
+              description:
+                "Optional app-owned stored policy id. It is passed by the trusted trigger runtime, never as action input. Only use an id documented by the app.",
             },
             body: {
               type: "string",
@@ -308,22 +535,42 @@ export function createAutomationToolEntries(
           required: ["action"],
         },
       },
-      run: async (args: Record<string, string>) => {
+      planMode: {
+        effect: (args) =>
+          args.action === "list" ||
+          args.action === "list-events" ||
+          args.action === "list-hosts"
+            ? "read"
+            : "write",
+        allowedValues: {
+          action: ["list-events", "list-hosts", "list"],
+        },
+        description:
+          "Plan mode allows listing automations, execution hosts, and event types.",
+      },
+      run: async (
+        args: Record<string, unknown>,
+        context?: ActionRunContext,
+      ) => {
         const action = args.action;
 
         switch (action) {
           case "list-events":
             return handleListEvents();
+          case "list-hosts":
+            return handleListHosts(getCurrentUser);
           case "list":
-            return handleList(args, getCurrentUser);
+            return handleList(args, getCurrentUser, appId);
           case "define":
-            return handleDefine(args, getCurrentUser);
+            return handleDefine(args, getCurrentUser, appId);
           case "update":
-            return handleUpdate(args, getCurrentUser);
+            return handleUpdate(args, getCurrentUser, appId);
           case "delete":
-            return handleDelete(args, getCurrentUser);
+            return handleDelete(args, getCurrentUser, appId);
           case "fire-test":
             return handleFireTest(args, getCurrentUser);
+          case "run-now":
+            return handleRunNow(args, getCurrentUser, appId, context);
           default:
             return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }

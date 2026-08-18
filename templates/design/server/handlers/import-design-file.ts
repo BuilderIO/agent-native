@@ -10,15 +10,21 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { MAX_FIG_FILE_BYTES } from "../lib/fig-file-limits.js";
 import {
   normalizeImportedHtmlDocument,
   saveImportedDesignFiles,
 } from "../lib/import-design-files.js";
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
+  TOTAL_BODY_LIMIT,
+} from "../lib/request-body-limits.js";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
-const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
-const TOTAL_BODY_LIMIT = MAX_FIG_FILE_BYTES + MULTIPART_OVERHEAD_BYTES;
+
+// Matches the local-kiwi clipboard frame cap so a token-free .fig hydration of
+// a multi-frame paste can fill every imported screen in one upload.
+const MAX_HYDRATE_FILES = 50;
 
 function fieldText(
   parts: Awaited<ReturnType<typeof readMultipartFormData>>,
@@ -126,9 +132,56 @@ export const importDesignFile = defineEventHandler(async (event) => {
         }
 
         if (ext === ".fig") {
-          if (data.length > MAX_FIG_FILE_BYTES) {
-            throw new Error(".fig file is too large (max 50 MB).");
+          if (data.length > MAX_UPLOAD_BYTES) {
+            throw new Error(
+              `.fig file is too large (max ${MAX_UPLOAD_MB} MB). In Figma, copy just the frame you want into a new file and export that as .fig.`,
+            );
           }
+
+          // Token-free hydration: fill the image placeholders left by a no-token
+          // clipboard paste using the SAME .fig's embedded image bytes. No Figma
+          // token, no REST call — the .fig `images/` entries are keyed by the
+          // same SHA-1 hash the paste stamped into data-figma-image-ref.
+          const hydrateFileIdsRaw = fieldText(parts, "hydrateFileIds");
+          if (hydrateFileIdsRaw) {
+            const fileIds = hydrateFileIdsRaw
+              .split(",")
+              .map((id) => id.trim())
+              .filter(Boolean);
+            if (fileIds.length === 0) {
+              throw new Error("No screen ids provided to hydrate.");
+            }
+            if (fileIds.length > MAX_HYDRATE_FILES) {
+              throw new Error(
+                `Too many screens to hydrate at once (max ${MAX_HYDRATE_FILES}).`,
+              );
+            }
+            const { hydrateFileImagesFromFig, indexFigImages } =
+              await import("../lib/figma-image-hydration.js");
+            // Decode + index the uploaded .fig once, then reuse across screens.
+            const figImages = indexFigImages(data);
+            const results = [];
+            let totalResolved = 0;
+            let totalMissing = 0;
+            for (const fileId of fileIds) {
+              const result = await hydrateFileImagesFromFig({
+                fileId,
+                figImages,
+                ownerEmail: session.email!,
+              });
+              results.push(result);
+              totalResolved += result.resolved;
+              totalMissing += result.missing;
+            }
+            return {
+              importKind: "fig-hydrate" as const,
+              designId,
+              results,
+              totalResolved,
+              totalMissing,
+            };
+          }
+
           // Keep Kiwi/Zstd and the sizeable editable renderer off the normal HTML
           // upload path. They are loaded only for an actual `.fig` request.
           const { importFigFileToEditableHtml } =
@@ -148,6 +201,7 @@ export const importDesignFile = defineEventHandler(async (event) => {
             importKind: "fig",
             ...saved,
             stats: converted.stats,
+            unresolvedImageRefCount: converted.stats.unresolvedImageRefCount,
           };
         }
 

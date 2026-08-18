@@ -4,6 +4,7 @@ const messages = {
     searchForms: "फॉर्म खोजें",
     appearance: "दिखावट",
     toggleTheme: "थीम बदलें",
+    openAgent: "एजेंट खोलें",
   },
   header: {
     settings: "सेटिंग्स",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "प्रपत्र पूछें",
     allForms: "सभी फॉर्म",
     team: "टीम",
+    agent: "एजेंट",
   },
   settings: {
     title: "सेटिंग्स",
@@ -31,10 +33,10 @@ const messages = {
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
-    agentTitle: "एजेंट सेटिंग्स",
+    agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    openAgentSettings: "एजेंट प्रबंधित करें",
   },
   agent: {
     emptyState: "अपने फॉर्म के बारे में कुछ भी पूछें",
@@ -85,6 +87,15 @@ const messages = {
     addOption: "विकल्प जोड़ें",
     min: "मिन",
     max: "अधिकतम",
+    conditionalVisibility: "सशर्त दृश्यता",
+    conditionalVisibilityDescription: "यह फ़ील्ड तभी दिखाएँ जब पिछला उत्तर मेल खाए।",
+    conditionField: "पिछला उत्तर",
+    conditionOperator: "शर्त",
+    conditionEquals: "है",
+    conditionNotEquals: "नहीं है",
+    conditionContains: "में शामिल है",
+    conditionValue: "उत्तर",
+    conditionValuePlaceholder: "उत्तर दर्ज करें...",
     fieldTypes: {
       text: "लघु पाठ",
       email: "ईमेल",
@@ -141,6 +152,7 @@ const messages = {
     integrationsTab: "इंटीग्रेशन",
     settingsSaved: "सेटिंग्स सहेजी गईं",
     integrationsSaved: "इंटीग्रेशन सहेजे गए",
+    saveFailed: "परिवर्तन सहेजे नहीं जा सके",
     formTitlePlaceholder: "फॉर्म शीर्षक",
     addDescriptionPlaceholder: "विवरण जोड़ें...",
     dragToReorder: "क्रम बदलने के लिए खींचें",
@@ -191,6 +203,9 @@ const messages = {
       anonymousResponses: "गुमनाम प्रतिक्रियाएँ",
       anonymousResponsesDescription:
         "IP पते, प्रतिक्रिया देने वाले की पहचान या स्रोत मेटाडेटा सहेजें नहीं।",
+      emailNewResponses: "नई प्रतिक्रियाओं के लिए मुझे ईमेल करें",
+      emailNewResponsesDescription:
+        "हर प्रतिक्रिया पर फ़ॉर्म के मालिक के खाते के ईमेल पर सूचना भेजें।",
       saveSettings: "सेटिंग्स सहेजें",
     },
     integrations: {
@@ -204,7 +219,8 @@ const messages = {
         "प्रतिक्रिया डेटा के साथ JSON POST भेजता है। Zapier, Make, n8n आदि के साथ काम करता है।",
       googleSheetsBlurb:
         "हर प्रतिक्रिया को ऐसी spreadsheet में मिरर करें जिसे आपकी टीम साझा कर सके।",
-      googleSheetsHelp: "POST डेटा प्राप्त करने वाला Apps Script web app deploy करें",
+      googleSheetsHelp:
+        "तैनात किया हुआ Apps Script /exec URL इस्तेमाल करें जो e.postData.contents से JSON पढ़कर पंक्ति जोड़ता है।",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -253,6 +269,8 @@ const messages = {
     duplicated: "फॉर्म डुप्लिकेट किया गया",
     duplicateFailed: "प्रपत्र की नकल बनाने में विफल",
     movedToArchive: "फॉर्म को पुरालेख में ले जाया गया",
+    movingToArchive: "फॉर्म को पुरालेख में ले जाया जा रहा है…",
+    archiveFailed: "फॉर्म को पुरालेख में ले जाने में विफल",
     restored: "फॉर्म बहाल हो गया",
     permanentlyDeleted: "फ़ॉर्म स्थायी रूप से हटा दिया गया",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

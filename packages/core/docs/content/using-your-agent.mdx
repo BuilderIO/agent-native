@@ -63,11 +63,22 @@ There's a simple through-line. The agent **sees** what you're looking at, you **
 
 </Diagram>
 
+This is what it looks like in practice: your app on one side, the agent docked next to it on the other, seeing the same screen you do.
+
+<WireframeBlock id="doc-block-usingagent1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;display:grid;grid-template-columns:1fr 300px;gap:16px;padding:24px'><main class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;align-items:center;gap:10px'><strong>Inbox</strong><span class='wf-pill'>12 unread</span></div><div class='wf-box'>Design review notes<br/><span class='wf-muted'>Ada Lovelace &middot; 9:14 AM</span></div><div class='wf-box' style='border-color:var(--wf-accent)'>Q3 renewal — action needed<br/><span class='wf-muted'>Selected &middot; 10:02 AM</span></div><div class='wf-box'>Weekly signups digest<br/><span class='wf-muted'>Automations &middot; 8:00 AM</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box' style='align-self:flex-end;max-width:85%'>Summarize this and draft a reply. <span class='wf-pill'>@analytics</span></div><div class='wf-box' style='max-width:90%;background:var(--wf-accent-soft)'>Ada wants to move the renewal call. Draft below — send it?</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;align-items:center;gap:8px'><span class='wf-muted' style='flex:1'>Message the agent...</span><button>Voice</button></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
 ## It sees what you're looking at {#it-sees}
 
 The agent isn't blind to your screen. Open an email and it knows which thread. Select a chart and it knows which chart. Highlight a paragraph and it can act on just that range. That shared awareness is what lets you say "reply to this" or "summarize the selection" without spelling out the context every time.
 
-This works because the current navigation and selection live in `application_state` SQL, which the agent reads as part of its context. The agent can also drive that same state back — opening a view, selecting a row — so you watch it work in the real UI rather than in a transcript.
+This works because the app quietly keeps track of what view you're on and what you've selected, and shares that with the agent as part of its context. The agent can also drive that same state back — opening a view, selecting a row — so you watch it work in the real UI rather than in a transcript.
 
 <Callout id="doc-block-wljfsx" tone="info">
 
@@ -83,13 +94,22 @@ Most of the time you steer the agent by typing into the chat. Two things make th
 
 **Voice.** The composer has a microphone. Dictate a request instead of typing it, with provider options ranging from Builder's hosted transcription to bring-your-own-key to a browser fallback.
 
+A few examples of what that looks like in practice:
+
+| Type or say this                       | What happens                                                         |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| "Summarize this" (with a row selected) | Acts on exactly what you have open or highlighted — no re-explaining |
+| "@analytics pull last week's signups"  | Pulls in a specialist agent's answer before continuing your request  |
+| Click the mic and talk                 | Your words become the prompt — no typing needed                      |
+| "Reply to this and CC Ada"             | Drafts using the context it already has from what you're looking at  |
+
 ## You embed it {#you-embed-it}
 
-The agent isn't a separate app you tab over to. It ships as a handful of React components — a sidebar, a raw panel, and a `sendToAgentChat()` call — that you drop into any app. Render `<AgentSidebar>` to give every screen a toggleable agent, or wire a button to hand a specific task off to the chat instead of running a one-shot LLM call.
+The agent isn't a separate app you tab over to. Wherever you see a chat panel in an agent-native app, it can be docked next to any screen — toggle it open, and it's right there next to whatever you're working on. App builders can also wire a button to hand a specific task straight to the agent instead of building a one-off "AI" feature for it. If you're building the app rather than using it, see [Drop-in Agent](/docs/drop-in-agent) for the components that make this work.
 
 ## You can go UI-light {#ui-light}
 
-Not every app needs a full dashboard. When the agent _is_ the product, you can skip most of the custom UI: open the app, ask for what you want, and let the agent do the rest. The agent still has its management surface — history, workspace, settings — but the primary interaction is conversation rather than clicks.
+Not every app needs a full dashboard. When the agent _is_ the product, you can skip most of the custom UI: open the app, ask for what you want, and let the agent do the rest. The agent still has its management surface — history, agent resources, settings — but the primary interaction is conversation rather than clicks.
 
 ## You co-edit with it {#you-co-edit}
 
@@ -101,5 +121,8 @@ When you and the agent are working on the same document, you don't take turns. W
 - [**Agent Mentions**](/docs/agent-mentions) — direct it with `@`-mentions
 - [**Voice Input**](/docs/voice-input) — direct it by speaking
 - [**Drop-in Agent**](/docs/drop-in-agent) — embed it in any React app
+- [**Native Chat UI**](/docs/native-chat-ui) — ask for a chart or table and get a real, interactive one in the reply
+- [**Generative UI**](/docs/generative-ui) — ask for sliders, a calculator, or a picker and the agent builds it inline
 - [**Automation-First Apps**](/docs/pure-agent-apps) — use no-browser apps for jobs, queues, scripts, and external agents
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — co-edit the same document together
+- [**Component API**](/docs/components) — the full building-block reference, for developers embedding the agent

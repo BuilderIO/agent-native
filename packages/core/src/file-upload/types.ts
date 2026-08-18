@@ -3,8 +3,8 @@
  *
  * Templates call `uploadFile()` to upload a file and get back a URL.
  * The framework dispatches to whichever provider is registered (Builder.io
- * built-in, or a user-supplied one). If no provider is active, it falls back
- * to the SQL resources store — fine for dev, not recommended for production.
+ * built-in, or a user-supplied one). If no provider is active, uploads fail
+ * closed so binary payloads never get persisted as base64 in SQL.
  */
 
 export interface FileUploadInput {
@@ -14,7 +14,7 @@ export interface FileUploadInput {
   filename?: string;
   /** MIME type, e.g. "image/png". */
   mimeType?: string;
-  /** Optional owner email for per-user scoping in fallback storage. */
+  /** Owner email used for request-scoped provider credentials. */
   ownerEmail?: string;
   /** Builder.io upload hint: return one stable URL while compression finishes asynchronously. */
   stableUrl?: boolean;

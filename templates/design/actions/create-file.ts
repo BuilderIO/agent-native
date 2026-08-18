@@ -6,6 +6,10 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertDesignHtmlCreateIntegrity,
+  describeDesignHtmlIntegrityIssue,
+} from "../shared/html-integrity.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 export default defineAction({
@@ -63,6 +67,14 @@ export default defineAction({
     // the first time someone opens it.
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
 
+    // Reject malformed HTML before the row exists — creation went through raw
+    // inserts, so it was the one write path with no integrity gate.
+    const advisory = assertDesignHtmlCreateIntegrity({
+      content: annotatedContent,
+      fileType: fileType ?? "html",
+      filename,
+    });
+
     await db.insert(schema.designFiles).values({
       id,
       designId,
@@ -94,6 +106,9 @@ export default defineAction({
       fileType: resolvedFileType,
       renderable,
       urlPath: renderable ? `/design/${designId}` : null,
+      ...(advisory.length > 0
+        ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }
+        : {}),
     };
   },
 });

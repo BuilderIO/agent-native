@@ -2,13 +2,21 @@
 name: hubspot
 description: >-
   Query HubSpot CRM for deals, companies, contacts, tickets, owners, and
-  account/deal context.
+  account/deal context. Use when the user asks for HubSpot data or connection
+  status.
 ---
 
 # HubSpot
 
 Use HubSpot for CRM facts: deal status, amount, stage, owner, forecast,
 associated account context, contacts, companies, and tickets.
+
+Analytics' HubSpot actions use its native provider credential or granted
+workspace connection. A missing optional HubSpot MCP server does not mean
+HubSpot is disconnected. Never send the user to HubSpot MCP setup to answer an
+Analytics data question. If availability is unclear, call `data-source-status`
+with `key: "hubspot"`; when it reports HubSpot configured, run the native
+HubSpot action directly.
 
 `hubspot-deals` is a legacy-named deal analytics shortcut, not the boundary of
 the HubSpot integration. If the user asks for any HubSpot object, endpoint,

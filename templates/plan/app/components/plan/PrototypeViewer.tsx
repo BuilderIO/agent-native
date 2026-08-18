@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { PlanPrototype } from "@shared/plan-content";
 import { useCallback, useEffect, useMemo, useState } from "react";
 

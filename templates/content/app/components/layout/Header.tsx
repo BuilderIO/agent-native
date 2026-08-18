@@ -1,4 +1,4 @@
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import {
   useHeaderTitle,
   useHeaderActions,

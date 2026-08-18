@@ -1,0 +1,236 @@
+---
+title: "Local-Files Mode and Desktop Sync"
+description: "Keep Agent-Native Plan content out of the hosted database with local-files privacy mode and visualize-repo, or mirror a hosted plan's source to a folder with Agent Native Desktop."
+---
+
+# Local-Files Mode and Desktop Sync
+
+Some plans should never touch a shared database — a security review, an
+unreleased feature, or a repo you want the plan checked into directly. This
+page covers the two ways Plan content can live in files on disk instead of (or
+alongside) the hosted database, and how the two differ.
+
+## Local-files privacy mode {#local-files}
+
+For privacy-focused work, ask for local-files mode:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+or set the convention for your agent environment:
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+In this mode the agent writes a local MDX folder and must not call the hosted
+Plan MCP tools. Use a repo folder such as `plans/<slug>/` when you want the plan
+checked in with the code. Use a temp or ignored folder, such as
+`/tmp/agent-native-plans/<slug>/` or `.agent-native/plans/<slug>/`, when the
+plan should stay out of git.
+
+<FileTree
+  id="doc-block-plan3"
+  title="Local plan folder shape"
+  entries={[
+    { path: "plan.mdx", note: "frontmatter plus markdown/document blocks" },
+    {
+      path: "canvas.mdx",
+      note: "optional — DesignBoard/Section/Artboard/Screen/Annotation/Connector markup",
+    },
+    {
+      path: "prototype.mdx",
+      note: "optional — Prototype/PrototypeScreen/PrototypeTransition markup",
+    },
+    {
+      path: ".plan-state.json",
+      note: "optional — source metadata for stable bare-Markdown block IDs",
+    },
+    {
+      path: "assets/",
+      note: "optional — local image assets referenced by the MDX",
+    },
+  ]}
+/>
+
+After writing the folder, the agent starts a tiny localhost bridge and opens the
+hosted Plan UI against that local-only source:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+The bridge URL looks like
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
+The page is the normal Plan viewer, but the browser fetches `plan.mdx`,
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json`, and local image assets from
+the localhost bridge. Plan content is not written to the hosted database and is
+not sent through hosted Plan actions. Keep the bridge process running while you
+review; the URL is local to your machine and is not a shareable team link. The
+serve command writes the open URL to `.plan-url` by default so coding agents can
+capture it without scraping long-running stdout; treat that file as local-only
+because the URL contains the bridge token, and do not commit it.
+
+On macOS, `--open` prefers Chrome/Chromium because Safari can block the hosted
+HTTPS Plan page from fetching an HTTP localhost bridge. For headless
+troubleshooting, run:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` starts the bridge, checks the private-network preflight and JSON
+payload, prints diagnostics, and exits.
+
+If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can also
+open the editable app route:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+For repo-backed folders, the direct local route can carry the repo-relative
+folder path so browser edits keep writing to that folder:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+The Plan app uses `apps.plan.roots[0].path` in `agent-native.json` as the
+default repo location for promoted local plans, falling back to `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+Direct local Plan routes include a menu action to save a temporary local folder
+into that repo location. After promotion, the page reopens with `?path=...` and
+continues autosaving MDX edits to the repo folder.
+
+Local-files mode prevents plan or recap content from going to the Agent-Native
+Plan database. It also disables hosted sharing, browser comments, plan history,
+and publish/export receipts until you explicitly opt into publishing.
+Local-files mode does not automatically make your coding agent's LLM local;
+choose a local or approved model if that privacy boundary matters too.
+
+## Promoting a local plan into the hosted database {#promote}
+
+To move a local plan into the hosted database, call `publish-visual-plan` with
+the local MDX folder path. This uploads the plan, assigns it a hosted ID,
+enables sharing and commenting, and returns the hosted URL — at that point the
+plan follows the normal [sharing and commenting rules](/docs/template-plan-review-workflow#sharing)
+like any other hosted plan.
+
+<Diagram id="doc-block-plan4" title="Three lanes for plan content" summary="Local-files mode and desktop sync both keep source in a folder, but only one of them skips the hosted database entirely.">
+
+```html
+<div class="diagram-lanes">
+  <div class="diagram-box">
+    Local-files mode<br /><small class="diagram-muted"
+      >MDX folder only — never in the Plan DB</small
+    >
+  </div>
+  <div class="diagram-box">
+    Desktop local sync<br /><small class="diagram-muted"
+      >Plan DB is the source of truth — folder is a mirror</small
+    >
+  </div>
+  <div class="diagram-panel center">
+    Hosted (default)<br /><small class="diagram-muted"
+      >SQL-backed — sharing, comments, history, live review</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-lanes {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-lanes .diagram-box {
+  flex: 1;
+  min-width: 180px;
+}
+.diagram-lanes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  flex: 1;
+  min-width: 180px;
+}
+```
+
+</Diagram>
+
+## Repo visual docs {#visualize-repo}
+
+Use `/visualize-repo` when you want a durable visual documentation layer for a
+codebase instead of a one-off plan or recap. It creates or opens a local Plan
+MDX workspace, updates `agent-native.json` with an `apps.visualize-repo`
+local-files section, and serves the docs through the same localhost bridge:
+
+```bash
+npx @agent-native/core@latest visualize-repo --open
+```
+
+If no `agent-native.json` exists, the command bootstraps one and recommends a
+small starter set from the repo structure, such as `actions/`,
+`app/components/`, `app/pages/`, `server/db/schema.ts`, `src/`, `packages/`,
+`templates/`, `docs/`, or `content/`. You can target specific source anchors:
+
+```bash
+npx @agent-native/core@latest visualize-repo \
+  --target actions/webhooks.ts \
+  --target server/db/schema.ts \
+  --target app/components/PromptComposer.tsx
+```
+
+The starter folder lives at `.agent-native/visual-docs/repo-overview` by
+default. Comments stay local in `comments.json`, so reviewers can mark sections
+for a coding agent and the agent can update both code and MDX in the same
+change. Run `visualize-repo check` for local lint, and `visualize-repo verify`
+when you want the Plan renderer schema to validate the MDX.
+
+## Desktop local file sync {#desktop-local-sync}
+
+Agent Native Desktop also gives hosted Plans a native local-folder bridge. This
+is different from local-files privacy mode: the hosted Plan database remains the
+source of truth for sharing, comments, history, and live review, while Desktop
+can mirror the current plan's source files to a folder you choose.
+
+Open a plan in Agent Native Desktop, use the plan menu's **Local files** actions,
+then:
+
+- **Link local folder** — choose the folder for that plan's MDX source.
+- **Sync to local folder** — write `plan.mdx`, optional `canvas.mdx`,
+  optional `prototype.mdx`, optional `.plan-state.json`, and image assets.
+- **Import local edits** — read the folder and apply it through
+  `import-visual-plan-source` with the plan's current update timestamp.
+- **Auto-sync changes** — keep exporting the hosted plan's latest source after
+  edits made in the app.
+
+This path does not require cloning the Plan app or running a CLI. It is for
+file-first review/editing around a hosted plan, not for keeping plan content out
+of the hosted database.
+
+## What's next
+
+- [**Visual Plans**](/docs/template-plan) — the two commands and the guest browser flow
+- [**Reviewing and Commenting on Plans**](/docs/template-plan-review-workflow) — what publishing a local plan unlocks
+- [**Extending Plan**](/docs/template-plan-developers) — MDX source sync actions and the fully offline local dev mode

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { redactArgsToJson, __test } from "./redact.js";
+import { redactArgsToJson, redactTextToSummary, __test } from "./redact.js";
 
 describe("redactArgsToJson", () => {
   it("redacts credential-looking keys", () => {
@@ -69,6 +69,18 @@ describe("redactArgsToJson", () => {
     expect(typeof parsed.preview).toBe("string");
   });
 
+  it("honours a caller-supplied cap, envelope included", () => {
+    // The A2A activity snapshot has a much tighter wire budget than the audit
+    // log, and validates the exact stored length — the truncation envelope has
+    // to fit inside the cap, not overhang it.
+    const json = redactArgsToJson(
+      { command: "echo hi; ".repeat(500), cwd: "/repo" },
+      { maxJson: 256, maxString: 64 },
+    );
+    expect(json!.length).toBeLessThanOrEqual(256);
+    expect(() => JSON.parse(json!)).not.toThrow();
+  });
+
   it("returns null for nullish input", () => {
     expect(redactArgsToJson(null)).toBeNull();
     expect(redactArgsToJson(undefined)).toBeNull();
@@ -78,5 +90,35 @@ describe("redactArgsToJson", () => {
     const a: any = { name: "x" };
     a.self = a;
     expect(() => redactArgsToJson(a)).not.toThrow();
+  });
+});
+
+describe("redactTextToSummary", () => {
+  it("keeps short text verbatim and marks clipped text", () => {
+    expect(redactTextToSummary("all good", 100)).toBe("all good");
+
+    const long = "line of output\n".repeat(500);
+    const summary = redactTextToSummary(long, 200)!;
+    expect(summary.length).toBeLessThanOrEqual(200);
+    expect(summary).toContain("more chars");
+  });
+
+  it("redacts a result that is nothing but a credential", () => {
+    expect(redactTextToSummary("sk-live-000000000000000000000000")).toBe(
+      "[redacted]",
+    );
+    expect(redactTextToSummary("")).toBeNull();
+  });
+
+  it("redacts credentials embedded in text and JSON fields", () => {
+    const summary = redactTextToSummary(
+      'request failed: Authorization: Bearer fake-bearer-value token=fake-token-value body={"apiKey":"fake-api-key"}',
+    );
+    expect(summary).toContain("Authorization: Bearer [redacted]");
+    expect(summary).toContain("token=[redacted]");
+    expect(summary).toContain('"apiKey":"[redacted]"');
+    expect(summary).not.toContain("fake-bearer-value");
+    expect(summary).not.toContain("fake-token-value");
+    expect(summary).not.toContain("fake-api-key");
   });
 });

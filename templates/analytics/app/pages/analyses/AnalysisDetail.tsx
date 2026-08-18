@@ -1,11 +1,12 @@
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  ShareButton,
   callAction,
   useActionMutation,
   useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
-import { useSendToAgentChat } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   IconRefresh,
   IconTrash,
@@ -18,7 +19,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { Link, useNavigate } from "react-router";
 
@@ -150,12 +151,12 @@ export default function AnalysisDetail() {
     send({
       message: t("analyses.rerunMessage", { name: analysis.name }),
       context:
-        `This is a re-run of a saved ad-hoc analysis. REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status, generate-chart, and save-analysis do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results.\n\n` +
+        `This is a re-run of a legacy saved ad-hoc analysis. Treat the refreshed result as a dashboard artifact: REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status and generate-chart do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results. Build with native dashboard panels and Data Programs first. Create a dashboard-scoped Custom Block only when the user explicitly wants a bespoke one-off result that native panels cannot represent; set config.extensionId and categorical config.customBlock provenance. Route reusable/native capability requests through connect-builder. Only call save-analysis when the user explicitly asks to preserve this legacy analysis record.\n\n` +
         `Use these instructions to reproduce it:\n\n` +
         `Analysis ID: ${analysis.id}\n` +
         `Original question: ${analysis.question}\n\n` +
         `Instructions:\n${analysis.instructions}\n\n` +
-        `After gathering the data, call save-analysis with id="${analysis.id}" to update the results.`,
+        `After gathering the data, call update-dashboard with a new dashboardId to save the refreshed artifact. If the user explicitly asked to update this legacy record instead, call save-analysis with id="${analysis.id}".`,
       submit: true,
     });
   };
@@ -167,6 +168,11 @@ export default function AnalysisDetail() {
     queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
     navigate("/analyses");
   };
+
+  const analysisShareUrl = useMemo(() => {
+    if (!analysis?.id || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/analyses/" + analysis.id);
+  }, [analysis?.id]);
 
   useSetPageTitle(
     analysis ? (
@@ -182,8 +188,10 @@ export default function AnalysisDetail() {
         <ShareButton
           resourceType="analysis"
           resourceId={analysis.id}
+          allowedRoles={["viewer", "editor", "admin"]}
           resourceTitle={analysis.name}
           variant="compact"
+          shareUrl={analysisShareUrl}
         />
         <Button
           variant="outline"
