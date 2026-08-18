@@ -14,12 +14,12 @@ Es gibt zwei gute Einstiegspunkte:
 - **Sie bauen eine App?** Beginnen Sie mit [Getting Started](/docs/getting-started) und kehren Sie hierher zurück, wenn Sie die App dauerhaft bereitstellen möchten.
 - **Sie betreiben eine App?** Verwenden Sie zuerst den lokalen Docker-Pfad. Er nutzt dieselbe Form aus Node.js, Postgres, Authentifizierung und Umgebungsvariablen wie ein kleiner Server.
 
-Der lokale Stack verwendet absichtlich ein Beispiel-Auth-Secret und ein lokales Postgres-Volume. Er ist für `localhost`, nicht für eine Bereitstellung im Internet gedacht. Die vollständige Compose-Datei und kopierbaren Schritte finden Sie im [englischen Schnellstart](/docs/deployment#self-host-quickstart).
+Der lokale Stack verwendet absichtlich ein Beispiel-Auth-Secret und ein lokales Postgres-Volume. Er ist für `localhost`, nicht für eine Bereitstellung im Internet gedacht. Die vollständige Compose-Datei und kopierbaren Schritte finden Sie im [englischen Schnellstart](https://www.agent-native.com/docs/deployment#self-host-quickstart).
 
 ### 1. App erstellen
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```

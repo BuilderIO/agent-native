@@ -5,7 +5,7 @@ This is a local-only Docker Compose fixture for a fresh Agent-Native Chat app.
 1. Create an app and install dependencies:
 
    ```bash
-   npx @agent-native/core@latest create my-app --template chat
+   npx @agent-native/core@latest create my-app --standalone --template chat
    cd my-app
    pnpm install
    ```

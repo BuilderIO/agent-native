@@ -19,7 +19,7 @@ The local stack intentionally uses a fake auth secret, trust authentication, and
 ### 1. Create the app
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```
@@ -37,10 +37,9 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgres://agent_native@postgres:5432/agent_native
-      BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: local-development-secret-change-me-1234567890
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
@@ -71,7 +70,7 @@ volumes:
 docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Set `ANTHROPIC_API_KEY` in a local `.env` file if you want to use the embedded agent; leave it empty if you only want to verify that the app and database start. Stop the stack with `docker compose down`; add `-v` when you intentionally want to reset the local database.
+Open [http://localhost:3000](http://localhost:3000). The app infers its local auth origin from the browser request. Set `ANTHROPIC_API_KEY` in a local `.env` file if you want to use the embedded agent; leave it empty if you only want to verify that the app and database start. Stop the stack with `docker compose down`; add `-v` when you intentionally want to reset the local database.
 
 Before putting this on the public internet, replace the example secret, configure HTTPS and OAuth callback URLs, use a persistent production database, and complete the [production environment checklist](#env-required-prod).
 
@@ -377,14 +376,14 @@ proxy, but the important part is the path-prefix routing:
 ```yaml filename="docker-compose.yml" maxLines=30
 services:
   postgres:
-    image: postgres:18
+    image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_DB: agent_native
       POSTGRES_USER: agent_native
       POSTGRES_PASSWORD: change-me
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - postgres-data:/var/lib/postgresql/data
 
   mail:
     build:

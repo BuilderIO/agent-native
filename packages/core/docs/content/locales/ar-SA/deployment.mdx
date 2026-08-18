@@ -14,12 +14,12 @@ description: "انشر تطبيقات الوكيل الأصلية على أي ن
 - **هل تبني تطبيقًا؟** ابدأ بـ [Getting Started](/docs/getting-started)، ثم عد إلى هنا عندما تصبح مستعدًا لوضع التطبيق في مكان دائم.
 - **هل تدير تطبيقًا؟** استخدم مسار Docker المحلي أولًا. فهو يختبر شكل Node.js وPostgres والمصادقة ومتغيرات البيئة الذي ستستخدمه على خادم صغير.
 
-يستخدم هذا المسار سر مصادقة تجريبيًا وحجم Postgres محليًا، ولذلك فهو مخصص لـ `localhost` وليس للنشر على الإنترنت. للحصول على ملف Compose الكامل والخطوات القابلة للنسخ، راجع [المسار السريع باللغة الإنجليزية](/docs/deployment#self-host-quickstart).
+يستخدم هذا المسار سر مصادقة تجريبيًا وحجم Postgres محليًا، ولذلك فهو مخصص لـ `localhost` وليس للنشر على الإنترنت. للحصول على ملف Compose الكامل والخطوات القابلة للنسخ، راجع [المسار السريع باللغة الإنجليزية](https://www.agent-native.com/docs/deployment#self-host-quickstart).
 
 ### 1. إنشاء التطبيق
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```

@@ -14,12 +14,12 @@ description: "Nitro 사전 설정(Node.js, Vercel, Netlify, Cloudflare, AWS 등)
 - **앱을 만들고 있나요?** [Getting Started](/docs/getting-started)에서 시작하고 앱을 영구적인 곳에 배포할 때 여기로 돌아오세요.
 - **앱을 운영하고 있나요?** 먼저 로컬 Docker 경로를 사용하세요. 작은 서버에서 사용할 Node.js, Postgres, 인증 및 환경 변수 구성을 같은 형태로 확인할 수 있습니다.
 
-로컬 스택은 의도적으로 예시 인증 시크릿과 로컬 Postgres 볼륨을 사용합니다. `localhost`용이며 인터넷에 공개하기 위한 것이 아닙니다. 전체 Compose 파일과 복사 가능한 단계는 [영문 빠른 시작](/docs/deployment#self-host-quickstart)을 참조하세요.
+로컬 스택은 의도적으로 예시 인증 시크릿과 로컬 Postgres 볼륨을 사용합니다. `localhost`용이며 인터넷에 공개하기 위한 것이 아닙니다. 전체 Compose 파일과 복사 가능한 단계는 [영문 빠른 시작](https://www.agent-native.com/docs/deployment#self-host-quickstart)을 참조하세요.
 
 ### 1. 앱 만들기
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
 ```

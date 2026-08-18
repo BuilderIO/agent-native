@@ -2,10 +2,9 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgres://agent_native@postgres:5432/agent_native
-      BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: local-development-secret-change-me-1234567890
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
