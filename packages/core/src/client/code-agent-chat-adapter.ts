@@ -1,3 +1,5 @@
+import type { AgentPromptAttachment } from "@agent-native/toolkit/composer";
+import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
 import type {
   ChatModelAdapter,
   ChatModelRunOptions,
@@ -18,8 +20,6 @@ import {
   type CodeAgentRunStateLike,
 } from "../code-agents/transcript-order.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
-import type { AgentPromptAttachment } from "./composer/prompt-attachments.js";
 import type { ContentPart } from "./sse-event-processor.js";
 
 export type CodeAgentChatFollowUpMode = "immediate" | "queued";

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -84,5 +86,24 @@ describe("propertyTypeForSourceField", () => {
         sourceFieldKey: "data.topics",
       }).options?.map((option) => option.id),
     ).toEqual(["governance-security", "governance-security-2"]);
+  });
+});
+
+describe("source-field materialization lock order", () => {
+  it("locks memberships before updating Builder source rows", () => {
+    const source = readFileSync(
+      new URL(
+        "./add-content-database-source-field-property.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const membershipLock = source.indexOf("await lockDatabaseMemberships(");
+    const sourceRowUpdate = source.indexOf(
+      ".update(schema.contentDatabaseSourceRows)",
+    );
+
+    expect(membershipLock).toBeGreaterThan(-1);
+    expect(sourceRowUpdate).toBeGreaterThan(membershipLock);
   });
 });

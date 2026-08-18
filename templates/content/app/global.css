@@ -80,7 +80,7 @@
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
 
-  --destructive: 0 62% 50%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 100%;
 
   --border: 0 0% 24%;
@@ -295,6 +295,7 @@
 .notion-editor {
   outline: none;
   --notion-indent-size: 1.75rem;
+  --notion-list-marker-size: 0.5em;
   font-family:
     "Inter Variable",
     "Inter",
@@ -364,6 +365,21 @@
   line-height: 1.45;
 }
 
+.notion-editor h5 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.8em 0 0.15em;
+  line-height: 1.5;
+}
+
+.notion-editor h6 {
+  font-size: 0.95em;
+  font-weight: 600;
+  margin: 0.75em 0 0.15em;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
 /* Paragraphs */
 .notion-editor p {
   margin: 0.5em 0;
@@ -408,7 +424,9 @@
 .notion-editor h1.is-empty::before,
 .notion-editor h2.is-empty::before,
 .notion-editor h3.is-empty::before,
-.notion-editor h4.is-empty::before {
+.notion-editor h4.is-empty::before,
+.notion-editor h5.is-empty::before,
+.notion-editor h6.is-empty::before {
   content: attr(data-placeholder);
   float: left;
   color: hsl(var(--muted-foreground));
@@ -489,14 +507,32 @@
 }
 
 .notion-editor ul:not(.notion-task-list) > li::before {
-  content: "\2022";
+  content: "";
+  width: var(--notion-list-marker-size);
+  height: var(--notion-list-marker-size);
+  min-width: 0;
+  align-self: start;
+  justify-self: center;
+  margin-top: 0.6em;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .notion-editor
   ul:not(.notion-task-list)
   ul:not(.notion-task-list)
   > li::before {
-  content: "\25E6";
+  content: "";
+  width: var(--notion-list-marker-size);
+  height: var(--notion-list-marker-size);
+  min-width: 0;
+  align-self: start;
+  justify-self: center;
+  margin-top: 0.6em;
+  border: 0.12em solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  box-sizing: border-box;
 }
 
 .notion-editor
@@ -504,7 +540,14 @@
   ul:not(.notion-task-list)
   ul:not(.notion-task-list)
   > li::before {
-  content: "\25AA";
+  content: "";
+  width: var(--notion-list-marker-size);
+  height: var(--notion-list-marker-size);
+  min-width: 0;
+  align-self: start;
+  justify-self: center;
+  margin-top: 0.6em;
+  background: currentColor;
 }
 
 .notion-editor ol > li {
@@ -1003,7 +1046,7 @@
 }
 
 .notion-toggle__chevron {
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--foreground));
   user-select: none;
   display: flex;
   align-items: center;
@@ -1012,6 +1055,9 @@
   height: 1.7em;
   border-radius: 3px;
   transition: background-color 120ms ease-out;
+}
+.notion-toggle--body-empty .notion-toggle__chevron {
+  color: hsl(var(--muted-foreground));
 }
 .notion-toggle__chevron:hover {
   background: hsl(var(--muted));
@@ -1201,6 +1247,59 @@ div[data-notion-column] > :last-child {
   white-space: nowrap;
 }
 
+.content-inline-equation {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0 0.08em;
+  vertical-align: -0.08em;
+}
+
+.content-equation {
+  display: block;
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  padding: 0.25rem 0;
+}
+
+.content-math {
+  color: inherit;
+}
+
+.content-math--inline {
+  display: inline-block;
+}
+
+.content-math--block {
+  display: block;
+  min-width: max-content;
+  text-align: center;
+}
+
+.content-math-error {
+  border: 1px solid hsl(var(--destructive) / 0.3);
+  border-radius: 0.375rem;
+  background: hsl(var(--destructive) / 0.06);
+  color: hsl(var(--foreground));
+  font-family:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+  white-space: pre-wrap;
+}
+
+.content-math-error--inline {
+  padding: 0.05rem 0.25rem;
+  font-size: 0.9em;
+}
+
+.content-math-error--block {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .notion-editor span[data-notion-span="true"][underline="true"] {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -1227,6 +1326,10 @@ div[data-notion-column] > :last-child {
   line-height: 0;
   overflow: visible;
   transition: box-shadow 0.15s ease;
+}
+
+.notion-editor .node-image .media-block {
+  width: 100%;
 }
 
 .media-empty-block {
@@ -1341,6 +1444,10 @@ div[data-notion-column] > :last-child {
   object-position: center;
   border-radius: 6px;
   user-select: none;
+}
+
+.notion-editor .node-image .media-block__content {
+  width: 100%;
 }
 
 .media-block__broken {
@@ -2068,6 +2175,7 @@ audio.media-block__content {
   opacity: 0.55;
   pointer-events: none;
   filter: saturate(0.45);
+  /* compositing-ok: drag preview — transient, transformed every frame. */
   will-change: transform;
 }
 

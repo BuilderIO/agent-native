@@ -19,15 +19,15 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import {
+  fetchLocalhostBridge,
+  localhostBridgeRequestError,
+  resolveLocalhostBridgeConnection,
+  resolveLocalhostConnectionScope,
+} from "../server/lib/localhost-connection.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
 
 const SHA256_VERSION_HASH = /^[a-f0-9]{64}$/i;
@@ -114,30 +114,6 @@ function isLoopbackHostname(hostname: string): boolean {
     parts[0] === "127" &&
     parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
   );
-}
-
-/**
- * Build the error for a failed bridge call. 401/403 means the bridge rejected
- * the token — after a bridge restart the CLI mints a fresh token, so a token
- * snapshotted at consent time goes stale even though the grant itself is
- * still valid. Surface that as a specific, actionable message instead of a
- * generic failure.
- */
-function bridgeRequestError(
-  operation: string,
-  status: number,
-  errText: string,
-): Error {
-  if (status === 401 || status === 403) {
-    return new Error(
-      `Bridge ${operation} rejected authentication (${status}). ` +
-        "The stored bridge token is stale — the design bridge was likely restarted " +
-        "since write consent was granted (each bridge start mints a fresh token). " +
-        "Re-run `npx @agent-native/core@latest design connect` and re-grant write " +
-        "consent, then retry.",
-    );
-  }
-  return new Error(`Bridge ${operation} failed (${status}): ${errText}`);
 }
 
 function normalizeBridgeUrl(value: string): string {
@@ -231,9 +207,7 @@ export default defineAction({
     // --- Gate 1: access ---
     await assertAccess("design", designId, "editor");
 
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
     // --- Gate 2: reject secrets and known binary files. The local bridge
     // performs the final byte-level text check against the actual file. ---
@@ -269,31 +243,12 @@ export default defineAction({
     }
 
     // --- Resolve bridge URL + current token ---
-    const db = getDb();
-    const [connection] = await db
-      .select({
-        bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
-        bridgeToken: schema.designLocalhostConnections.bridgeToken,
-        rootPath: schema.designLocalhostConnections.rootPath,
-      })
-      .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, connectionId),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-          orgId
-            ? eq(schema.designLocalhostConnections.orgId, orgId)
-            : isNull(schema.designLocalhostConnections.orgId),
-        ),
-      )
-      .limit(1);
+    const connection = await resolveLocalhostBridgeConnection({
+      connectionId,
+      ownerEmail,
+      orgId,
+    });
 
-    if (!connection?.bridgeUrl) {
-      throw new Error(
-        `No bridge URL found for connection "${connectionId}". ` +
-          "Ensure the design bridge is running (npx @agent-native/core@latest design connect).",
-      );
-    }
     if (!connection.rootPath || connection.rootPath !== grant.rootPath) {
       throw Object.assign(
         new Error(
@@ -309,22 +264,20 @@ export default defineAction({
     // connection row. The user's time-boxed consent grant is unchanged — only
     // the transport token rotated — so writes keep working across restarts.
     const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-Bridge-Token": connection.bridgeToken || grant.bridgeToken,
-    };
+    const bridgeToken = connection.bridgeToken || grant.bridgeToken;
 
     if (content !== undefined) {
       // Full file write
-      const res = await fetch(`${bridgeUrl}/write-file`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
+      const res = await fetchLocalhostBridge({
+        bridgeUrl,
+        operation: "write-file",
+        bridgeToken,
+        body: {
           relPath,
           content,
           expectedVersionHash,
           requireExpectedVersionHash,
-        }),
+        },
       });
       if (!res.ok) {
         if (res.status === 409) {
@@ -333,7 +286,7 @@ export default defineAction({
           );
         }
         const errText = await res.text().catch(() => res.statusText);
-        throw bridgeRequestError("write-file", res.status, errText);
+        throw localhostBridgeRequestError("write-file", res.status, errText);
       }
       const body = (await res.json().catch(() => ({}))) as {
         versionHash?: string;
@@ -348,16 +301,17 @@ export default defineAction({
     } else {
       // Search-and-replace patch. The bridge's /apply-edit validates the file
       // itself (404s on a missing file), so no pre-read round-trip is needed.
-      const applyRes = await fetch(`${bridgeUrl}/apply-edit`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
+      const applyRes = await fetchLocalhostBridge({
+        bridgeUrl,
+        operation: "apply-edit",
+        bridgeToken,
+        body: {
           relPath,
           search: patch!.search,
           replace: patch!.replace,
           expectedVersionHash,
           requireExpectedVersionHash,
-        }),
+        },
       });
       if (!applyRes.ok) {
         if (applyRes.status === 409) {
@@ -366,7 +320,11 @@ export default defineAction({
           );
         }
         const errText = await applyRes.text().catch(() => applyRes.statusText);
-        throw bridgeRequestError("apply-edit", applyRes.status, errText);
+        throw localhostBridgeRequestError(
+          "apply-edit",
+          applyRes.status,
+          errText,
+        );
       }
       const body = (await applyRes.json().catch(() => ({}))) as {
         versionHash?: string;

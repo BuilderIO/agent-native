@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": patch
+"@agent-native/recap-cli": patch
 ---
 
 Stop PR Visual Recap gate skips from creating visible pull request comments.

@@ -7,6 +7,7 @@ import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -70,7 +71,7 @@ function threadCommentIdsFor(
 
 export default defineAction({
   description:
-    'Mark a plan comment thread as resolved or reopen it. Call this after addressing reviewer feedback to signal that the thread is handled. Pass status "resolved" to close the thread, "open" to reopen it. An optional resolutionNote posts a reply before the status change so reviewers see what was done. Resolving marks the thread done for reviewers; it does NOT remove it from get-plan-feedback — also call consume-plan-feedback (or pass consumedCommentIds to update-visual-plan) to stop the thread from appearing as pending work.',
+    'Mark a plan comment thread as resolved or reopen it. An optional resolutionNote supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. Call this after addressing reviewer feedback to signal that the thread is handled. Pass status "resolved" to close the thread, "open" to reopen it. Resolving marks the thread done for reviewers; it does NOT remove it from get-plan-feedback — also call consume-plan-feedback (or pass consumedCommentIds to update-visual-plan) to stop the thread from appearing as pending work.',
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     commentId: z
@@ -87,7 +88,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional message to post as a reply before changing the status — use this to briefly explain what was done or why the thread is being closed.",
+        "Optional inline Markdown message to post as a reply before changing the status; headings are flattened.",
       ),
   }),
   publicAgent: {
@@ -126,7 +127,7 @@ export default defineAction({
       );
     }
 
-    // Viewer-level access is sufficient for status changes (mirrors update-visual-plan).
+    // Commenter-level access is sufficient for status changes.
     const access = await resolveAccess(
       "plan",
       args.planId,
@@ -135,6 +136,11 @@ export default defineAction({
     if (!access) throw new Error(`Plan ${args.planId} not found`);
     if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
       throw new ForbiddenError(`Plan ${args.planId} not found`);
+    }
+    if (!roleSatisfies(access.role, "commenter")) {
+      throw new ForbiddenError(
+        "Commenting on this plan requires commenter access or higher.",
+      );
     }
 
     const db = getDb();

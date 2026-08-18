@@ -17,10 +17,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { getThemeVars } from "../../extensions/theme.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
+import { normalizeDocumentTitle } from "../../shared/document-title.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
-import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import {
   Popover,
   PopoverContent,
@@ -32,7 +33,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
 import { useT } from "../i18n.js";
 import { ShareButton } from "../sharing/ShareButton.js";
@@ -128,13 +129,20 @@ function readExtensionTitleSuffix(): string | null {
 }
 
 function extensionDocumentTitle(name: string, suffix: string | null): string {
-  return suffix ? `${name} \u2014 ${suffix}` : `${name} \u2014 Extensions`;
+  const safeName = normalizeDocumentTitle(name, "Untitled extension");
+  const safeSuffix = suffix
+    ? normalizeDocumentTitle(suffix, "Extensions")
+    : null;
+  return safeSuffix
+    ? `${safeName} \u2014 ${safeSuffix}`
+    : `${safeName} \u2014 Extensions`;
 }
 
 function extensionRole(value: unknown): ExtensionBridgeRole {
   return value === "owner" ||
     value === "admin" ||
     value === "editor" ||
+    value === "commenter" ||
     value === "viewer"
     ? value
     : "viewer";
@@ -363,131 +371,6 @@ function applyCanonicalLink(path: string): () => void {
       link.dataset.agentNativeExtensionCanonical = previousMarker;
     }
   };
-}
-
-function SourceCodeDialog({
-  extension,
-  onSaved,
-}: {
-  extension: Extension;
-  onSaved?: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [code, setCode] = useState(extension.content ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Sync in when the dialog opens, or when the viewed extension changes
-  // while the dialog stays mounted (e.g. re-parented to a different id).
-  useEffect(() => {
-    if (open) setCode(extension.content ?? "");
-  }, [open, extension.id]);
-
-  const isDirty = code !== (extension.content ?? "");
-
-  // Block Escape / outside-click from closing while there are unsaved edits.
-  const handleOpenChange = (next: boolean) => {
-    if (!next && isDirty) return;
-    setOpen(next);
-    if (!next) setError(null);
-  };
-
-  const handleCancel = () => {
-    setCode(extension.content ?? "");
-    setOpen(false);
-    setError(null);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/extensions/${extension.id}`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: code }),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? `Save failed (${res.status})`);
-      }
-      setOpen(false);
-      queryClient.setQueryData<Extension>(["extension", extension.id], (old) =>
-        old ? { ...old, content: code } : old,
-      );
-      queryClient.invalidateQueries({
-        queryKey: ["extension", extension.id],
-      });
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
-      onSaved?.();
-    } catch (err: any) {
-      setError(err?.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
-          >
-            <IconCode className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>View / edit source</TooltipContent>
-      </Tooltip>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
-          <div className="flex shrink-0 items-center border-b border-border px-5 py-3 pr-12">
-            <DialogTitle className="truncate text-sm font-medium">
-              {extension.name} — source
-            </DialogTitle>
-          </div>
-          <textarea
-            className="flex-1 resize-none bg-muted/40 px-5 py-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            spellCheck={false}
-          />
-          <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-3">
-            {error ? (
-              <p className="text-xs text-destructive">{error}</p>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                Alpine.js / HTML &middot; {code.length.toLocaleString()} chars
-              </span>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input px-3 text-xs hover:bg-accent"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="inline-flex h-8 cursor-pointer items-center rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
 }
 
 function EditToolPopover({
@@ -898,6 +781,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           binding.role === "owner" ||
           binding.role === "admin" ||
           binding.role === "editor" ||
+          binding.role === "commenter" ||
           binding.role === "viewer"
             ? binding.role
             : "viewer";
@@ -937,7 +821,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         sendToAgentChat({
           message: text,
           context: serializeChatValue(message.context),
-          submit: message.submit !== false,
+          submit: message.submit === true,
           openSidebar: message.openSidebar !== false,
         });
         return;
@@ -1302,6 +1186,20 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   <span className="truncate text-sm font-medium">
                     {extension.name}
                   </span>
+                  {!isLocalExtension && (
+                    <span
+                      className="shrink-0 text-[10px] font-medium text-muted-foreground/70"
+                      title={
+                        extension.ownerEmail
+                          ? t("extensions.sandboxedCustomBlockCreatedBy", {
+                              email: extension.ownerEmail,
+                            })
+                          : t("extensions.sandboxedCustomBlock")
+                      }
+                    >
+                      {t("extensions.customBlockSandboxed")}
+                    </span>
+                  )}
                   {extension.canEdit && !isLocalExtension && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1341,12 +1239,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   onRestored={() => setRefreshKey((k) => k + 1)}
                   onOpenChange={onPopoverOpenChange}
                 />
-                {extension.canEdit && (
-                  <SourceCodeDialog
-                    extension={extension}
-                    onSaved={() => setRefreshKey((k) => k + 1)}
-                  />
-                )}
                 <EditToolPopover
                   extension={extension}
                   onOpenChange={onPopoverOpenChange}
@@ -1356,7 +1248,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             <ToolMoreMenu
               extensionId={extensionId}
               toolName={extension.name}
+              ownerEmail={extension.ownerEmail}
               canDelete={extension.canDelete}
+              canEdit={extension.canEdit}
               sourceMode={extension.source?.mode}
               onOpenChange={onPopoverOpenChange}
             />
@@ -1365,6 +1259,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                 <ShareButton
                   resourceType="extension"
                   resourceId={extensionId}
+                  allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={extension.name}
                   onOpenChange={onPopoverOpenChange}
                   accessNote={
@@ -1400,6 +1295,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             </div>
           )}
           <iframe
+            {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}`}
             src={iframeSrcDoc ? undefined : iframeSrc}
@@ -1430,13 +1326,17 @@ interface SlotDeclaration {
 function ToolMoreMenu({
   extensionId,
   toolName,
+  ownerEmail,
   canDelete,
+  canEdit,
   sourceMode,
   onOpenChange,
 }: {
   extensionId: string;
   toolName: string;
+  ownerEmail?: string;
   canDelete?: boolean;
+  canEdit?: boolean;
   sourceMode?: "database" | "local-files";
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -1497,6 +1397,22 @@ function ToolMoreMenu({
     } catch {
       queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
     }
+  };
+
+  const promoteToAppCode = () => {
+    closeMenu();
+    sendToAgentChat({
+      message: `Promote "${toolName}" from a sandboxed custom block into reusable native app code. Preserve the existing custom block as-is until the code change is reviewed and deployed.`,
+      context: [
+        `The user intentionally selected "Promote to app code" for database-backed extension "${toolName}" (id: ${extensionId}).`,
+        "Call connect-builder with this extensionId and the visible user request as its prompt.",
+        "Do not copy extension HTML from the browser or ask the client to supply it. connect-builder resolves the authoritative SQL artifact and re-checks editor access server-side.",
+        "The promotion is non-destructive: do not update, archive, delete, or replace the existing extension.",
+      ].join("\n"),
+      submit: true,
+      openSidebar: true,
+      newTab: true,
+    });
   };
   const isLocalExtension = sourceMode === "local-files";
 
@@ -1585,6 +1501,36 @@ function ToolMoreMenu({
               </div>
             ) : (
               <div className="border-t border-border/40 p-1">
+                {canEdit && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={promoteToAppCode}
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-accent"
+                    >
+                      <IconCode className="h-3.5 w-3.5" />
+                      <span>{t("extensions.promoteToAppCode")}</span>
+                    </button>
+                    <p
+                      className="truncate px-2 pb-1.5 text-[10px] text-muted-foreground/70"
+                      title={
+                        ownerEmail
+                          ? t(
+                              "extensions.createdByHistoryShowsSourceVersions",
+                              { email: ownerEmail },
+                            )
+                          : t("extensions.historyShowsSourceVersions")
+                      }
+                    >
+                      {ownerEmail
+                        ? t(
+                            "extensions.createdByHistoryShowsSourceVersionsCompact",
+                            { email: ownerEmail },
+                          )
+                        : t("extensions.historyShowsSourceVersions")}
+                    </p>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
@@ -1594,7 +1540,7 @@ function ToolMoreMenu({
                   <span>
                     {canDelete === false
                       ? "Remove from my list..."
-                      : "Delete extension..."}
+                      : "Archive extension..."}
                   </span>
                 </button>
               </div>
@@ -1603,11 +1549,11 @@ function ToolMoreMenu({
         ) : (
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
-              {canDelete === false ? "Remove " : "Delete "}
+              {canDelete === false ? "Remove " : "Archive "}
               <span className="font-medium">{toolName}</span>?
               {canDelete === false
                 ? " This hides it from your Extensions list without deleting it for anyone else."
-                : " This removes the extension everywhere, for everyone it's shared with."}
+                : " This archives the extension everywhere, for everyone it's shared with."}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -1622,7 +1568,7 @@ function ToolMoreMenu({
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                {canDelete === false ? "Remove" : "Delete"}
+                {canDelete === false ? "Remove" : "Archive"}
               </button>
             </div>
           </div>

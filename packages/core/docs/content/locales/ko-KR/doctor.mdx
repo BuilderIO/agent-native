@@ -1,0 +1,14 @@
+---
+title: Doctor
+description: 보안 및 마이그레이션 검사.
+---
+
+# Doctor
+
+생성된 앱과 workspace에는 저장소 개발 워크플로에서 변경할 수 있는 소스 코드가 있습니다. 의도적으로 workspace 및 쓰기 도구를 부여받은 에이전트 frame도 이를 변경할 수 있습니다. `agent-native doctor`는 소스에서 보안에 중요한 코드 불변 조건을 검사합니다. 읽기 전용이므로 코드를 편집하지 않고 결과만 보고합니다.
+
+`agent-native doctor`는 8개의 보안 guard와 `migration-manifest`를 포함한 9개 guard를 실행합니다. 후자는 설치된 `migration-manifest.json`의 import를 찾으며 opt-out이 없습니다. `agent-native doctor --only migration-manifest`를 실행하고 `npx @agent-native/core@latest upgrade --codemods`로 미리 본 뒤 `--yes`로 적용하세요. JSON `guardsRun`에는 9개 이름이 나옵니다.
+
+CLI는 새 앱과 workspace마다 `pnpm doctor` 및 `pnpm agent-native:doctor` 명령을 추가합니다. workspace 루트에서 실행하면 `apps/<name>` 아래의 모든 앱을 검사합니다. finding이 있으면 build가 기본적으로 실패하며, `failOnBuild: false`는 검토된 예외로만 사용하세요.
+
+`planned`로 표시된 항목은 경고로만 보고되며 다시 쓰지 않습니다. active 항목은 finding으로 처리되고, codemod는 대상 export가 설치된 경우에만 다시 씁니다.

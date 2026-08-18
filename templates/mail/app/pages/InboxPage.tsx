@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
@@ -30,6 +30,8 @@ import {
 } from "@/lib/inbox-tabs";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
+
+import { shouldShowInboxZero } from "./inbox-zero";
 
 function ContactPanel({
   emailId,
@@ -315,6 +317,7 @@ export function InboxPage() {
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
   } = useEmails(view, searchQuery, effectiveLabel);
   const hasEmailData = rawEmails !== undefined;
   const emailListLoading =
@@ -590,16 +593,17 @@ export function InboxPage() {
 
   const isMobile = useIsMobile();
   const hasThread = !!threadId;
-  const showsScenicInboxZero =
-    view === "inbox" && (!activeLabel || activeLabel === "important");
-  const isInboxZero =
-    showsScenicInboxZero &&
-    hasEmailData &&
-    !emailListLoading &&
-    !isError &&
-    !hasThread &&
-    !searchQuery &&
-    threads.length === 0;
+  const isInboxZero = shouldShowInboxZero({
+    view,
+    activeLabel,
+    hasEmailData,
+    isLoading: emailListLoading,
+    isError,
+    hasThread,
+    searchQuery,
+    threadCount: threads.length,
+    hasNextPage: Boolean(hasNextPage),
+  });
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined
   >();
@@ -680,6 +684,7 @@ export function InboxPage() {
             hasNextPage={hasNextPage}
             fetchNextPage={fetchNextPage}
             isFetchingNextPage={isFetchingNextPage}
+            isFetchNextPageError={isFetchNextPageError}
           />
         )}
       </div>

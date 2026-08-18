@@ -16,6 +16,14 @@ describe("share-password storage", () => {
     expect(encryptSharePassword("")).toBeNull();
   });
 
+  it("rejects whitespace-only input and trims real passwords", () => {
+    expect(encryptSharePassword("   ")).toBeNull();
+    expect(encryptSharePassword("\t\n")).toBeNull();
+
+    const stored = encryptSharePassword("  hunter2  ");
+    expect(verifySharePassword("hunter2", stored)).toBe(true);
+  });
+
   it("encrypts at rest (no plaintext in the stored value) and round-trips", () => {
     const stored = encryptSharePassword("hunter2");
     expect(stored).not.toBeNull();

@@ -13,6 +13,10 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
   ZIPs, screenshots, thumbnails, session replay chunks) in configured file/blob
   storage and persist only URLs, ids, or handles.
 - Do not hardcode API keys, tokens, webhook URLs, private data, or credential-looking literals.
+- For external integrations, inspect the workspace/provider connection catalog
+  first. Reuse an existing connection and its scoped credential resolver; only
+  use app-local vault/OAuth/settings primitives when no reusable connection
+  exists. Keep custom setup UI provider-specific and never duplicate storage.
 - `actions/run.ts` is the CLI dispatcher for `pnpm action ...`, not an app
   action. Leave it in place and add callable primitives as separate
   `actions/<name>.ts` files.
@@ -38,6 +42,14 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/docs/AGENTS.md` and search
   `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
   `node_modules/@agent-native/core/corpus/` for source examples.
+
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. When adding or
+customizing a browser UI, read `customizing-agent-native`.
+Use the supported ladder: configure → compose → eject the smallest unit →
+propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
+commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+private source, or eject protected runtime/action contracts.
 
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
@@ -82,3 +94,7 @@ pnpm agent "Call the hello action for Builder and explain the result"
 Skills in `.agents/skills/` provide detailed guidance. Read
 `.agents/skills/agent-native-docs/SKILL.md` before using advanced Agent Native
 framework APIs, generated-app features, automations, A2A, sharing, or MCP.
+Read `.agents/skills/agent-native-toolkit/SKILL.md` before adding common
+workspace, agent, chat, settings, navigation, or collaboration UI.
+Read `.agents/skills/customizing-agent-native/SKILL.md` before adding UI or
+overriding shared Agent Native features.

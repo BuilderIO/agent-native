@@ -25,6 +25,7 @@ import {
   seedBackgroundAgentRunOwnerContext,
 } from "./agent-run-context.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestRunContext,
   getRequestTimezone,
@@ -32,10 +33,14 @@ import {
   getRequestUserName,
 } from "./request-context.js";
 
-function makeEvent(headers: Record<string, string> = {}): any {
+function makeEvent(
+  headers: Record<string, string> = {},
+  waitUntil?: (promise: Promise<unknown>) => void,
+): any {
   return {
     context: {},
     headers: new Headers(headers),
+    ...(waitUntil ? { req: { waitUntil } } : {}),
   };
 }
 
@@ -165,7 +170,10 @@ describe("server/agent-run-context", () => {
   });
 
   it("runs foreground and background handlers inside the resolved request context", async () => {
-    const event = makeEvent({ "x-user-timezone": "America/Los_Angeles" });
+    const event = makeEvent({
+      "x-user-timezone": "America/Los_Angeles",
+      "x-agent-native-client-platform": "electron",
+    });
     getSessionMock.mockResolvedValue({ orgId: "org-session" });
 
     const seen = await runWithAgentRunContext(
@@ -183,6 +191,7 @@ describe("server/agent-run-context", () => {
         userName: getRequestUserName(),
         orgId: getRequestOrgId(),
         timezone: getRequestTimezone(),
+        clientPlatform: getRequestContext()?.clientPlatform,
         isBackgroundWorker: getRequestRunContext()?.isBackgroundWorker,
       }),
     );
@@ -192,8 +201,43 @@ describe("server/agent-run-context", () => {
       userName: "Alice",
       orgId: "org-session",
       timezone: "America/Los_Angeles",
+      clientPlatform: "electron",
       isBackgroundWorker: true,
     });
+  });
+
+  it("keeps the request-scoped waitUntil callback in the run context", async () => {
+    const waitUntil = vi.fn();
+    const event = makeEvent({}, waitUntil);
+
+    await runWithAgentRunContext(
+      {
+        event,
+        ownerContext: {
+          owner: "alice@example.com",
+          anonymous: false,
+        },
+      },
+      async () => {
+        expect(getRequestRunContext()?.waitUntil).toBe(waitUntil);
+      },
+    );
+  });
+
+  it("restores platform attribution from an authenticated background payload", async () => {
+    const event = makeEvent();
+    event.context.__agentNativeClientPlatform = "mobile";
+    getSessionMock.mockResolvedValue({ orgId: "org-session" });
+
+    await runWithAgentRunContext(
+      {
+        event,
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      },
+      () => {
+        expect(getRequestContext()?.clientPlatform).toBe("mobile");
+      },
+    );
   });
 
   it("seeds the durable background owner from the persisted run row", async () => {
@@ -208,5 +252,39 @@ describe("server/agent-run-context", () => {
     });
     await expect(resolveAgentRunOwnerContext(event)).resolves.toBe(seeded);
     expect(getSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves the foreground org binding for cookieless background workers", async () => {
+    const event = makeEvent();
+    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-another-membership");
+
+    const seeded = await seedBackgroundAgentRunOwnerContext(
+      event,
+      "run_123",
+      "org-from-foreground",
+    );
+
+    await expect(
+      resolveAgentRunOrgId({ event, ownerContext: seeded! }),
+    ).resolves.toBe("org-from-foreground");
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicitly org-less foreground request in the worker", async () => {
+    const event = makeEvent();
+    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-membership");
+
+    const seeded = await seedBackgroundAgentRunOwnerContext(
+      event,
+      "run_123",
+      null,
+    );
+
+    await expect(
+      resolveAgentRunOrgId({ event, ownerContext: seeded! }),
+    ).resolves.toBeUndefined();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 });

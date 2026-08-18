@@ -61,6 +61,7 @@ export async function scaffoldAgentNativeTarget(
   await write("app/root.tsx", rootTsx());
   await write("app/global.css", globalCss());
   await write("app/routes/_index.tsx", indexRoute(context));
+  await write("app/routes/agent.tsx", agentRoute());
 
   for (const route of context.ir.site.routes.filter((r) => r.kind !== "api")) {
     const routeFile = route.path === "/" ? null : routeToFile(route.path);
@@ -403,8 +404,8 @@ function rootTsx(): string {
   return `import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
-import { AgentSidebar } from "@agent-native/core/client";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client/ui";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import stylesheet from "./global.css?url";
 import type { ReactNode } from "react";
 import type { LinksFunction } from "react-router";
@@ -434,12 +435,21 @@ export default function Root() {
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
-        <AgentSidebar position="right" defaultOpen>
+        <AgentSidebar position="right" defaultOpen agentPageHref="/agent">
           <Outlet />
         </AgentSidebar>
       </QueryClientProvider>
     </ClientOnly>
   );
+}
+`;
+}
+
+function agentRoute(): string {
+  return `import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
 }
 `;
 }

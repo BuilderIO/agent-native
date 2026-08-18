@@ -2,8 +2,8 @@ import {
   useActionMutation,
   useActionQuery,
   useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronLeft,
   IconFilter,
@@ -294,7 +294,7 @@ export function EmailReportDialog({
                   <button
                     key={sub.id}
                     type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex w-full items-center justify-between gap-3 rounded-md bg-card px-3 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => loadSubscription(sub)}
                   >
                     <span className="min-w-0">
@@ -383,7 +383,7 @@ export function EmailReportDialog({
                   />
                 </div>
 
-                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 sm:col-span-2">
+                <div className="flex items-center justify-between gap-3 rounded-md bg-card px-3 py-2 sm:col-span-2">
                   <div className="min-w-0">
                     <Label>{t("sqlDashboard.reportEnabled")}</Label>
                     <p className="text-xs text-muted-foreground">

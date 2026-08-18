@@ -1,14 +1,16 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  agentNativePath,
-  useT,
-} from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
@@ -95,6 +97,10 @@ type SnoozeTarget = {
 };
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 const SIDEBAR_COLLAPSE_KEY = "mail-sidebar-collapsed";
+const ACCOUNT_POLL_INTERVAL_MS = 2000;
+// Bounds the account-status poll so a hung fetch can't leave the in-flight
+// guard stuck and stall the interval forever.
+const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
 
 function AccountAvatar({
   email,
@@ -144,6 +150,8 @@ function AccountAvatar({
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/settings" ||
+    pathname.startsWith("/settings/") ||
+    pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -194,7 +202,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen={!isMobile}
+      defaultOpen={false}
+      agentPageHref="/settings/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
         t("agent.suggestionSummarize"),
@@ -364,6 +373,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const perAppChatOpen = usePerAppChatOpen();
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -376,10 +386,64 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
   }, [sidebarCollapsed]);
   const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
-  const showCollapsedSidebar = sidebarPinned && sidebarCollapsed && !isMobile;
+  const showCollapsedSidebar =
+    !isMobile &&
+    showSidebar &&
+    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
+
+  const collapseButton =
+    sidebarPinned && !isMobile ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+            className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            aria-label={
+              showCollapsedSidebar
+                ? t("sidebar.expandSidebar")
+                : t("sidebar.collapseSidebar")
+            }
+          >
+            {showCollapsedSidebar ? (
+              <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+            ) : (
+              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {showCollapsedSidebar
+            ? t("sidebar.expandSidebar")
+            : t("sidebar.collapseSidebar")}
+        </TooltipContent>
+      </Tooltip>
+    ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("mail.search.label")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={showCollapsedSidebar ? "icon" : "sidebar"}
+      side="right"
+      className={showCollapsedSidebar ? "size-8" : "min-w-0"}
+    />
+  );
 
   // Drag-to-reorder tabs
   const [dragPinnedId, setDragPinnedId] = useState<string | null>(null);
@@ -888,6 +952,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     },
   ]);
 
+  useEffect(() => {
+    const handler = () => setPaletteOpen(true);
+    window.addEventListener("agent-native:open-command-menu", handler);
+    return () =>
+      window.removeEventListener("agent-native:open-command-menu", handler);
+  }, []);
+
   // Sequence shortcuts (g + key = go to view)
   const qc = useQueryClient();
   useSequenceShortcuts([
@@ -988,10 +1059,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
-  const inboxSidebarUnreadCount =
-    labelThreadCounts.unread["__inboxTotal"] ??
-    labelThreadCounts.unread["inbox"] ??
-    0;
+  // The rail badge represents the whole inbox. The top-bar "Other" tab can
+  // only count loaded rows when pinned filters are active, but Gmail's label
+  // count covers the mailbox beyond the current page.
+  const inboxSidebarUnreadCount = getInboxCount("unread");
   const railNavItems = [
     {
       id: "inbox",
@@ -1434,45 +1505,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     : "justify-between px-4",
                 )}
               >
-                {showCollapsedSidebar ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => setSidebarCollapsed(false)}
-                        className="flex h-10 w-10 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                        aria-label={t("sidebar.expandSidebar")}
-                      >
-                        <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t("sidebar.expandSidebar")}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
+                {showCollapsedSidebar ? null : (
                   <>
                     <span className="text-[13px] font-medium text-foreground">
                       {t("mail.appName")}
                     </span>
                     <div className="flex items-center gap-1">
-                      {sidebarPinned && !isMobile ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => setSidebarCollapsed(true)}
-                              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                              aria-label={t("sidebar.collapseSidebar")}
-                            >
-                              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("sidebar.collapseSidebar")}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
@@ -1737,17 +1775,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
 
                   <div className="shrink-0">
-                    <div className="px-2 py-1">
-                      <ExtensionsSidebarSection />
-                    </div>
-
                     <div className="px-3 py-2">
                       <OrgSwitcher />
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 py-2">
+                    <div className="flex items-center justify-end gap-1 px-2 py-2">
                       <DevDatabaseLink />
-                      <FeedbackButton className="min-w-0 flex-1" />
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Link
@@ -1772,6 +1805,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
                 </>
               )}
+              <SidebarFooterActions
+                collapsed={showCollapsedSidebar}
+                feedback={feedbackButton}
+                search={searchButton}
+                collapse={collapseButton}
+              />
             </div>
           </>
         )}
@@ -1958,6 +1997,48 @@ function StandardLayout({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
+  const collapseButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(false)}
+          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("sidebar.collapseSidebar")}
+        >
+          <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => {
+            setSidebarOpen(false);
+            window.setTimeout(
+              () => document.getElementById("mail-search")?.focus(),
+              0,
+            );
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("mail.search.label")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton variant="sidebar" side="right" className="min-w-0" />
+  );
+
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
   // toolbar inside the shared
   // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
@@ -1967,6 +2048,12 @@ function StandardLayout({ children }: AppLayoutProps) {
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return t("settings.title");
+    if (
+      location.pathname === "/agent" ||
+      location.pathname.startsWith("/settings/agent")
+    ) {
+      return t("settings.agentTitle");
+    }
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");
@@ -2089,17 +2176,12 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-2 py-2">
+            <div className="flex items-center justify-end gap-1 px-2 py-2">
               <DevDatabaseLink />
-              <FeedbackButton className="min-w-0 flex-1" />
               <div className="flex shrink-0 items-center gap-0.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2121,6 +2203,11 @@ function StandardLayout({ children }: AppLayoutProps) {
                 <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>
             </div>
+            <SidebarFooterActions
+              feedback={feedbackButton}
+              search={searchButton}
+              collapse={collapseButton}
+            />
           </div>
         </div>
       </>
@@ -2419,18 +2506,36 @@ function AccountPopover({
     setWantAuthUrl(false);
     window.open(authUrl.data.url, "_blank");
 
+    let inFlight = false;
     const interval = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > accounts.length) {
-          clearInterval(interval);
-          window.location.reload();
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        ACCOUNT_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        )
+          // coercion-ok: a failed probe and a not-yet-added-account response
+          // both mean "keep waiting"; this loop only acts on an observed
+          // account-count increase.
+          .catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > accounts.length) {
+            clearInterval(interval);
+            window.location.reload();
+          }
         }
+      } finally {
+        clearTimeout(abortTimer);
+        inFlight = false;
       }
-    }, 2000);
+    }, ACCOUNT_POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [wantAuthUrl, authUrl.data, accounts.length]);

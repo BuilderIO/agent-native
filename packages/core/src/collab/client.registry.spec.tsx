@@ -331,4 +331,41 @@ describe("useCollaborativeDoc connection registry", () => {
     // client (an awareness storm that gets worse as more people join).
     expect(awarenessPostsAfter).toBe(awarenessPostsBefore);
   });
+
+  it("cancels a pending local awareness push when the connection is disposed", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="doc-dispose-awareness"
+        onResult={(next) => (result = next)}
+        user={{ name: "Local", email: "local@example.com", color: "#111" }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const awarenessPostsBeforeDispose = mock.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/awareness") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    ).length;
+    result?.awareness?.setLocalStateField("cursor", { x: 0.25, y: 0.75 });
+
+    act(() => root.unmount());
+    roots = roots.filter((candidate) => candidate !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const awarenessPostsAfterDispose = mock.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/awareness") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    ).length;
+    expect(awarenessPostsAfterDispose).toBe(awarenessPostsBeforeDispose);
+  });
 });

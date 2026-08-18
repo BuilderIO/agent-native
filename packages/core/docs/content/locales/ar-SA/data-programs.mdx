@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 **برنامج البيانات (data program)** هو نص JS مسمّى ومخزَّن يكتبه الـ agent، يقوم بجلب البيانات أو ربطها أو تصفيتها أو تجميعها — عبر واجهات provider APIs باستخدام `providerFetch` / `providerFetchAll` / `providerSearchAll`، أو بيانات الـ app عبر `appAction`، أو ملفات workspace المستندة إلى Resources — ويستدعي `emit(rows, schema)` مرة واحدة بالضبط مع النتيجة. تُخزَّن النتيجة مؤقتًا في SQL، ويمكن لأي مكوّن رسم بياني/جدول عرضها، مع التحديث وفق سياسة تختارها بدلاً من إعادة الجلب في كل زيارة للصفحة.
 
-يتوفر تلقائيًا أينما كان [`run-code`](/docs/actions) متاحًا — لا حاجة لتثبيته أو إعداده لكل app. إذا كان run-code مفعّلًا بالفعل في تطبيقك، فإن `save-data-program`، و`preview-data-program`، و`run-data-program`، و`list-data-programs`، و`get-data-program`، و`delete-data-program` هي بالفعل actions مسجَّلة.
+يتوفر تلقائيًا أينما كان [`run-code`](/docs/actions-overview) متاحًا — لا حاجة لتثبيته أو إعداده لكل app. إذا كان run-code مفعّلًا بالفعل في تطبيقك، فإن `save-data-program`، و`preview-data-program`، و`run-data-program`، و`list-data-programs`، و`get-data-program`، و`delete-data-program` هي بالفعل actions مسجَّلة.
 
 <Diagram id="doc-block-dp-overview" title={"من استعلام مؤقت إلى لوحة حية"} summary={"يتحول نص run-code إلى برنامج مخزَّن بمجرد أن يستدعي emit(); يمكن لأي لوحة dashboard الارتباط به، وبعدها تتولى سياسة التخزين المؤقت/التحديث الأمر."}>
 
@@ -324,6 +324,6 @@ emit(rows, [
 ## مستندات ذات صلة {#related}
 
 - [الامتدادات](/docs/extensions) — البنية الأساسية للتطبيقات المصغّرة المعزولة التي تشارك برامج البيانات معها وضعية أمان ونموذج مشاركة، لكن بواجهة خاصة بها.
-- [Actions](/docs/actions) — قواعد `run-code` والمتغيرات العامة للصندوق الرملي (`providerFetch`، `appAction`، إلخ) التي بُنيت عليها برامج البيانات.
+- [Actions](/docs/actions-overview) — قواعد `run-code` والمتغيرات العامة للصندوق الرملي (`providerFetch`، `appAction`، إلخ) التي بُنيت عليها برامج البيانات.
 - [المشاركة والخصوصية](/docs/sharing) — نموذج المشاركة الداخلي للمؤسسة، وغير العام أبدًا، الذي تستخدمه برامج البيانات.
 - [الأمان](/docs/security) — ثوابت الإطار الخاصة بمعالجة بيانات الاعتماد وتحديد نطاق الوصول.

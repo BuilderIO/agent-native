@@ -1,4 +1,5 @@
-import { callAction, useT } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -70,7 +71,10 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-const CHECKER_A = "#d4d4d4";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_A = "#e5e5e5";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_B = "#f5f5f5";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
 const FIT_MARKER_RE =
   /\/\*\s*agent-native-image-fit:(fill|fit|crop|tile)\s*\*\//i;
@@ -344,6 +348,7 @@ export function ImageFillControls({
           backgroundImage: value.url
             ? `url("${escapeForQuotedUrl(value.url.trim())}")`
             : CHECKERBOARD_IMAGE,
+          backgroundColor: value.url ? undefined : CHECKER_B,
           backgroundSize: value.url
             ? value.fit === "fit"
               ? "contain"

@@ -28,10 +28,9 @@ const messages = {
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
-    agentTitle: "代理设置",
-    agentDescription:
-      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-    openAgentSettings: "打开代理设置",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+    openAgentSettings: "管理代理",
     editorTitle: "VS Code 扩展",
     editorDescription:
       "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",
@@ -43,6 +42,10 @@ const messages = {
     suggestionShipped: "上周发布了什么？",
     suggestionUi: "这个界面现在是什么样？",
     suggestionApi: "这个 API 的结构是什么？",
+  },
+  contextXray: {
+    panelTitle: "上下文 X 光",
+    snapshotsTitle: "快照",
   },
   sidebar: {
     openNavigation: "打开导航",
@@ -148,6 +151,7 @@ const messages = {
       artboardCanvas: "Plan 画板画布",
       zoomIn: "放大",
       zoomOut: "缩小",
+      zoomHint: "按住 ⌘/Ctrl 并滚动以缩放",
       markupSaveFailed: "无法保存标注。请重试。",
     },
     document: {
@@ -281,6 +285,7 @@ const messages = {
       advanced: "先进的",
       agentMissing: "连接代理以运行 - 添加 API 密钥或使用 Builder。",
       assessment: {
+        design: "自动检测到高保真请求；代理将创建精致的品牌化界面。",
         ui: "自动检测 UI 状态或流程；代理将制定线框优先计划。",
         visual: "汽车将要求代理商提供丰富的技术计划，包括图表和实施细节。",
       },
@@ -301,6 +306,10 @@ const messages = {
         ui: {
           description: "UI 流程 - 线框和状态",
           label: "用户界面流程",
+        },
+        design: {
+          description: "高保真设计 - 精致的品牌化界面",
+          label: "高保真设计",
         },
         visual: {
           description: "一般视觉 - 图表和注释",
@@ -657,6 +666,8 @@ const messages = {
         "默认为私有。邀请他人、与您的组织共享或设置公开以供任何有链接的人审核。",
       finishAccount: "完成创建您的帐户，然后返回，我们将生成链接。",
       generalAccess: "通用 {{noun}} 访问",
+      commenterRoleLabel: "评论者",
+      commenterRoleDescription: "可以查看并添加评论",
       hostedCopy:
         "此本地 {{noun}} 有一个托管副本可供共享。打开托管的 {{noun}} 来管理访问。",
       linkCopied: "已复制共享链接",

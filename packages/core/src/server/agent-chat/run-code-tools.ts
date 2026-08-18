@@ -1,8 +1,9 @@
 import type { ActionEntry } from "../../agent/production-agent.js";
+import { getAppConfig } from "../../app-config/index.js";
 
 /**
  * Load the sandboxed code-execution tool entries for one action registry:
- * `run-code` plus its `get-code-execution` poll companion. The poll tool is
+ * `run-code`, bounded `tool-orchestration`, plus its `get-code-execution` poll companion. The poll tool is
  * registered ALONGSIDE run-code everywhere run-code appears, so the durable
  * background-execution guidance run-code emits ("check it with
  * get-code-execution") always points at a callable tool. Returns an empty
@@ -19,8 +20,11 @@ export async function loadRunCodeToolEntries(
   try {
     const { createRunCodeEntry, createGetCodeExecutionEntry } =
       await import("../../coding-tools/run-code.js");
+    const { createToolOrchestrationEntry } =
+      await import("../../coding-tools/tool-orchestration.js");
     const entries: Record<string, ActionEntry> = {
       "run-code": createRunCodeEntry(supplier, runCodeOptions),
+      "tool-orchestration": createToolOrchestrationEntry(supplier),
       "get-code-execution": createGetCodeExecutionEntry(),
     };
 
@@ -58,10 +62,6 @@ export async function loadRunCodeToolEntries(
  * persisted resource scoped to "this app deployment".
  */
 function resolveDataProgramsAppId(): string {
-  return (
-    process.env.AGENT_NATIVE_APP_ID?.trim() ||
-    process.env.APP_ID?.trim() ||
-    process.env.APP_NAME?.trim() ||
-    "app"
-  );
+  const app = getAppConfig().app;
+  return app.id ?? app.name ?? "app";
 }

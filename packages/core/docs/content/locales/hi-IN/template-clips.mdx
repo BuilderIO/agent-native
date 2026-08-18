@@ -247,7 +247,7 @@ pnpm dev
 
 क्लिप्स एक देशी रिकॉर्डर के साथ एक बड़ा टेम्पलेट है (यह स्थानीय कैप्चर के लिए एक डेस्कटॉप साथी भेजता है)। रिकॉर्डिंग अपलोड करने से पहले तीन सेटअप चरणों की आवश्यकता होती है:
 
-1. **वीडियो स्टोरेज (आवश्यक)।** ऑनबोर्डिंग विज़ार्ड के माध्यम से स्टोरेज बैकएंड कनेक्ट करें। सबसे आसान रास्ता Builder.io है (बीटा के दौरान मुफ़्त, एक-क्लिक)। सेल्फ-होस्टेड स्टोरेज के लिए, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` और वैकल्पिक रूप से `S3_REGION` और `S3_PUBLIC_BASE_URL` सेट करें। Cloudflare R2 और DigitalOcean Spaces `R2_*` उपसर्ग के साथ समान env vars का उपयोग करते हैं।
+1. **वीडियो स्टोरेज (आवश्यक)।** ऑनबोर्डिंग विज़ार्ड के माध्यम से स्टोरेज बैकएंड कनेक्ट करें। सबसे आसान रास्ता Builder.io है (free tier includes video storage and AI credits, एक-क्लिक)। सेल्फ-होस्टेड स्टोरेज के लिए, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` और वैकल्पिक रूप से `S3_REGION` और `S3_PUBLIC_BASE_URL` सेट करें। Cloudflare R2 और DigitalOcean Spaces `R2_*` उपसर्ग के साथ समान env vars का उपयोग करते हैं।
 2. **Google Calendar (वैकल्पिक)।** आगामी मीटिंग को सिंक करने के लिए, सेटिंग्स से एक Google Calendar खाता कनेक्ट करें। देव में OAuth कॉलबैक URL `http://localhost:8094/_agent-native/google/callback` है। Gmail और Google Calendar APIs सक्षम के साथ [Google Cloud Console](https://console.cloud.google.com/) में एक Google OAuth क्लाइंट सेट करें।
 3. **स्क्रीन-कैप्चर अनुमतियाँ।** macOS पर, सिस्टम सेटिंग्स → गोपनीयता और सुरक्षा → स्क्रीन रिकॉर्डिंग में ब्राउज़र (या डेस्कटॉप साथी ऐप) को स्क्रीन रिकॉर्डिंग की अनुमति दें। ब्राउज़र रिकॉर्डिंग रिडक्टेड कंसोल को सेव कर सकती है और रिकॉर्डर पेज से फ़ेच/XHR डायग्नोस्टिक्स को सेव कर सकती है। एक बार क्रोम एक्सटेंशन सूची उपलब्ध हो जाने पर, `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` सक्षम करें ताकि उपयोगकर्ता सक्रिय-टैब ब्राउज़र लॉग के लिए एक्सटेंशन या सबसे आसान देशी कैप्चर पथ के लिए डेस्कटॉप ऐप चुन सकें।
 4. **Slack पूर्वावलोकन (वैकल्पिक)।** `links:read`, `links:write`, और `links.embed:write` के साथ एक Slack ऐप बनाएं; `link_shared` की सदस्यता लें; **ऐप अनफ़रल डोमेन** के अंतर्गत अपना क्लिप्स शेयर डोमेन जोड़ें; अनुरोध URL को `https://your-clips.example.com/api/slack/unfurl` पर सेट करें; और OAuth रीडायरेक्ट URL `https://your-clips.example.com/api/slack/oauth/callback` जोड़ें। `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, और `SLACK_SIGNING_SECRET` कॉन्फ़िगर करें, फिर क्लिप सेटिंग्स से कार्यस्थान कनेक्ट करें।
@@ -269,7 +269,7 @@ pnpm dev
 
 2. **उत्पादन स्थिति कॉन्फ़िगर करें।** एक स्थायी `DATABASE_URL`, सामान्य सेट करें
    [Deployment](/docs/deployment) से उत्पादन प्रमाणीकरण/रहस्य चर, और ए
-   वीडियो भंडारण प्रदाता। Builder.io कनेक्ट सबसे आसान भंडारण पथ है; के लिए
+   वीडियो भंडारण प्रदाता। Builder.io कनेक्ट (free tier includes video storage and AI credits) सबसे आसान भंडारण पथ है; के लिए
    स्वयं-होस्टेड भंडारण, S3-संगत के लिए `S3_*` या `R2_*` चर का उपयोग करें
    बाल्टी.
 
@@ -300,7 +300,7 @@ pnpm dev
    विभिन्न एक्सटेंशन सूची।
 
 6. **वैकल्पिक एकीकरण कनेक्ट करें।** Google Calendar मीटिंग टैब को शक्ति प्रदान करता है,
-   `GEMINI_API_KEY` या Builder.io कनेक्ट पावर ट्रांसक्रिप्ट क्लीनअप और शीर्षक,
+   `GEMINI_API_KEY` या Builder.io कनेक्ट (free tier includes AI credits) पावर ट्रांसक्रिप्ट क्लीनअप और शीर्षक,
    `GROQ_API_KEY` स्पीच-टू-टेक्स्ट फ़ॉलबैक प्रदान कर सकता है, और Slack OAuth
    सेटिंग्स में कनेक्शन खेलने योग्य Slack को खोलने में सक्षम बनाता है।
 

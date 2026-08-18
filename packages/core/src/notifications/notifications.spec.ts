@@ -360,6 +360,19 @@ describe("notifications routes", () => {
       statusCode: 401,
     });
   });
+
+  it("allows only list in Plan mode", () => {
+    const tool = createNotificationToolEntries(() => "boni@local")[
+      "manage-notifications"
+    ];
+    const effect = tool.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "send" })).toBe("write");
+    expect(tool.planMode?.allowedValues).toEqual({ action: ["list"] });
+  });
 });
 
 describe("notification action entries", () => {

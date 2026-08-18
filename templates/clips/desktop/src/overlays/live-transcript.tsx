@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  appendFinalTranscript,
+  isMicEcho,
   onFinalTranscript,
   onPartialTranscript,
+  type TranscriptLine,
 } from "../lib/transcription-engine";
 
 type Source = "mic" | "system";
@@ -11,6 +14,17 @@ export interface FinalLine {
   text: string;
   source: Source;
   startMs?: number;
+}
+
+/** Preloaded history arrives without its verbatim segments. */
+function historyLine(line: FinalLine): TranscriptLine {
+  return {
+    text: line.text,
+    source: line.source,
+    startMs: line.startMs ?? null,
+    segments: [],
+    historical: true,
+  };
 }
 
 /** Format ms since meeting start as m:ss. */
@@ -38,10 +52,12 @@ export function LiveTranscript({
   onLinesChange,
   initialLines,
 }: {
-  onLinesChange?: (lines: FinalLine[]) => void;
+  onLinesChange?: (lines: TranscriptLine[]) => void;
   initialLines?: FinalLine[];
 } = {}) {
-  const [finals, setFinals] = useState<FinalLine[]>(initialLines ?? []);
+  const [finals, setFinals] = useState<TranscriptLine[]>(
+    () => initialLines?.map(historyLine) ?? [],
+  );
   const [micPartial, setMicPartial] = useState("");
   const [sysPartial, setSysPartial] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -69,7 +85,7 @@ export function LiveTranscript({
     // older history), instead of being overwritten.
     if (preloadAppliedRef.current) return;
     preloadAppliedRef.current = true;
-    setFinals((prev) => [...lines, ...prev]);
+    setFinals((prev) => [...lines.map(historyLine), ...prev]);
   }, [initialLines]);
 
   useEffect(() => {
@@ -97,12 +113,13 @@ export function LiveTranscript({
       }),
     );
     trackListen(
-      onFinalTranscript(({ text, source, segments }) => {
-        const txt = text.trim();
-        if (!txt) return;
-        const startMs = segments[0]?.startMs;
-        setFinals((prev) => [...prev, { text: txt, source, startMs }]);
-        if (source === "system") setSysPartial("");
+      onFinalTranscript((event) => {
+        if (!event.text.trim()) return;
+        setFinals((prev) => {
+          const next = [...prev];
+          return appendFinalTranscript(event, next) ? next : prev;
+        });
+        if (event.source === "system") setSysPartial("");
         else setMicPartial("");
       }),
     );
@@ -126,9 +143,21 @@ export function LiveTranscript({
     el.scrollTop = el.scrollHeight;
   }, [finals, micPartial, sysPartial]);
 
+  // Partials never reach `appendFinalTranscript`, so speaker bleed shows up
+  // here as a live "You" bubble mirroring what the remote side is still
+  // saying. Judge the in-flight mic text against the in-flight system text too,
+  // since neither has been committed to a line yet.
+  const spokenMicPartial = useMemo(() => {
+    if (!micPartial) return "";
+    const inFlight: TranscriptLine[] = sysPartial
+      ? [{ source: "system", text: sysPartial, startMs: null, segments: [] }]
+      : [];
+    return isMicEcho(micPartial, [...finals, ...inFlight]) ? "" : micPartial;
+  }, [micPartial, sysPartial, finals]);
+
   return (
     <div ref={scrollRef} className="lt-chat">
-      {finals.length === 0 && !micPartial && !sysPartial ? (
+      {finals.length === 0 && !spokenMicPartial && !sysPartial ? (
         <div className="lt-empty">Listening…</div>
       ) : null}
       {finals.map((line, i) => (
@@ -142,8 +171,8 @@ export function LiveTranscript({
       {sysPartial ? (
         <ChatBubble source="system" text={sysPartial} pending />
       ) : null}
-      {micPartial ? (
-        <ChatBubble source="mic" text={micPartial} pending />
+      {spokenMicPartial ? (
+        <ChatBubble source="mic" text={spokenMicPartial} pending />
       ) : null}
     </div>
   );
@@ -151,8 +180,9 @@ export function LiveTranscript({
 
 /**
  * A single chat-style transcript bubble. The mic stream ("You") is aligned to
- * the right with a warm amber bubble; the system-audio stream ("Them") sits on
- * the left with a cool sky bubble. In-flight partials render dimmed.
+ * the right; the system-audio stream ("Them") sits on the left. Both use
+ * neutral greys — side, not hue, is what distinguishes the speakers. In-flight
+ * partials render dimmed.
  */
 function ChatBubble({
   source,
@@ -163,7 +193,7 @@ function ChatBubble({
   source: Source;
   text: string;
   pending?: boolean;
-  startMs?: number;
+  startMs?: number | null;
 }) {
   const isYou = source === "mic";
   const label = isYou ? "You" : "Them";

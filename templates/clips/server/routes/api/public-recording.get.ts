@@ -6,11 +6,11 @@
  * authenticated `/_agent-native/actions/get-recording-player-data` route.
  *
  * Only returns data when:
- *   - recording.visibility === 'public' (or the signed-in viewer is owner), AND
+ *   - recording.visibility === 'public', or the signed-in viewer has org/share access, AND
  *   - either no password is set, the viewer is owner, or the provided password matches
  *
- * For `org` or `private` visibility, returns 401 (viewer must sign in and use
- * the authenticated player route).
+ * For `org` or `private` visibility, signed-in org members and explicit shares
+ * may load the same player payload as the authenticated route.
  */
 
 import {
@@ -19,6 +19,7 @@ import {
   signShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { asc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -41,12 +42,23 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { countRecordingAgentViews } from "../../lib/agent-views.js";
+import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
+import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
+  canOpenDirectRecordingPage,
+  isRecordingExpired,
+  type RecordingPageAccessRole,
+} from "../../lib/recording-page-access.js";
+import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
+import {
+  countRecordingViews,
   getOrganizationRoleForEmail,
   parseSpaceIds,
-  sameOwnerEmail,
+  type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
 function appPath(path: string): string {
@@ -211,15 +223,24 @@ export default defineEventHandler(async (event) => {
   }
 
   const session = await getSession(event).catch(() => null);
-  const viewerIsOwner = Boolean(
-    session?.email && sameOwnerEmail(session.email, rec.ownerEmail),
-  );
   const tokenAllowsAgentAccess = suppliedAgentAccessToken
     ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
         resourceId: rec.id,
       }).ok
     : false;
+
+  // Share links are public-shell routes, so this endpoint cannot rely on the
+  // authenticated player action to authorize private recordings. Resolve the
+  // same registered access policy here so explicit user/org grants work before
+  // the client redirects to the direct player route.
+  const viewerAccess = session?.email
+    ? await resolveAccess("recording", rec.id, {
+        userEmail: session.email,
+        orgId: session.orgId,
+      })
+    : null;
+  const viewerIsOwner = viewerAccess?.role === "owner";
 
   let viewerIsOrgMember = false;
   if (session?.email && rec.visibility === "org" && rec.organizationId) {
@@ -238,21 +259,25 @@ export default defineEventHandler(async (event) => {
 
   if (
     rec.visibility !== "public" &&
-    !viewerIsOwner &&
+    !viewerAccess &&
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
 
+  const viewerCanComment = Boolean(
+    session?.email &&
+    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
+  );
+
   // Expiry check
-  if (rec.expiresAt) {
-    const expires = new Date(rec.expiresAt).getTime();
-    if (isFinite(expires) && expires < Date.now()) {
-      setResponseStatus(event, 410);
-      return { error: "Recording has expired", expired: true };
-    }
+  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  if (recordingExpired) {
+    setResponseStatus(event, 410);
+    return { error: "Recording has expired", expired: true };
   }
 
   // Password check
@@ -358,6 +383,10 @@ export default defineEventHandler(async (event) => {
     resolvedVideoUrl,
     protectedMediaToken,
   );
+  const playbackThumbnailUrl = resolvePlayerThumbnailUrl(rec, {
+    accessToken: protectedMediaToken,
+    appPath,
+  });
 
   const canExposeAgentContext =
     (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
@@ -384,24 +413,70 @@ export default defineEventHandler(async (event) => {
   // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
+  const [verificationPending, seekableRepairPending] = await Promise.all([
+    isMediaVerificationPending({
+      ownerEmail: rec.ownerEmail,
+      recordingId,
+      recordingStatus: rec.status,
+    }),
+    isSeekableRepairPending({
+      ownerEmail: rec.ownerEmail,
+      recordingId,
+      recordingStatus: rec.status,
+      videoUrl: rec.videoUrl,
+    }),
+  ]);
+
+  const [viewCount, agentViewCount] = await Promise.all([
+    countRecordingViews(recordingId),
+    countRecordingAgentViews(recordingId),
+  ]);
+
+  const viewerRole =
+    viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
+  // Mirrors the gate in `get-recording-player-data` exactly: the share page
+  // auto-redirects on this flag, so a false positive bounces the viewer
+  // between /share/:id and /r/:id forever. Only a resolved access role can
+  // open the direct page — the org-member fallback above is a display role,
+  // not access the player action would grant.
+  const canOpenDashboard =
+    Boolean(session?.email) && viewerAccess && !recordingExpired
+      ? canOpenDirectRecordingPage({
+          role: viewerAccess.role as RecordingPageAccessRole,
+          visibility: rec.visibility as RecordingVisibility,
+          hasPassword: Boolean(rec.password),
+          hasExplicitShare: await hasExplicitRecordingShare({
+            recordingId,
+            role: viewerAccess.role as RecordingPageAccessRole,
+            visibility: rec.visibility as RecordingVisibility,
+            hasPassword: Boolean(rec.password),
+            userEmail: session?.email ?? null,
+            orgId: session?.orgId ?? null,
+          }),
+        })
+      : false;
 
   return {
     recording: {
       id: rec.id,
       title: rec.title,
       description: rec.description,
-      thumbnailUrl: rec.thumbnailUrl,
+      thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: rec.animatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
       editsJson: rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
+      videoSizeBytes: rec.videoSizeBytes ?? null,
+      mediaUpdatedAt: rec.mediaUpdatedAt,
       width: rec.width,
       height: rec.height,
       hasAudio: Boolean(rec.hasAudio),
       hasCamera: Boolean(rec.hasCamera),
       status: rec.status,
+      verificationPending,
+      seekableRepairPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
       // Don't leak the password to clients; just indicate whether one was set.
@@ -418,6 +493,9 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
+    // Aggregate counts only — never viewer identities on this public payload.
+    viewCount,
+    agentViewCount,
     transcript: transcript
       ? {
           status: transcriptPresentation.status,
@@ -459,9 +537,14 @@ export default defineEventHandler(async (event) => {
     })),
     viewer: session?.email
       ? {
-          canEdit: viewerIsOwner,
-          isOwner: viewerIsOwner,
-          role: viewerIsOwner ? "owner" : "viewer",
+          canEdit:
+            viewerRole === "owner" ||
+            viewerRole === "admin" ||
+            viewerRole === "editor",
+          canComment: viewerCanComment,
+          isOwner: viewerRole === "owner",
+          role: viewerRole ?? "viewer",
+          canOpenDashboard,
         }
       : null,
   };

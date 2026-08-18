@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { BlockRenderContext } from "../types.js";
 import {
   hasDrawableRoughBounds,
+  hasDrawableRoughGeometry,
   HTML_ROUGH_SELECTOR,
 } from "./wireframe-kit.js";
 import type { WireframeData } from "./wireframe.config.js";
@@ -102,6 +103,17 @@ describe("wireframe auto-height frame", () => {
     expect(hasDrawableRoughBounds(3, 3, 1)).toBe(true);
   });
 
+  it("skips rough paths with non-finite layout coordinates", () => {
+    expect(hasDrawableRoughGeometry(0, 0, 20, 20, 1)).toBe(true);
+    expect(hasDrawableRoughGeometry(Number.NaN, 0, 20, 20, 1)).toBe(false);
+    expect(
+      hasDrawableRoughGeometry(0, Number.POSITIVE_INFINITY, 20, 20, 1),
+    ).toBe(false);
+    expect(
+      hasDrawableRoughGeometry(0, 0, Number.NEGATIVE_INFINITY, 20, 1),
+    ).toBe(false);
+  });
+
   it("roughens standard wireframe primitives by default", () => {
     expect(HTML_ROUGH_SELECTOR).toContain("[data-rough]");
     expect(HTML_ROUGH_SELECTOR).toContain("button");
@@ -181,6 +193,16 @@ describe("wireframe auto-height frame", () => {
     expect(html).toContain("bg-white");
     expect(html).toContain("text-zinc-950");
     expect(html).toContain("shadow-xl");
+  });
+
+  it("applies persisted design mode to legacy kit-tree wireframes", () => {
+    const html = render({
+      surface: "browser",
+      renderMode: "design",
+      screen: [{ el: "title", text: "Design" }],
+    });
+
+    expect(html).not.toContain("data-wireframe-style-toggle");
   });
 
   it("shows the surface frame by default", () => {

@@ -79,6 +79,7 @@ function positionCaseSql(
 
 export async function resolveDatabaseRowsForBatch(
   input: DatabaseRowBatchInput,
+  options: { includeTrashed?: boolean } = {},
 ): Promise<{
   database: typeof schema.contentDatabases.$inferSelect;
   rows: DatabaseRowBatchRow[];
@@ -151,6 +152,7 @@ export async function resolveDatabaseRowsForBatch(
         eq(schema.contentDatabaseItems.databaseId, database.id),
         rowPredicates.length === 1 ? rowPredicates[0] : or(...rowPredicates),
         isNull(schema.contentDatabases.deletedAt),
+        options.includeTrashed ? undefined : isNull(schema.documents.trashedAt),
       ),
     )
     .orderBy(asc(schema.contentDatabaseItems.position));
@@ -176,7 +178,10 @@ export async function resolveDatabaseRowsForBatch(
     throw new Error("Duplicate database row references are not allowed.");
   }
 
-  return { database, rows: requestedRows };
+  return {
+    database,
+    rows: requestedRows,
+  };
 }
 
 export async function renumberDatabaseRows(
@@ -185,9 +190,21 @@ export async function renumberDatabaseRows(
   now: string,
 ) {
   const rows = await db
-    .select()
+    .select({
+      id: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
     .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, database.id))
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, database.id),
+        isNull(schema.documents.trashedAt),
+      ),
+    )
     .orderBy(asc(schema.contentDatabaseItems.position));
   if (rows.length === 0) return;
 

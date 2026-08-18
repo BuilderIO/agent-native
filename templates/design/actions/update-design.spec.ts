@@ -376,6 +376,30 @@ describe("update-design data concurrency", () => {
     ).toBe(false);
   });
 
+  it("rejects string frame dimensions", async () => {
+    expect(
+      action.schema.safeParse({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a"],
+            value: { x: 0, y: 0, width: "800", height: 600 },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({
+          canvasFrames: { "frame-a": { width: "800" } },
+        }),
+      } as never),
+    ).rejects.toThrow(/must be a finite JSON number/);
+  });
+
   it("CAS-matches a legacy null data row", async () => {
     mocks.state.row.data = null;
 

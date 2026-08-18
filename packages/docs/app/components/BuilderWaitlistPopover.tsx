@@ -1,4 +1,6 @@
-import { agentNativePath, trackEvent, useT } from "@agent-native/core/client";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
@@ -17,7 +19,7 @@ type BuilderWaitlistProps = {
 };
 
 const primaryButtonClassName =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200";
+  "inline-flex w-full items-center justify-center gap-2 rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200";
 
 export function BuilderWaitlistContent({
   location,

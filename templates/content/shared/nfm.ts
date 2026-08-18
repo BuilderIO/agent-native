@@ -41,6 +41,7 @@
  * exposing simple string props for the editor preview layer.
  */
 
+import { matchInlineMathAt } from "./inline-math.js";
 import { isRegistryBlockTag, registryBlockSpecByTag } from "./nfm-registry.js";
 
 // ── Shared PM JSON types ────────────────────────────────────────────
@@ -115,7 +116,7 @@ function unescapeInlineText(text: string): string {
 // paragraph instead of being reparsed as that block type. These are matched
 // against the raw (untrimmed) text because the corresponding block parsers
 // (heading/list/task) also match against the untrimmed dedented line.
-const LEADING_BLOCK_MARKER = /^(#{1,4} |[-*+] |\d+[.)] |\[[ xX]\] )/;
+const LEADING_BLOCK_MARKER = /^(#{1,6} |[-*+] |\d+[.)] |\[[ xX]\] )/;
 
 // Divider lookalikes ("---", "***", "___", 3+ repeats) — matched separately
 // because the divider parser trims the line before testing
@@ -279,7 +280,7 @@ function serializeInlineAtom(node: PMNode): string {
     attrs = {};
   }
   if (tagName === "math") {
-    return "$`" + (label || attrs.latex || "") + "`$";
+    return "$" + (label || attrs.latex || "") + "$";
   }
   const attrEntries = Object.entries(attrs).filter(([k]) => k !== "latex");
   const attrStr = serializeAttrs(attrEntries);
@@ -446,19 +447,21 @@ function parseInline(input: string): PMNode[] {
       continue;
     }
 
-    // Inline math $`...`$
-    if (ch === "$" && input[i + 1] === "`") {
-      const close = input.indexOf("`$", i + 2);
-      if (close !== -1) {
-        flush();
-        const latex = input.slice(i + 2, close);
-        out.push({
-          type: "notionInlineAtom",
-          attrs: { tagName: "math", attrsJson: "{}", label: latex },
-        });
-        i = close + 2;
-        continue;
-      }
+    // Canonical inline math is $...$; GitHub's $`...`$ form remains a
+    // backwards-compatible input alias and canonicalizes on the next write.
+    const inlineMath = ch === "$" ? matchInlineMathAt(input, i) : null;
+    if (inlineMath) {
+      flush();
+      out.push({
+        type: "notionInlineAtom",
+        attrs: {
+          tagName: "math",
+          attrsJson: "{}",
+          label: inlineMath.latex,
+        },
+      });
+      i = inlineMath.to;
+      continue;
     }
 
     // Inline code `...` — CommonMark-style variable-length delimiter: the
@@ -865,7 +868,7 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       ];
     }
     case "heading": {
-      const level = Math.min(4, Math.max(1, Number(node.attrs?.level) || 1));
+      const level = Math.min(6, Math.max(1, Number(node.attrs?.level) || 1));
       const inline = serializeInline(node.content);
       return [
         indentStr(ind) +
@@ -983,7 +986,8 @@ function serializeToggle(node: PMNode, ind: number): string[] {
     return out;
   }
   const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
-  out.push(indentStr(ind) + `<details${attrStr}>`);
+  const openAttr = node.attrs?.open === true ? " open" : "";
+  out.push(indentStr(ind) + `<details${attrStr}${openAttr}>`);
   out.push(indentStr(ind) + `<summary>${summary}</summary>`);
   out.push(...serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + "</details>");
@@ -1480,7 +1484,7 @@ function parseSingleBlock(
   // Heading (possibly a toggle heading)
   const headingMatch = dedent.match(/^(#{1,6})\s+(.*)$/);
   if (headingMatch) {
-    const level = Math.min(4, headingMatch[1].length);
+    const level = headingMatch[1].length;
     const { text, toggle, color } = splitBlockAttrs(headingMatch[2]);
     if (toggle) {
       const childRes = parseBlockSequence(lines, start + 1, indent + 1);
@@ -2003,7 +2007,7 @@ function parseContainer(
       attrs: {
         summary,
         headingLevel: null,
-        open: false,
+        open: attrs.open !== undefined || /(?:^|\s)open(?:\s|>)/.test(openLine),
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },

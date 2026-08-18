@@ -362,7 +362,7 @@ export function WorkbenchProvider({
       dispatch({
         type: "SET_BUFFER",
         meta: existingMeta
-          ? { ...existingMeta, uri, loading: true }
+          ? { ...existingMeta, uri, loading: true, error: undefined }
           : {
               uri,
               loading: true,
@@ -370,6 +370,7 @@ export function WorkbenchProvider({
               conflict: false,
               saving: false,
               readonly: false,
+              error: undefined,
             },
       });
       try {

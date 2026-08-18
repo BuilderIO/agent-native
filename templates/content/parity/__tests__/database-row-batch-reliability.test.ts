@@ -17,8 +17,8 @@ const duplicateBatchActionSource = readFileSync(
   new URL("../../actions/duplicate-database-items.ts", import.meta.url),
   "utf8",
 );
-const deleteBatchActionSource = readFileSync(
-  new URL("../../actions/delete-database-items.ts", import.meta.url),
+const removeBatchActionSource = readFileSync(
+  new URL("../../actions/remove-database-items.ts", import.meta.url),
   "utf8",
 );
 const singularDuplicateActionSource = readFileSync(
@@ -35,7 +35,7 @@ const databaseImplementationSurfaces = [
 ] as const;
 
 describe("database row batch reliability", () => {
-  it("keeps selected duplicate/delete on batch row actions instead of per-row mutations", () => {
+  it("keeps selected duplicate/remove on batch row actions instead of per-row mutations", () => {
     expect(documentDatabaseSource).toContain(
       'import { DatabaseView } from "./database/DatabaseView";',
     );
@@ -45,7 +45,7 @@ describe("database row batch reliability", () => {
 
     for (const [filename, source] of databaseImplementationSurfaces) {
       expect(source, filename).toContain("useDuplicateDatabaseItems");
-      expect(source, filename).toContain("useDeleteDatabaseItems");
+      expect(source, filename).toContain("useRemoveDatabaseItems");
       expect(source, filename).not.toContain(
         "for (const item of selectedSnapshot) {\n        await deleteDocument.mutateAsync",
       );
@@ -59,8 +59,9 @@ describe("database row batch reliability", () => {
     expect(duplicateBatchActionSource).toContain(
       "Use this for two or more selected/named rows instead of looping duplicate-database-item",
     );
-    expect(deleteBatchActionSource).toContain(
-      "Use this for two or more selected/named rows instead of looping delete-document",
+    expect(removeBatchActionSource).toContain("without deleting the pages");
+    expect(removeBatchActionSource).toContain(
+      "await lockContentDatabaseMutation(",
     );
     expect(singularDuplicateActionSource).toContain(
       "For two or more rows, use duplicate-database-items once instead of looping this action",

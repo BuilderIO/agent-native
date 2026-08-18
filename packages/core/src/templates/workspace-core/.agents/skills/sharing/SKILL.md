@@ -31,8 +31,11 @@ Visibility is coarse. Explicit share grants are fine-grained (per user or per or
 ### Roles on a share grant
 
 - **`viewer`** — read only.
+- **`commenter`** — read + add comments, but cannot edit the resource or manage shares.
 - **`editor`** — read + write.
 - **`admin`** — read + write + manage shares. Does NOT replace the single `owner_email` on the resource.
+
+There are three role systems and they never imply one another. A share role answers "what may this person do to **one row**". An org role (`org_members.role`) answers "what may this person do to the **team**". An app role (`defineAppRoles`, see the `authentication` skill) answers "what may this person do inside **one app**". A share `admin` is not an app admin and neither is an org admin.
 
 ### Anonymous public URLs stay separate
 
@@ -137,6 +140,8 @@ export default defineAction({
 
 For delete actions use `"admin"` (or fold in `"owner"` to require the real owner).
 
+`authorize` is a different axis, not an alternative: it gates whether the caller may run the operation at all, while `assertAccess` scopes which row they may touch. A write action restricted to some teammates needs both — `authorize: appAccess.requireAny(...)` on the action, `assertAccess` inside `run`.
+
 ## Create actions must set owner
 
 When inserting a new row, fill `ownerEmail` and `orgId` from the request context:
@@ -167,7 +172,7 @@ await db.insert(schema.decks).values({
 ## Drop in the share UI
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client/sharing";
 
 // In the resource's header/toolbar:
 <ShareButton
@@ -179,13 +184,34 @@ import { ShareButton } from "@agent-native/core/client";
 
 For list views, show `<VisibilityBadge visibility={row.visibility} />` next to each resource.
 
+## Standard share surface
+
+All app share popovers should use the same compact surface contract:
+
+- Use the text-only `ShareTrigger` from `@agent-native/toolkit/sharing`.
+- Render ordinary links with `ShareCopyRow`, which exposes a Copy action without
+  printing the raw URL.
+- Keep general access and individual people access in the standard Core sharing
+  flow. The people flow supports email invites, roles, notifications, and
+  removal through the shared share actions.
+- Add `ShareAgentsSection` only when the resource has a real agent-readable
+  link or prompt. Keep it collapsed by default and supply domain-specific
+  content through the shared section shell.
+- App-specific tabs or controls may remain when they represent a real domain
+  action (for example, an embed-code editor), but they should retain the same
+  trigger, copy-row, access, and spacing language.
+
+`ShareDisclosureSection` is the toolkit-owned shell for optional expandable
+share details; use its `ShareAgentsSection` or `SharePeopleSection` wrappers
+instead of creating another collapsible share panel in a template.
+
 ## Actions available everywhere
 
 The framework auto-mounts these actions in every template — no per-template boilerplate:
 
 | Action                     | Args                                                                           | Purpose                                   |
 | -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?` | Grant a user or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link used in the notification email. |
+| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
 | `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |

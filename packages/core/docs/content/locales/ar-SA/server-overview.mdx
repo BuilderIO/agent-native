@@ -1,0 +1,234 @@
+---
+title: "الخادم"
+description: "طبقة خادم Nitro في تطبيق أصلي للوكيل: الغرض منها، ومتى تلجأ إلى المسارات المخصصة، وكيف ترتبط أجزاؤها ببعضها."
+---
+
+# الخادم
+
+يمثّل دليل `server/` طبقة البنية التحتية لتطبيق أصلي للوكيل. فهو يتولى مهام بدء التشغيل، والمصادقة، وواجهات HTTP التي لا تغطيها Actions. يعيش معظم سلوك المنتج في [Actions](/docs/actions-overview). والخادم هو ما يجعل تلك Actions متاحة.
+
+<Diagram id="doc-block-server-overview-1" title="كيف تتدفق الطلبات عبر الخادم" summary="يصل المستدعون إلى خادم Nitro، الذي يتعامل مع معظم الطلبات عبر Actions. تغطي البرمجيات الوسيطة والمسارات الحالات التي لا يمكن لـ Actions تغطيتها. يمكن لكلا المسارين الاستعلام عن قاعدة البيانات.">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">المتصفح / واجهة المستخدم</div>
+    <div class="diagram-node">حلقة الوكيل</div>
+    <div class="diagram-node">
+      العملاء الخارجيون<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>خادم Nitro</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">المسار الأساسي</small>
+    </div>
+    <div class="srv-or diagram-muted">أو</div>
+    <div class="srv-path">
+      <span class="diagram-pill">البرمجيات الوسيطة</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">المسارات</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    قاعدة بيانات SQL<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## أين يتناسب الخادم {#role}
+
+في تطبيق ويب تقليدي، يعيش معظم المنطق في الخادم. تحدث قواعد الأعمال، والوصول إلى البيانات، والعرض كلها داخل معالجات المسارات. تعمل التطبيقات الأصلية للوكيل بشكل مختلف. يعيش المنطق في Actions، التي يتشاركها الوكيل وواجهة المستخدم كشريكين متكافئين. مهمة الخادم هي التنسيق: تشغيل عمليات ترحيل قاعدة البيانات، وتكوين المصادقة، وتثبيت حلقة الوكيل، والتعامل مع مجموعة ضيقة من اهتمامات HTTP التي لا يمكن لـ Actions التعبير عنها بمفردها.
+
+<Diagram id="doc-block-server-overview-2" title="الخادم التقليدي مقابل الأصلي للوكيل">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">تقليدي</div>
+    <div class="diagram-node">المتصفح</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>الخادم</strong>
+      <small class="diagram-muted">يعيش المنطق هنا</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">معالجات المسارات</span>
+        <span class="cmp-tag">منطق الأعمال</span>
+        <span class="cmp-tag">الوصول إلى البيانات</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة البيانات</div>
+  </div>
+  <div class="cmp-vs diagram-muted">مقابل</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">الأصلي للوكيل</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">المتصفح / واجهة المستخدم</div>
+      <div class="diagram-node">الوكيل</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>الخادم</strong>
+      <small class="diagram-muted">تنسيق فقط</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">المصادقة</span>
+        <span class="cmp-tag">الترحيل</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة البيانات</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+تمر طلبات المتصفح، وحلقة الوكيل، وعملاء API الخارجيون جميعها عبر خادم Nitro نفسه، وتقرأ من قاعدة بيانات SQL نفسها. لا توجد خلفية منفصلة للوكيل أو خلفية منفصلة لواجهة المستخدم. طبقة الخادم هي ما يكشف Actions للعالم الخارجي.
+
+## ما الذي يحتويه دليل server/ {#server-directory}
+
+هذه هي الأدلة والملفات داخل `server/` التي يشحنها كل تطبيق أصلي للوكيل. يقابل كل منها جزءًا محددًا من طبقة الخادم: ماذا يفعل، ومتى تلجأ إليه، وكيف يتصل ببقية إطار العمل.
+
+| الصفحة                                           | ما تغطيه                                                                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| **[قاعدة البيانات](/docs/server-database)**      | تعريف المخطط باستخدام مساعدات `table()`، و`getDb`، وأنماط الجداول القابلة للامتلاك                      |
+| **[البرمجيات الوسيطة](/docs/server-middleware)** | حراس المصادقة في `server/middleware/` ولماذا تعمل هناك بدلاً من داخل إضافة (plugin)                     |
+| **[الإضافات](/docs/server-plugins)**             | إضافات بدء التشغيل للمصادقة ودردشة الوكيل، مع ترحيلات قاعدة البيانات المخصصة للتطبيق اختيارياً          |
+| **[المسارات](/docs/server-routes)**              | المسارات المستندة إلى الملفات، ومسار SSR الشامل (catch-all)، وتحديد نطاق المسارات المخصصة لمستخدم الطلب |
+
+## طبقة Nitro {#nitro}
+
+[Nitro](https://nitro.build) هو مجموعة أدوات الخادم التي تُشغّل طبقة HTTP الخاصة بالتطبيق الأصلي للوكيل. معظم ما ستُكوّنه في `server/` هو Nitro: المسارات المستندة إلى الملفات، وإضافات بدء التشغيل، والبرمجيات الوسيطة.
+
+- **التوجيه المستند إلى الملفات**: يُترجم اسم الملف مباشرةً إلى طريقة HTTP ومسار URL، دون الحاجة إلى أي تسجيل. يصبح `server/routes/api/health.get.ts` تلقائيًا `GET /api/health`. راجع [المسارات](/docs/server-routes) لمزيد من التفاصيل.
+- **الإضافات**: رمز يُسجَّل عند بدء تشغيل الخادم ويُحمَّل مرة واحدة. تهيّئ مساعدات الإطار المصادقة وتثبّت دردشة الوكيل؛ وقد تظل عمليات ترحيل قاعدة البيانات المخصصة للتطبيق اختيارية قيد التشغيل عند وصول أول طلب. راجع [الإضافات](/docs/server-plugins) لمزيد من التفاصيل.
+- **البرمجيات الوسيطة**: رمز يعمل مع كل طلب وارد قبل وصوله إلى مسار. يعيش حارس المصادقة في `server/middleware/`. راجع [البرمجيات الوسيطة](/docs/server-middleware) لمزيد من التفاصيل.
+
+Nitro مستقل أيضًا عن بيئة النشر. يُنشر التطبيق نفسه على Node.js، وCloudflare Workers، وNetlify، وVercel، وبيئات تشغيل أخرى دون أي تغييرات في الرمز. فقط اضبط إعدادًا مسبقًا (preset). راجع [النشر](/docs/deployment).
+
+واجهة الطلب/الاستجابة الأساسية هي [H3](https://h3.unjs.io). عندما ترى `defineEventHandler`، أو `createError`، أو `getQuery` في مسارات مخصصة، فذلك هو H3. تُعد [وثائق Nitro](https://nitro.build/guide) و[وثائق H3](https://h3.unjs.io) المرجع لأي شيء لا يغطيه إطار العمل مباشرةً.
+
+## Actions أولاً بشكل افتراضي {#actions-first}
+
+بنية التطبيق الأصلي للوكيل مختلفة. كلما فكرت في ميزة جديدة لتطبيقك، ضع في اعتبارك أولاً ما إذا كان يمكن أن تكون action. على سبيل المثال، إذا كانت واجهة المستخدم والوكيل يحتاجان كلاهما إلى فعل شيء ما، عرّف action بدلاً من مسار API مخصص. تتحول Actions تلقائيًا إلى:
+
+- أدوات للوكيل.
+- خطافات (hooks) مكتوبة لواجهة المستخدم.
+- نقاط نهاية HTTP تحت `/_agent-native/actions/:name`.
+- أدوات قابلة للاستدعاء عبر MCP وA2A.
+- أوامر CLI للتطوير.
+
+استخدم مسارات `/api/*` المخصصة فقط عندما تحتاج إلى بروتوكول على شكل مسار أو سلوك ثنائي/بث. لمزيد من التفاصيل، راجع [Actions](/docs/actions-overview).
+
+## ما هي الخطوة التالية {#whats-next}
+
+- [**Actions**](/docs/actions-overview): سطح العملية الافتراضي. لا تلجأ إلى مسار مخصص إلا عندما لا يناسب.
+- [**قاعدة البيانات**](/docs/server-database): نمط `getDb()`/المخطط الذي تستورده المسارات المخصصة وActions على حد سواء
+- [**البرمجيات الوسيطة**](/docs/server-middleware): حراس المصادقة ودليل `server/middleware/`
+- [**الإضافات**](/docs/server-plugins): إضافات بدء التشغيل للترحيلات، والمصادقة، والوكيل
+- [**المسارات**](/docs/server-routes): المسارات المستندة إلى الملفات، وسياق الطلب، ومسار SSR الشامل

@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { decodeContinuation } from "@agent-native/core/shared";
 import {
   expect,
   test,
@@ -25,6 +26,7 @@ const BASE_URL =
 const SHORTCUT = process.platform === "darwin" ? "Meta+k" : "Control+k";
 
 let designId: string;
+let linkedScreenId: string;
 
 type PageRuntimeErrors = {
   consoleErrors: string[];
@@ -40,11 +42,13 @@ type SignedOutPage = PageRuntimeErrors & {
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
     designId = await readSeedDesignId();
+    linkedScreenId = await createLinkedScreen(browser, designId);
     await setDesignVisibility(browser, designId, "public");
   });
 
   test.afterAll(async ({ browser }) => {
     if (!designId) return;
+    if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
     await setDesignVisibility(browser, designId, "private");
   });
 
@@ -208,6 +212,27 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  test("public design links restore the requested overview screen", async ({
+    browser,
+  }) => {
+    const pathname = `/design/${designId}?view=overview&screen=${linkedScreenId}&zoom=60`;
+    const signedOut = await openSignedOutPage(browser, pathname);
+    try {
+      await expect(
+        designFrame(signedOut.page, linkedScreenId).getByText(
+          "Linked public screen",
+        ),
+      ).toBeVisible();
+      await expect(signedOut.page).toHaveURL(
+        new RegExp(`screen=${escapeRegExp(linkedScreenId)}`),
+      );
+      expect(signedOut.mutationRequests).toEqual([]);
+      await assertNoRuntimeErrors(signedOut);
+    } finally {
+      await signedOut.close();
+    }
+  });
+
   test("signed-out save and share buttons send visitors to the sign-in return URL", async ({
     browser,
   }) => {
@@ -258,6 +283,51 @@ async function setDesignVisibility(
       ok?: boolean;
     };
     expect(body.visibility ?? visibility).toBe(visibility);
+  } finally {
+    await context.close();
+  }
+}
+
+async function createLinkedScreen(browser: Browser, designId: string) {
+  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  try {
+    const response = await context.request.post(
+      `${BASE_URL}/_agent-native/actions/create-file`,
+      {
+        data: {
+          designId,
+          filename: "linked-public-screen.html",
+          fileType: "html",
+          content:
+            "<!doctype html><html><body><h1>Linked public screen</h1></body></html>",
+        },
+      },
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `create-file failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    const body = (await response.json()) as { id?: string };
+    if (!body.id) throw new Error("create-file returned no file ID");
+    return body.id;
+  } finally {
+    await context.close();
+  }
+}
+
+async function deleteLinkedScreen(browser: Browser, fileId: string) {
+  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  try {
+    const response = await context.request.post(
+      `${BASE_URL}/_agent-native/actions/delete-file`,
+      { data: { id: fileId } },
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `delete-file failed: ${response.status()} ${await response.text()}`,
+      );
+    }
   } finally {
     await context.close();
   }
@@ -316,13 +386,12 @@ async function expectReturnUrl(
     const button = getButton(signedOut.page);
     await expect(button).toBeVisible();
     await button.click();
-    await expect(signedOut.page).toHaveURL(/\/_agent-native\/sign-in\?return=/);
+    await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
 
     const url = new URL(signedOut.page.url());
-    const returned = url.searchParams.get("return");
-    expect(returned).toBeTruthy();
-    const decoded = decodeURIComponent(returned ?? "");
-    expect(decoded).toBe(expectedReturnPath);
+    const continuation = url.searchParams.get("c");
+    expect(continuation).toBeTruthy();
+    expect(decodeContinuation(continuation)).toBe(expectedReturnPath);
     await assertNoRuntimeErrors(signedOut);
   } finally {
     await signedOut.close();

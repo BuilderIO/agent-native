@@ -1,4 +1,4 @@
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import {
   breakpointLabelForWidth,
   BreakpointDeviceControl,
   type BreakpointDeviceControlProps,
+  extraBreakpointWidthPresets,
   FRAMER_BREAKPOINT_PRESETS,
   parseBreakpointWidthInput,
 } from "./BreakpointBar";
@@ -165,5 +166,45 @@ describe("breakpointLabelForWidth / availableBreakpointPresets", () => {
     const remaining = availableBreakpointPresets([810]);
     expect(remaining.map((p) => p.widthPx)).not.toContain(810);
     expect(remaining.length).toBe(FRAMER_BREAKPOINT_PRESETS.length - 1);
+  });
+});
+
+describe("extraBreakpointWidthPresets", () => {
+  const allFramerWidths = FRAMER_BREAKPOINT_PRESETS.map((p) => p.widthPx);
+
+  it("still offers device widths once every Framer default is used", () => {
+    // The reported gap: with Desktop/Tablet/Phone added, the "+" popover fell
+    // back to a bare number input because the only preset source was empty.
+    expect(availableBreakpointPresets(allFramerWidths)).toHaveLength(0);
+    expect(extraBreakpointWidthPresets(allFramerWidths).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("never repeats a width already in the breakpoint set", () => {
+    const existing = [402, 810];
+    const widths = extraBreakpointWidthPresets(existing).map((p) => p.widthPx);
+    expect(widths).not.toContain(402);
+    expect(widths).not.toContain(810);
+  });
+
+  it("never duplicates the Framer defaults it sits beside", () => {
+    const widths = extraBreakpointWidthPresets([]).map((p) => p.widthPx);
+    allFramerWidths.forEach((width) => expect(widths).not.toContain(width));
+  });
+
+  it("returns one entry per distinct width, widest first", () => {
+    const presets = extraBreakpointWidthPresets([]);
+    const widths = presets.map((p) => p.widthPx);
+    expect(new Set(widths).size).toBe(widths.length);
+    expect([...widths].sort((a, b) => b - a)).toEqual(widths);
+  });
+
+  it("only offers widths the width validator would accept", () => {
+    for (const preset of extraBreakpointWidthPresets([])) {
+      expect(parseBreakpointWidthInput(String(preset.widthPx), [])).toBe(
+        preset.widthPx,
+      );
+    }
   });
 });

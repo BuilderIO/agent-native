@@ -93,6 +93,56 @@ describe("update-dashboard demo source validation", () => {
     );
   });
 
+  it("accepts stored data program panels without treating their descriptor as SQL", async () => {
+    await updateDashboard.run({
+      dashboardId: "program-test",
+      config: {
+        name: "Program test",
+        panels: [
+          {
+            id: "risk-cohort",
+            title: "Risk cohort",
+            source: "program",
+            sql: JSON.stringify({ programId: "dp_risk_cohort" }),
+            chartType: "table",
+            width: 1,
+          },
+        ],
+      },
+    });
+
+    expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+    expect(mocks.upsertDashboard).toHaveBeenCalledWith(
+      "program-test",
+      "sql",
+      expect.objectContaining({ name: "Program test" }),
+      { email: "alice@example.com", orgId: null },
+    );
+  });
+
+  it("rejects a plain data program id before saving a panel", async () => {
+    await expect(
+      updateDashboard.run({
+        dashboardId: "program-test",
+        config: {
+          name: "Program test",
+          panels: [
+            {
+              id: "risk-cohort",
+              title: "Risk cohort",
+              source: "program",
+              sql: "dp_risk_cohort",
+              chartType: "table",
+              width: 1,
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/program descriptor is invalid/);
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed demo descriptors", async () => {
     await expect(
       updateDashboard.run({

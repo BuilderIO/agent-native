@@ -50,8 +50,9 @@ async function assertOutboundConfigured(
           installation.installationKey,
         )
       : null;
-    const token =
-      managed?.accessToken ?? (await resolveSecret("SLACK_BOT_TOKEN"));
+    const token = tenantId
+      ? managed?.accessToken
+      : (managed?.accessToken ?? (await resolveSecret("SLACK_BOT_TOKEN")));
     if (!token) {
       throw new Error(
         tenantId

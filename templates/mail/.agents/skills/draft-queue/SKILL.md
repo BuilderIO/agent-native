@@ -16,6 +16,9 @@ The draft queue is for teammate-requested emails that need the owner to review b
 - Slack requests should queue drafts, not send raw emails.
 - `queue-email-draft` returns `reviewUrl`; include that URL when replying to Slack so the owner can open the exact draft.
 - Slack intake verifies the sender email via Slack `users.info` when the app has `users:read.email`, and passes verified sender name/email into the agent context. If that scope is missing, Slack intake cannot resolve a real email and will not queue anything — tell the requester to ask an admin to grant `users:read.email` rather than guessing their address from their Slack display name.
+- Managed Slack installs request `users:read.email` through the generated OAuth
+  manifest; an existing install must be reconnected after the scope is granted.
+  Legacy bot-token installs must add the scope in Slack manually.
 - `ownerEmail` accepts more than an exact email: `resolveOrgMemberEmail` also
   matches an unambiguous local-part prefix (e.g. `"jane"` matches
   `jane@co.com` if she's the only `jane*` member). If more than one member

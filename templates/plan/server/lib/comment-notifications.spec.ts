@@ -260,6 +260,7 @@ describe("plan comment notification recipients", () => {
       subject: `Reviewer commented on "Launch Plan"`,
       html: "<p>Email</p>",
       text: "Email",
+      templateId: "plan.plan-comment",
     });
   });
 

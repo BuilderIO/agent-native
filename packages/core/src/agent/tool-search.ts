@@ -9,6 +9,7 @@ type ToolSearchArgs = {
   query?: unknown;
   limit?: unknown;
   includeSchemas?: unknown;
+  readOnlyOnly?: unknown;
 };
 
 type ToolParameterSummary = {
@@ -25,6 +26,10 @@ type ToolSearchResult = {
   source?: string;
   description: string;
   score: number;
+  /** Whether this result can be loaded and called in the current registry. */
+  callable: boolean;
+  /** How the action behaves while the agent is in Plan mode. */
+  planAvailability: "read" | "conditional" | "act-only";
   parameters: ToolParameterSummary[];
   inputSchema?: unknown;
 };
@@ -61,6 +66,11 @@ export function createToolSearchEntry(
             type: "boolean",
             description:
               "When true, include each matching tool's full input schema. Default false.",
+          },
+          readOnlyOnly: {
+            type: "boolean",
+            description:
+              "When true, return tools whose current policy is read-only or can classify the supplied arguments as read-only. The bounded orchestration host rechecks conditional policies before every call.",
           },
         },
       },
@@ -103,6 +113,7 @@ export function searchToolRegistry(
   // actually needs. A query switches to ranked search with parameter details.
   const listAll = query.length === 0;
   const includeSchemas = !listAll && parseBoolean(args.includeSchemas);
+  const readOnlyOnly = parseBoolean(args.readOnlyOnly);
   const limit = parseLimit(
     args.limit,
     options.defaultLimit ?? DEFAULT_LIMIT,
@@ -112,6 +123,7 @@ export function searchToolRegistry(
     query,
     limit,
     includeSchemas,
+    readOnlyOnly,
   });
   const runCtx = getRequestRunContext();
   const priorSearch = includeSchemas
@@ -129,6 +141,8 @@ export function searchToolRegistry(
         name,
         kind: parseMcpToolName(name) ? ("mcp" as const) : ("action" as const),
         score: 0,
+        callable: registry[name]?.allowInPlanMode !== false,
+        planAvailability: getPlanAvailability(name, registry[name]),
         description:
           "Already returned by an earlier identical tool-search call.",
         parameters: [],
@@ -147,11 +161,25 @@ export function searchToolRegistry(
       continue;
     }
 
-    totalTools++;
     const description = normalizeWhitespace(entry.tool.description ?? "");
     const parsedMcp = parseMcpToolName(name);
     const kind = parsedMcp ? "mcp" : "action";
     const source = parsedMcp?.serverId;
+    const callable = entry.allowInPlanMode !== false;
+    const planAvailability = getPlanAvailability(name, entry);
+    // Conditional policies still need discovery: MCP tools and provider/web
+    // actions classify the arguments at call time. Bash is marked conditional
+    // for Plan mode, but the orchestration bridge intentionally does not expose
+    // shell execution, so do not advertise it as a child-call candidate.
+    if (
+      readOnlyOnly &&
+      planAvailability !== "read" &&
+      (planAvailability !== "conditional" || name === "bash")
+    ) {
+      continue;
+    }
+
+    totalTools++;
 
     if (listAll) {
       candidates.push({
@@ -160,6 +188,8 @@ export function searchToolRegistry(
         ...(source ? { source } : {}),
         description: truncate(description, 140),
         score: 0,
+        callable,
+        planAvailability,
         parameters: [],
       });
       continue;
@@ -184,6 +214,8 @@ export function searchToolRegistry(
       ...(source ? { source } : {}),
       description,
       score,
+      callable,
+      planAvailability,
       parameters,
       ...(includeSchemas ? { inputSchema: entry.tool.parameters ?? {} } : {}),
     });
@@ -218,15 +250,41 @@ export function searchToolRegistry(
   return result;
 }
 
+const PLAN_MODE_BLOCKED_DISCOVERY_TOOLS = new Set([
+  "refresh-screen",
+  "set-search-params",
+  "set-url-path",
+]);
+
+function getPlanAvailability(
+  name: string,
+  entry: ActionEntry | undefined,
+): ToolSearchResult["planAvailability"] {
+  if (!entry || entry.allowInPlanMode === false) return "act-only";
+  if (PLAN_MODE_BLOCKED_DISCOVERY_TOOLS.has(name)) return "act-only";
+  if (name === "bash") return "conditional";
+  if (typeof entry.planMode?.effect === "function") return "conditional";
+  if (entry.planMode?.effect === "read") return "read";
+  if (
+    entry.planMode?.effect === "write" ||
+    entry.planMode?.effect === "unknown"
+  ) {
+    return "act-only";
+  }
+  return entry.readOnly === true ? "read" : "act-only";
+}
+
 function normalizeToolSearchCacheKey(options: {
   query: string;
   limit: number;
   includeSchemas: boolean;
+  readOnlyOnly: boolean;
 }): string {
   return JSON.stringify({
     query: options.query.trim().toLowerCase(),
     limit: options.limit,
     includeSchemas: options.includeSchemas,
+    readOnlyOnly: options.readOnlyOnly,
   });
 }
 

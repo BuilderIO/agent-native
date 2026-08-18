@@ -62,7 +62,7 @@ export default defineAction({
       .values({
         organizationId,
         brandColor: "#18181B",
-        defaultVisibility: "private",
+        defaultVisibility: "public",
         createdAt: nowIso,
         updatedAt: nowIso,
       })
@@ -120,7 +120,7 @@ export default defineAction({
       name: updatedName,
       brandColor: row?.brandColor ?? "#18181B",
       brandLogoUrl: row?.brandLogoUrl ?? null,
-      defaultVisibility: row?.defaultVisibility ?? "private",
+      defaultVisibility: row?.defaultVisibility ?? "public",
       updatedAt: row?.updatedAt ?? nowIso,
     };
   },

@@ -556,3 +556,39 @@ describe("anthropicChunkToEngineEvents", () => {
     ]);
   });
 });
+
+describe("redacted thinking blocks survive the round trip", () => {
+  it("keeps a redacted_thinking block and replays it verbatim", () => {
+    const parts = anthropicContentToEngine([
+      { type: "redacted_thinking", data: "ENCRYPTED_PAYLOAD" },
+      { type: "text", text: "Done." },
+    ] as any);
+    // Anthropic wants the whole thinking sequence back inside a tool-use turn,
+    // so an unreadable block still has to survive normalization.
+    expect(parts).toEqual([
+      { type: "thinking", text: "", redactedData: "ENCRYPTED_PAYLOAD" },
+      { type: "text", text: "Done." },
+    ]);
+
+    const replayed = engineMessagesToAnthropic([
+      { role: "assistant", content: parts },
+    ]);
+    expect(replayed[0].content).toEqual([
+      { type: "redacted_thinking", data: "ENCRYPTED_PAYLOAD" },
+      { type: "text", text: "Done." },
+    ]);
+  });
+
+  it("still replays an ordinary thinking block with its signature", () => {
+    const parts = anthropicContentToEngine([
+      { type: "thinking", thinking: "step one", signature: "sig-1" },
+    ] as any);
+    expect(parts).toEqual([
+      { type: "thinking", text: "step one", signature: "sig-1" },
+    ]);
+    expect(
+      engineMessagesToAnthropic([{ role: "assistant", content: parts }])[0]
+        .content,
+    ).toEqual([{ type: "thinking", thinking: "step one", signature: "sig-1" }]);
+  });
+});

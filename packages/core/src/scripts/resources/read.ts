@@ -10,10 +10,14 @@
 import {
   resourceGetByPath,
   ensurePersonalDefaults,
-  SHARED_OWNER,
+  sharedResourceOwner,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceReadScript(
@@ -38,7 +42,7 @@ Options:
   }
 
   const scope = parsed.scope;
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
       "resource-read requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
@@ -63,7 +67,10 @@ Options:
   }
 
   if (scope === "shared") {
-    const resource = await resourceGetByPath(SHARED_OWNER, resourcePath);
+    const resource = await resourceGetByPath(
+      sharedResourceOwner(getRequestOrgId()),
+      resourcePath,
+    );
     if (!resource) {
       console.log(
         `Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`,
@@ -89,7 +96,10 @@ Options:
     return;
   }
 
-  const shared = await resourceGetByPath(SHARED_OWNER, resourcePath);
+  const shared = await resourceGetByPath(
+    sharedResourceOwner(getRequestOrgId()),
+    resourcePath,
+  );
   if (shared) {
     process.stdout.write(shared.content);
     return;

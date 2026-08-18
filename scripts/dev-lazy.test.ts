@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -9,6 +10,8 @@ import {
   canonicalLoopbackRedirect,
   isBrowserAssetDestination,
   markAppReady,
+  probeHttpReady,
+  readinessProbeTimeoutMs,
   selectProxyResponseTimeout,
   shouldEvict,
   shouldRestartPersistent5xx,
@@ -35,6 +38,26 @@ describe("dev-lazy app-local environment", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("dev-lazy native binding preflight", () => {
+  it("runs before the first template Vite spawn", () => {
+    const source = fs.readFileSync(
+      new URL("./dev-lazy.ts", import.meta.url),
+      "utf8",
+    );
+    const main = source.indexOf("async function main(): Promise<void>");
+    const preflightCall = source.indexOf("runNativeBindingPreflight();", main);
+    const gatewayCreation = source.indexOf(
+      "const server = createGateway();",
+      main,
+    );
+
+    assert.ok(main >= 0);
+    assert.ok(preflightCall >= 0);
+    assert.ok(gatewayCreation > main);
+    assert.ok(preflightCall < gatewayCreation);
   });
 });
 
@@ -160,6 +183,54 @@ describe("dev-lazy browser asset classification", () => {
   });
 });
 
+describe("dev-lazy readiness probe timeout", () => {
+  it("lets one cold-start request use the full remaining readiness window", () => {
+    assert.equal(readinessProbeTimeoutMs(90_000, 10_000), 80_000);
+  });
+
+  it("never passes a non-positive timeout to the HTTP client", () => {
+    assert.equal(readinessProbeTimeoutMs(10_000, 10_000), 1);
+    assert.equal(readinessProbeTimeoutMs(9_000, 10_000), 1);
+  });
+});
+
+describe("dev-lazy HTTP readiness", () => {
+  async function probeAgainst(status: number): Promise<boolean> {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(status, { "content-type": "text/html" });
+      res.end("body");
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      return await probeHttpReady({ id: "test", port: address.port }, 500);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  }
+
+  // Accepting the boot-time 503 handed the user's own navigation that 503 —
+  // an error page seconds before the app would have served the real one. Not
+  // ready keeps the gateway's own self-refreshing Starting page up instead.
+  it("does not treat a startup 503 as ready", async () => {
+    assert.equal(await probeAgainst(503), false);
+  });
+
+  it("treats a served page as ready", async () => {
+    assert.equal(await probeAgainst(200), true);
+  });
+
+  // A 404 means routing, not booting: the server is up and answering.
+  it("treats a non-5xx error as ready", async () => {
+    assert.equal(await probeAgainst(404), true);
+  });
+});
+
 describe("dev-lazy idle eviction", () => {
   it("never evicts an app with an open socket, no matter how quiet", () => {
     assert.equal(
@@ -170,6 +241,35 @@ describe("dev-lazy idle eviction", () => {
         idleTimeoutMs: 120_000,
       }),
       false,
+    );
+  });
+
+  // Vite can compile past the readiness deadline; once that probe gives up,
+  // nothing else marks the app busy. Evicting there kills it mid-compile and
+  // the next request restarts the same slow boot, forever.
+  it("never evicts an app that has not become ready yet", () => {
+    assert.equal(
+      shouldEvict({
+        lastActivityAt: 0,
+        openSockets: 0,
+        now: 10_000_000,
+        idleTimeoutMs: 120_000,
+        ready: false,
+      }),
+      false,
+    );
+  });
+
+  it("evicts a ready app once quiet exceeds the idle timeout", () => {
+    assert.equal(
+      shouldEvict({
+        lastActivityAt: 0,
+        openSockets: 0,
+        now: 120_001,
+        idleTimeoutMs: 120_000,
+        ready: true,
+      }),
+      true,
     );
   });
 

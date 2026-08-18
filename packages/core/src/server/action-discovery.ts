@@ -29,6 +29,7 @@ import nodePath from "node:path";
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
+import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -68,7 +69,23 @@ function isRuntimeSourceFile(filename: string): boolean {
  * consumers can override a packaged action by dropping a same-named file
  * in their own `actions/` dir.
  */
-const packageActionRegistry: Record<string, ActionEntry> = {};
+const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core.package-action-registry",
+);
+
+function getPackageActionRegistry(): Record<string, ActionEntry> {
+  const sharedGlobal = globalThis as typeof globalThis & {
+    [key: symbol]: unknown;
+  };
+  const existing = sharedGlobal[PACKAGE_ACTION_REGISTRY_KEY];
+  if (existing && typeof existing === "object") {
+    return existing as Record<string, ActionEntry>;
+  }
+
+  const registry: Record<string, ActionEntry> = {};
+  sharedGlobal[PACKAGE_ACTION_REGISTRY_KEY] = registry;
+  return registry;
+}
 
 /**
  * Register a map of actions contributed by a published package.
@@ -87,15 +104,27 @@ const packageActionRegistry: Record<string, ActionEntry> = {};
 export function registerPackageActions(
   actions: Record<string, ActionEntry>,
 ): void {
+  const packageActionRegistry = getPackageActionRegistry();
   for (const [name, entry] of Object.entries(actions)) {
     if (packageActionRegistry[name]) continue;
     packageActionRegistry[name] = entry;
   }
 }
 
-/** Internal — used by `autoDiscoverActions`. Returns a shallow copy. */
-function getPackageActions(): Record<string, ActionEntry> {
-  return { ...packageActionRegistry };
+/**
+ * Merge package-contributed actions without replacing app-local actions.
+ *
+ * This is intentionally callable even when the app passes an explicit static
+ * action registry. Published packages register through import side effects,
+ * while generated app registries only contain app-local action files.
+ */
+export function mergePackageActions(
+  registry: Record<string, ActionEntry>,
+): void {
+  for (const [name, entry] of Object.entries(getPackageActionRegistry())) {
+    if (registry[name]) continue;
+    registry[name] = entry;
+  }
 }
 
 /**
@@ -186,11 +215,22 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
   }
+  if (
+    entry.planMode &&
+    typeof entry.planMode === "object" &&
+    !Array.isArray(entry.planMode)
+  ) {
+    out.planMode = entry.planMode;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
+  }
+  if (typeof entry.dedupe === "boolean") {
+    out.dedupe = entry.dedupe;
   }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
@@ -515,10 +555,7 @@ export async function autoDiscoverActions(
   //     (e.g. @agent-native/dispatch) via `registerPackageActions()` from
   //     import side effects. Merged with skip-existing so the template's
   //     own actions/ files always win on name collision.
-  for (const [name, entry] of Object.entries(getPackageActions())) {
-    if (registry[name]) continue;
-    registry[name] = entry;
-  }
+  mergePackageActions(registry);
 
   // 2. Workspace-core actions — merged in with skipExisting so they can't
   //    overwrite template entries.
@@ -545,6 +582,42 @@ export async function autoDiscoverActions(
   return registry;
 }
 
+// `CORE_ACTION_GROUPS` lives in `framework-tools.ts` so the group filter can
+// resolve a kit by name without importing this module. Re-exported here
+// because this is where callers have always found it.
+export { CORE_ACTION_GROUPS };
+
+/**
+ * Core actions with no `frameworkTools` switch, and why:
+ *
+ * - `upload-image` is load-bearing for ordinary work.
+ * - The email catalog is mounted everywhere on purpose so Dispatch can ask any
+ *   app what it sends without that app opting in (see its comment below). It is
+ *   a read surface, not the `email` group's send capability.
+ * - MCP tools and org service tokens are already governed by `mcp.enabled`.
+ */
+export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
+  "upload-image",
+  "list-workspace-user-groups",
+  "upsert-workspace-user-group",
+  "bulk-update-workspace-user-groups",
+  "delete-workspace-user-group",
+  "list-transactional-emails",
+  "render-transactional-email-preview",
+  "list-email-log",
+  "list-email-activity",
+  "list-email-engagement",
+  "create-org-service-token",
+  "list-org-service-tokens",
+  "revoke-org-service-token",
+  "list-mcp-tools",
+  "call-mcp-tool",
+  // Hosted harness capability/policy routes are UI-facing and deliberately
+  // never enter the model's action surface (`agentTool: false`).
+  "get-hosted-harness-config",
+  "set-hosted-harness-enabled",
+]);
+
 export async function mergeCoreSharingActions(
   registry: Record<string, ActionEntry>,
 ): Promise<void> {
@@ -568,8 +641,111 @@ export async function mergeCoreSharingActions(
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
+      "list-workspace-user-groups",
+      () =>
+        import("../workspace-connections/actions/list-workspace-user-groups.js"),
+    ],
+    [
+      "upsert-workspace-user-group",
+      () =>
+        import("../workspace-connections/actions/upsert-workspace-user-group.js"),
+    ],
+    [
+      "bulk-update-workspace-user-groups",
+      () =>
+        import("../workspace-connections/actions/bulk-update-workspace-user-groups.js"),
+    ],
+    [
+      "delete-workspace-user-group",
+      () =>
+        import("../workspace-connections/actions/delete-workspace-user-group.js"),
+    ],
+    // Transactional email catalog - mounted everywhere so Dispatch can ask any
+    // app what it sends without that app opting in.
+    [
+      "list-transactional-emails",
+      () => import("../email-catalog/actions/list-transactional-emails.js"),
+    ],
+    [
+      "render-transactional-email-preview",
+      () =>
+        import("../email-catalog/actions/render-transactional-email-preview.js"),
+    ],
+    [
+      "list-email-log",
+      () => import("../email-catalog/actions/list-email-log.js"),
+    ],
+    [
+      "list-email-activity",
+      () => import("../email-catalog/actions/list-email-activity.js"),
+    ],
+    [
+      "list-email-engagement",
+      () => import("../email-catalog/actions/list-email-engagement.js"),
+    ],
+    [
+      "get-feature-flags",
+      () => import("../feature-flags/actions/get-feature-flags.js"),
+    ],
+    [
+      "get-hosted-harness-config",
+      () => import("../hosted-harness/actions/get-hosted-harness-config.js"),
+    ],
+    [
+      "set-hosted-harness-enabled",
+      () => import("../hosted-harness/actions/set-hosted-harness-enabled.js"),
+    ],
+    [
+      "list-feature-flags",
+      () => import("../feature-flags/actions/list-feature-flags.js"),
+    ],
+    [
+      "set-feature-flag",
+      () => import("../feature-flags/actions/set-feature-flag.js"),
+    ],
+    // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
+    // recurring jobs and personal automations. The agent-facing native tools
+    // remain the canonical conversational surface.
+    [
+      "list-recurring-jobs",
+      () => import("../jobs/actions/list-recurring-jobs.js"),
+    ],
+    [
+      "manage-recurring-job",
+      () => import("../jobs/actions/manage-recurring-job.js"),
+    ],
+    [
+      "run-automation-now",
+      () => import("../jobs/actions/run-automation-now.js"),
+    ],
+    [
+      "list-automation-runs",
+      () => import("../jobs/actions/list-automation-runs.js"),
+    ],
+    [
+      "list-automations",
+      () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "manage-automation",
+      () => import("../triggers/actions/manage-automation.js"),
+    ],
+    ["get-usage-alerts", () => import("../usage/actions/get-usage-alerts.js")],
+    [
+      "manage-usage-alert",
+      () => import("../usage/actions/manage-usage-alert.js"),
+    ],
+    [
+      "get-usage-metrics",
+      () => import("../usage/actions/get-usage-metrics.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
+    ],
+    [
+      "context-preview-get",
+      () => import("../agent/context-xray/actions/context-preview-get.js"),
     ],
     [
       "context-pin",
@@ -596,10 +772,26 @@ export async function mergeCoreSharingActions(
       () => import("../localization/actions/set-localization-preference.js"),
     ],
     [
+      "get-user-profile",
+      () => import("../user-profile/actions/get-user-profile.js"),
+    ],
+    [
+      "update-user-profile",
+      () => import("../user-profile/actions/update-user-profile.js"),
+    ],
+    [
+      "get-auth-methods",
+      () => import("../user-profile/actions/get-auth-methods.js"),
+    ],
+    ["set-password", () => import("../user-profile/actions/set-password.js")],
+    [
+      "change-password",
+      () => import("../user-profile/actions/change-password.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
-    ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
     // Audit log — read surface (who changed what, when, agent vs human).
     [
       "list-audit-events",
@@ -664,6 +856,10 @@ export async function mergeCoreSharingActions(
       "set-review-status",
       () => import("../review/actions/set-review-status.js"),
     ],
+    [
+      "send-review-thread-to-agent",
+      () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [
@@ -678,6 +874,8 @@ export async function mergeCoreSharingActions(
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
     ],
+    ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
+    ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;
@@ -690,10 +888,16 @@ export async function mergeCoreSharingActions(
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
           // Carry security-relevant flags (toolCallable, publicAgent, link,
-          // mcpApp) plus readOnly/parallelSafe. Without this, the sharing
+          // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),
+          // Pre-resolved copy of what `resolveFrameworkGroup` would compute
+          // from the name anyway. Kept so an entry read in isolation still
+          // reports its kit; the filters no longer depend on it.
+          ...(CORE_ACTION_GROUPS[name]
+            ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
+            : {}),
         };
       }
     } catch {

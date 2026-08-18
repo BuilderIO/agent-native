@@ -15,6 +15,7 @@ vi.mock("../server/lib/credentials", () => ({
 
 vi.mock("../server/lib/credentials-context", () => ({
   requireRequestCredentialContext,
+  tryRequestCredentialContext: () => null,
 }));
 
 vi.mock("../server/lib/provider-credentials", () => ({
@@ -72,11 +73,32 @@ describe("provider API escape hatch", () => {
     expect(result.providers).toHaveLength(1);
     expect(result.providers[0]).toMatchObject({
       id: "hubspot",
-      auth: "bearer",
+      auth: "oauth-bearer:hubspot-or-bearer-key:HUBSPOT_PRIVATE_APP_TOKEN,HUBSPOT_ACCESS_TOKEN",
       credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     });
     expect(result.providers[0].docsUrls[0]).toContain("hubspot");
     expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("exposes FullStory structured reads alongside its MCP replay path", async () => {
+    const result = (await providerApiCatalog.run({
+      provider: "fullstory",
+    })) as Record<string, any>;
+
+    expect(result.providers[0]).toMatchObject({
+      id: "fullstory",
+      defaultBaseUrl: "https://api.fullstory.com",
+      auth: "basic",
+      credentialKeys: ["FULLSTORY_API_KEY"],
+      allowedHostSuffixes: ["fullstory.com"],
+      examples: expect.arrayContaining([
+        expect.objectContaining({ path: "/sessions/v2" }),
+        expect.objectContaining({ path: "/v2/sessions/{sessionId}/events" }),
+      ]),
+    });
+    expect(result.providers[0].notes.join(" ")).toContain(
+      "connected FullStory MCP",
+    );
   });
 
   it("returns reusable corpus recipes for providers that define raw body search patterns", async () => {
@@ -86,6 +108,30 @@ describe("provider API escape hatch", () => {
 
     expect(result.providers[0].corpusRecipes).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          label: expect.stringContaining(
+            "Stage Gong calls with configured keyword tracker hits",
+          ),
+          request: {
+            method: "POST",
+            path: "/calls/extensive",
+            body: expect.objectContaining({
+              contentSelector: {
+                exposedFields: {
+                  content: {
+                    trackers: true,
+                    trackerOccurrences: true,
+                  },
+                },
+              },
+            }),
+          },
+          pagination: expect.objectContaining({
+            itemsPath: "calls",
+            nextCursorPath: "records.cursor",
+            cursorBodyPath: "cursor",
+          }),
+        }),
         expect.objectContaining({
           label: expect.stringContaining("Batch-search Gong call transcripts"),
           request: {
@@ -105,6 +151,32 @@ describe("provider API escape hatch", () => {
       ]),
     );
     expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("routes Slack and Notion exhaustive reads through paginated corpus recipes", async () => {
+    const slack = (await providerApiCatalog.run({
+      provider: "slack",
+    })) as Record<string, any>;
+    const notion = (await providerApiCatalog.run({
+      provider: "notion",
+    })) as Record<string, any>;
+
+    expect(slack.providers[0].corpusRecipes[0]).toMatchObject({
+      request: { method: "GET", path: "/conversations.history" },
+      pagination: {
+        itemsPath: "messages",
+        nextCursorPath: "response_metadata.next_cursor",
+        cursorParam: "cursor",
+      },
+    });
+    expect(notion.providers[0].corpusRecipes[0]).toMatchObject({
+      request: { method: "POST", path: "/data_sources/<data-source-id>/query" },
+      pagination: {
+        itemsPath: "results",
+        nextCursorPath: "next_cursor",
+        cursorBodyPath: "start_cursor",
+      },
+    });
   });
 
   it("makes arbitrary authenticated provider requests and redacts secrets", async () => {

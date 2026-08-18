@@ -4,6 +4,7 @@ const messages = {
     searchForms: "搜尋表單",
     appearance: "外觀",
     toggleTheme: "切換主題",
+    openAgent: "開啟代理",
   },
   header: {
     settings: "設定",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "詢問表單",
     allForms: "所有表單",
     team: "團隊",
+    agent: "代理",
   },
   settings: {
     title: "設定",
@@ -30,10 +32,9 @@ const messages = {
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
   },
   agent: {
     emptyState: "可以問我任何關於表單的問題",
@@ -83,6 +84,15 @@ const messages = {
     addOption: "新增選項",
     min: "最小",
     max: "最大限度",
+    conditionalVisibility: "條件顯示",
+    conditionalVisibilityDescription: "只有先前的答案符合時才顯示此欄位。",
+    conditionField: "先前的答案",
+    conditionOperator: "條件",
+    conditionEquals: "是",
+    conditionNotEquals: "不是",
+    conditionContains: "包含",
+    conditionValue: "答案",
+    conditionValuePlaceholder: "輸入答案...",
     fieldTypes: {
       text: "短文字",
       email: "電子郵件",
@@ -131,6 +141,7 @@ const messages = {
     integrationsTab: "整合",
     settingsSaved: "設定已儲存",
     integrationsSaved: "整合已儲存",
+    saveFailed: "儲存變更失敗",
     formTitlePlaceholder: "表單標題",
     addDescriptionPlaceholder: "新增描述...",
     dragToReorder: "拖動以重新排序",
@@ -181,6 +192,9 @@ const messages = {
       anonymousResponses: "匿名回覆",
       anonymousResponsesDescription:
         "不保留 IP 位址、回覆者身分或來源中繼資料。",
+      emailNewResponses: "有新回覆時寄信通知我",
+      emailNewResponsesDescription:
+        "每當有人提交回覆時，就通知表單擁有者帳戶的電子郵件地址。",
       saveSettings: "儲存設定",
     },
     integrations: {
@@ -193,7 +207,8 @@ const messages = {
       webhookHelp:
         "傳送包含提交資料的 JSON POST。適用於 Zapier、Make、n8n 等。",
       googleSheetsBlurb: "將每條回覆鏡像到團隊可共用的電子表格。",
-      googleSheetsHelp: "部署可接收 POST 資料的 Apps Script Web 應用",
+      googleSheetsHelp:
+        "使用已部署的 Apps Script /exec URL，從 e.postData.contents 讀取 JSON 並新增資料列。",
       googleSheetsLabel: "Google 表格",
       webhookLabel: "Webhook",
       discordLabel: "Discord",
@@ -238,6 +253,8 @@ const messages = {
     duplicated: "表格重複",
     duplicateFailed: "複製表格失敗",
     movedToArchive: "表格移至存檔",
+    movingToArchive: "正在將表單移至封存…",
+    archiveFailed: "無法將表單移至封存",
     restored: "形態恢復",
     permanentlyDeleted: "表格永久刪除",
     bulkPermanentlyDeleted: "已永久刪除 {{formattedCount}} 份表單",

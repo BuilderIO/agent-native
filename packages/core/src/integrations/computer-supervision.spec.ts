@@ -22,7 +22,10 @@ async function makeEnvelope(
     sequence: 1,
     idempotencyKey: "operation-1",
     operationClass: "browser.control",
-    action: { type: "click", target: { role: "button", name: "Save" } },
+    action: {
+      type: "browser.click",
+      target: { role: "button", name: "Save" },
+    },
     approval: { id: "approval-1", scope: "once", actionHash: "0".repeat(64) },
     issuedAt: now,
     leaseExpiresAt: now + 60_000,
@@ -75,6 +78,30 @@ describe("computer supervision policy", () => {
     await expect(
       assertValidComputerCommandEnvelope(binary, { now: 20_000 }),
     ).rejects.toMatchObject({ code: "invalid-envelope" });
+  });
+
+  it("rejects control actions mislabeled as observation", async () => {
+    const { assertValidComputerCommandEnvelope } =
+      await import("./computer-supervision.js");
+    const mislabeled = await makeEnvelope({
+      operationClass: "browser.observe",
+      action: {
+        type: "browser.click",
+        target: { role: "button", name: "Save" },
+      },
+    });
+
+    await expect(
+      assertValidComputerCommandEnvelope(mislabeled, { now: 20_000 }),
+    ).rejects.toMatchObject({ code: "invalid-envelope" });
+
+    const observed = await makeEnvelope({
+      operationClass: "browser.observe",
+      action: { type: "browser.observe" },
+    });
+    await expect(
+      assertValidComputerCommandEnvelope(observed, { now: 20_000 }),
+    ).resolves.toMatchObject({ operationClass: "browser.observe" });
   });
 
   it("rejects approval owner mismatches and consumed one-shot replays", async () => {

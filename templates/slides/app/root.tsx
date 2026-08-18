@@ -1,21 +1,24 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
+  useDbSync,
+} from "@agent-native/core/client/hooks";
+import {
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
-  useCommandMenuShortcut,
-  useDbSync,
-  useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import {
-  getLocaleInitScript,
-  getThemeInitScript,
-} from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -26,10 +29,16 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import {
+  getEditorCommands,
+  type EditorCommandGroup,
+} from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -39,6 +48,12 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+
+registerFirstRunOnboardingExtension({
+  id: "slides-first-deck",
+  component: FirstDeckOnboardingFlow,
+});
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -50,6 +65,26 @@ configureTracking({
 const BARE_ROUTES = new Set(["/slide"]);
 /** Route prefixes that render without the app shell */
 const BARE_PREFIXES = ["/share/", "/p/"];
+
+/**
+ * Routes that serve deck content to any visitor — owner, teammate, or an
+ * anonymous recipient of a shared link — rather than an app-management
+ * surface. `/deck/:id` renders the full editor shell (so it's not "bare"
+ * above: viewers still get chrome, just read-only), but it must never force
+ * sign-in or gate on first-run onboarding, or a shared link flashes the deck
+ * and then buries it under "create your first deck" (the onboarding gate has
+ * no route awareness of its own — see `sessionBypass` below). `/present` is
+ * the full-screen presentation view and `/slide` is the agent-embed preview;
+ * both are shown to viewers the same way.
+ */
+export function isShareableContentPath(pathname: string): boolean {
+  return (
+    BARE_ROUTES.has(pathname) ||
+    BARE_PREFIXES.some((p) => pathname.startsWith(p)) ||
+    pathname.startsWith("/deck/") ||
+    pathname.endsWith("/present")
+  );
+}
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -86,7 +121,11 @@ function useExitSelectionOnOutsideClick() {
       const target = e.target as HTMLElement;
       if (
         target.closest(".slide-content") ||
-        target.closest(".slide-image-clickable")
+        target.closest(".slide-image-clickable") ||
+        target.closest("[data-slide-context-toolbar]") ||
+        target.closest(
+          '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-radix-menu-content]',
+        )
       ) {
         return;
       }
@@ -144,7 +183,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#EC4899" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -184,8 +222,20 @@ function AppContent() {
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
+  const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
+  const editorCommands = getEditorCommands();
+  const editorCommandGroups: Array<{
+    id: EditorCommandGroup;
+    heading: string;
+  }> = [
+    { id: "media", heading: t("editorToolbar.media") },
+    { id: "slideTools", heading: t("editorToolbar.slideTools") },
+    { id: "comments", heading: t("editorToolbar.comments") },
+    { id: "deck", heading: t("editorExport.exportAndDuplicate") },
+    { id: "other", heading: t("editorToolbar.more") },
+  ];
 
   const isBare =
     BARE_ROUTES.has(location.pathname) ||
@@ -212,7 +262,42 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.searchDecks")}
           </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/settings/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconHierarchy2 size={16} />
+            {t("settings.openAgentSettings")}
+          </CommandMenu.Item>
         </CommandMenu.Group>
+        {editorCommandGroups.map((group) => {
+          const commands = editorCommands.filter(
+            (command) => command.group === group.id,
+          );
+          if (commands.length === 0) return null;
+          return (
+            <CommandMenu.Group key={group.id} heading={group.heading}>
+              {commands.map((command) => {
+                const Icon = command.icon;
+                return (
+                  <CommandMenu.Item
+                    key={command.id}
+                    onSelect={command.run}
+                    keywords={command.keywords}
+                    className={
+                      command.active
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
+                  >
+                    {Icon ? <Icon size={16} /> : null}
+                    {command.label}
+                  </CommandMenu.Item>
+                );
+              })}
+            </CommandMenu.Group>
+          );
+        })}
         <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
             onSelect={() => setTheme(isDark ? "light" : "dark")}
@@ -246,6 +331,7 @@ export default function Root() {
         queryClient={queryClient}
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
+        sessionBypass={isShareableContentPath(location.pathname)}
       >
         <AppContent />
       </AppProviders>
@@ -253,4 +339,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

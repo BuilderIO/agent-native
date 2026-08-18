@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconApps,
@@ -79,11 +83,24 @@ export function FusionAppBanner({
   // ── Building: poll sync-fusion-app on mount + every ~8s while building ────
   const syncMutateRef = useRef(syncMutation.mutate);
   syncMutateRef.current = syncMutation.mutate;
+  const syncInFlightRef = useRef(false);
   useEffect(() => {
     if (status !== "building") return;
-    syncMutateRef.current({ designId } as any);
+    // The leading sync goes through the same guard as the interval ticks: a
+    // container check still pending at the first tick would otherwise let a
+    // second status sync start and race the provisioning/screen-upsert work.
+    const runSync = (): void => {
+      if (syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+      syncMutateRef.current(
+        { designId } as any,
+        { onSettled: () => (syncInFlightRef.current = false) } as any,
+      );
+    };
+    runSync();
     const interval = window.setInterval(() => {
-      syncMutateRef.current({ designId } as any);
+      if (document.hidden) return;
+      runSync();
     }, SYNC_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [designId, status]);
@@ -312,7 +329,14 @@ export function FusionAppBanner({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild className="cursor-pointer">
-                <a href={editorUrl} target="_blank" rel="noreferrer">
+                <a
+                  href={withBuilderUtmTrackingParams(editorUrl, {
+                    campaign: "product",
+                    content: "fusion_editor",
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <IconExternalLink className="me-2 size-3.5" />
                   {
                     "Open in Builder" /* i18n-ignore fusion app banner, flag-gated feature */

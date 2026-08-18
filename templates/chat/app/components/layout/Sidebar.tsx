@@ -1,37 +1,29 @@
 import {
-  appPath,
-  FeedbackButton,
   navigateWithAgentChatViewTransition,
   useChatThreads,
-  useT,
   type ChatThreadSummary,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  IconActivity,
-  IconArchive,
-  IconDatabase,
-  IconDots,
-  IconEdit,
+  ChatHistoryRail,
+  type ChatHistoryItem,
+} from "@agent-native/toolkit/chat-history";
+import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
-  IconPin,
-  IconPlus,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -47,18 +39,9 @@ const navItems = [
     href: "/",
     view: "chat",
   },
-  {
-    icon: IconActivity,
-    labelKey: "navigation.observability",
-    href: "/observability",
-    view: "observability",
-  },
-  {
-    icon: IconDatabase,
-    labelKey: "navigation.database",
-    href: "/database",
-    view: "database",
-  },
+];
+
+const bottomNavItems = [
   {
     icon: IconSettings,
     labelKey: "navigation.settings",
@@ -118,6 +101,12 @@ function persistedActiveThreadId() {
   }
 }
 
+function persistActiveThreadId(threadId: string) {
+  try {
+    localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
+  } catch {}
+}
+
 function threadIdFromPath(pathname: string) {
   const match = pathname.match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -133,7 +122,7 @@ function chatThreadPath(threadId: string) {
   return `/chat/${encodeURIComponent(threadId)}`;
 }
 
-function ChatThreadsSection() {
+function ChatThreadsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
@@ -150,18 +139,31 @@ function ChatThreadsSection() {
     autoCreate: false,
     restoreActiveThread: false,
   });
-  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const committingRenameRef = useRef(false);
 
   const visibleThreads = useMemo(
     () =>
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, 12),
+        .slice(0, 15),
     [threads],
+  );
+  const displayedActiveThreadId =
+    threadIdFromPath(location.pathname) ??
+    (location.pathname === "/" ? null : activeThreadId);
+  const chatItems = useMemo<ChatHistoryItem[]>(
+    () =>
+      visibleThreads.map((thread) => ({
+        id: thread.id,
+        title: threadTitle(thread),
+        titleText: threadTitle(thread),
+        timestamp:
+          thread.id === displayedActiveThreadId
+            ? undefined
+            : formatThreadAge(threadUpdatedAt(thread)),
+        pinned: Boolean(thread.pinnedAt),
+      })),
+    [displayedActiveThreadId, visibleThreads],
   );
 
   useEffect(() => {
@@ -183,16 +185,9 @@ function ChatThreadsSection() {
     };
   }, [refreshThreads]);
 
-  useEffect(() => {
-    if (!renamingThreadId) return;
-    requestAnimationFrame(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    });
-  }, [renamingThreadId]);
-
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
+    persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
       options?.isNew ? "/" : chatThreadPath(threadId),
@@ -224,161 +219,48 @@ function ChatThreadsSection() {
     }
   }
 
-  function startRenameThread(thread: ChatThreadSummary) {
-    committingRenameRef.current = false;
-    setRenameDraft(threadTitle(thread));
-    setRenamingThreadId(thread.id);
-  }
-
-  function cancelRenameThread() {
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-  }
-
-  async function commitRenameThread() {
-    if (committingRenameRef.current) return;
-    const threadId = renamingThreadId;
-    const title = renameDraft.trim();
-    if (!threadId) return;
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-    if (title) {
-      const renamed = await renameThread(threadId, title);
+  function handleRenameThread(threadId: string, title: string) {
+    void renameThread(threadId, title).then((renamed) => {
       if (!renamed) toast.error(t("chat.renameFailed"));
-    }
-    committingRenameRef.current = false;
-  }
-
-  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void commitRenameThread();
+    });
   }
 
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("chat.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("chat.newChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("chat.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      <div className="grid gap-0.5">
-        {visibleThreads.map((thread) => {
-          const isActive =
-            thread.id ===
-            (threadIdFromPath(location.pathname) ??
-              (location.pathname === "/" ? null : activeThreadId));
-          const isRenaming = thread.id === renamingThreadId;
-          return (
-            <div
-              key={thread.id}
-              className={cn(
-                "group flex h-8 min-w-0 items-center rounded-md text-sm transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
-              )}
-            >
-              {isRenaming ? (
-                <form
-                  onSubmit={handleRenameSubmit}
-                  className="flex h-full min-w-0 flex-1 items-center px-1.5"
-                >
-                  <Input
-                    ref={renameInputRef}
-                    value={renameDraft}
-                    onChange={(event) => setRenameDraft(event.target.value)}
-                    onBlur={() => void commitRenameThread()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        cancelRenameThread();
-                      }
-                    }}
-                    maxLength={160}
-                    aria-label={t("chat.renameThread", {
-                      title: threadTitle(thread),
-                    })}
-                    className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
-                  />
-                </form>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openThread(thread.id)}
-                    className="flex h-full min-w-0 flex-1 items-center px-2 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {threadTitle(thread)}
-                    </span>
-                  </button>
-                  <div className="relative flex size-7 shrink-0 items-center justify-end pe-1">
-                    <span className="text-[11px] text-sidebar-foreground/50 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-                      {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
-                    </span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label={t("chat.optionsFor", {
-                            title: threadTitle(thread),
-                          })}
-                          className="absolute end-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/65 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                        >
-                          <IconDots className="size-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        side="right"
-                        sideOffset={6}
-                      >
-                        <DropdownMenuItem
-                          onSelect={() => startRenameThread(thread)}
-                        >
-                          <IconEdit className="size-4" />
-                          {t("chat.renameChat")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            void pinThread(thread.id, !thread.pinnedAt)
-                          }
-                        >
-                          <IconPin className="size-4" />
-                          {thread.pinnedAt
-                            ? t("chat.unpinChat")
-                            : t("chat.pinChat")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
-                          onSelect={() => void handleArchiveThread(thread.id)}
-                        >
-                          <IconArchive className="size-4" />
-                          {t("chat.archiveChat")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0"
+        />
       </div>
     </div>
   );
@@ -401,14 +283,14 @@ export function Sidebar({
     cn(
       "flex items-center text-sm transition-colors",
       collapsed
-        ? "relative h-10 w-full justify-center rounded-none border-s-2 px-0"
+        ? "relative h-10 w-full justify-center rounded-none px-0"
         : "h-9 rounded-md gap-3 px-3",
       isActive
         ? collapsed
-          ? "border-s-sidebar-accent-foreground/80 bg-sidebar-accent text-sidebar-accent-foreground"
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "bg-sidebar-accent text-sidebar-accent-foreground"
         : collapsed
-          ? "border-s-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+          ? "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
@@ -437,6 +319,28 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
 
   return (
     <aside
@@ -454,23 +358,50 @@ export function Sidebar({
       >
         <Link
           to="/"
+          onClick={(event) => {
+            if (
+              !collapsible ||
+              !onCollapsedChange ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              event.button !== 0
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onCollapsedChange(!collapsed);
+          }}
           className={cn(
             "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "size-7 justify-center" : "flex-1 gap-3",
           )}
-          aria-label={collapsed ? APP_TITLE : undefined}
+          aria-label={
+            collapsible && onCollapsedChange
+              ? collapsed
+                ? t("navigation.expandSidebar")
+                : t("navigation.collapseSidebar")
+              : collapsed
+                ? APP_TITLE
+                : undefined
+          }
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
+            width={28}
+            height={16}
+            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
+            width={28}
+            height={16}
+            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
@@ -531,8 +462,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "chat" && isChatRoute ? (
-                  <ChatThreadsSection />
+                {!collapsed && item.view === "chat" ? (
+                  <ChatThreadsSection open={isChatRoute} />
                 ) : null}
               </div>
             );
@@ -541,11 +472,38 @@ export function Sidebar({
       </nav>
 
       <div className={cn("mt-auto shrink-0", collapsed && "py-2")}>
-        {!collapsed ? (
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
-        ) : null}
+        <nav
+          className={cn(
+            "grid",
+            collapsed ? "gap-0 px-1 py-1" : "gap-1 px-2 py-1",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname.startsWith(item.href);
+            const link = (
+              <Link
+                to={item.href}
+                className={navClass({ isActive })}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {t(item.labelKey)}
+                </span>
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <div key={item.href}>{link}</div>
+            );
+          })}
+        </nav>
 
         <div className={cn(collapsed ? "px-1 py-1" : "px-3 py-2")}>
           <OrgSwitcher
@@ -558,29 +516,12 @@ export function Sidebar({
           />
         </div>
 
-        <div
-          className={cn(
-            collapsed ? "flex justify-center px-1 py-1" : "px-3 py-2",
-          )}
-        >
-          <FeedbackButton
-            variant={collapsed ? "icon" : "sidebar"}
-            side="right"
-            align={collapsed ? "center" : "end"}
-          />
-        </div>
-
-        {collapseButton ? (
-          <div
-            className={cn(
-              collapsed
-                ? "flex justify-center px-1 py-1"
-                : "flex justify-end px-3 py-2",
-            )}
-          >
-            {collapseButton}
-          </div>
-        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );

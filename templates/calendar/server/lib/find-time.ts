@@ -110,11 +110,35 @@ export function zonedDateTimeToUtcIso(
   const [year, month, day] = dateOnly.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
   const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const firstGuess = new Date(wallClockUtc);
-  const firstOffset = offsetMsForTimezone(firstGuess, timezone);
-  const secondGuess = new Date(wallClockUtc - firstOffset);
-  const secondOffset = offsetMsForTimezone(secondGuess, timezone);
-  return new Date(wallClockUtc - secondOffset).toISOString();
+  const offsets = new Set<number>();
+  for (let hours = -36; hours <= 36; hours += 6) {
+    offsets.add(
+      offsetMsForTimezone(
+        new Date(wallClockUtc + hours * 60 * 60 * 1000),
+        timezone,
+      ),
+    );
+  }
+
+  const candidates = [...offsets]
+    .map((offset) => new Date(wallClockUtc - offset))
+    .map((candidate) => ({
+      candidate,
+      localWallClock:
+        candidate.getTime() + offsetMsForTimezone(candidate, timezone),
+    }))
+    .sort((a, b) => {
+      const aDelta = a.localWallClock - wallClockUtc;
+      const bDelta = b.localWallClock - wallClockUtc;
+      if (aDelta === 0 && bDelta === 0) {
+        return a.candidate.getTime() - b.candidate.getTime();
+      }
+      if (aDelta >= 0 && bDelta < 0) return -1;
+      if (aDelta < 0 && bDelta >= 0) return 1;
+      return Math.abs(aDelta) - Math.abs(bDelta);
+    });
+
+  return candidates[0].candidate.toISOString();
 }
 
 function normalizeDateBound(value: string, timezone: string): string {

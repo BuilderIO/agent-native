@@ -6,7 +6,7 @@
 
 ## Recording defaults
 
-- New recordings default to **private** visibility unless the user asks otherwise.
+- New recordings default to **public** visibility so anyone with the link can watch them. Organization admins can choose a different default.
 - Default playback speed for viewers is **1.2x** (creator can override per video).
 - Animated GIF thumbnails are enabled by default on new recordings — the first few seconds play as a hover preview.
 
@@ -15,7 +15,7 @@
 - Auto-generated titles and summaries are drafted from the transcript. Always offer the user a chance to edit before publishing.
 - When a user shares a recording without a title, run `regenerate-title` on their behalf.
 - Filler-word removal uses the "conservative" preset by default (only um / uh / ah) — escalate to "aggressive" (rambles, repeats) only if the user asks.
-- Clips recording transcripts are native-first: show macOS/Web Speech text immediately, generate the title from that native text with Gemini 3.1 Flash-Lite, and run optional cleanup in the background. Never route Clips recording transcription to OpenAI; if Gemini/Builder cleanup fails, keep the native transcript and log details.
+- Clips recording transcripts are native-first: show macOS/Web Speech text immediately, generate the title from that native text with the low-cost text-model cleanup path, and run optional cleanup in the background. Keep speech transcription provider-bound; if Builder/Luna and the Gemini BYOK cleanup fallback both fail, keep the native transcript and log details.
 
 ## View-counting rule
 
@@ -24,7 +24,7 @@
 ## Meetings & Dictate
 
 - When a user says **"meeting"** they mean a Meetings tab entry, not a Clips recording — _unless_ the recording is linked to a meeting (i.e. `recordings.meeting_id` is non-null), in which case both interpretations are valid and worth mentioning.
-- When suggesting how to enable transcript improvements (cleanup, summary, action items), **lead with Builder.io Connect** — it's the easiest path and requires no key. Mention a BYOK `GEMINI_API_KEY` only as a secondary fallback. The cleanup pipeline does not use Groq or OpenAI — those are transcription providers (`transcribe-voice`), not cleanup providers.
+- When suggesting how to enable transcript improvements (cleanup, summary, action items), **lead with Builder.io Connect** — its free tier is available, it's the easiest path, and it requires no key. Mention a BYOK `GEMINI_API_KEY` only as a secondary fallback. The cleanup pipeline does not use direct Groq or OpenAI keys by default; it prefers Luna through Builder or OpenAI, with Gemini as the fallback.
 - **Per-attendee action items require attendees to actually speak in the recorded audio.** With mic + system audio capture (Meetings default) both sides are heard and tagged by source. With mic-only capture (and all Dictate dictations), remote attendees may be silent in the transcript — call this out before promising attendee-level coverage.
 
 ## Platform requirements
