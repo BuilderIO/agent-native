@@ -75,6 +75,54 @@ describe("resolveSpeaker", () => {
   });
 });
 
+describe("resolveSpeaker placeholder sides", () => {
+  // A source-less "Me" used to fall through to the system side and render in
+  // the "Them" group — the original bug, and it would also have made the
+  // attribution check claim a distinction the UI could not show.
+  it("puts a source-less mic placeholder on the owner's side", () => {
+    const speaker = resolveSpeaker(
+      { startMs: 0, endMs: 1_000, text: "hello", speaker: "Me" },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(true);
+    expect(speaker.label).toBe("Bob");
+  });
+
+  it("keeps a source-less them placeholder on the remote side", () => {
+    const speaker = resolveSpeaker(
+      { startMs: 0, endMs: 1_000, text: "hello", speaker: "Them" },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(false);
+  });
+
+  it("still defaults a segment with no source and no speaker to the remote side", () => {
+    const speaker = resolveSpeaker(
+      { startMs: 0, endMs: 1_000, text: "hello" },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(false);
+  });
+
+  it("lets an explicit source win over a contradicting placeholder", () => {
+    const speaker = resolveSpeaker(
+      {
+        startMs: 0,
+        endMs: 1_000,
+        text: "hello",
+        speaker: "Me",
+        source: "system",
+      },
+      [bob, alice],
+      bob.email,
+    );
+    expect(speaker.isOwner).toBe(false);
+  });
+});
+
 describe("transcriptDistinguishesSpeakers", () => {
   const seg = (
     text: string,

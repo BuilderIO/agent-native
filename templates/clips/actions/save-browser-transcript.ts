@@ -56,6 +56,11 @@ const segmentSchema = z
     text: z.string(),
     // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
+    // Diarized speaker for this segment, when the provider identifies one.
+    // Declared so zod keeps it: an undeclared key is stripped before the array
+    // is serialized, which would drop a provider's speaker labels on save and
+    // leave the transcript unable to tell its speakers apart on reload.
+    speaker: z.string().nullable().optional(),
   })
   .transform((s) => {
     if (s.endMs < s.startMs) {

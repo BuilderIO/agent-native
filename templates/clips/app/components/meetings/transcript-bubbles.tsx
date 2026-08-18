@@ -110,14 +110,13 @@ export function transcriptDistinguishesSpeakers(
  */
 function speakerSignal(segment: TranscriptSegment): string | null {
   const speaker = segment.speaker?.trim();
-  if (speaker && !isGenericSpeakerLabel(speaker)) {
-    return `speaker:${normalizeSpeaker(speaker)}`;
-  }
+  const side = placeholderSide(speaker);
+  if (speaker && !side) return `speaker:${normalizeSpeaker(speaker)}`;
   if (segment.source) return `source:${segment.source}`;
-  if (speaker) {
-    return GENERIC_MIC_SPEAKER.test(speaker) ? "source:mic" : "source:system";
-  }
-  return null;
+  // No placeholder and no source is an absence of information, not a side.
+  // Defaulting it to "system" here would make a transcript that mixes tagged
+  // and untagged segments look like two speakers.
+  return side ? `source:${side}` : null;
 }
 
 /**
@@ -174,8 +173,28 @@ function normalizeSpeaker(value: string): string {
 const GENERIC_MIC_SPEAKER = /^(me|self|you)$/i;
 const GENERIC_SYSTEM_SPEAKER = /^them$/i;
 
-function isGenericSpeakerLabel(label: string): boolean {
-  return GENERIC_MIC_SPEAKER.test(label) || GENERIC_SYSTEM_SPEAKER.test(label);
+/** The side a generic placeholder names, or null when it names a person. */
+function placeholderSide(
+  label: string | null | undefined,
+): "mic" | "system" | null {
+  const speaker = label?.trim();
+  if (!speaker) return null;
+  if (GENERIC_MIC_SPEAKER.test(speaker)) return "mic";
+  if (GENERIC_SYSTEM_SPEAKER.test(speaker)) return "system";
+  return null;
+}
+
+/**
+ * Which side of the conversation a segment belongs to.
+ *
+ * `source` is the real signal, but a segment can arrive with only a
+ * placeholder speaker on it. Falling straight through to "system" then drops
+ * every "Me" into the remote group, which is how a transcript labelled purely
+ * with placeholders renders entirely as "Them" — the original bug. Read the
+ * side the placeholder names before defaulting.
+ */
+function segmentSide(segment: TranscriptSegment): "mic" | "system" {
+  return segment.source ?? placeholderSide(segment.speaker) ?? "system";
 }
 
 // Exported for regression testing — see transcript-bubbles.test.ts. These
@@ -242,7 +261,7 @@ export function resolveSpeaker(
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
 ): SpeakerIdentity {
-  const source = segment.source === "mic" ? "mic" : "system";
+  const source = segmentSide(segment);
   const rawSpeaker = segment.speaker?.trim();
   const participant =
     findParticipant(segment.speaker, participants) ||

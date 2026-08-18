@@ -176,6 +176,38 @@ describe("save-browser-transcript", () => {
     },
   );
 
+  // `speaker` was not declared on the segment schema, so zod stripped it before
+  // the array was serialized: a provider's diarized labels vanished on save and
+  // the transcript could no longer tell its speakers apart on reload.
+  it("round-trips a caller-supplied diarized speaker into segmentsJson", async () => {
+    const values = vi.fn();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Hello there. General Kenobi.",
+      source: "whisper",
+      overwriteReady: true,
+      segments: [
+        { startMs: 0, endMs: 1_000, text: "Hello there.", speaker: "Alice" },
+        {
+          startMs: 1_000,
+          endMs: 2_000,
+          text: "General Kenobi.",
+          source: "system",
+          speaker: "Bob",
+        },
+      ],
+    });
+
+    const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+    expect(JSON.parse(inserted.segmentsJson)).toEqual([
+      expect.objectContaining({ text: "Hello there.", speaker: "Alice" }),
+      expect.objectContaining({ text: "General Kenobi.", speaker: "Bob" }),
+    ]);
+  });
+
   it("leaves synthesized segments source-less for whisper (mixed mic + system)", async () => {
     const values = vi.fn();
     mocks.insert.mockReturnValue({ values });
