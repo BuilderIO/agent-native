@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.29.2
+
+### Patch Changes
+
+- 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
+
 ## 0.29.1
 
 ### Patch Changes
