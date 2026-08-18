@@ -146,7 +146,7 @@ export function WorkspaceAppCard({
     isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
     {
       name: app.name,
-      defaultValue: `${isPinned ? "Unpin" : "Pin"} ${app.name}`,
+      defaultValue: isPinned ? "Unpin this app" : "Pin this app",
     },
   );
 

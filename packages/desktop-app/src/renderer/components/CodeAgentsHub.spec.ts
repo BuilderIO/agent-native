@@ -380,7 +380,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
     expect(hubSource).toContain("Open in browser");
-    expect(hubSource).toContain("Pin to top");
+    expect(hubSource).toContain("Pin this app");
+    expect(hubSource).toContain("Unpin this app");
     expect(hubSource).toContain("desktop-apps-grid--full-page");
     expect(hubSource).toContain("chatFirstAllAppsOpen");
     expect(hubSource).toContain("onOpenAllApps={openChatFirstAllApps}");
