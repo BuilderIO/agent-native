@@ -322,6 +322,8 @@ export function WorkspaceAppFrame({
     return target.url ?? target.path ?? null;
   }, [app.path, app.url, embedPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
+  const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${embedAttempt}`;
+  const topWindowSsoAttemptedRef = useRef<string | null>(null);
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
       return buildChatFirstEmbedSessionInput(app.id, embedPath);
@@ -335,6 +337,10 @@ export function WorkspaceAppFrame({
   }, [app.id, app.path, app.url, appHref, embedPath]);
 
   useEffect(() => {
+    if (openInTopWindow && useWorkspaceSso && embedInput) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
     if (!openInTopWindow) {
       setTopWindowNavigationFailed(false);
       return;
@@ -351,10 +357,31 @@ export function WorkspaceAppFrame({
       didNavigate = false;
     }
     setTopWindowNavigationFailed(!didNavigate);
-  }, [navigateToTopWindow, openInTopWindow, topWindowHref]);
+  }, [
+    embedInput,
+    navigateToTopWindow,
+    openInTopWindow,
+    topWindowHref,
+    useWorkspaceSso,
+  ]);
 
   useEffect(() => {
-    if (!embedInput || (openInTopWindow && !topWindowNavigationFailed)) return;
+    const useTopWindowSso = openInTopWindow && useWorkspaceSso && !!embedInput;
+    if (
+      !embedInput ||
+      (openInTopWindow && !useWorkspaceSso && !topWindowNavigationFailed)
+    ) {
+      return;
+    }
+    if (
+      useTopWindowSso &&
+      topWindowSsoAttemptedRef.current === topWindowSsoAttemptKey
+    ) {
+      return;
+    }
+    if (useTopWindowSso) {
+      topWindowSsoAttemptedRef.current = topWindowSsoAttemptKey;
+    }
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
@@ -365,7 +392,19 @@ export function WorkspaceAppFrame({
     void createSession
       .mutateAsync(embedInput)
       .then((result) => {
-        if (!cancelled) setEmbedUrl(result.startUrl);
+        if (cancelled) return;
+        if (useTopWindowSso) {
+          let didNavigate = false;
+          try {
+            didNavigate = navigateToTopWindow(result.startUrl) !== false;
+          } catch {
+            didNavigate = false;
+          }
+          setTopWindowNavigationFailed(!didNavigate);
+          setEmbedUrl(didNavigate ? null : result.startUrl);
+          return;
+        }
+        setEmbedUrl(result.startUrl);
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
@@ -378,6 +417,7 @@ export function WorkspaceAppFrame({
           setIsDirectFallback(false);
           setEmbedUrl(null);
           setEmbedError(error);
+          if (useTopWindowSso) setTopWindowNavigationFailed(true);
           return;
         }
         setIsDirectFallback(true);
@@ -402,6 +442,8 @@ export function WorkspaceAppFrame({
     embedPath,
     embedAttempt,
     openInTopWindow,
+    navigateToTopWindow,
+    topWindowSsoAttemptKey,
     topWindowNavigationFailed,
     useWorkspaceSso,
   ]);

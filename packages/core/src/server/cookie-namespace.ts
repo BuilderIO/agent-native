@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { getAppConfig } from "../app-config/index.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 
 const FIRST_PARTY_COOKIE_DOMAIN = "agent-native.com";
@@ -23,10 +24,9 @@ export function resolveAuthCookieNamespace(
   cwd = process.cwd(),
 ): AuthCookieNamespace {
   const isWorkspaceMode =
-    isTruthyRuntimeValue(env.AGENT_NATIVE_WORKSPACE) ||
-    isTruthyRuntimeValue(env.VITE_AGENT_NATIVE_WORKSPACE) ||
-    Boolean(env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
-    Boolean(env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim());
+    env === process.env
+      ? isConfiguredWorkspaceRuntime()
+      : isWorkspaceModeFromEnv(env);
   const configuredCookieDomain = normalizeCookieDomain(env.COOKIE_DOMAIN);
   const isFirstPartyCookieDomain =
     normalizeDomainForCompare(configuredCookieDomain) ===
@@ -99,6 +99,33 @@ export function resolveAuthCookieNamespace(
     isWorkspaceMode,
     isFirstPartyCookieDomain,
   };
+}
+
+function isConfiguredWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
+  return (
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
+  );
+}
+
+function isWorkspaceModeFromEnv(
+  env: Record<string, string | undefined>,
+): boolean {
+  const workspaceFlag = firstConfiguredValue(
+    env.AGENT_NATIVE_WORKSPACE,
+    env.VITE_AGENT_NATIVE_WORKSPACE,
+  );
+  const workspaceApps = firstConfiguredValue(
+    env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+    env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+  );
+  return isTruthyRuntimeValue(workspaceFlag) || Boolean(workspaceApps);
+}
+
+function firstConfiguredValue(
+  ...values: Array<string | undefined>
+): string | undefined {
+  return values.find((value) => value?.trim())?.trim();
 }
 
 function readPackageJsonName(cwd: string): string {

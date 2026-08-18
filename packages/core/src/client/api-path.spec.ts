@@ -161,6 +161,21 @@ describe("oauthRedirectUri", () => {
     );
   });
 
+  it("uses the current origin when projected workspace config has no origin", () => {
+    vi.stubEnv("VITE_WORKSPACE_OAUTH_ORIGIN", "https://stale.example");
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://current.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://current.example/_agent-native/google/callback",
+    );
+  });
+
   it("uses the configured workspace OAuth origin in workspace mode", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(

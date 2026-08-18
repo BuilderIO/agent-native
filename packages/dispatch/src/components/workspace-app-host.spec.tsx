@@ -316,6 +316,41 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
   });
 
+  it("mints custom SSO before navigating an embedded Dispatch surface", async () => {
+    clientState.workspaceSsoEnabled = true;
+    const navigateToTopWindow = vi.fn(() => true);
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "custom-sso",
+            name: "Custom SSO",
+            path: "/custom-sso",
+            url: "https://custom.example/custom-sso",
+            workspaceSso: true,
+          }}
+          navigateToTopWindow={navigateToTopWindow}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
+      app: "custom-sso",
+      url: "https://custom.example/custom-sso",
+      chrome: "minimal",
+    });
+    expect(navigateToTopWindow).toHaveBeenCalledWith("about:blank");
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
   it("sends the parent theme on iframe load and when the parent changes", async () => {
     await act(async () => {
       root.render(
