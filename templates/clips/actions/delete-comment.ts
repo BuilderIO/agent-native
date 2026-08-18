@@ -13,6 +13,7 @@ import { eq, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpired } from "../server/lib/recording-page-access.js";
 
 export default defineAction({
   description:
@@ -35,7 +36,18 @@ export default defineAction({
     // Any signed-in viewer with access to the recording may delete their own
     // comment, matching add-comment's top-level comment gate; a non-author
     // still needs editor+ (checked below).
-    await assertAccess("recording", existing.recordingId, "viewer");
+    const access = await assertAccess(
+      "recording",
+      existing.recordingId,
+      "viewer",
+    );
+    if (
+      isRecordingExpired(
+        (access.resource as { expiresAt?: string }).expiresAt,
+      )
+    ) {
+      throw new ForbiddenError("Recording has expired");
+    }
 
     if (!isAuthor) {
       try {

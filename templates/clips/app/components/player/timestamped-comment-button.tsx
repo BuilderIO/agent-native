@@ -77,7 +77,7 @@ export function TimestampedCommentBar({
   const insertAtCursor = (text: string) => {
     const el = textareaRef.current;
     if (!el) {
-      setDraft((d) => d + text);
+      setDraft(draft + text);
       return;
     }
     const start = el.selectionStart ?? draft.length;

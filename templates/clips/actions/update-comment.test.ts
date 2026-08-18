@@ -117,6 +117,7 @@ async function run(args: { id: string; content: string }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockAssertAccess.mockResolvedValue({ role: "viewer", resource: {} });
   state.conflict = false;
   state.rows = [
     {

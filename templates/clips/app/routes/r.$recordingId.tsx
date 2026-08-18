@@ -1641,8 +1641,14 @@ export default function RecordingPage() {
                         }),
                       },
                     )
-                      .then(() => playerDataQ.refetch())
-                      .catch(() => {});
+                      .then((res) => {
+                        if (!res.ok)
+                          throw new Error(`react failed: ${res.status}`);
+                        return playerDataQ.refetch();
+                      })
+                      .catch((err) =>
+                        console.warn("[clips] react failed", err),
+                      );
                   }}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
@@ -1747,8 +1753,14 @@ export default function RecordingPage() {
                               }),
                             },
                           )
-                            .then(() => playerDataQ.refetch())
-                            .catch(() => {});
+                            .then((res) => {
+                              if (!res.ok)
+                                throw new Error(`react failed: ${res.status}`);
+                              return playerDataQ.refetch();
+                            })
+                            .catch((err) =>
+                              console.warn("[clips] react failed", err),
+                            );
                         }}
                       />
                     ) : null}

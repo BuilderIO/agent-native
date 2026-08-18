@@ -10,12 +10,13 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
+import { isRecordingExpired } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -50,7 +51,10 @@ export default defineAction({
     // Commenting is open to any signed-in viewer with access to the
     // recording, not just an explicitly-granted "commenter" role — the
     // `authorEmail` check below is what actually requires an account.
-    await assertAccess("recording", args.recordingId, "viewer");
+    const access = await assertAccess("recording", args.recordingId, "viewer");
+    if (isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)) {
+      throw new ForbiddenError("Recording has expired");
+    }
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

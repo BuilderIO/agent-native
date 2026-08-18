@@ -48,7 +48,7 @@ describe("add-comment access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
-    mockAssertAccess.mockResolvedValue({ role: "commenter" });
+    mockAssertAccess.mockResolvedValue({ role: "commenter", resource: {} });
     mockDb.select.mockReturnValue({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
