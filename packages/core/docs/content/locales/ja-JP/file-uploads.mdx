@@ -1,23 +1,27 @@
 ---
 title: "ファイルのアップロード"
-description: "ファイルアップロード用の永続オブジェクトストレージを構成します — Builder.io またはカスタム S3 互換プロバイダー。"
+description: "本番環境向けに、Builder.io またはカスタムオブジェクトストレージプロバイダーで永続的なファイルアップロードストレージを構成します。"
 ---
 
 # ファイルのアップロード
 
-このフレームワークは、構成可能なプロバイダーを通じてアップロードをルーティングするファイル アップロードの抽象化を提供します。テンプレートは `uploadFile()` を呼び出し、URL を返します。ストレージ バックエンドはアプリケーション コードを変更せずに交換可能です。
+このフレームワークは、構成可能なプロバイダーを通じてアップロードをルーティングするファイルアップロードの抽象化を提供します。テンプレートは `uploadFile()` を呼び出し、URL を受け取ります。ストレージバックエンドは、アプリケーションコードを変更することなく交換できます。
 
 ## 仕組み {#how-it-works}
 
-アップロード リクエストは `POST /_agent-native/file-upload` に送信され、アクティブなプロバイダーにディスパッチされます。どのプロバイダーが設定されているかは、`GET /_agent-native/file-upload/status` で確認できます。
+アップロードリクエストは `POST /_agent-native/file-upload` に送信され、アクティブなプロバイダーにディスパッチされます。どのプロバイダーが構成されているかは `GET /_agent-native/file-upload/status` で確認できます。
 
 プロバイダーの解決順序は次のとおりです:
 
-1. **ユーザー登録プロバイダー** — `registerFileUploadProvider()` 経由で登録されたカスタムプロバイダー
-2. **Builder.io プロバイダー**（無料プランあり）— 組み込み、Builder.io が接続されると自動的にアクティブ化されます
-3. **ストレージが必要** — プロバイダーがない場合、アップロードは安全に拒否され設定カードが表示されます。バイナリデータは SQL に保存されません
+1. **ユーザー登録プロバイダー**: `registerFileUploadProvider()` 経由で登録されたカスタムプロバイダーです。
+2. **Builder.io プロバイダー**: 組み込みで、Builder.io が接続されると自動的に有効化されます。
+3. **プロバイダーなし**: アップロードは拒否され、チャットにストレージ設定の CTA が表示されます。バイナリデータが SQL に永続化されることはありません。
 
-<Diagram id="doc-block-1bqg825" title={"プロバイダーの解決順序"} summary={"uploadFile() は、最初に構成されたプロバイダーを順番に選択します。プロバイダーがない場合、アップロードは安全に拒否され設定カードが表示されます。"}>
+ユーザー登録プロバイダーの中では、最初に登録され、かつ自身が構成済みであると報告したプロバイダーが優先されます。`registerFileUploadProvider()` は `id` ごとにべき等です。すでに使用されている id で登録すると、既存のプロバイダーが置き換えられます。
+
+UI は、アップロードが試行される前に、同期的な `isConfigured()` チェックのみを使ってストレージ設定プロンプトを表示するかどうかを判断します。実際のアップロードでは `isConfigured()` と `isConfiguredForRequest()` の両方がチェックされます。`isConfiguredForRequest()` を通じてのみ自身が構成済みであると報告するプロバイダーは、そのプロバイダーを通じたアップロードが成功する場合でも、設定プロンプトには表示されません。
+
+<Diagram id="doc-block-hq5uvx" title="プロバイダーの解決順序" summary="uploadFile() は順番に最初に構成されたプロバイダーを選択します。プロバイダーがない場合、アップロードは安全に失敗するため、バイナリデータが SQL に永続化されることはありません。">
 
 ```html
 <div class="diagram-upload">
@@ -32,7 +36,7 @@ description: "ファイルアップロード用の永続オブジェクトスト
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         ユーザー登録<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >S3、R2、GCS などにおける registerFileUploadProvider()</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ description: "ファイルアップロード用の永続オブジェクトスト
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >接続時に自動 — CDN 配信</small
+          >接続時に自動、CDN 配信</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        ストレージが必要<br /><small class="diagram-muted"
-          >Builder.io または S3 互換ストレージを構成</small
+        プロバイダーなし<br /><small class="diagram-muted"
+          >設定 CTA、バイナリの永続化なし</small
         >
       </div>
     </div>
@@ -81,62 +85,83 @@ description: "ファイルアップロード用の永続オブジェクトスト
 
 </Diagram>
 
-<Endpoint id="doc-block-1r5jpt9" title={"アップロードエンドポイント"} method="POST" path="/_agent-native/file-upload" summary={"アクティブなプロバイダーを通じてファイルをアップロードし、パブリック URL を取得します。"} request={{
+<Endpoint id="doc-block-4os0mo" title="アップロードエンドポイント" method="POST" path="/_agent-native/file-upload" summary="アクティブなプロバイダーを通じてファイルをアップロードし、パブリック URL を取得します。" request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }`: パブリック URL と処理したプロバイダーです。"
+  },
+  {
+    "status": "401",
+    "description": "認証済みセッションがありません。"
+  },
+  {
+    "status": "413",
+    "description": "ファイルが 25 MB のアップロード上限を超えています。"
+  },
+  {
+    "status": "415",
+    "description": "実行可能ファイルやスクリプトなど、ブロックされた MIME タイプです。"
+  },
+  {
+    "status": "503",
+    "description": "ファイルアップロードプロバイダーが構成されていません。"
   }
 ]}>
 
-Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+解決順序の中で最初に構成されたプロバイダーにディスパッチします。アクティブなプロバイダーは `GET /_agent-native/file-upload/status` で確認できます。
 
 </Endpoint>
 
-## 永続的なアップロードにはストレージが必要 {#storage-required}
+## 永続的なアップロードに必要なストレージ {#storage-required}
 
-プロバイダーが構成されていない場合、アップロードは安全に拒否され、Builder.io または S3 互換プロバイダーを構成するカードが表示されます。バイナリデータは Base64 として SQL に保存されません。
-
-バイトは現在のリクエストでのみ使用でき、チャット履歴には保存されません。ストレージを構成すると、後続のターンで再利用できる安定した公開 URL が返されます。
+プロバイダーが構成されていない場合、`uploadFile()` は `null` を返し、マルチパートルートは `503` を返します。チャットの添付ファイルは現在のリクエストでのみ利用可能で、エージェントはストレージ設定のヒントを受け取り、トランスクリプトにはバイナリペイロードの代わりに設定マーカーが保存されます。このフェイルクローズの動作により、SQL は小さく保たれ、構成が不足していることが可視化されます。
 
 ## Builder.io ホスティング {#builder-hosting}
 
-アプリが Builder.io に接続されている場合（無料プランあり）、ファイルのアップロードは Builder のアセット ホスティングに自動的にルーティングされます。ファイルは、構成を必要とせずに CDN から提供されます。これは推奨される運用環境設定です。
+アプリが Builder.io に接続されている場合、ファイルのアップロードは自動的に Builder のアセットホスティングにルーティングされます。Builder.io の無料プランには、このマネージドストレージが含まれています。ファイルは構成不要で CDN から配信され、永続的な URL はチャットスレッドに保存されるため、後続のターンで再利用できます。これが推奨される本番環境の構成です。
 
 ## カスタムプロバイダー {#custom-providers}
 
-任意のストレージ バックエンド (S3、Cloudflare R2、GCS など) を使用するには、サーバー プラグインにカスタム プロバイダーを登録します。
+このフレームワークには、S3 互換ストレージ (AWS S3、Cloudflare R2、MinIO など) 用の組み込みプロバイダーがすでに用意されています。環境変数、またはサイドバーのオンボーディングチェックリストから接続できます。コードは不要です。[オンボーディング](/docs/onboarding) を参照してください。
 
-```ts
-// server/plugins/file-upload.ts
+異なる種類のバックエンドの場合にのみ、カスタムプロバイダーを登録してください。次の例では、`fetch()` を使用して汎用の HTTP API 経由でアップロードします。
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
-## API をアップロード {#upload-api}
+プロバイダーが API キーなどの実際の認証情報を必要とする場合は、環境変数の代わりに `@agent-native/core/server` の `resolveSecret()` を使用してください。[セキュリティ — シークレット管理](/docs/security#secrets) を参照してください。
 
-`FileUploadProvider` インターフェイス:
+## アップロード API {#upload-api}
+
+`FileUploadProvider` インターフェース:
 
 ```ts
 interface FileUploadProvider {
@@ -152,6 +177,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -161,7 +188,7 @@ interface FileUploadResult {
 }
 ```
 
-actions またはサーバー コードで `@agent-native/core/file-upload` の `uploadFile()` を使用します。
+actions またはサーバーコードで `@agent-native/core/file-upload` の `uploadFile()` を使用します。
 
 ```ts
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -173,8 +200,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // ストレージを構成するか、アップロードをスキップします
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## 再開可能 / ストリーミングアップロード {#resumable}
+
+プロバイダーは、ファイル全体を先にバッファリングするのではなく、データが到着するたびにストレージへストリーミングする必要があるアップロードのために、`FileUploadProvider` に `resumable` ブロックをオプションで実装できます。Clips テンプレートはこれを使用して、レコーダーが停止した後に完全な blob を組み立てるのではなく、録画中にチャンクごとに録画データをストレージへ中継します。
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+`resumable` が存在する場合、レコーダーのようにデータをストリーミングして送り込む呼び出し元は、`startSession` を一度呼び出し、バイトが到着するたびに `relayChunk` を繰り返し呼び出し、ストリームが終了したら `completeSession` を呼び出します。これは、単一のバッファリングされた `upload()` 呼び出しを置き換えるものです。`resumable` ブロックを持たないプロバイダーは、常にバッファリングされたパスのみを利用します。ストレージバックエンドに、公開する価値のあるネイティブなチャンク/再開可能アップロード API (S3 のマルチパート、GCS の再開可能アップロードなど) がある場合にのみ実装してください。
+
+## 次は何ですか
+
+- [**データベース**](/docs/server-database) — `uploadFile()` が返す URL を永続化するための `getDb()`/スキーマパターン
+- [**セキュリティ — シークレット管理**](/docs/security#secrets) — `resolveSecret()` と資格情報ボールトがプロバイダーキーを保存時にどのように暗号化するか
+- [**オンボーディング**](/docs/onboarding) — サイドバーのチェックリストにカスタムプロバイダーの設定ステップを登録する
