@@ -2352,6 +2352,68 @@ describe("ApprovalAffordance", () => {
     ).toEqual(["bash"]);
   });
 
+  it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", () => {
+    // Mirrors a failed resume: the server's resume never consumed the grant
+    // (expired TTL, turn-id mismatch) and re-enters the gate, re-emitting
+    // `approval_required` for the SAME toolCallId with a fresh `askId`. The
+    // approval host (AssistantChat) retains resolutions per askId, so the
+    // stale "approved" mark from the first ask must not apply to the new one.
+    const onApprove = vi.fn();
+    const resolutionsByIdentity = new Map<string, "approved" | "denied">();
+    const identity = (
+      approvalKey: string,
+      toolCallId?: string,
+      askId?: string,
+    ) => `${toolCallId ?? ""} ${approvalKey} ${askId ?? ""}`;
+
+    function ReissuedApproval({ askId }: { askId: string }) {
+      return (
+        <ApprovalContext.Provider
+          value={{
+            onApprove,
+            onApprovalResolved: (approvalKey, resolution, toolCallId, ask) => {
+              resolutionsByIdentity.set(
+                identity(approvalKey, toolCallId, ask),
+                resolution,
+              );
+            },
+            getApprovalResolution: (approvalKey, toolCallId, ask) =>
+              resolutionsByIdentity.get(identity(approvalKey, toolCallId, ask)) ??
+              null,
+          }}
+        >
+          <ToolCallDisplay
+            toolName="bash"
+            toolCallId="call-1"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>
+      );
+    }
+
+    act(() => root.render(<ReissuedApproval askId="ask-1" />));
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Approve",
+    ) as HTMLButtonElement;
+    act(() => approveButton.click());
+
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Approved. Re-running bash...");
+
+    // The failed resume re-emits approval_required for the same toolCallId
+    // with a new askId.
+    act(() => root.render(<ReissuedApproval askId="ask-2" />));
+
+    expect(container.textContent).not.toContain("Approved. Re-running bash...");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Approve", "Deny"]);
+  });
+
   it("calls onDeny in addition to the local denied state when provided", () => {
     const onApprove = vi.fn();
     const onDeny = vi.fn();
