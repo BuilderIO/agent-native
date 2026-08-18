@@ -50,6 +50,7 @@ import {
   resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -1140,6 +1141,14 @@ function firstNonEmpty() {
   }
 }
 
+function isTruthyRuntimeValue(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
+  return ["1", "true", "yes", "on"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
 function getSentryClientConfigScript() {
   const env = globalThis.process?.env || {};
   const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
@@ -1251,10 +1260,21 @@ function getAppOriginClientConfigScript() {
     env.WORKSPACE_OAUTH_ORIGIN,
     env.VITE_WORKSPACE_OAUTH_ORIGIN,
   );
+  const workspaceRuntime = [
+    env.AGENT_NATIVE_WORKSPACE,
+    env.VITE_AGENT_NATIVE_WORKSPACE,
+  ].some((value) => isTruthyRuntimeValue(value)) ||
+    Boolean(
+      firstNonEmpty(
+        env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+        env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+      ),
+    );
   const config = {
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
+    ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
   };
   if (Object.keys(config).length === 0) return null;
   return (
@@ -3785,8 +3805,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const failures: string[] = [];
   const publishDir = path.join(projectCwd, "dist");
   const workspaceAppBasePath =
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+    [
+      process.env.AGENT_NATIVE_WORKSPACE,
+      process.env.VITE_AGENT_NATIVE_WORKSPACE,
+    ].some((value) => isTruthyRuntimeValue(value)) ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim())
       ? normalizeConfiguredAppBasePath()
       : "";
   const assetsRelativeDir = workspaceAppBasePath

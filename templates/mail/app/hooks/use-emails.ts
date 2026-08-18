@@ -573,6 +573,7 @@ export function useEmails(
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
     isFetchingNextPage: q.isFetchingNextPage,
+    isFetchNextPageError: q.isFetchNextPageError,
   };
 }
 

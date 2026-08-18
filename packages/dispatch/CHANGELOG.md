@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.29.4
+
+### Patch Changes
+
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
 ## 0.29.3
 
 ### Patch Changes
