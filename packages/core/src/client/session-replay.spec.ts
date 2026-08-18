@@ -401,6 +401,61 @@ describe("session replay", () => {
     });
   });
 
+  it("times out a hung replay upload and releases the flush lock", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      const result = await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 1,
+        flushIntervalMs: 100_000,
+      });
+      expect(result.started).toBe(true);
+
+      fetchMock.mockImplementation((_input, init) => {
+        const signal = (init as RequestInit | undefined)?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(new Error("replay upload aborted")),
+            { once: true },
+          );
+        });
+      });
+
+      recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+      expect(firstInit.signal).toBeInstanceOf(AbortSignal);
+      expect(firstInit.signal?.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(firstInit.signal?.aborted).toBe(true);
+
+      // The timed-out batch is requeued, but a subsequent flush can proceed -
+      // proving the failed request no longer pins state.flushing forever.
+      fetchMock.mockResolvedValue(new Response("{}"));
+      await replay.flushSessionReplay("manual");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets explicit sessionReplay false override replay env vars", async () => {
     installBrowser();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
