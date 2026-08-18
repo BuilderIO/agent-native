@@ -1226,6 +1226,7 @@ export default function ShareRoute() {
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
+              persistPlaybackPosition={Boolean(session)}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
               role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
