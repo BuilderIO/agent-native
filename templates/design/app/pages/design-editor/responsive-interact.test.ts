@@ -142,10 +142,10 @@ describe("responsive Interact wiring", () => {
     // that path keyed to `isSignedIn` fails for exactly the user it serves:
     // the write-consent dialog never opens (edits can't reach source) and
     // agent-driven navigate/select/zoom commands are dropped on the floor.
-    const consent = source.slice(
-      source.indexOf("design-localhost-write-consent-request") - 900,
-      source.indexOf("design-localhost-write-consent-request"),
-    );
+    const consentAnchor = "const key = `design-localhost-write-consent-request";
+    const consentIndex = source.indexOf(consentAnchor);
+    expect(consentIndex).toBeGreaterThan(0);
+    const consent = source.slice(consentIndex - 900, consentIndex);
     expect(consent).toContain("!id || !canEditDesign");
     expect(consent).not.toContain("!id || !isSignedIn");
 
