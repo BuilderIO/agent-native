@@ -7,12 +7,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
-import {
-  IconCode,
-  IconExternalLink,
-  IconLink,
-  IconMail,
-} from "@tabler/icons-react";
+import { IconExternalLink } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -240,7 +235,7 @@ function ShareRecordingContent({
   // editor keep it regardless of visibility since they can flip to public
   // from inside it.
   const canEmbed = canViewShares || visibility === "public";
-  const tabCount = 1 + (canViewShares ? 1 : 0) + (canEmbed ? 1 : 0);
+  const tabCount = 1 + (canEmbed ? 1 : 0);
 
   // Attribution `via` must be a stable non-PII id, never an email. The only
   // owner id available client-side is the *current* session's userId, which is
@@ -266,21 +261,19 @@ function ShareRecordingContent({
       >
         {tabCount > 1 ? (
           <TabsList
-            className={`grid w-full ${tabCount === 3 ? "grid-cols-3" : "grid-cols-2"}`}
+            className={`grid w-full rounded-xl bg-muted/70 p-1 ${tabCount === 3 ? "grid-cols-3" : "grid-cols-2"}`}
           >
-            <TabsTrigger value="link" className="gap-1.5">
-              <IconLink size={14} />
+            <TabsTrigger
+              value="link"
+              className="h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border"
+            >
               {t("shareDialog.link")}
             </TabsTrigger>
-            {canViewShares ? (
-              <TabsTrigger value="invite" className="gap-1.5">
-                <IconMail size={14} />
-                {t("shareDialog.invite")}
-              </TabsTrigger>
-            ) : null}
             {canEmbed ? (
-              <TabsTrigger value="embed" className="gap-1.5">
-                <IconCode size={14} />
+              <TabsTrigger
+                value="embed"
+                className="h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border"
+              >
                 {t("shareDialog.embed")}
               </TabsTrigger>
             ) : null}
@@ -303,24 +296,6 @@ function ShareRecordingContent({
             canViewShares={canViewShares}
           />
         </TabsContent>
-
-        {canViewShares ? (
-          <TabsContent value="invite" className="mt-3">
-            <SharePeopleTab
-              resourceType="recording"
-              resourceId={recordingId}
-              resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
-              sharesQuery={sharesQuery}
-              canManage={canManage}
-              roleCopy={{
-                commenter: {
-                  label: t("shareUi.recordingCommenter.label"),
-                  description: t("shareUi.recordingCommenter.description"),
-                },
-              }}
-            />
-          </TabsContent>
-        ) : null}
 
         {canEmbed ? (
           <TabsContent value="embed" className="mt-3">
@@ -523,6 +498,16 @@ function LinkTab({
 
   return (
     <div className="space-y-4">
+      <CopyField
+        label={
+          isPublic
+            ? t("shareDialog.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
+        value={shareUrl}
+        disabled={visibilityPending || !sharesLoaded}
+      />
+
       {canViewShares ? (
         visibility ? (
           <GeneralAccessSelect
@@ -541,15 +526,21 @@ function LinkTab({
         )
       ) : null}
 
-      <CopyField
-        label={
-          isPublic
-            ? t("shareDialog.shareLink")
-            : t("shareDialog.shareWithHumans")
-        }
-        value={shareUrl}
-        disabled={visibilityPending || !sharesLoaded}
-      />
+      {canViewShares ? (
+        <SharePeopleTab
+          resourceType="recording"
+          resourceId={recordingId}
+          resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
+          sharesQuery={sharesQuery}
+          canManage={canManage}
+          roleCopy={{
+            commenter: {
+              label: t("shareUi.recordingCommenter.label"),
+              description: t("shareUi.recordingCommenter.description"),
+            },
+          }}
+        />
+      ) : null}
 
       <ShareAgentsSection
         label={t("shareDialog.shareWithAgents")}

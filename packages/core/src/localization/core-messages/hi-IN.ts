@@ -275,6 +275,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
   "errorMessages.inactivityTimeout":
@@ -296,10 +298,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",
+  "feedback.keyboardHint": "भेजने के लिए {{shortcut}} Enter",
   "feedback.notHelpful": "उपयोगी नहीं",
+  "feedback.placeholder": "बताएं कि क्या गलत हुआ...",
+  "feedback.submit": "जमा करें",
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",
+  "feedback.whatWentWrong": "क्या गलत हुआ?",
   "feedback.wrongTool": "गलत टूल",
   "header.switchToCli": "CLI पर जाएँ",
   "history.active": "सक्रिय",
@@ -344,6 +350,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.threadNotFound":
+    "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
   "message.revertHere": "यहाँ तक वापस जाएँ",
   "message.sentAt": "{{time}} पर भेजा गया",
@@ -471,6 +479,12 @@ const messages: AgentChatTranslation = {
   "share.advancedDescription": "नियंत्रित करें कि संगठन का एक्सेस खोज में कैसे दिखाई दे।",
   "share.copied": "कॉपी किया गया",
   "share.copy": "कॉपी करें",
+  "share.shareWithAgents": "एजेंट्स के साथ साझा करें",
+  "share.agentContext": "एजेंट संदर्भ लिंक",
+  "share.agentContextDescription": "बाहरी एजेंट के लिए केवल-पठन संदर्भ।",
+  "share.preparingAgentLink": "एजेंट लिंक तैयार हो रहा है...",
+  "share.agentLinkUnavailable": "एजेंट लिंक नहीं बनाया जा सका।",
+  "share.retryAgentLink": "पुनः प्रयास करें",
   "share.editor": "संपादक",
   "share.editorDescription": "संपादित कर सकता है",
   "share.generalAccess": "सामान्य एक्सेस",

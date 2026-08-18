@@ -90,6 +90,12 @@ const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const DURABLE_PRUNE_BATCH = 10_000;
 const DURABLE_PRUNE_MAX_BATCHES = 40;
 /**
+ * Postgres advisory-lock key for the per-database retention worker. The lock
+ * is transaction-scoped so a serverless worker that is killed cannot leave a
+ * lease behind for another worker to clear.
+ */
+const DURABLE_PRUNE_LOCK_KEY = "agent-native:sync-events-prune";
+/**
  * How far back a cold-started process replays durable action markers.
  * Covers the gap between a separate action process writing its marker and this
  * process's first poll — seconds in practice. Anything older is history, and
@@ -673,16 +679,16 @@ export class AppSyncState {
    *     transaction, and a long transaction killed mid-flight by a serverless
    *     worker shutdown is what leaves connections `idle in transaction`
    *     holding locks — the shape of the 2026-08-06 outage.
-   *   - `ORDER BY version` inside the subquery. Without it the planner
+   *   - `ORDER BY created_at, id` inside the subquery. Without it the planner
    *     prefers a sequential scan even with a LIMIT; with it, the existing
-   *     `sync_events_version_idx` drives the batch and the delete is a
+   *     `sync_events_created_at_id_idx` drives the batch and the delete is a
    *     bounded index range scan.
    *
    * The `lastDurablePrune` throttle below is per-process, so every serverless
-   * worker prunes on its first poll. That was survivable only once the work
-   * itself became bounded and indexed; if concurrency is still a problem,
-   * the next step is a `pg_try_advisory_xact_lock` so one worker prunes at a
-   * time. Deliberately not done yet — measure before adding a lock.
+   * worker prunes on its first poll. Postgres workers also take a
+   * transaction-scoped advisory lease for each batch. The lease and delete
+   * are one bounded statement, so a serverless worker killed after the
+   * statement starts cannot leave an open transaction.
    */
   private async pruneDurableEvents(client: DbExec): Promise<void> {
     const now = Date.now();
@@ -692,17 +698,39 @@ export class AppSyncState {
     let deleted = 0;
     try {
       for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
-        const result = await client.execute({
+        const runBatch = async (tx: DbExec): Promise<number> => {
           // `id IN (...)` rather than ctid/rowid: both are dialect-specific,
           // and the primary key is indexed on every dialect we ship.
-          sql: `DELETE FROM sync_events WHERE id IN (
-                  SELECT id FROM sync_events WHERE created_at < ?
-                  ORDER BY created_at, id LIMIT ?
-                )`,
-          args: [cutoff, DURABLE_PRUNE_BATCH],
-        });
-        deleted += result.rowsAffected;
-        if (result.rowsAffected < DURABLE_PRUNE_BATCH) break;
+          const result = await tx.execute({
+            sql: `DELETE FROM sync_events WHERE id IN (
+                    SELECT id FROM sync_events WHERE created_at < ?
+                    ORDER BY created_at, id LIMIT ?
+                  )`,
+            args: [cutoff, DURABLE_PRUNE_BATCH],
+          });
+          return result.rowsAffected;
+        };
+
+        const rowsAffected = this.isPg()
+          ? (
+              await client.execute({
+                sql: `WITH prune_lease AS MATERIALIZED (
+                       SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired
+                     ), prune_batch AS MATERIALIZED (
+                       SELECT sync_events.id
+                       FROM sync_events CROSS JOIN prune_lease
+                       WHERE prune_lease.acquired AND sync_events.created_at < ?
+                       ORDER BY sync_events.created_at, sync_events.id LIMIT ?
+                     )
+                     DELETE FROM sync_events WHERE id IN (
+                       SELECT id FROM prune_batch
+                     )`,
+                args: [DURABLE_PRUNE_LOCK_KEY, cutoff, DURABLE_PRUNE_BATCH],
+              })
+            ).rowsAffected
+          : await runBatch(client);
+        deleted += rowsAffected;
+        if (rowsAffected < DURABLE_PRUNE_BATCH) break;
       }
       this.durablePruneFailures = 0;
     } catch (err) {

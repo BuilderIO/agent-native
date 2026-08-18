@@ -76,7 +76,6 @@ import {
   LocalMdxComponentNode,
 } from "./extensions/LocalMdxComponentNode";
 import {
-  EMPTY_TOGGLE_BODY_PLACEHOLDER,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
   type NotionPageLink,
@@ -95,9 +94,13 @@ import {
   hasImageFiles,
   hasVideoFiles,
   audioUploadErrorMessage,
+  completeImageFileUpload,
+  createMediaUploadId,
+  ImageRenderError,
   imageUploadErrorMessage,
   uploadAudioFile,
   uploadImageFile,
+  waitForRenderedImage,
   uploadVideoFile,
   videoUploadErrorMessage,
 } from "./image-upload";
@@ -443,10 +446,7 @@ const NotionMarkdownShortcuts = Extension.create({
                   .replaceWith(
                     shortcut.blockFrom,
                     shortcut.blockTo,
-                    toggle.create(
-                      { summary: "", open: true },
-                      paragraph.create(),
-                    ),
+                    toggle.create({ summary: "", open: true }),
                   )
                   .scrollIntoView(),
               );
@@ -467,47 +467,6 @@ const NotionMarkdownShortcuts = Extension.create({
             );
             view.dispatch(tr.scrollIntoView());
             return true;
-          },
-        },
-      }),
-    ];
-  },
-});
-
-const NotionToggleBodyPlaceholder = Extension.create({
-  name: "notionToggleBodyPlaceholder",
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey("notionToggleBodyPlaceholder"),
-        props: {
-          decorations: ({ doc, selection }) => {
-            const decorations: Decoration[] = [];
-
-            doc.descendants((node, pos, parent) => {
-              const selectionIsInsideNode =
-                selection.from >= pos && selection.to <= pos + node.nodeSize;
-
-              if (
-                node.type.name !== "paragraph" ||
-                parent?.type.name !== "notionToggle" ||
-                node.content.size > 0 ||
-                node.textContent.trim() ||
-                selectionIsInsideNode
-              ) {
-                return;
-              }
-
-              decorations.push(
-                Decoration.node(pos, pos + node.nodeSize, {
-                  class: "is-empty notion-toggle__body-placeholder",
-                  "data-placeholder": EMPTY_TOGGLE_BODY_PLACEHOLDER,
-                }),
-              );
-            });
-
-            return DecorationSet.create(doc, decorations);
           },
         },
       }),
@@ -1020,6 +979,7 @@ interface VisualEditorExtensionOptions {
     avatarUrl?: string;
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   onJoinTitle?: (text: string) => void;
   resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -1143,17 +1103,15 @@ function mediaNodeLabel(typeName: MediaNodeType) {
   return "Audio";
 }
 
-function createMediaUploadId(kind: MediaNodeType) {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `${kind}-upload-${random}`;
-}
-
 interface PendingMediaUpload {
   file: File;
   uploadId: string;
+}
+
+export interface PendingImagePicker {
+  pickerId: string;
+  position: number;
+  attrs: Record<string, unknown>;
 }
 
 function insertPendingMediaNodes(
@@ -1204,7 +1162,7 @@ function updatePendingMediaNode(
       tr = tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
         ...attrs,
-        uploadId: null,
+        uploadId: attrs.uploadId ?? null,
       });
       found = true;
       return false;
@@ -1216,6 +1174,130 @@ function updatePendingMediaNode(
     view.dispatch(tr);
   }
   return found;
+}
+
+function replacePendingMediaUploadId(
+  view: EditorView,
+  typeName: MediaNodeType,
+  currentUploadId: string,
+  nextUploadId: string,
+) {
+  let found = false;
+  let tr = view.state.tr;
+
+  view.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (
+      node.type.name === typeName &&
+      node.attrs.uploadId === currentUploadId
+    ) {
+      tr = tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        uploadId: nextUploadId,
+      });
+      found = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (found) view.dispatch(tr);
+  return found;
+}
+
+function insertImageNodeAtPendingPosition(
+  view: EditorView,
+  request: PendingImagePicker,
+  attrs: Record<string, unknown>,
+  restoreSelection: boolean,
+) {
+  const imageType = view.state.schema.nodes.image;
+  if (!imageType) return false;
+  const position = Math.min(
+    Math.max(request.position, 0),
+    view.state.doc.content.size,
+  );
+  try {
+    let tr = view.state.tr.insert(
+      position,
+      imageType.create({ ...request.attrs, ...attrs }),
+    );
+    if (restoreSelection) {
+      tr = tr.setSelection(NodeSelection.create(tr.doc, position));
+    }
+    view.dispatch(tr.scrollIntoView());
+    if (restoreSelection) view.focus();
+    return true;
+  } catch (error) {
+    console.error("Could not restore the pending image node:", error);
+    return false;
+  }
+}
+
+export function ensurePendingImageUpload(
+  view: EditorView,
+  request: PendingImagePicker,
+  uploadId: string,
+) {
+  if (replacePendingMediaUploadId(view, "image", request.pickerId, uploadId)) {
+    return true;
+  }
+  return insertImageNodeAtPendingPosition(view, request, { uploadId }, false);
+}
+
+export function commitPendingImageUpload(
+  view: EditorView,
+  request: PendingImagePicker,
+  uploadId: string,
+  attrs: Record<string, unknown>,
+) {
+  if (updatePendingMediaNode(view, "image", uploadId, attrs)) return true;
+  return insertImageNodeAtPendingPosition(view, request, attrs, false);
+}
+
+function findPendingImageElement(view: EditorView, uploadId: string) {
+  return (
+    Array.from(view.dom.querySelectorAll<HTMLElement>("[data-image-upload-id]"))
+      .find((element) => element.dataset.imageUploadId === uploadId)
+      ?.querySelector<HTMLImageElement>("img") ?? null
+  );
+}
+
+export function restorePendingImagePicker(
+  view: EditorView,
+  request: PendingImagePicker,
+  currentUploadId = request.pickerId,
+) {
+  let found = false;
+  let nodePosition: number | null = null;
+  let tr = view.state.tr;
+
+  view.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name === "image" && node.attrs.uploadId === currentUploadId) {
+      tr = tr.setNodeMarkup(pos, undefined, {
+        ...request.attrs,
+        uploadId: null,
+      });
+      nodePosition = pos;
+      found = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (found && nodePosition !== null) {
+    tr = tr.setSelection(NodeSelection.create(tr.doc, nodePosition));
+    view.dispatch(tr);
+    view.focus();
+    return true;
+  }
+  return insertImageNodeAtPendingPosition(
+    view,
+    request,
+    { uploadId: null },
+    true,
+  );
 }
 
 function getVisualEditorPlaceholder({
@@ -1236,9 +1318,7 @@ function getVisualEditorPlaceholder({
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor && editor.isFocused
-      ? emptyBlockPlaceholder
-      : EMPTY_TOGGLE_BODY_PLACEHOLDER;
+    return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
   }
 
   if (node.type.name === "heading") {
@@ -1499,6 +1579,7 @@ export function createVisualEditorExtensions({
   localAwareness,
   user,
   onImageComment,
+  onImageFilePickerRequest,
   onJoinTitle,
   resolveNotionPageLink,
   onOpenNotionPageLink,
@@ -1543,7 +1624,6 @@ export function createVisualEditorExtensions({
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
-      NotionToggleBodyPlaceholder,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: "notion-link" },
@@ -1558,6 +1638,7 @@ export function createVisualEditorExtensions({
         HTMLAttributes: { class: "notion-image" },
         documentId,
         onImageComment,
+        onImageFilePickerRequest,
       }),
       VideoNode.configure({
         HTMLAttributes: { class: "notion-video" },
@@ -1880,6 +1961,8 @@ export function VisualEditor({
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
@@ -1895,6 +1978,14 @@ export function VisualEditor({
     },
     [],
   );
+  const onImageFilePickerRequest = useCallback(
+    (request: PendingImagePicker) => {
+      if (pendingImagePickerRef.current) return;
+      pendingImagePickerRef.current = request;
+      imageFileInputRef.current?.click();
+    },
+    [],
+  );
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
     const normalized = notionPageId.replace(/-/g, "").toLowerCase();
     return (
@@ -1903,6 +1994,14 @@ export function VisualEditor({
           link.notionPageId === notionPageId ||
           link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
       ) ?? null
+    );
+  }, []);
+  const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
+    if (editor.isFocused) return true;
+    const activeElement = editor.view.dom.ownerDocument.activeElement;
+    return Boolean(
+      activeElement?.matches(".notion-toggle__summary") &&
+      editor.view.dom.contains(activeElement),
     );
   }, []);
 
@@ -1946,6 +2045,7 @@ export function VisualEditor({
         localAwareness,
         user,
         onImageComment: onComment,
+        onImageFilePickerRequest,
         onJoinTitle,
         resolveNotionPageLink,
         onOpenNotionPageLink,
@@ -1962,6 +2062,7 @@ export function VisualEditor({
       user?.email,
       user?.color,
       onComment,
+      onImageFilePickerRequest,
       onJoinTitle,
       resolveNotionPageLink,
       onOpenNotionPageLink,
@@ -2014,6 +2115,7 @@ export function VisualEditor({
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
+        if (options?.immediate) return false;
         // Don't persist an empty doc before Collaboration has seeded (would
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
@@ -2225,6 +2327,93 @@ export function VisualEditor({
     },
   });
 
+  const handleImageFileInputChange = useCallback(
+    async (event: Event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      const file = input.files?.[0];
+      input.value = "";
+      const request = pendingImagePickerRef.current;
+      pendingImagePickerRef.current = null;
+      if (!editor || !file || !request) return;
+
+      const uploadId = createMediaUploadId("image");
+      if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
+
+      const toastId = toast.loading(t("editor.media.uploadingImage"));
+      let staged = false;
+      let committed = false;
+      try {
+        await completeImageFileUpload({
+          file,
+          stageAttributes: (src) => {
+            if (editor.isDestroyed) return;
+            staged = commitPendingImageUpload(editor.view, request, uploadId, {
+              src,
+              uploadId,
+            });
+          },
+          waitForRender: async () => {
+            if (!staged) throw new Error(t("empty.genericError"));
+            await waitForRenderedImage(() =>
+              findPendingImageElement(editor.view, uploadId),
+            );
+          },
+          commitAttributes: (src) => {
+            if (editor.isDestroyed) return;
+            committed = commitPendingImageUpload(
+              editor.view,
+              request,
+              uploadId,
+              { src, uploadId: null },
+            );
+          },
+          persistCommittedImage: async () => {
+            if (!committed || editor.isDestroyed) return false;
+            return await persistEditorContent(editor, {
+              immediate: true,
+              userInitiated: true,
+            });
+          },
+        });
+        if (!committed) throw new Error(t("empty.genericError"));
+        toast.success(t("editor.media.imageAdded"), { id: toastId });
+      } catch (error) {
+        if (editor.isDestroyed) {
+          toast.dismiss(toastId);
+          return;
+        }
+        if (!committed) {
+          restorePendingImagePicker(editor.view, request, uploadId);
+        }
+        toast.error(
+          error instanceof ImageRenderError
+            ? t("editor.media.imageBroken")
+            : imageUploadErrorMessage(error),
+          { id: toastId },
+        );
+      }
+    },
+    [editor, t],
+  );
+
+  const handleImageFileInputCancel = useCallback(() => {
+    const request = pendingImagePickerRef.current;
+    pendingImagePickerRef.current = null;
+    if (!editor || !request) return;
+    restorePendingImagePicker(editor.view, request);
+  }, [editor]);
+
+  useEffect(() => {
+    const input = imageFileInputRef.current;
+    if (!input) return;
+    input.addEventListener("change", handleImageFileInputChange);
+    input.addEventListener("cancel", handleImageFileInputCancel);
+    return () => {
+      input.removeEventListener("change", handleImageFileInputChange);
+      input.removeEventListener("cancel", handleImageFileInputCancel);
+    };
+  }, [editor, handleImageFileInputCancel, handleImageFileInputChange]);
+
   // The shared seed / reconcile / lead-client / onUpdate-guard logic, with
   // Content's NFM serializer injected so the editor reads/writes the exact same
   // bytes as before (docToNfm / nfmToDoc / canonicalizeNfm, and the
@@ -2239,6 +2428,7 @@ export function VisualEditor({
     value: content,
     contentUpdatedAt,
     editable,
+    isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
     // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
     // cursors; their editor content comes from the server state fetch + peer Yjs
@@ -2563,6 +2753,13 @@ export function VisualEditor({
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
     </div>
   );
 }

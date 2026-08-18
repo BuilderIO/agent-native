@@ -408,11 +408,13 @@ export function BuilderSetupContent({
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  attached = false,
   fullWidth,
   layout = "default",
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  attached?: boolean;
   fullWidth?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
@@ -437,6 +439,7 @@ export function BuilderSetupCard({
       className={cn(
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
+        attached && "agent-builder-setup-card--attached",
         fullWidth
           ? "w-full px-3 pb-2"
           : sidebarLayout

@@ -5,7 +5,7 @@ description: "Die Action-Hooks, mit denen app/ dieselben Actions liest, schreibt
 
 # Daten & Sync
 
-Der primäre Weg, App-Daten aus dem Client zu lesen und zu schreiben, führt über [Action](/docs/actions)-Hooks. Indem Anfragen in Actions eingebettet werden, können sowohl Ihr Client als auch der Agent auf dieselbe Weise mit Ihrer Anwendung interagieren.
+Der primäre Weg, App-Daten aus dem Client zu lesen und zu schreiben, führt über [Action](/docs/actions-overview)-Hooks. Indem Anfragen in Actions eingebettet werden, können sowohl Ihr Client als auch der Agent auf dieselbe Weise mit Ihrer Anwendung interagieren.
 
 Im folgenden Beispiel wird ein Ticket manuell über ein Dropdown und dann über den Chat-Agenten dem aktuellen Benutzer zugewiesen. Sowohl die UI als auch der Agent greifen auf dieselbe Action zu.
 
@@ -429,7 +429,7 @@ Für normales CRUD bevorzugen Sie `useActionQuery()` und `useActionMutation()`. 
 
 - [**Überblick**](/docs/client-overview) — das Layout der Verzeichnisse `app/` und `public/`, in dem die Hooks dieser Seite leben
 - [**Agent Chat**](/docs/client-agent-chat) — Prompts senden und Kontext für den Agenten bereitstellen
-- [**Actions**](/docs/actions) — die `defineAction`-Oberfläche hinter jedem Hook auf dieser Seite
+- [**Actions**](/docs/actions-overview) — die `defineAction`-Oberfläche hinter jedem Hook auf dieser Seite
 - [**Fortgeschritten**](/docs/client-advanced) — direkter `application_state`-Zugriff
 - [**Sync-Interna**](/docs/client-sync-internals) — Synchronisierung eines rohen `useQuery` mit `useChangeVersion`
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync) — wie `useDbSync` die UI aktuell hält

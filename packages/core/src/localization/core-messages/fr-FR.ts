@@ -108,6 +108,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Échec de la restauration ({{status}}).",
   "message.restoreQuestion": "Restaurer jusqu’ici ?",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
+  "message.threadNotFound":
+    "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
   "message.revertHere": "Revenir jusqu’ici",
   "message.sentAt": "Envoyé à {{time}}",
@@ -464,6 +466,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "Le fournisseur de ce modèle a rejeté la demande. Choisissez un autre modèle, puis réessayez.",
   "errorMessages.errorPrefix": "Erreur : {{message}}",
+  "errorMessages.gatewayInternalError":
+    "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
   "errorMessages.inactivityTimeout":
@@ -487,10 +491,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
   "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
   "feedback.inaccurate": "Inexact",
+  "feedback.keyboardHint": "{{shortcut}} Entrée pour envoyer",
   "feedback.notHelpful": "Peu utile",
+  "feedback.placeholder": "Dites-nous ce qui n'a pas fonctionné...",
+  "feedback.submit": "Envoyer",
   "feedback.thumbsDown": "Pouce vers le bas",
   "feedback.thumbsUp": "Pouce vers le haut",
   "feedback.tooSlow": "Trop lent",
+  "feedback.whatWentWrong": "Qu'est-ce qui n'a pas fonctionné ?",
   "feedback.wrongTool": "Mauvais outil",
   "contextMeter.ariaLabel":
     "Contexte {{percent}} %, {{totalTokens}}{{breakdown}}. Ouvrir l’analyse du contexte.",
@@ -564,6 +572,13 @@ const messages: AgentChatTranslation = {
     "Contrôlez la façon dont l’accès à l’organisation apparaît dans la recherche.",
   "share.copied": "Copié",
   "share.copy": "Copier",
+  "share.shareWithAgents": "Partager avec des agents",
+  "share.agentContext": "Lien de contexte de l'agent",
+  "share.agentContextDescription":
+    "Contexte en lecture seule pour un agent externe.",
+  "share.preparingAgentLink": "Préparation du lien de l'agent...",
+  "share.agentLinkUnavailable": "Impossible de créer le lien de l'agent.",
+  "share.retryAgentLink": "Réessayer",
   "share.editor": "Éditeur",
   "share.editorDescription": "Peut modifier",
   "share.generalAccess": "Accès général",

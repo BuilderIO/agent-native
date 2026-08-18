@@ -149,6 +149,35 @@ export default defineEventHandler(async (event) => {
 
 - Never create unprotected routes that modify data.
 
+## Same-Origin Workspace Apps
+
+Path-mounted workspace apps share the Dispatch gateway origin. Because the
+framework's session cookie is scoped to `/`, a mounted pane receives the
+ambient Dispatch session and can act as the signed-in user through same-origin
+requests. This is an intentional trusted-code model, not an isolation
+boundary; removing a mounted app from SSO fanout does not revoke that ambient
+access.
+
+Only trusted, workspace-owner-authored code belongs on that origin. Treat each
+of these as a trust-boundary change that requires an explicit origin, sandbox,
+or capability design before shipping:
+
+- non-owners can create or edit mounted app code;
+- mounted apps render or execute untrusted external content or remote code;
+- apps are publicly shareable, anonymously reachable, or installable by users
+  outside the owning workspace;
+- app source, dependencies, or deployment artifacts can be replaced by a
+  third party without the workspace owner's authorization;
+- a mounted app can be registered across workspaces or can change its mount
+  path/origin without an ownership check; or
+- cookie scope, proxying, iframe policy, or navigation changes make this
+  ambient-session behavior broader than the owning workspace.
+
+Do not describe canonical-only SSO eligibility as origin isolation. Canonical
+apps and explicitly registered custom origins remain eligible; path-mounted
+apps are deliberately excluded as SSO targets while retaining their existing
+same-origin session behavior.
+
 **Exception — the SSR HTML/`.data` catch-all is deliberately session-blind.**
 The rule above is for routes that read or mutate user data. The SSR page
 render and React Router `.data` route are different: they serve one

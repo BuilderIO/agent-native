@@ -51,6 +51,8 @@ import {
   type NativeClipSummary,
 } from "@/lib/clips-library";
 import { getClipsSession } from "@/lib/clips-session";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 interface NativeClipsLibraryProps {
   onAuthRequired: () => void;
@@ -73,10 +75,11 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function VisibilityIcon({ visibility }: { visibility: string }) {
+  const { mutedForeground } = useMobileThemeColors();
   return visibility === "private" ? (
-    <IconLock color="#a1a1aa" size={13} strokeWidth={1.8} />
+    <IconLock color={mutedForeground} size={13} strokeWidth={1.8} />
   ) : (
-    <IconUsers color="#a1a1aa" size={13} strokeWidth={1.8} />
+    <IconUsers color={mutedForeground} size={13} strokeWidth={1.8} />
   );
 }
 
@@ -87,6 +90,7 @@ function ClipArtwork({
   recording: NativeClipSummary;
   sessionToken: string | null;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const thumbnailUrl = resolveTrustedClipsUrl(recording.thumbnailUrl);
   return (
     <View className="w-31.5 h-20.5 rounded-xl border border-border-dark overflow-hidden items-center justify-center bg-card-dark">
@@ -103,7 +107,7 @@ function ClipArtwork({
           className="absolute inset-0"
         />
       ) : (
-        <IconVideo color="#71717a" size={26} strokeWidth={1.5} />
+        <IconVideo color={mutedForeground} size={26} strokeWidth={1.5} />
       )}
       <View className="absolute bottom-1.5 right-1.5 px-1.25 py-0.5 rounded bg-black/75">
         <Text
@@ -128,6 +132,7 @@ function ClipRow({
   snippet?: string | null;
   onPress: () => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   return (
     <Pressable
       accessibilityHint="Opens this clip for playback and comments"
@@ -156,7 +161,7 @@ function ClipRow({
             {formatClipDate(recording.createdAt)}
           </Text>
           <Text className="text-text-muted text-xxs">·</Text>
-          <IconEye color="#71717a" size={13} strokeWidth={1.7} />
+          <IconEye color={mutedForeground} size={13} strokeWidth={1.7} />
           <Text className="text-text-muted text-xxs">
             {recording.viewCount}
           </Text>
@@ -177,13 +182,14 @@ function EmptyLibrary({
   view: ClipsLibraryView;
   onRecord: () => void;
 }) {
+  const { mutedForeground, primaryForeground } = useMobileThemeColors();
   return (
     <View className="flex-1 items-center justify-center px-7 py-18">
       <View className="w-14 h-14 rounded-2xl bg-accent-green-dim items-center justify-center mb-4.5">
         {searching ? (
-          <IconSearch color="#d4d4d8" size={25} strokeWidth={1.7} />
+          <IconSearch color={mutedForeground} size={25} strokeWidth={1.7} />
         ) : (
-          <IconVideo color="#d4d4d8" size={25} strokeWidth={1.7} />
+          <IconVideo color={mutedForeground} size={25} strokeWidth={1.7} />
         )}
       </View>
       <Text className="text-white text-lg font-bold text-center">
@@ -206,8 +212,8 @@ function EmptyLibrary({
           onPress={onRecord}
           className="px-4 py-2.75 bg-primary rounded-xl flex-row items-center justify-center gap-1.75 mt-5 active:opacity-75"
         >
-          <IconCamera color="#0b0b0c" size={17} strokeWidth={2} />
-          <Text className="text-background-dark text-sm font-bold">
+          <IconCamera color={primaryForeground} size={17} strokeWidth={2} />
+          <Text className="text-primary-foreground text-sm font-bold">
             Record a clip
           </Text>
         </Pressable>
@@ -293,6 +299,9 @@ function NativeClipPlayerContent({
   onReload: () => Promise<void>;
   onAuthRequired: () => void;
 }) {
+  const { contentInset } = useTabBarLayout();
+  const { foreground, mutedForeground, primaryForeground } =
+    useMobileThemeColors();
   const videoUrl = resolveTrustedClipsUrl(detail.recording.videoUrl);
   const source = useMemo(
     () =>
@@ -416,7 +425,8 @@ function NativeClipPlayerContent({
       className="flex-1"
     >
       <ScrollView
-        contentContainerClassName="pb-15 px-4.5 pt-2.5"
+        contentContainerStyle={{ paddingBottom: contentInset }}
+        contentContainerClassName="px-4.5 pt-2.5"
         keyboardShouldPersistTaps="handled"
       >
         <View className="flex-row items-center justify-between mb-3">
@@ -427,7 +437,7 @@ function NativeClipPlayerContent({
             onPress={onBack}
             className="w-10.5 h-10.5 rounded-xl bg-card-dark border border-border-dark items-center justify-center active:opacity-75"
           >
-            <IconArrowLeft color="#f4f4f5" size={21} strokeWidth={1.8} />
+            <IconArrowLeft color={foreground} size={21} strokeWidth={1.8} />
           </Pressable>
           <Pressable
             accessibilityLabel="Share clip"
@@ -437,11 +447,11 @@ function NativeClipPlayerContent({
             className="h-10.5 px-3.5 bg-primary rounded-xl flex-row items-center justify-center gap-1.75 active:opacity-75"
           >
             {sharing ? (
-              <ActivityIndicator color="#0b0b0c" size="small" />
+              <ActivityIndicator color={primaryForeground} size="small" />
             ) : (
-              <IconShare3 color="#0b0b0c" size={17} strokeWidth={2} />
+              <IconShare3 color={primaryForeground} size={17} strokeWidth={2} />
             )}
-            <Text className="text-background-dark text-sm font-bold">
+            <Text className="text-primary-foreground text-sm font-bold">
               Share
             </Text>
           </Pressable>
@@ -459,7 +469,7 @@ function NativeClipPlayerContent({
             />
           ) : (
             <View className="flex-1 items-center justify-center p-5">
-              <IconVideo color="#71717a" size={30} strokeWidth={1.5} />
+              <IconVideo color={mutedForeground} size={30} strokeWidth={1.5} />
               <Text className="text-text-light text-sm font-bold mt-2.25">
                 Video is still processing
               </Text>
@@ -505,7 +515,7 @@ function NativeClipPlayerContent({
                 className="w-10.5 h-9 rounded-full bg-card-dark border border-border-dark items-center justify-center active:opacity-75"
               >
                 {reactingKey === `video:${emoji}` ? (
-                  <ActivityIndicator color="#f4f4f5" size="small" />
+                  <ActivityIndicator color={foreground} size="small" />
                 ) : (
                   <Text className="text-lg">{emoji}</Text>
                 )}
@@ -522,7 +532,7 @@ function NativeClipPlayerContent({
 
         <View className="flex-row items-center justify-between border-t border-border-dark mt-6 pt-5">
           <View className="flex-row items-center gap-2">
-            <IconMessageCircle color="#f4f4f5" size={19} strokeWidth={1.8} />
+            <IconMessageCircle color={foreground} size={19} strokeWidth={1.8} />
             <Text className="text-white text-base font-bold">
               Comments{" "}
               {detail.comments.length > 0 ? detail.comments.length : ""}
@@ -534,7 +544,7 @@ function NativeClipPlayerContent({
             hitSlop={10}
             onPress={() => void onReload()}
           >
-            <IconRefresh color="#71717a" size={17} strokeWidth={1.8} />
+            <IconRefresh color={mutedForeground} size={17} strokeWidth={1.8} />
           </Pressable>
         </View>
 
@@ -546,7 +556,7 @@ function NativeClipPlayerContent({
               multiline
               onChangeText={setComment}
               placeholder="Comment at the current video time…"
-              placeholderTextColor="#71717a"
+              placeholderTextColor={mutedForeground}
               className="flex-1 text-white text-sm leading-5 max-h-27.5 min-h-9.5 px-1.75 py-2"
               value={comment}
             />
@@ -560,9 +570,9 @@ function NativeClipPlayerContent({
               }`}
             >
               {commenting ? (
-                <ActivityIndicator color="#0b0b0c" size="small" />
+                <ActivityIndicator color={primaryForeground} size="small" />
               ) : (
-                <IconSend color="#0b0b0c" size={17} strokeWidth={2} />
+                <IconSend color={primaryForeground} size={17} strokeWidth={2} />
               )}
             </Pressable>
           </View>
@@ -608,6 +618,7 @@ function NativeClipPlayer({
   onBack: () => void;
   onAuthRequired: () => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const [detail, setDetail] = useState<NativeClipDetail | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -641,7 +652,7 @@ function NativeClipPlayer({
   if (loading) {
     return (
       <View className="flex-1 items-center justify-center px-7.5 bg-background-dark">
-        <ActivityIndicator color="#d4d4d8" />
+        <ActivityIndicator color={mutedForeground} />
         <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
           Opening clip…
         </Text>
@@ -672,7 +683,7 @@ function NativeClipPlayer({
             }}
             className="bg-primary rounded-xl px-4.5 py-2.5 active:opacity-75"
           >
-            <Text className="text-background-dark text-sm font-bold">
+            <Text className="text-primary-foreground text-sm font-bold">
               Try again
             </Text>
           </Pressable>
@@ -697,6 +708,9 @@ export default function NativeClipsLibrary({
   onAuthRequired,
   onSelectionChange,
 }: NativeClipsLibraryProps) {
+  const { mutedForeground, primaryForeground, errorText } =
+    useMobileThemeColors();
+  const { contentInset } = useTabBarLayout();
   const router = useRouter();
   const [view, setView] = useState<ClipsLibraryView>("library");
   const [recordings, setRecordings] = useState<NativeClipSummary[]>([]);
@@ -801,7 +815,8 @@ export default function NativeClipsLibrary({
 
   return (
     <FlatList
-      contentContainerClassName={`pb-8 px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
+      contentContainerStyle={{ paddingBottom: contentInset }}
+      contentContainerClassName={`px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
       data={visibleRecordings}
       ItemSeparatorComponent={() => <View className="h-px bg-border-dark" />}
       keyboardDismissMode="on-drag"
@@ -810,7 +825,7 @@ export default function NativeClipsLibrary({
       ListEmptyComponent={
         loading || searching ? (
           <View className="flex-1 items-center justify-center pt-18">
-            <ActivityIndicator color="#d4d4d8" />
+            <ActivityIndicator color={mutedForeground} />
             <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
               {searching ? "Searching everything…" : "Loading your clips…"}
             </Text>
@@ -843,28 +858,28 @@ export default function NativeClipsLibrary({
               onPress={() => router.push("/capture/video" as never)}
               className="flex-row items-center gap-1.75 bg-primary rounded-xl px-3.5 h-10.5 active:opacity-75"
             >
-              <IconCamera color="#0b0b0c" size={17} strokeWidth={2} />
-              <Text className="text-background-dark text-sm font-bold">
+              <IconCamera color={primaryForeground} size={17} strokeWidth={2} />
+              <Text className="text-primary-foreground text-sm font-bold">
                 Record
               </Text>
             </Pressable>
           </View>
 
           <View className="flex-row items-center gap-2.25 bg-card-dark border border-border-dark rounded-xl px-3.25 h-11.5">
-            <IconSearch color="#71717a" size={18} strokeWidth={1.8} />
+            <IconSearch color={mutedForeground} size={18} strokeWidth={1.8} />
             <TextInput
               accessibilityLabel="Search clips"
               autoCapitalize="none"
               autoCorrect={false}
               onChangeText={setQuery}
               placeholder="Search titles, transcripts, comments"
-              placeholderTextColor="#71717a"
+              placeholderTextColor={mutedForeground}
               returnKeyType="search"
               className="flex-1 text-white text-sm py-2.5"
               value={query}
             />
             {searching ? (
-              <ActivityIndicator color="#a1a1aa" size="small" />
+              <ActivityIndicator color={mutedForeground} size="small" />
             ) : null}
           </View>
 
@@ -880,7 +895,7 @@ export default function NativeClipsLibrary({
                     setView(item);
                   }}
                   className={`flex-1 items-center rounded-lg px-2.5 py-2 active:opacity-75 ${
-                    view === item ? "bg-[#303033]" : ""
+                    view === item ? "bg-gray-charcoal" : ""
                   }`}
                 >
                   <Text
@@ -909,7 +924,7 @@ export default function NativeClipsLibrary({
                 accessibilityRole="button"
                 onPress={() => void load()}
               >
-                <IconRefresh color="#fca5a5" size={17} strokeWidth={1.8} />
+                <IconRefresh color={errorText} size={17} strokeWidth={1.8} />
               </Pressable>
             </View>
           ) : null}
@@ -919,7 +934,7 @@ export default function NativeClipsLibrary({
         <RefreshControl
           onRefresh={() => void load(true)}
           refreshing={refreshing}
-          tintColor="#f4f4f5"
+          tintColor={mutedForeground}
         />
       }
       renderItem={({ item }) => (

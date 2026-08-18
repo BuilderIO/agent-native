@@ -297,6 +297,7 @@ const messages = {
     creatingLink: "リンクを作成中...",
     createShareLink: "共有リンクを作成",
     copyLink: "リンクをコピー",
+    copied: "コピーしました",
     openSharedLink: "共有リンクを開く",
     anyoneWithLink:
       "このリンクを持つ人は誰でもこのプレゼンテーションを表示できます。",
@@ -521,6 +522,11 @@ const messages = {
     newSlide: "新しいスライド",
     closeAddSlides: "閉じる",
     describeThisSlide: "このスライドを説明してください",
+    cut: "切り取り",
+    copy: "コピー",
+    paste: "貼り付け",
+    skipSlide: "スライドをスキップ",
+    unskipSlide: "スキップを解除",
   },
   presentation: {
     loadFailed: "このプレゼンテーションを読み込めませんでした。",

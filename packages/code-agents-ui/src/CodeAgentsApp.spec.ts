@@ -4,12 +4,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
+  getCodeAgentPickerOptions,
+  getCodeAgentSelection,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
   shouldCloseWatchedChatFirstSession,
   type CodeAgentsNewSessionExtension,
 } from "./CodeAgentsApp.js";
+import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+} from "./keyboard-navigation.js";
 import {
   mergeSessionWatchTranscriptEvents,
   SESSION_WATCH_TRANSCRIPT_EVENT_LIMIT,
@@ -43,6 +49,52 @@ describe("CodeAgentsApp new-session extension seam", () => {
   });
 });
 
+describe("chat-first keyboard navigation", () => {
+  const appIds = ["mail", "calendar", "design"];
+  const chatIds = ["chat-1", "chat-2"];
+
+  it("maps Cmd+number positions to the ordered app list", () => {
+    expect(getChatFirstNumericAppShortcut(appIds, "1")).toBe("mail");
+    expect(getChatFirstNumericAppShortcut(appIds, "3")).toBe("design");
+    expect(getChatFirstNumericAppShortcut(appIds, "4")).toBeNull();
+  });
+
+  it("crosses from apps into chats and cycles back through the full sequence", () => {
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        activeAppId: "design",
+        chatIds,
+        direction: 1,
+      }),
+    ).toEqual({ kind: "chat", id: "chat-1" });
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        chatIds,
+        selectedChatId: "chat-1",
+        direction: 1,
+      }),
+    ).toEqual({ kind: "chat", id: "chat-2" });
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        chatIds,
+        selectedChatId: "chat-2",
+        direction: 1,
+      }),
+    ).toEqual({ kind: "app", id: "mail" });
+    expect(
+      resolveChatFirstKeyboardNavigationTarget({
+        appIds,
+        activeAppId: "mail",
+        chatIds,
+        direction: -1,
+      }),
+    ).toEqual({ kind: "chat", id: "chat-2" });
+  });
+});
+
 describe("CodeAgentsApp full-page chat width", () => {
   it("keeps the empty and loading chat rails on the shared wide max", () => {
     const css = readFileSync("src/styles.css", "utf8");
@@ -53,6 +105,16 @@ describe("CodeAgentsApp full-page chat width", () => {
     );
     expect(css).toMatch(
       /\.code-agents-overview-skeleton\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 0;/,
+    );
+    expect(css).toMatch(/\.code-agents-start\s*\{[\s\S]*?gap: 12px;/);
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
     );
   });
 });
@@ -68,16 +130,87 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
       /\.code-agents-rail-scroll\s*\{[\s\S]*?overflow-y: auto;/,
     );
   });
+
+  it("aligns sticky secondary navigation with New chat", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(css).toMatch(
+      /\.code-agents-primary-new-chat-shell\s*\{[\s\S]*?padding: 6px var\(--code-agents-rail-gutter\) 0;/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-nav-list\s*\{[\s\S]*?padding-inline: var\(--code-agents-rail-gutter\);/,
+    );
+  });
+});
+
+describe("CodeAgentsApp transcript selection", () => {
+  it("does not let an older transcript read replace a newly selected chat", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const loadTranscriptStart = source.indexOf("const loadTranscript =");
+    const loadProjectsStart = source.indexOf("const loadProjects =");
+    const loadTranscriptSource = source.slice(
+      loadTranscriptStart,
+      loadProjectsStart,
+    );
+
+    expect(loadTranscriptSource).toContain(
+      "const transcriptRequestId = ++transcriptRequestRef.current;",
+    );
+    expect(loadTranscriptSource).toContain(
+      "transcriptRequestId !== transcriptRequestRef.current ||",
+    );
+    expect(loadTranscriptSource).toContain(
+      "runId !== selectedRunIdRef.current",
+    );
+    expect(loadTranscriptSource).toContain(
+      "transcriptRequestId === transcriptRequestRef.current &&",
+    );
+    expect(source).toContain(
+      "<RunDetailCard\n                            key={selectedRun.id}",
+    );
+  });
 });
 
 describe("CodeAgentsApp project folder picker", () => {
   it("keeps folder creation in the dropdown instead of duplicating its action", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
     const css = readFileSync("src/styles.css", "utf8");
+    const waitlist = readFileSync("src/RemoteWaitlistPopover.tsx", "utf8");
 
     expect(source).toContain("<span>Add folder...</span>");
     expect(source).not.toContain('aria-label="Add folder"');
-    expect(css).toContain("margin-top: -10px;");
+    expect(source).toContain('value="portal"');
+    expect(source).toContain('description="Continue on a paired computer"');
+    expect(source).toContain('value="cloud"');
+    expect(source).toContain(
+      'description="Run in the cloud - join the waitlist"',
+    );
+    expect(source).toContain("onCloudSelect");
+    expect(waitlist).toContain("Join the Cloud waitlist");
+    expect(source).not.toContain("onRemoteSelect?.();");
+    expect(source).toContain('description="Use the selected folder directly"');
+    expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
+      source.indexOf('aria-label="Select workspace"'),
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 0;/,
+    );
+    expect(css).toContain(
+      ".dark .code-agents-popover-content {\n  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);",
+    );
+    expect(css).not.toContain("hsl(var(--foreground, 0 0% 90%) / 0.42)");
+  });
+});
+
+describe("CodeAgentsApp Portal transfer actions", () => {
+  it("offers bulk and per-chat handoff controls", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain("Move local chats to Portal");
+    expect(source).toContain("Move to Portal");
+    expect(source).toContain("transferAll");
+    expect(source).toContain("transferRun");
+    expect(source).toContain("full text context");
   });
 });
 
@@ -140,6 +273,53 @@ describe("code-agent model selection", () => {
     });
   });
 
+  it("keeps Luna out of Claude Code and prefers Sonnet", () => {
+    const mixedModels: CodeAgentModelOption[] = [
+      {
+        engine: "claude-cli",
+        engineLabel: "Anthropic",
+        model: "gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        configured: true,
+      },
+      ...models,
+    ];
+
+    expect(
+      normalizeModelSelection(
+        { engine: "claude-cli", model: "gpt-5.6-luna", effort: "high" },
+        mixedModels,
+      ),
+    ).toMatchObject({ engine: "claude-cli", model: "claude-sonnet-5" });
+    expect(
+      getCodeAgentSelection(
+        "claude-code",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        mixedModels,
+      ),
+    ).toMatchObject({ engine: "claude-cli", model: "claude-sonnet-5" });
+  });
+
+  it("keeps Luna as the default for non-Claude Code agents", () => {
+    const mixedModels: CodeAgentModelOption[] = [
+      ...models,
+      {
+        engine: "codex-cli",
+        engineLabel: "OpenAI",
+        model: "gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        configured: true,
+      },
+    ];
+    expect(
+      getCodeAgentSelection(
+        "codex",
+        { engine: "claude-cli", model: "claude-sonnet-5", effort: "high" },
+        mixedModels,
+      ),
+    ).toMatchObject({ engine: "codex-cli", model: "gpt-5.6-luna" });
+  });
+
   it("defaults an empty selection to Luna with high effort", () => {
     expect(normalizeModelSelection({}, [])).toEqual({
       engine: "ai-sdk:openai",
@@ -168,6 +348,55 @@ describe("code-agent model selection", () => {
         isSubscription: true,
       },
     ]);
+  });
+
+  it("lets Default enter the hosted model list before a provider is configured", () => {
+    const hostedModels: CodeAgentModelOption[] = [
+      {
+        engine: "anthropic",
+        engineLabel: "Anthropic",
+        model: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
+        configured: false,
+      },
+      {
+        engine: "builder",
+        engineLabel: "Builder.io",
+        model: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
+        configured: true,
+      },
+    ];
+
+    expect(
+      getCodeAgentSelection(
+        "default",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        hostedModels,
+      ),
+    ).toEqual({
+      engine: "builder",
+      model: "claude-sonnet-5",
+      effort: "high",
+    });
+
+    expect(
+      getCodeAgentSelection(
+        "default",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        hostedModels.slice(0, 1),
+      ),
+    ).toEqual({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+      effort: "high",
+    });
+  });
+
+  it("keeps Remote out of the agent runtime list", () => {
+    expect(
+      getCodeAgentPickerOptions(models).find((agent) => agent.id === "remote"),
+    ).toBeUndefined();
   });
 });
 

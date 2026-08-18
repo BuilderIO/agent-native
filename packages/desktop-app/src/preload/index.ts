@@ -5,7 +5,7 @@ import type {
   McpServerScope,
   TestMcpUrlResult,
 } from "@agent-native/core/client/resources";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
 import {
   CHAT_FIRST_MCP_IPC,
   type ChatFirstMcpPluginImportResult,
@@ -19,8 +19,14 @@ import {
   type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
+  type CodeAgentRemoteWaitlistRequest,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentPortalTransferAllRequest,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferRequest,
+  type CodeAgentPortalTransferResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
@@ -50,9 +56,16 @@ import {
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppRuntimeStatus,
+  type DesktopIdentityAuthRequest,
+  type DesktopIdentityAuthResult,
+  type DesktopIdentityMagicLinkRequest,
+  type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
+  type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
+  type DesktopPrepareLocalCodeChangeRequest,
+  type DesktopPrepareLocalCodeChangeResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -94,6 +107,10 @@ const WEBVIEW_PRELOAD_PATH =
   process.argv
     .find((arg) => arg.startsWith("--an-webview-preload="))
     ?.slice("--an-webview-preload=".length) ?? "";
+const WEBVIEW_CHAT_PRELOAD_PATH =
+  process.argv
+    .find((arg) => arg.startsWith("--an-webview-chat-preload="))
+    ?.slice("--an-webview-chat-preload=".length) ?? "";
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;
@@ -112,12 +129,16 @@ const electronAPI = {
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
   webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
+  /** Chat-only preload for every hosted app webview. */
+  webviewChatPreloadPath: WEBVIEW_CHAT_PRELOAD_PATH,
 
   /** Window chrome controls */
   windowControls: {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
     maximize: () => ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
     close: () => ipcRenderer.send(IPC.WINDOW_CLOSE),
+    setNativeTrafficLightsVisible: (visible: boolean): void =>
+      ipcRenderer.send(IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY, visible),
     isMaximized: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.WINDOW_IS_MAXIMIZED),
 
@@ -143,18 +164,22 @@ const electronAPI = {
     onKeydown: (
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): (() => void) => {
       const handler = (
         _: Electron.IpcRendererEvent,
         info: {
           key: string;
+          code?: string;
           shiftKey: boolean;
           altKey?: boolean;
           ctrlKey?: boolean;
+          metaKey?: boolean;
         },
       ) => cb(info);
       ipcRenderer.on("shortcut:keydown", handler);
@@ -186,6 +211,9 @@ const electronAPI = {
   /** App config management */
   appConfig: {
     load: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
+    loadWorkspace: (): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    > => ipcRenderer.invoke(IPC.APPS_LOAD_WORKSPACE),
     add: (app: AppConfig): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_ADD, app),
     remove: (id: string): Promise<AppConfig[]> =>
@@ -207,6 +235,10 @@ const electronAPI = {
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult> =>
       ipcRenderer.invoke(IPC.APPS_CREATE_FROM_PROMPT, request),
+    prepareLocalCodeChange: (
+      request: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult> =>
+      ipcRenderer.invoke(IPC.APPS_PREPARE_LOCAL_CODE_CHANGE, request),
     showContextMenu: (appId: string): Promise<DesktopAppContextAction | null> =>
       ipcRenderer.invoke(IPC.APPS_SHOW_CONTEXT_MENU, appId),
     onRuntimeStatus: (
@@ -225,13 +257,31 @@ const electronAPI = {
   desktopChat: {
     getApiUrl: (appId: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
+    getTerminalInfoUrl: (appId: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, appId),
   },
 
   /** Workspace identity commands expose intent and status, never credentials. */
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
       ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    getSettings: (): Promise<DesktopIdentitySettings> =>
+      ipcRenderer.invoke(IPC.IDENTITY_SETTINGS_GET),
+    setSsoEnabled: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_SSO_ENABLED_SET, enabled),
+    ensureAppSession: (appId: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
+    getAvailability: (): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
+    authenticate: (
+      request: DesktopIdentityAuthRequest,
+    ): Promise<DesktopIdentityAuthResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_AUTHENTICATE, request),
+    requestMagicLink: (
+      request: DesktopIdentityMagicLinkRequest,
+    ): Promise<DesktopIdentityMagicLinkResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_MAGIC_LINK_REQUEST, request),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (
       cb: (status: DesktopIdentityStatus) => void,
@@ -287,13 +337,6 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
   },
 
-  /** Local dev frame settings */
-  frame: {
-    load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),
-    update: (settings: Partial<FrameSettings>): Promise<FrameSettings> =>
-      ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
-  },
-
   /** Global Quick Prompt overlay controls */
   quickPrompt: {
     load: (): Promise<QuickPromptSettings> =>
@@ -304,6 +347,14 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.QUICK_PROMPT_UPDATE, settings),
     dismiss: (): void => {
       ipcRenderer.send(IPC.QUICK_PROMPT_DISMISS);
+    },
+    setPickerOpen: (open: boolean): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_SET_PICKER_OPEN, open);
+    },
+    onHidden: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(IPC.QUICK_PROMPT_HIDDEN, handler);
+      return () => ipcRenderer.removeListener(IPC.QUICK_PROMPT_HIDDEN, handler);
     },
     submit: (
       request: QuickPromptSubmitRequest,
@@ -342,6 +393,10 @@ const electronAPI = {
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_RUN, request),
+    submitRemoteWaitlist: (
+      request: CodeAgentRemoteWaitlistRequest,
+    ): Promise<CodeAgentRemoteWaitlistResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_WAITLIST, request),
     readTranscript: (
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult> =>
@@ -379,6 +434,14 @@ const electronAPI = {
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
+    transferRun: (
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN, request),
+    transferAll: (
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL, request),
     updateRun: (
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult> =>

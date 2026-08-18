@@ -20,6 +20,7 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
@@ -39,9 +40,11 @@ import {
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
+  isBuilderGatewayDeployConfigured,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
+import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   assertRequestActionSurfaceIsolation,
   getRequestRunContext,
@@ -52,6 +55,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
@@ -81,11 +85,17 @@ import {
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
+  formatLlmCredentialErrorMessage,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
-import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isContextOverflowCode,
+  isContextOverflowMessage,
+  isProviderConnectionErrorMessage,
+} from "./engine/error-detail.js";
 import {
   resolveEngine,
   explicitEngineName,
@@ -116,6 +126,10 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import {
+  filterHostedHarnessToolNames,
+  normalizeHostedHarnessRuntime,
+} from "./harness/hosted.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -177,6 +191,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
@@ -1164,6 +1179,8 @@ export interface ProductionAgentOptions {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+  /** Static app capability for the hosted tools-only harness picker. */
+  hostedHarnessConfig?: AgentNativeHarnessSetting;
   /** Default effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -1475,22 +1492,15 @@ function toolInputActivityLabel(toolName?: string): string {
  */
 export function isContextTooLongError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  if (
-    msg.includes("context_length_exceeded") ||
-    msg.includes("input_too_long") ||
-    msg.includes("too many tokens") ||
-    msg.includes("prompt is too long") ||
-    msg.includes("reduce the length") ||
-    // Gemini phrasing
-    msg.includes("input token count exceeds") ||
-    msg.includes("request too large")
-  )
+  // The engine's structural verdict comes first: it was read off the provider's
+  // own reply, which is not always the message delivered here — a
+  // Builder-credits deployment answers every gateway rejection with one visitor
+  // line, and the gateway reports an overflow as a plain `invalid_request_error`
+  // whose prose was the only signal.
+  if (err instanceof EngineError && err.contextOverflow === true) return true;
+  if (isContextOverflowMessage(err.message)) return true;
+  if (err instanceof EngineError && isContextOverflowCode(err.errorCode)) {
     return true;
-  if (err instanceof EngineError) {
-    const code = (err.errorCode ?? "").toLowerCase();
-    if (code.includes("context_length") || code.includes("input_too_long"))
-      return true;
   }
   return false;
 }
@@ -1524,6 +1534,9 @@ export function isRetryableError(err: unknown): boolean {
 
   return (
     code === "builder_gateway_error" ||
+    // The gateway's unhandled-500 envelope arriving in-stream, where there is no
+    // status to read. Same failure as `http_500` below, so same verdict.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "builder_gateway_network_error" ||
     code === "provider_network_error" ||
     code === "http_429" ||
@@ -2184,8 +2197,10 @@ export async function callConnectedAgentReference(input: {
       onUpdate: relay.observePollUpdate,
     });
     const responseText =
-      userFacingLlmCredentialError(response, { agentName: input.agent }) ??
-      response;
+      userFacingLlmCredentialError(response, {
+        agentName: input.agent,
+        visitorFacing: isBuilderGatewayDeployConfigured(),
+      }) ?? response;
     relay.emitResponseText(responseText);
     relay.finish("done");
     return responseText;
@@ -2287,6 +2302,8 @@ export interface AgentLoopUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   model: string;
+  /** Number of provider model-stream attempts, including retries. */
+  llmCalls?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -2472,6 +2489,11 @@ export function isResumableEngineError(err: unknown): boolean {
   if (
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
+    // A gateway stream that stopped mid-turn. It reached here as
+    // `builder_gateway_network_error` until the engine named it, and a
+    // continuation is precisely its recovery: the partial turn is preserved and
+    // the agent is nudged to finish it, where an in-call retry would `clear` it.
+    code === "builder_gateway_stream_ended" ||
     code === "provider_network_error"
   ) {
     return true;
@@ -2544,6 +2566,15 @@ export function continuationReasonForResumableError(
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return "gateway_timeout";
+  // A gateway/proxy timeout status, read structurally. The prose below says the
+  // same thing on most lanes, but not on a Builder-credits deployment, where the
+  // message is one visitor line.
+  if (
+    err instanceof EngineError &&
+    (err.statusCode === 408 || err.statusCode === 504)
+  ) {
+    return "gateway_timeout";
+  }
   const text = err instanceof Error ? err.message.toLowerCase() : "";
   if (
     text.includes("gateway timeout") ||
@@ -4816,6 +4847,7 @@ export async function runAgentLoop(opts: {
           providerOptions: opts.providerOptions,
         };
 
+        usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -5193,6 +5225,9 @@ export async function runAgentLoop(opts: {
                   upgradeUrl: event.upgradeUrl,
                   statusCode: event.statusCode,
                   providerRetryable: event.providerRetryable,
+                  contextOverflow: event.contextOverflow,
+                  requestId: event.requestId,
+                  requestShape: event.requestShape,
                 });
               }
             }
@@ -6711,7 +6746,7 @@ export async function runAgentLoop(opts: {
       // the user-visible turn.
       if (opts.ownerEmail) {
         const compactThreadId = opts.threadId;
-        void maybeCompactThread({
+        const compaction = maybeCompactThread({
           threadId: compactThreadId,
           ownerEmail: opts.ownerEmail,
           orgId: opts.orgId ?? null,
@@ -6722,6 +6757,15 @@ export async function runAgentLoop(opts: {
             err instanceof Error ? err.message : String(err),
           );
         });
+        // This pass has to finish a streaming model call before it writes, and
+        // it starts after the turn's `done` event — on a host that freezes the
+        // isolate once the response settles, an unregistered promise is simply
+        // killed, so the thread never accrues the memory that would spare the
+        // next turn. Hand it to the platform keep-alive where there is one;
+        // long-lived hosts keep the existing fire-and-forget behavior.
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        if (waitUntil) waitUntil(compaction);
+        else void compaction;
       }
     }
   }
@@ -6774,7 +6818,8 @@ function backgroundChatProgressRunId(turnId: string): string {
   return `agent-chat-${normalized || "turn"}`;
 }
 
-function isRecoverableContinuationError(event: {
+/** @internal exported for unit tests only */
+export function isRecoverableContinuationError(event: {
   type: "error";
   error: string;
   errorCode?: string;
@@ -6793,12 +6838,28 @@ function isRecoverableContinuationError(event: {
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
+    // Server-driven background continuation for a truncated stream. The message
+    // used to carry this ("stream ended without a stop event", classified into
+    // `builder_gateway_network_error` above); the code carries it now, and on a
+    // Builder-credits deployment the code is all that is left.
+    code === "builder_gateway_stream_ended" ||
     code === "provider_network_error" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
+    // The 5xx family the message clauses below used to reach by prose alone
+    // ("temporarily unavailable", "gateway timeout"). The client's own
+    // continuation list (sse-event-processor) has always carried these codes;
+    // the server read the sentence instead, which a Builder-credits deployment
+    // replaces with one visitor line.
+    code === "http_500" ||
+    // The same 500, delivered in-stream with no status attached.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
@@ -7015,6 +7076,9 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    if (typeof next.llmCalls === "number") {
+      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
+    }
     if (next.usageReported) usage.usageReported = true;
     // Keep the earliest attempt's first event — a later continuation
     // attempt starting fresh must not overwrite genuine first-token timing.
@@ -7129,6 +7193,115 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
 export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 
 /**
+ * Consecutive chunks allowed to end on the SAME terminal error code having
+ * produced nothing before the chain stops.
+ *
+ * Two, because two independent recovery layers multiply here and neither can
+ * see the other: the engine already retried this identical request 3x with
+ * backoff before the error was ever emitted, and a recoverable error is also a
+ * continuation boundary, so every chunk that fails costs 4 gateway attempts
+ * and dispatches a fresh one. A production turn spent 27 background runs and
+ * 15 minutes on one message this way. The first repeat is the retry this path
+ * exists for; a second identical failure that moved nothing is evidence the
+ * retrying itself is what is broken, not the request.
+ */
+export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
+
+/**
+ * Forward progress inside ONE chunk, read from the events it actually emitted:
+ * assistant text or tool activity. Same evidence the agent-teams no-progress
+ * budget counts (`agent-teams.ts`), and the same events
+ * `endsAfterCompletedToolWithoutAssistantFinal` reads to tell an unfinished
+ * turn from a finished one.
+ */
+function chunkMadeForwardProgress(run: ActiveRun): boolean {
+  return run.events.some(
+    ({ event }) =>
+      (event.type === "text" && event.text.trim().length > 0) ||
+      event.type === "tool_start" ||
+      event.type === "tool_done",
+  );
+}
+
+/** Consecutive-identical-failure state for one chunk of a background chain. */
+export interface BackgroundNoProgressRepeat {
+  /** This chunk's terminal error code, when it ended having produced nothing. */
+  errorCode?: string;
+  /** Chunks in a row that ended on that code with no forward progress. */
+  count: number;
+  /** True once the streak reaches `MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`. */
+  tripped: boolean;
+}
+
+/**
+ * Advance the no-progress streak across a chunk boundary. A chunk that emitted
+ * any text or tool activity resets it even when it still ended in an error —
+ * that turn IS moving, and cutting it off is what would weaken recovery for
+ * truncated streams. So does a different error code, and so does a boundary
+ * with no error at all (a soft-timeout `auto_continue` is the run-manager's
+ * no-progress backstop to bound, not this one).
+ */
+export function resolveBackgroundNoProgressRepeat(opts: {
+  run: ActiveRun;
+  priorErrorCode?: string;
+  priorCount?: number;
+}): BackgroundNoProgressRepeat {
+  const last = opts.run.events.at(-1)?.event;
+  const errorCode = last?.type === "error" ? (last.errorCode ?? "").trim() : "";
+  if (!errorCode || chunkMadeForwardProgress(opts.run)) {
+    return { count: 0, tripped: false };
+  }
+  const prior =
+    opts.priorErrorCode === errorCode &&
+    typeof opts.priorCount === "number" &&
+    Number.isFinite(opts.priorCount)
+      ? Math.max(0, Math.floor(opts.priorCount))
+      : 0;
+  const count = prior + 1;
+  return {
+    errorCode,
+    count,
+    tripped: count >= MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  };
+}
+
+/**
+ * The single honest failure the breaker leaves behind. Keeps the underlying
+ * code and the gateway's own message (which carries its `ERROR ID:` reference)
+ * so the failure stays diagnosable, and marks it non-recoverable so neither
+ * this chain nor the client's continuation path re-enters it.
+ */
+export function backgroundNoProgressTerminalEvent(
+  run: ActiveRun,
+  repeat: BackgroundNoProgressRepeat,
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  const last = run.events.at(-1)?.event;
+  if (last?.type !== "error") return null;
+  return {
+    ...last,
+    error:
+      `${last.error}\n\nThis failed ${repeat.count} times in a row without ` +
+      `making any progress, so I stopped instead of retrying again.`,
+    recoverable: false,
+  };
+}
+
+export function installBackgroundNoProgressTerminalEvent(
+  run: ActiveRun,
+  repeat: BackgroundNoProgressRepeat,
+): boolean {
+  const terminalEvent = backgroundNoProgressTerminalEvent(run, repeat);
+  const lastRunEvent = run.events.at(-1);
+  if (!terminalEvent || lastRunEvent?.event.type !== "error") return false;
+  run.events = [
+    ...run.events.slice(0, -1),
+    { ...lastRunEvent, event: terminalEvent },
+  ];
+  run.continuationTerminalEvent = terminalEvent;
+  return true;
+}
+
+/**
  * Whether this run should self-fire the next server-driven continuation chunk
  * instead of depending on the client to re-POST `auto_continue`. True for
  * either of two independently-gated cases, both requiring a recoverable
@@ -7142,7 +7315,9 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
  *     the durable background worker (`dispatchedToBackground` false) — a run
  *     already headed to the durable background path chains via the
  *     `isBackgroundWorker` branch above, never both.
- * Aborted / user-stopped runs do NOT chain either way.
+ * Aborted / user-stopped runs do NOT chain either way, and neither does a run
+ * whose no-progress streak has tripped
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`).
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -7163,6 +7338,10 @@ export function shouldChainBackgroundContinuation(opts: {
    * owned by the background circuit-breaker, not this path.
    */
   dispatchedToBackground?: boolean;
+  /** Streak state carried on the continuation marker — see
+   *  `resolveBackgroundNoProgressRepeat`. Absent on the first chunk. */
+  priorNoProgressErrorCode?: string;
+  priorNoProgressCount?: number;
 }): boolean {
   const eligible =
     opts.isBackgroundWorker ||
@@ -7172,7 +7351,12 @@ export function shouldChainBackgroundContinuation(opts: {
     eligible &&
     opts.run.status !== "aborted" &&
     endsAtContinuationBoundary(opts.run) &&
-    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
+    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS &&
+    !resolveBackgroundNoProgressRepeat({
+      run: opts.run,
+      priorErrorCode: opts.priorNoProgressErrorCode,
+      priorCount: opts.priorNoProgressCount,
+    }).tripped
   );
 }
 
@@ -7671,6 +7855,9 @@ export async function chainServerDrivenContinuation(opts: {
    *  is derived from it (marker stripped, `internalContinuation` set). */
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
+  /** This chunk's no-progress streak, carried to the successor so the breaker
+   *  can see a repeat across the invocation boundary. */
+  noProgressRepeat?: BackgroundNoProgressRepeat;
   /**
    * Input tokens this logical turn has consumed across every chunk so far,
    * carried on the successor's body so the per-turn token ceiling is a real
@@ -7805,6 +7992,12 @@ export async function chainServerDrivenContinuation(opts: {
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
+    ...(opts.noProgressRepeat?.errorCode
+      ? {
+          noProgressErrorCode: opts.noProgressRepeat.errorCode,
+          noProgressCount: opts.noProgressRepeat.count,
+        }
+      : {}),
     backgroundFunctionRuntimeExpected:
       continuationExpectsNetlifyBackgroundFunction,
   };
@@ -8193,6 +8386,7 @@ export function createProductionAgentHandler(
       effort: requestEffort,
       browserTabId,
       scope,
+      harness: requestHarness,
       trackInRunsTray,
     } = body;
     setupMark("bodyParsed");
@@ -8252,6 +8446,17 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
+    // No-progress streak so far, carried on the marker: this invocation has no
+    // other memory of what the previous chunk failed with.
+    const priorNoProgressErrorCode =
+      typeof backgroundRunMarker?.noProgressErrorCode === "string"
+        ? backgroundRunMarker.noProgressErrorCode
+        : undefined;
+    const priorNoProgressCount =
+      typeof backgroundRunMarker?.noProgressCount === "number" &&
+      Number.isFinite(backgroundRunMarker.noProgressCount)
+        ? Math.max(0, Math.floor(backgroundRunMarker.noProgressCount))
+        : 0;
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
@@ -8278,6 +8483,16 @@ export function createProductionAgentHandler(
       isAgentChatDurableBackgroundEnabled({
         appOptIn: options.durableBackgroundRuns,
       });
+    const mutableBody = body as unknown as Record<string, unknown>;
+    if (!isBackgroundWorker) {
+      delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
+    }
+    if (dispatchToBackground) {
+      const clientPlatform = getRequestContext()?.clientPlatform;
+      if (clientPlatform) {
+        mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] = clientPlatform;
+      }
+    }
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();
@@ -8332,7 +8547,43 @@ export function createProductionAgentHandler(
         requestAttachments = preparedRequest.attachments;
       }
     }
-    const availableRequestActions = getRequestActions();
+    const requestedHostedHarness = normalizeHostedHarnessRuntime(
+      requestHarness?.runtime,
+    );
+    if (requestHarness !== undefined && !requestedHostedHarness) {
+      setResponseStatus(event, 400);
+      return { error: "Unsupported hosted harness runtime" };
+    }
+    const hostedHarnessPolicy = requestedHostedHarness
+      ? await resolveHostedHarnessPolicy({
+          config: options.hostedHarnessConfig,
+          orgId: getRequestOrgId() ?? null,
+          userEmail: ownerEmail,
+        })
+      : null;
+    if (
+      requestedHostedHarness &&
+      (!hostedHarnessPolicy?.enabled ||
+        !hostedHarnessPolicy.runtimes.includes(requestedHostedHarness))
+    ) {
+      setResponseStatus(event, hostedHarnessPolicy?.configEnabled ? 403 : 404);
+      return {
+        error: hostedHarnessPolicy?.configEnabled
+          ? "Hosted harness is not enabled for this organization"
+          : "Hosted harness is not configured for this app",
+      };
+    }
+    const runContext = ensureRequestRunContext();
+    if (runContext && requestedHostedHarness) {
+      runContext.hostedHarnessRuntime = requestedHostedHarness;
+    }
+    let availableRequestActions = getRequestActions();
+    if (requestedHostedHarness) {
+      availableRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        filterHostedHarnessToolNames(Object.keys(availableRequestActions)),
+      );
+    }
     let surfacedRequestActions = availableRequestActions;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
@@ -8354,6 +8605,12 @@ export function createProductionAgentHandler(
         availableRequestActions,
         surface.allowedActionNames,
       );
+      if (requestedHostedHarness) {
+        surfacedRequestActions = filterActionsByAllowedNames(
+          surfacedRequestActions,
+          filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
+        );
+      }
       const allowedNames = Object.keys(surfacedRequestActions);
       const runCtx = ensureRequestRunContext();
       if (runCtx) runCtx.allowedActionNames = allowedNames;
@@ -8572,13 +8829,22 @@ export function createProductionAgentHandler(
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
       const encoder = new TextEncoder();
+      // A Builder-credits deployment serves this chat to visitors with no
+      // account, so the owner-facing "connect a provider" copy is unactionable
+      // for them. It is also what they see most of the time once a gateway auth
+      // failure arms the 15-minute marker: the credits lane stops resolving,
+      // engine selection falls back to the anthropic default, and this branch —
+      // not the engine's own error — is what answers the turn.
+      const missingCredentialsError = formatLlmCredentialErrorMessage({
+        visitorFacing: isBuilderGatewayDeployConfigured(),
+      });
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: "error",
-                error: LLM_MISSING_CREDENTIALS_MESSAGE,
+                error: missingCredentialsError,
                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
               })}\n\n`,
             ),
@@ -8750,7 +9016,9 @@ export function createProductionAgentHandler(
     const filesContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         let filesContext = "";
-        if (options.skipFilesContext) return filesContext;
+        if (options.skipFilesContext || requestedHostedHarness) {
+          return filesContext;
+        }
         if (history.length === 0) {
           try {
             const {
@@ -9042,6 +9310,11 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    // The durable approval row is the authorization boundary. Do not require
+    // the client to reproduce the original structured history exactly: the UI
+    // may truncate tool arguments and intentionally assigns fresh replay ids.
+    // The loop still consumes only a matching server-created grant for the
+    // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
       structuredHistory,
       requestedApprovedToolCalls,
@@ -9098,13 +9371,27 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()
         ? backgroundRunMarker.turnId.trim()
-        : typeof requestTurnId === "string" && requestTurnId.trim()
-          ? requestTurnId.trim()
-          : runId;
+        : (resolvedApprovalTurnId ??
+          (typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId));
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
@@ -9132,18 +9419,7 @@ export function createProductionAgentHandler(
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
     };
-    const exactApprovedToolEntry = exactApprovedToolCall
-      ? requestActions[exactApprovedToolCall.name]
-      : undefined;
-    const approvedToolCallsForExecution =
-      exactApprovedToolCall && exactApprovedToolEntry?.needsApproval
-        ? [
-            toolCallCacheKey(
-              exactApprovedToolCall.name,
-              exactApprovedToolCall.input,
-            ),
-          ]
-        : undefined;
+    const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))
@@ -9204,6 +9480,36 @@ export function createProductionAgentHandler(
         }
       } catch {
         // Keep the body-derived messages — never drop the run.
+      }
+    }
+    // A foreground turn on an existing thread that arrives with NO history is
+    // amnesia, not a new conversation — the client trims history against a size
+    // budget and one tool-heavy turn could zero it out, which reads downstream
+    // as an ordinary first message. Recover what was said from the stored
+    // thread. Runs only on the foreground path, before `onRunPrepared` persists
+    // this turn, so the recovered window cannot contain the current message.
+    if (
+      !isBackgroundWorker &&
+      !internalContinuation &&
+      threadId &&
+      historyMessages.length === 0
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { recoverThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const recovered = recoverThreadHistoryForRequest(
+          (await getThread(threadId))?.threadData,
+        );
+        if (recovered.length > 0) messages.unshift(...recovered);
+      } catch (err) {
+        // Never drop the run over this — but never let it pass for "the thread
+        // had nothing to recover" either. That silence is the same failure this
+        // block exists to fix, one layer down.
+        console.warn(
+          `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
+          err,
+        );
       }
     }
     setupMark("depsThread");
@@ -9451,6 +9757,12 @@ export function createProductionAgentHandler(
       typeof threadId === "string" &&
       threadId.trim().length > 0 &&
       isAgentChatForegroundSelfChainEnabled();
+    const noProgressRepeatForRun = (run: ActiveRun) =>
+      resolveBackgroundNoProgressRepeat({
+        run,
+        priorErrorCode: priorNoProgressErrorCode,
+        priorCount: priorNoProgressCount,
+      });
     const willChainBackgroundContinuation = (run: ActiveRun) =>
       shouldChainBackgroundContinuation({
         isBackgroundWorker,
@@ -9458,6 +9770,8 @@ export function createProductionAgentHandler(
         continuationCount: backgroundContinuationCount,
         foregroundSelfChainEligible,
         dispatchedToBackground: dispatchToBackground,
+        priorNoProgressErrorCode,
+        priorNoProgressCount,
       });
 
     const completeTrackedProgressRun = async (
@@ -9566,6 +9880,15 @@ export function createProductionAgentHandler(
                   : "run ended in errored state",
               ).catch(() => {});
             }
+            const noProgressRepeat = noProgressRepeatForRun(run);
+            if (noProgressRepeat.tripped) {
+              // Install the replacement before the thread writer runs. The
+              // writer builds durable thread_data from events, so changing
+              // only continuationTerminalEvent afterwards leaves the original
+              // recoverable error persisted and eligible for another retry.
+              installBackgroundNoProgressTerminalEvent(run, noProgressRepeat);
+            }
+
             // Persist the (partial) assistant turn to thread_data FIRST — the
             // server-driven continuation below rebuilds from it, so it must be
             // committed before we re-fire.
@@ -9597,7 +9920,20 @@ export function createProductionAgentHandler(
             // succeeded — a dispatch fast-fail degrades to the inline
             // foreground fallback, which is not a worker and rides the
             // connected client's auto_continue instead.)
-            if (willChainBackgroundContinuation(run)) {
+            if (noProgressRepeat.tripped) {
+              if (run.continuationTerminalEvent?.type === "error") {
+                console.error(
+                  `[agent-chat] stopping background chain: ${noProgressRepeat.errorCode} ` +
+                    `failed ${noProgressRepeat.count}x with no progress`,
+                  run.runId,
+                );
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
+                ).catch(() => {});
+              }
+            } else if (willChainBackgroundContinuation(run)) {
               // Full handoff discipline lives in
               // `chainServerDrivenContinuation` (exported + unit-tested):
               // per-turn SQL run budget, successor row PRE-INSERTED before
@@ -9610,6 +9946,7 @@ export function createProductionAgentHandler(
                 effectiveTurnId,
                 requestBody: body as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
+                noProgressRepeat,
                 turnInputTokens,
                 // Re-evaluate the durable gate rather than keying off
                 // isBackgroundWorker: a successor chunk of a FOREGROUND
@@ -9893,6 +10230,7 @@ export function createProductionAgentHandler(
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
                   }) ?? `Failed to run ${ref.name}: ${err?.message}`;
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\n${message}\n</agent-response>`;
               }
@@ -9945,6 +10283,7 @@ export function createProductionAgentHandler(
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
                   }) ?? `Failed to reach ${ref.name}: ${err?.message}`;
                 return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\n${message}\n</agent-response>`;
               }
@@ -10034,9 +10373,10 @@ export function createProductionAgentHandler(
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),
-          // Human-in-the-loop approval grants for this turn (sanitized — the
-          // request is untrusted; only the exact structured call is passed to
-          // the loop, where the durable grant is consumed atomically.
+          // Human-in-the-loop approval grants for this turn. The request is
+          // untrusted; the durable approval consumer below validates every key
+          // against the authenticated owner/org/thread/turn and consumes it
+          // atomically for the exact tool/input tuple.
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }
             : {}),

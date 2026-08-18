@@ -13,10 +13,16 @@ describe("resolveDesktopUpdateSupport", () => {
     });
   });
 
-  it("disables updates for non-release packaged builds", () => {
+  it("allows packaged local builds to update from the production channel", () => {
     expect(resolveDesktopUpdateSupport(true, "0.1.150", "dev")).toEqual({
+      supported: true,
+    });
+  });
+
+  it("disables updates for explicitly isolated build channels", () => {
+    expect(resolveDesktopUpdateSupport(true, "0.1.150", "canary")).toEqual({
       supported: false,
-      reason: "Auto-update is unavailable for local development builds",
+      reason: "Auto-update is unavailable for this Desktop build channel",
     });
   });
 

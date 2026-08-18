@@ -315,10 +315,48 @@ function isBuilderTrackingPixelBlock(value: unknown) {
   }
 }
 
-export function builderBlocksHash(blocks: unknown[]) {
-  return stableHash(
-    blocks.filter((block) => !isBuilderTrackingPixelBlock(block)),
+function stripBuilderTrackingPixels(value: unknown): unknown {
+  if (isBuilderTrackingPixelBlock(value)) return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripBuilderTrackingPixels(item))
+      .filter((item) => item !== undefined);
+  }
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, child]) => {
+      const stripped = stripBuilderTrackingPixels(child);
+      return stripped === undefined ? [] : [[key, stripped]];
+    }),
   );
+}
+
+function canonicalBuilderBodyHashValue(value: unknown): unknown {
+  if (isBuilderTrackingPixelBlock(value)) return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => canonicalBuilderBodyHashValue(item))
+      .filter((item) => item !== undefined);
+  }
+  if (!isRecord(value)) return value;
+
+  const canonical: Record<string, unknown> = {};
+  const isReference = value["@type"] === "@builder.io/core:Reference";
+  const isBuilderElement = value["@type"] === "@builder.io/sdk:Element";
+  const isSymbolContent =
+    isRecord(value.data) && Array.isArray(value.data.blocks);
+  for (const [key, child] of Object.entries(value)) {
+    if (isReference && key === "value") continue;
+    if (isBuilderElement && key === "id") continue;
+    if (isSymbolContent && key === "rev") continue;
+    const next = canonicalBuilderBodyHashValue(child);
+    if (next !== undefined) canonical[key] = next;
+  }
+  return canonical;
+}
+
+export function builderBlocksHash(blocks: unknown[]) {
+  return stableHash(canonicalBuilderBodyHashValue(blocks));
 }
 
 export function builderSourceHash(entry: BuilderContentEntry) {
@@ -1686,7 +1724,9 @@ async function emitBuilderEntryToMdxFile({
   }
   emitted.add(key);
 
-  const blocks = builderEntryBlocks(entry);
+  const blocks = stripBuilderTrackingPixels(
+    builderEntryBlocks(entry),
+  ) as unknown[];
   const rawRoot = builderRawRootForEntry(entry.model, entry.id);
   const ctx: BlocksToMdxContext = {
     rawRoot,

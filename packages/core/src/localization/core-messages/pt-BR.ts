@@ -105,6 +105,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Falha ao restaurar ({{status}}).",
   "message.restoreQuestion": "Restaurar até aqui?",
   "message.restoreRequestFailed": "Falha na solicitação de restauração.",
+  "message.threadNotFound":
+    "Esta conversa não está mais disponível. Inicie uma nova conversa ou tente novamente se isso for inesperado.",
   "message.restoring": "Restaurando...",
   "message.revertHere": "Reverter até aqui",
   "message.sentAt": "Enviado às {{time}}",
@@ -455,6 +457,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "O provedor por trás deste modelo rejeitou a solicitação. Escolha um modelo diferente e tente novamente.",
   "errorMessages.errorPrefix": "Erro: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
   "errorMessages.inactivityTimeout":
@@ -477,10 +481,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",
+  "feedback.keyboardHint": "{{shortcut}} Enter para enviar",
   "feedback.notHelpful": "Pouco útil",
+  "feedback.placeholder": "Conte-nos o que deu errado...",
+  "feedback.submit": "Enviar",
   "feedback.thumbsDown": "Não gostei",
   "feedback.thumbsUp": "Gostei",
   "feedback.tooSlow": "Muito lento",
+  "feedback.whatWentWrong": "O que deu errado?",
   "feedback.wrongTool": "Ferramenta errada",
   "contextMeter.ariaLabel":
     "Contexto {{percent}}%, {{totalTokens}}{{breakdown}}. Abrir a análise de contexto.",
@@ -554,6 +562,13 @@ const messages: AgentChatTranslation = {
     "Controle como o acesso à organização aparece na pesquisa.",
   "share.copied": "Copiado",
   "share.copy": "Copiar",
+  "share.shareWithAgents": "Compartilhar com agentes",
+  "share.agentContext": "Link de contexto do agente",
+  "share.agentContextDescription":
+    "Contexto somente leitura para um agente externo.",
+  "share.preparingAgentLink": "Preparando link do agente...",
+  "share.agentLinkUnavailable": "Não foi possível criar o link do agente.",
+  "share.retryAgentLink": "Tentar novamente",
   "share.editor": "Editor",
   "share.editorDescription": "Pode editar",
   "share.generalAccess": "Acesso geral",

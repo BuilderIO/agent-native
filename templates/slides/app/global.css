@@ -431,19 +431,128 @@ button[title="Open agent sidebar"] {
 
 /* Full-bleed wrapper for blank-layout slides */
 .fmd-slide {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  font-family: "Poppins", sans-serif;
+  color: var(--ds-text, #ffffff);
+  background: var(--ds-bg, #0b0b0d);
+  font-family: var(--ds-body-font, "Poppins", sans-serif);
   box-sizing: border-box;
   overflow: hidden;
 }
 
+/* Semantic slide markup is persisted by the agent. Keep the classes useful
+   when a later edit omits inline styles, while leaving explicit inline values
+   authoritative through the normal CSS cascade. */
+.fmd-slide.fmd-slide--title {
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 80px 110px;
+}
+
+.fmd-slide.fmd-slide--content,
+.fmd-slide.fmd-slide--two-column {
+  justify-content: flex-start;
+  gap: 24px;
+  padding: 64px 80px;
+}
+
+.fmd-slide.fmd-slide--statement {
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 64px 80px;
+  text-align: center;
+}
+
+.fmd-slide.fmd-slide--title h1,
+.fmd-slide.fmd-slide--content h1,
+.fmd-slide.fmd-slide--content h2,
+.fmd-slide.fmd-slide--two-column h1,
+.fmd-slide.fmd-slide--two-column h2,
+.fmd-slide.fmd-slide--statement h1,
+.fmd-slide.fmd-slide--statement h2 {
+  color: var(--ds-text, #ffffff);
+  font-family: var(
+    --ds-heading-font,
+    var(--ds-body-font, "Poppins", sans-serif)
+  );
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.fmd-slide.fmd-slide--title h1 {
+  font-size: 46px;
+  line-height: 1.1;
+}
+
+.fmd-slide.fmd-slide--content h1,
+.fmd-slide.fmd-slide--two-column h1,
+.fmd-slide.fmd-slide--statement h1 {
+  font-size: 38px;
+  line-height: 1.15;
+}
+
+.fmd-slide.fmd-slide--content h2,
+.fmd-slide.fmd-slide--two-column h2 {
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.fmd-slide.fmd-slide--statement h2 {
+  font-size: 42px;
+  line-height: 1.15;
+}
+
+.fmd-slide .fmd-subtitle,
+.fmd-slide .fmd-muted {
+  color: var(--ds-text-muted, rgba(255, 255, 255, 0.7));
+}
+
+.fmd-slide .fmd-subtitle {
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.fmd-slide .fmd-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px;
+  width: 100%;
+  min-height: 0;
+}
+
+.fmd-slide .fmd-callout {
+  padding: 20px 24px;
+  border: 1px solid var(--ds-accent, rgba(255, 255, 255, 0.2));
+  border-radius: var(--ds-radius, 12px);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.fmd-slide .fmd-accent,
+.fmd-slide .fmd-cyan {
+  color: var(--ds-accent, #00e5ff);
+}
+
 .fmd-autofit-scale {
+  transform-origin: top left;
+}
+
+/* Only apply the fit transform once autofit is actually shrinking content
+   (see SlideRenderer's `data-fmd-autofit-active`). Any non-"none" `transform`
+   value — even the identity transform this rule used to apply unconditionally
+   — creates a new containing block for `position: absolute` descendants
+   (CSS Transforms spec). Freeform slide objects are authored against the
+   full `.fmd-slide` box; an always-on transform here silently re-anchored
+   them to this layer's smaller, padding-inset box instead, shifting them
+   off-canvas. Scoping the transform to the active-fit state keeps the
+   common (no scaling needed) case free of a containing block at all. */
+.fmd-autofit-scale[data-fmd-autofit-active] {
   transform: translate(var(--fmd-fit-x, 0px), var(--fmd-fit-y, 0px))
     scale(var(--fmd-fit-scale, 1));
-  transform-origin: top left;
 }
 
 .fmd-slide > [data-fmd-autofit-content] {
@@ -461,7 +570,7 @@ button[title="Open agent sidebar"] {
 
 /* Section label - cyan uppercase */
 .fmd-label {
-  color: #00e5ff;
+  color: var(--ds-accent, #00e5ff);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 3px;
@@ -471,7 +580,7 @@ button[title="Open agent sidebar"] {
 
 /* Cyan accent color */
 .fmd-cyan {
-  color: #00e5ff !important;
+  color: var(--ds-accent, #00e5ff);
 }
 
 /* Large stat numbers */
@@ -988,8 +1097,14 @@ button[title="Open agent sidebar"] {
   font-style: normal;
 }
 
+/* An imported PPTX `a:srcRect` crop is rendered by oversizing the `<img>` past
+   its `overflow: hidden` box (e.g. `width: 255%; left: -77%`), so both caps
+   have to be lifted, not just the vertical one — `max-width: 100%` alone
+   silently shrank the image back to its box while the negative `left` kept
+   scrolling, leaving the visible crop window off the picture entirely. */
 .slide-content .fmd-slide img {
   border-radius: 0;
+  max-width: none;
   max-height: none;
   margin: 0;
 }

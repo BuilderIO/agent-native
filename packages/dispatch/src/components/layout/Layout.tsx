@@ -112,6 +112,7 @@ import {
   workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
+import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
 import {
@@ -124,6 +125,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
+  WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
@@ -215,7 +217,6 @@ const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
-const CHAT_FIRST_PANE_STATE_KEY = "chat-first-pane";
 
 interface DispatchChatFirstPane {
   appId: string;
@@ -569,6 +570,7 @@ function DispatchChatsSection({
   prelude,
   chatFirstMode = false,
   chatFirstEmbedded = false,
+  collapsed = false,
   chatFirstNavigation,
 }: {
   onNavigate?: () => void;
@@ -576,6 +578,7 @@ function DispatchChatsSection({
   prelude?: ReactNode;
   chatFirstMode?: boolean;
   chatFirstEmbedded?: boolean;
+  collapsed?: boolean;
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
     onNewChat?: () => void;
@@ -722,6 +725,8 @@ function DispatchChatsSection({
     if (threadId) openThread(threadId, { isNew: true });
   }
 
+  const collapsedChatFirst = collapsed && chatFirstMode;
+
   return (
     <div
       className={cn(
@@ -730,7 +735,7 @@ function DispatchChatsSection({
       )}
     >
       {showNewChat && chatFirstNavigation ? (
-        <nav className="space-y-0.5 px-2 py-2">
+        <nav className={cn("space-y-0.5 py-2", collapsed ? "px-1.5" : "px-2")}>
           <ChatFirstPrimaryNavigation
             copy={chatFirstCopy}
             onNewChat={() => {
@@ -741,11 +746,12 @@ function DispatchChatsSection({
             onOpenScheduled={chatFirstNavigation.onOpenScheduled}
             onSearch={openCommandMenu}
             activeTab={chatFirstNavigation.activeTab}
+            collapsed={collapsed}
           />
         </nav>
       ) : null}
       {prelude}
-      {!chatFirstMode ? (
+      {!collapsedChatFirst && !chatFirstMode ? (
         <div className="flex justify-end px-2 pt-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -784,7 +790,8 @@ function DispatchChatsSection({
           </Tooltip>
         </div>
       ) : null}
-      {!chatFirstMode &&
+      {!collapsedChatFirst &&
+        !chatFirstMode &&
         chatsLoading &&
         visibleThreads.length === 0 &&
         Array.from({ length: 3 }).map((_, index) => (
@@ -796,7 +803,9 @@ function DispatchChatsSection({
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
         ))}
-      {chatFirstMode && (chatsLoading || visibleThreads.length > 0) ? (
+      {!collapsedChatFirst &&
+      chatFirstMode &&
+      (chatsLoading || visibleThreads.length > 0) ? (
         <ChatFirstChatHistory
           items={chatItems}
           activeId={displayedActiveThreadId}
@@ -870,7 +879,7 @@ function DispatchChatsSection({
           )}
           className="min-w-0 px-2"
         />
-      ) : (
+      ) : !collapsedChatFirst ? (
         <ChatHistoryRail
           items={chatItems}
           activeId={displayedActiveThreadId}
@@ -938,7 +947,7 @@ function DispatchChatsSection({
           )}
           className="min-w-0 px-2"
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1273,29 +1282,26 @@ export function NavContent({
 
       {chatFirstMode ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {!collapsed ? (
-            <DispatchChatsSection
-              onNavigate={onNavigate}
-              showNewChat
-              chatFirstMode
-              chatFirstEmbedded={chatFirstEmbedded}
-              chatFirstNavigation={{
-                activeTab: chatFirstActivePrimaryTab,
-                onNewChat: onChatFirstNewChat,
-                onOpenIntegrations: () => {
-                  navigate(dispatchNavLinkTarget("/admin/integrations"));
-                  onNavigate?.();
-                },
-                onOpenScheduled: () => {
-                  navigate(dispatchNavLinkTarget("/admin/automations"));
-                  onNavigate?.();
-                },
-              }}
-              prelude={chatFirstAppsRail}
-            />
-          ) : (
-            chatFirstAppsRail
-          )}
+          <DispatchChatsSection
+            onNavigate={onNavigate}
+            showNewChat
+            chatFirstMode
+            chatFirstEmbedded={chatFirstEmbedded}
+            collapsed={collapsed}
+            chatFirstNavigation={{
+              activeTab: chatFirstActivePrimaryTab,
+              onNewChat: onChatFirstNewChat,
+              onOpenIntegrations: () => {
+                navigate(dispatchNavLinkTarget("/admin/integrations"));
+                onNavigate?.();
+              },
+              onOpenScheduled: () => {
+                navigate(dispatchNavLinkTarget("/admin/automations"));
+                onNavigate?.();
+              },
+            }}
+            prelude={chatFirstAppsRail}
+          />
         </div>
       ) : null}
       <div
@@ -2344,28 +2350,14 @@ export function Layout({
     "Workspace app";
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
-      <AgentSidebar
-        position="left"
-        defaultOpen
-        openStorageKey="dispatch-app-chat"
-        storageKey={`dispatch-app-chat:${workspaceAppId}`}
-        scope={{
-          type: "workspace-app",
-          id: workspaceAppId,
-          label: workspaceAppChatName,
-          contextKey: `workspace-app:${workspaceAppId}`,
-        }}
-        agentChatSurface="app"
-        showTabBar
-        suppressInlineOpenApp
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={`Ask about ${workspaceAppChatName}`}
+      <WorkspaceAppChatRail
+        appId={workspaceAppId}
+        appName={workspaceAppChatName}
         agentPageHref={agentPageHref}
         onFullscreenRequest={openAskAgentFullscreen}
       >
         <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
-      </AgentSidebar>
+      </WorkspaceAppChatRail>
     ) : (
       <WorkspaceAppKeepAlive
         activeAppId={workspaceAppRouteActive ? workspaceAppId : null}
@@ -2374,7 +2366,7 @@ export function Layout({
   const content = isChatRoute ? (
     <div
       className={cn(
-        "agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden",
+        "agent-layout-main-surface flex h-full min-w-0 flex-1 overflow-hidden",
         chatFirstMode && "dispatch-chat-first-surface",
       )}
     >

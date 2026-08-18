@@ -406,7 +406,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 - **关闭缓存并不会让 SSR 变得个性化。** Cookie 在渲染前仍会被剥离，SSR 加载器仍然只会看到匿名分支。用户专属数据依然必须在客户端解析。此变量只控制缓存*时长*。
 - **它是部署范围的设置，而非按路由，这是有意为之的设计。** 按路由或按请求的缓存覆盖，会导致一个访问者的负载最终出现在另一个访问者共享的 CDN 条目中，因此框架不提供这种选项——`guard:ssr-cache-shell` 会强制执行这一点。
-- **对于需要变更后立即新鲜的数据，优先使用 actions 而不是禁用缓存。** 应用数据属于 [actions](/docs/actions)，通过 `useActionQuery` / `useActionMutation` 从客户端读取，并通过 `useDbSync()` 轮询保持实时；这些都不会经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳，只有在您确实需要更新鲜的加载器数据时，才使用此变量。
+- **对于需要变更后立即新鲜的数据，优先使用 actions 而不是禁用缓存。** 应用数据属于 [actions](/docs/actions-overview)，通过 `useActionQuery` / `useActionMutation` 从客户端读取，并通过 `useDbSync()` 轮询保持实时；这些都不会经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳，只有在您确实需要更新鲜的加载器数据时，才使用此变量。
 
 ## 环境变量 {#environment-variables}
 

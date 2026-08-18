@@ -134,6 +134,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  engineRequestShapeTags,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -2072,6 +2073,82 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  // The client decides auto-continue from the error code and these fields. A
+  // deployment that answers visitors with one line replaces the message it used
+  // to keyword-match, so the engine's verdict has to travel as a field or the
+  // turn ends on those sites alone.
+  it("carries a provider-retryable engine failure on the wire", async () => {
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-provider-retryable",
+      "thread-provider-retryable",
+      async () => {
+        throw new EngineError(
+          "AI features aren't available on this site right now.",
+          {
+            providerRetryable: true,
+          },
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-provider-retryable",
+        "errored",
+      ),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "error", providerRetryable: true }),
+    );
+    // NOT `recoverable`: that field is the server's own continuation-boundary
+    // signal, and the two classifiers that read it (thread-data-builder's
+    // `isInternalContinuationError`, production-agent's
+    // `isRecoverableContinuationError`) would drop this error from the persisted
+    // turn and self-chain a background continuation into a live provider
+    // throttle. Asserted per-property because `toEqual`/`objectContaining`
+    // treat an absent key and `recoverable: undefined` as the same thing.
+    const retryableEvent = events.find((event) => event.type === "error");
+    expect(retryableEvent).not.toHaveProperty("recoverable");
+  });
+
+  it("leaves a terminal engine failure unrecoverable on the wire", async () => {
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-provider-terminal",
+      "thread-provider-terminal",
+      async () => {
+        throw new EngineError(
+          "AI features aren't available on this site right now.",
+          {
+            errorCode: "credits-limit-reached",
+          },
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-provider-terminal",
+        "errored",
+      ),
+    );
+
+    const errorEvent = events.find((event) => event.type === "error");
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent).not.toHaveProperty("recoverable");
+    expect(errorEvent).not.toHaveProperty("providerRetryable");
+  });
+
   it("does not capture missing LLM provider errors while preserving the terminal event", async () => {
     const provider = vi.fn(() => "evt_run");
     const unregister = registerErrorCaptureProvider(
@@ -2225,6 +2302,56 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  // A truncated gateway stream is a routine interruption the client continues
+  // from. It reached here as `builder_gateway_network_error` — recovered from the
+  // sentence "stream ended without a stop event" — until the engine gave it a
+  // code of its own, and on a Builder-credits deployment the sentence is replaced
+  // by one visitor line, so the code is the only thing left to suppress on.
+  it("keeps a truncated gateway stream out of Sentry on both lanes", async () => {
+    for (const [name, message] of [
+      ["owner", "Builder gateway stream ended without a stop event"],
+      ["visitor", "AI features aren't available on this site right now."],
+    ] as const) {
+      const provider = vi.fn(() => "evt_run");
+      const unregister = registerErrorCaptureProvider(
+        `run-manager-stream-ended-${name}`,
+        provider,
+      );
+      const events: AgentChatEvent[] = [];
+
+      try {
+        const run = startRun(
+          `run-stream-ended-${name}`,
+          `thread-stream-ended-${name}`,
+          async () => {
+            throw new EngineError(message, {
+              errorCode: "builder_gateway_stream_ended",
+            });
+          },
+          undefined,
+          { softTimeoutMs: 0 },
+        );
+        run.subscribers.add((event) => events.push(event.event));
+
+        await vi.waitFor(() =>
+          expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+            `run-stream-ended-${name}`,
+            "errored",
+          ),
+        );
+      } finally {
+        unregister();
+      }
+
+      expect(provider).not.toHaveBeenCalled();
+      expect(events).toContainEqual({
+        type: "error",
+        error: message,
+        errorCode: "builder_gateway_stream_ended",
+      });
+    }
+  });
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
@@ -2318,6 +2445,52 @@ describe("run manager soft timeout", () => {
       "run-server-continuation-terminal",
       1,
       JSON.stringify({ type: "auto_continue", reason: "stream_ended" }),
+    );
+  });
+
+  it("emits a terminal event the callback installed even when the loop already stashed one", async () => {
+    // `completionRun` is a COPY once the loop stashed a terminal event, so a
+    // callback writing to it used to be silently ignored — the run emitted the
+    // recoverable error the callback was overriding, and the client re-POSTed
+    // the chain the server had just stopped.
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn(async (completionRun: ActiveRun) => {
+      completionRun.continuationTerminalEvent = {
+        type: "error",
+        error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+        errorCode: "builder_gateway_internal_error",
+        recoverable: false,
+      };
+    });
+    const run = startRun(
+      "run-callback-terminal-override",
+      "thread-callback-terminal-override",
+      async (send) => {
+        send({
+          type: "error",
+          error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+          errorCode: "builder_gateway_internal_error",
+          recoverable: true,
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+      errorCode: "builder_gateway_internal_error",
+      recoverable: false,
+    });
+    // The row still records the underlying failure, not a generic one.
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-callback-terminal-override",
+      "builder_gateway_internal_error",
+      "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
     );
   });
 
@@ -4238,5 +4411,29 @@ describe("run manager soft timeout", () => {
         expect.anything(),
       );
     });
+  });
+});
+
+describe("engineRequestShapeTags", () => {
+  it("reports what was sent as searchable string tags", () => {
+    expect(
+      engineRequestShapeTags({
+        model: "gpt-5-6-sol",
+        payloadBytes: 131072,
+        toolCount: 39,
+        messageCount: 13,
+      }),
+    ).toEqual({
+      engineModel: "gpt-5-6-sol",
+      enginePayloadBytes: "131072",
+      engineToolCount: "39",
+      engineMessageCount: "13",
+    });
+  });
+
+  // Absent must stay absent: emitting zeros would report an empty request,
+  // which is a different — and wrong — diagnosis than "never sent".
+  it("emits nothing when the failure happened before a request was built", () => {
+    expect(engineRequestShapeTags(undefined)).toEqual({});
   });
 });

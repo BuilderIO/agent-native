@@ -7,8 +7,7 @@ import {
 } from "./session-token-store";
 
 export { SESSION_TOKEN_KEY };
-export const REMOTE_AUTH_MESSAGE =
-  "Connect this phone to Dispatch to use remote sessions.";
+export const REMOTE_AUTH_MESSAGE = "Sign in to connect a computer.";
 
 export const REMOTE_SESSIONS_ENDPOINTS = {
   hosts: "/_agent-native/integrations/remote/hosts",
@@ -47,6 +46,15 @@ export type RemoteRunStatus =
   | "errored"
   | "unknown";
 
+export interface RemoteHostExecutionCapabilities {
+  backend?: "desktop" | "container" | "kubernetes" | "external";
+  workloads?: string[];
+  engines?: string[];
+  acceptsScheduledWork?: boolean;
+  persistence?: "local-files" | "persistent-volume" | "ephemeral";
+  adapters?: string[];
+}
+
 export interface RemoteHost {
   id: string;
   name: string;
@@ -55,6 +63,7 @@ export interface RemoteHost {
   platform?: string;
   version?: string;
   capabilities?: string[];
+  executionCapabilities?: RemoteHostExecutionCapabilities;
   supportsRevoke?: boolean;
 }
 
@@ -103,6 +112,9 @@ export interface CreateRemoteRunInput {
   cwd?: string;
   goalId?: string;
   permissionMode?: "read-only" | "ask-before-edit" | "auto-edit" | "full-auto";
+  engine?: string;
+  model?: string;
+  effort?: string;
 }
 
 export interface AppendRemoteFollowUpInput {
@@ -332,6 +344,10 @@ function normalizeHostStatus(value: unknown): RemoteHostStatus {
 function normalizeHost(record: Record<string, unknown>): RemoteHost {
   const id = asString(record.id) || asString(record.hostId) || "unknown-host";
   const capabilities = asStringArray(record.capabilities);
+  const executionCapabilities = normalizeExecutionCapabilities(
+    asRecord(record.executionCapabilities) ??
+      asRecord(asRecord(record.metadata)?.executionCapabilities),
+  );
   return {
     id,
     name: asString(record.name) || asString(record.label) || id,
@@ -343,10 +359,38 @@ function normalizeHost(record: Record<string, unknown>): RemoteHost {
     platform: asString(record.platform),
     version: asString(record.version) || asString(record.appVersion),
     capabilities,
+    ...(executionCapabilities ? { executionCapabilities } : {}),
     supportsRevoke:
       asBoolean(record.supportsRevoke) ??
       asBoolean(record.canRevoke) ??
       capabilities.includes("revoke"),
+  };
+}
+
+function normalizeExecutionCapabilities(
+  record: Record<string, unknown> | null,
+): RemoteHostExecutionCapabilities | null {
+  if (!record) return null;
+  const backend = asString(record.backend);
+  const persistence = asString(record.persistence);
+  return {
+    ...(backend === "desktop" ||
+    backend === "container" ||
+    backend === "kubernetes" ||
+    backend === "external"
+      ? { backend }
+      : {}),
+    workloads: asStringArray(record.workloads),
+    engines: asStringArray(record.engines),
+    ...(typeof record.acceptsScheduledWork === "boolean"
+      ? { acceptsScheduledWork: record.acceptsScheduledWork }
+      : {}),
+    ...(persistence === "local-files" ||
+    persistence === "persistent-volume" ||
+    persistence === "ephemeral"
+      ? { persistence }
+      : {}),
+    adapters: asStringArray(record.adapters),
   };
 }
 
@@ -378,25 +422,77 @@ function normalizeTranscriptEvent(
   record: Record<string, unknown>,
   runId: string,
 ): RemoteTranscriptEvent {
-  const type = record.type ?? record.kind;
+  const rawType = asString(record.type);
+  const rawKind = asString(record.kind);
+  const metadata = {
+    ...(asRecord(record.metadata) ?? {}),
+  };
+  const structuredEventType =
+    rawType === "thinking" ||
+    rawType === "reasoning" ||
+    rawType === "activity" ||
+    rawType === "tool_start" ||
+    rawType === "tool_done" ||
+    rawType === "assistant_delta" ||
+    rawType === "approval_required"
+      ? rawType
+      : undefined;
+  if (structuredEventType && metadata.type === undefined) {
+    metadata.type = structuredEventType;
+  }
+  for (const key of [
+    "tool",
+    "toolCallId",
+    "callId",
+    "partId",
+    "input",
+    "result",
+    "error",
+    "errorMessage",
+    "errorCode",
+    "isError",
+    "failed",
+    "approvalKey",
+    "approvalId",
+    "pendingApprovalId",
+    "pendingApproval",
+    "structuredMeta",
+    "chatUI",
+    "role",
+    "source",
+    "seq",
+    "status",
+    "phase",
+  ]) {
+    if (metadata[key] === undefined && record[key] !== undefined) {
+      metadata[key] = record[key];
+    }
+  }
+  const type =
+    rawKind === "user" ||
+    rawKind === "system" ||
+    rawKind === "artifact" ||
+    rawKind === "status"
+      ? rawKind
+      : rawType === "user"
+        ? "user"
+        : rawType === "artifact"
+          ? "artifact"
+          : rawType === "status" || structuredEventType
+            ? "status"
+            : "system";
   return {
     id:
       asString(record.id) ||
       `${runId}-${asString(record.createdAt) || Date.now().toString()}`,
     runId: asString(record.runId) || runId,
-    type:
-      type === "user" ||
-      type === "system" ||
-      type === "artifact" ||
-      type === "status"
-        ? type
-        : "system",
+    type,
     title: asString(record.title),
     text: asString(record.text) || asString(record.message) || "",
     createdAt: asString(record.createdAt) || new Date().toISOString(),
     artifactPath: asString(record.artifactPath),
     artifactUrl: asString(record.artifactUrl),
-    metadata: asRecord(record.metadata) ?? undefined,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   };
 }
 
@@ -597,6 +693,9 @@ export async function createRemoteRun(input: CreateRemoteRunInput): Promise<
       prompt: input.prompt,
       cwd: input.cwd,
       permissionMode: input.permissionMode ?? "full-auto",
+      engine: input.engine,
+      model: input.model,
+      effort: input.effort,
     },
   );
   if (!result.ok) return { ...result, data: undefined };

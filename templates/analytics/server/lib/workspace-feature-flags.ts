@@ -68,6 +68,7 @@ export function validateWorkspaceFeatureFlagMutation(
   expected: {
     key: string;
     orgDomain: string;
+    allowExplicitNoOrgTarget?: boolean;
     rules?: Record<string, unknown>;
     enabledForEmail?: string;
   },
@@ -82,7 +83,8 @@ export function validateWorkspaceFeatureFlagMutation(
     !Array.isArray(payload.rules) &&
     !!payload.scope &&
     typeof payload.scope === "object" &&
-    payload.scope.orgDomain === expected.orgDomain;
+    (payload.scope.orgDomain === expected.orgDomain ||
+      (expected.allowExplicitNoOrgTarget && payload.scope.orgDomain === null));
   if (!valid)
     throw new Error(
       "The target app returned an unsupported or unverified feature flag mutation response.",
@@ -360,6 +362,7 @@ export async function setWorkspaceFeatureFlag(
   return validateWorkspaceFeatureFlagMutation(result.body, {
     key: input.key,
     orgDomain,
+    allowExplicitNoOrgTarget: true,
     ...(input.operation === "replace-rules" && input.rules
       ? {
           rules: {

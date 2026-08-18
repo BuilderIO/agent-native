@@ -2965,6 +2965,7 @@ export async function withBuilderBodiesSourceValues(
 export async function builderBodyChangeForLocalContent(args: {
   row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
   localContent: string | null | undefined;
+  usesCurrentHydrationCodec?: boolean;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
@@ -2995,6 +2996,14 @@ export async function builderBodyChangeForLocalContent(args: {
     builderBodyUsesCurrentMediaConverter(localContent);
   const normalizedLocalContent =
     normalizeBuilderBodyBaselineContent(localContent);
+  if (
+    args.usesCurrentHydrationCodec &&
+    normalizedLocalContent &&
+    normalizedLocalContent ===
+      normalizeBuilderBodyBaselineContent(currentContent)
+  ) {
+    return null;
+  }
   if (
     !usesCurrentMediaConverter &&
     normalizedLocalContent &&
@@ -3027,7 +3036,11 @@ export async function builderBodyChangeForLocalContent(args: {
   }
 
   try {
-    const proposed = usesCurrentMediaConverter
+    const canMergeReadableBaseline =
+      !!losslessContent &&
+      !localContent.includes("<Builder") &&
+      (args.usesCurrentHydrationCodec || !usesCurrentMediaConverter);
+    const proposed = !canMergeReadableBaseline
       ? {
           blocks: await builderMdxBodyToBuilderBlocks(
             normalizeUnsourcedBuilderCreateMdx(localContent),
@@ -3035,7 +3048,7 @@ export async function builderBodyChangeForLocalContent(args: {
           ),
           warnings: [] as string[],
         }
-      : losslessContent && !localContent.includes("<Builder")
+      : canMergeReadableBaseline
         ? await builderReadableBodyToBuilderBlocks({
             localContent,
             losslessContent,
@@ -3158,6 +3171,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
     sourceValuesJson: string;
   };
   isHydrated: boolean;
+  bodyHydrationVersion?: string | null;
   allowUnsourcedCreate: boolean;
   localContent: string | null | undefined;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
@@ -3175,6 +3189,9 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
     return builderBodyChangeForLocalContent({
       row: args.row,
       localContent: args.localContent,
+      usesCurrentHydrationCodec:
+        Boolean(args.bodyHydrationVersion) &&
+        !builderBodyHydrationIsCodecMigration(args.bodyHydrationVersion),
     });
   }
   if (!args.allowUnsourcedCreate) return null;
@@ -3973,6 +3990,8 @@ async function readSourceSnapshotRowsOnce(args: {
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
           bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+          bodyHydrationVersion:
+            schema.contentDatabaseItems.bodyHydrationVersion,
         })
         .from(schema.contentDatabaseItems)
         .where(
@@ -4398,6 +4417,12 @@ async function loadSourceSnapshot(
         .filter((item) => item.bodyHydrationStatus === "hydrated")
         .map((item) => item.documentId),
     );
+    const bodyHydrationVersionByDocumentId = new Map(
+      databaseItemRows.map((item) => [
+        item.documentId,
+        item.bodyHydrationVersion,
+      ]),
+    );
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -4412,6 +4437,8 @@ async function loadSourceSnapshot(
         bodyChange = await builderBodyChangeForSourceSnapshotDocument({
           row,
           isHydrated: hydratedDocumentIds.has(documentId),
+          bodyHydrationVersion:
+            bodyHydrationVersionByDocumentId.get(documentId) ?? null,
           allowUnsourcedCreate,
           localContent: documentContentById.get(documentId),
         });

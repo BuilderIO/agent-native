@@ -407,7 +407,7 @@ Drei Dinge sind zu beachten:
 
 - **Das Deaktivieren des Caching personalisiert das SSR nicht.** Cookies werden weiterhin vor dem Rendern entfernt, und die SSR-Loader sehen weiterhin den anonymen Zweig. Benutzerspezifische Daten müssen weiterhin clientseitig aufgelöst werden. Diese Variable steuert ausschließlich die Cache-_Dauer_.
 - **Sie gilt bereitstellungsweit, nicht pro Route – das ist Absicht.** Eine Cache-Überschreibung pro Route oder pro Anfrage ist der Weg, auf dem die Nutzdaten eines Besuchers im gemeinsamen CDN-Eintrag eines anderen Besuchers landen. Deshalb bietet das Framework keine an – `guard:ssr-cache-shell` erzwingt dies.
-- **Bevorzugen Sie für mutationsfrische Daten Actions statt den Cache zu deaktivieren.** App-Daten gehören in [Actions](/docs/actions), werden clientseitig mit `useActionQuery` / `useActionMutation` gelesen und durch `useDbSync()`-Polling aktuell gehalten – nichts davon durchläuft den SSR-Shell-Cache. Lassen Sie SSR-Loader weiterhin die öffentliche Shell rendern und greifen Sie nur dann zu dieser Variable, wenn Sie wirklich frischere Loader-Daten wünschen.
+- **Bevorzugen Sie für mutationsfrische Daten Actions statt den Cache zu deaktivieren.** App-Daten gehören in [Actions](/docs/actions-overview), werden clientseitig mit `useActionQuery` / `useActionMutation` gelesen und durch `useDbSync()`-Polling aktuell gehalten – nichts davon durchläuft den SSR-Shell-Cache. Lassen Sie SSR-Loader weiterhin die öffentliche Shell rendern und greifen Sie nur dann zu dieser Variable, wenn Sie wirklich frischere Loader-Daten wünschen.
 
 ## Umgebungsvariablen {#environment-variables}
 

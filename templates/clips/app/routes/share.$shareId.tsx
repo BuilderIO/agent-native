@@ -20,7 +20,6 @@ import {
   IconDeviceDesktop,
   IconDownload,
   IconDots,
-  IconExternalLink,
   IconLock,
   IconLogin2,
 } from "@tabler/icons-react";
@@ -32,6 +31,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FormEvent,
   type ReactNode,
 } from "react";
 import {
@@ -55,8 +55,11 @@ import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu"
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
+import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
+import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
+import { TimestampedCommentButton } from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -97,6 +100,7 @@ import {
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
 import {
+  buildShareContinuationQuery,
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
@@ -242,14 +246,12 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     if (!access) {
       const status = userEmail ? 403 : 401;
       const deniedData = emptyLoaderData(url, status);
-      if (userEmail) {
-        deniedData.accessRequestToken = signScopedAgentAccessToken({
-          resourceKind: CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
-          resourceId: id,
-          viewerEmail: userEmail,
-          ttlSeconds: CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
-        });
-      }
+      deniedData.accessRequestToken = signScopedAgentAccessToken({
+        resourceKind: CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+        resourceId: id,
+        ...(userEmail ? { viewerEmail: userEmail } : {}),
+        ttlSeconds: CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
+      });
       return privateShareLoaderData(deniedData, status);
     }
   }
@@ -453,7 +455,11 @@ export default function ShareRoute() {
       notifiedOwner: boolean;
       ok: true;
     },
-    { accessRequestToken?: string; recordingId: string }
+    {
+      accessRequestToken?: string;
+      recordingId: string;
+      requesterEmail?: string;
+    }
   >("request-recording-access");
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
@@ -467,6 +473,14 @@ export default function ShareRoute() {
   const [downloading, setDownloading] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
+  const [accessRequestError, setAccessRequestError] = useState<string | null>(
+    null,
+  );
+  const [requestAccessDialogOpen, setRequestAccessDialogOpen] = useState(false);
+  const [requesterEmail, setRequesterEmail] = useState("");
+  const [requestAccessDialogError, setRequestAccessDialogError] = useState<
+    string | null
+  >(null);
   const agentAccessToken = useMemo(() => {
     if (typeof window === "undefined") return "";
     return (
@@ -476,8 +490,79 @@ export default function ShareRoute() {
     );
   }, []);
 
+  const shareReturnTo = useMemo(() => {
+    const path = `/share/${encodeURIComponent(recordingId)}`;
+    if (typeof window === "undefined") return path;
+    const query = buildShareContinuationQuery(attribution);
+    return query ? `${path}?${query}` : path;
+  }, [attribution, recordingId]);
+  const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
+
+  const submitAccessRequest = useCallback(
+    (email?: string) => {
+      if (!shareId || accessRequestSent || requestAccess.isPending) return;
+      const normalizedEmail = email?.trim() || undefined;
+      setAccessRequestError(null);
+      setRequestAccessDialogError(null);
+      requestAccess.mutate(
+        {
+          accessRequestToken: loaderData.accessRequestToken,
+          recordingId: shareId,
+          ...(normalizedEmail ? { requesterEmail: normalizedEmail } : {}),
+        },
+        {
+          onSuccess: () => {
+            setAccessRequestSent(true);
+            setRequestAccessDialogOpen(false);
+            toast.success(
+              normalizedEmail
+                ? t("sharePage.accessRequestSentWithEmail", {
+                    email: normalizedEmail,
+                  })
+                : t("sharePage.accessRequestSent"),
+            );
+          },
+          onError: (error: unknown) => {
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : t("sharePage.accessRequestFailed");
+            setAccessRequestError(message);
+            setRequestAccessDialogError(message);
+          },
+        },
+      );
+    },
+    [
+      accessRequestSent,
+      loaderData.accessRequestToken,
+      requestAccess,
+      shareId,
+      t,
+    ],
+  );
+
+  const submitGuestAccessRequest = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const email = requesterEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setRequestAccessDialogError(t("sharePage.requestAccessEmailRequired"));
+        return;
+      }
+      submitAccessRequest(email);
+    },
+    [requesterEmail, submitAccessRequest, t],
+  );
+
   const dataQ = useQuery({
-    queryKey: ["public-recording", shareId, password, agentAccessToken],
+    queryKey: [
+      "public-recording",
+      shareId,
+      password,
+      agentAccessToken,
+      session?.email ?? null,
+    ],
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -579,11 +664,7 @@ export default function ShareRoute() {
     viewerRole === "owner" ||
     viewerRole === "admin" ||
     viewerRole === "editor";
-  const viewerCanComment =
-    viewerRole === "owner" ||
-    viewerRole === "admin" ||
-    viewerRole === "editor" ||
-    viewerRole === "commenter";
+  const viewerCanComment = Boolean(dataQ.data?.data?.viewer?.canComment);
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const canReshareLink =
     (viewerRole === "viewer" || viewerRole === "commenter") &&
@@ -815,29 +896,13 @@ export default function ShareRoute() {
               ? "sharePage.privateClipMessage"
               : "sharePage.privateClipSignedOutMessage",
           )}
+          error={canRequestAccess ? accessRequestError : null}
           action={
             canRequestAccess ? (
               <Button
                 size="sm"
                 disabled={requestAccess.isPending || requestSent}
-                onClick={() => {
-                  if (!shareId || requestSent) return;
-                  requestAccess.mutate(
-                    {
-                      accessRequestToken: loaderData.accessRequestToken,
-                      recordingId: shareId,
-                    },
-                    {
-                      onSuccess: () => {
-                        setAccessRequestSent(true);
-                        toast.success(t("sharePage.accessRequestSent"));
-                      },
-                      onError: () => {
-                        toast.error(t("sharePage.accessRequestFailed"));
-                      },
-                    },
-                  );
-                }}
+                onClick={() => submitAccessRequest()}
               >
                 {requestSent
                   ? t("sharePage.accessRequested")
@@ -846,20 +911,34 @@ export default function ShareRoute() {
                     : t("sharePage.requestAccess")}
               </Button>
             ) : shareId ? (
-              <Button asChild size="sm">
-                <a
-                  href={buildSignInReturnHref({
-                    returnTo: `/share/${shareId}`,
-                  })}
-                  className="gap-1.5"
-                >
-                  <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
-                  {t("sharePage.signIn")}
-                </a>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setAccessRequestError(null);
+                  setRequestAccessDialogError(null);
+                  setRequestAccessDialogOpen(true);
+                }}
+              >
+                {t("sharePage.requestAccess")}
               </Button>
             ) : null
           }
         />
+        {!canRequestAccess && shareId ? (
+          <RequestAccessDialog
+            open={requestAccessDialogOpen}
+            onOpenChange={setRequestAccessDialogOpen}
+            signInHref={signInHref}
+            email={requesterEmail}
+            onEmailChange={(value) => {
+              setRequesterEmail(value);
+              setRequestAccessDialogError(null);
+            }}
+            onSubmit={submitGuestAccessRequest}
+            isSubmitting={requestAccess.isPending}
+            error={requestAccessDialogError}
+          />
+        ) : null}
       </>
     );
   }
@@ -1062,18 +1141,10 @@ export default function ShareRoute() {
               onOpenInsights={() => setPanel("insights")}
             />
             {session ? null : (
-              <Button variant="ghost" size="sm" asChild>
-                <a
-                  href={appPath("/")}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="gap-1.5"
-                  onClick={() => fireShareCtaClick("try_clips")}
-                >
-                  {t("sharePage.tryClips")}
-                  <IconExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
+              <SignedOutShareActions
+                recordingId={recording.id}
+                onCtaClick={fireShareCtaClick}
+              />
             )}
             {!viewerCanEdit && canDownloadRecording ? (
               <DropdownMenu
@@ -1180,6 +1251,18 @@ export default function ShareRoute() {
               ) : null}
             </div>
             <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
+              <TimestampedCommentButton
+                enableComments={recording.enableComments}
+                canComment={!session || viewerCanComment}
+                className="shrink-0"
+                onOpen={() => {
+                  if (!session) {
+                    requireSignIn("comment");
+                    return;
+                  }
+                  if (viewerCanComment) setPanel("comments");
+                }}
+              />
               {recording.enableReactions ? (
                 <ReactionsTray
                   disabled={!viewerCanComment}
@@ -1325,6 +1408,7 @@ export default function ShareRoute() {
                 shareId,
                 password,
                 agentAccessToken,
+                session?.email ?? null,
               ]}
               selectComments={(d: any) => d?.data?.comments}
               applyComments={(d: any, next) =>
@@ -1464,11 +1548,13 @@ function EndState({
   icon,
   title,
   message,
+  error,
   action,
 }: {
   icon?: ReactNode;
   title: string;
   message: string;
+  error?: string | null;
   action?: ReactNode;
 }) {
   const t = useT();
@@ -1484,6 +1570,14 @@ function EndState({
       <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
         {message}
       </p>
+      {error ? (
+        <p
+          className="mb-6 max-w-md text-center text-sm text-destructive"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center justify-center gap-2">
         {action}
         <Button asChild variant="ghost" size="sm">

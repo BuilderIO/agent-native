@@ -262,6 +262,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "這個模型背後的供應商拒絕了要求。請選擇其他模型後重試。",
   "errorMessages.errorPrefix": "錯誤：{{message}}",
+  "errorMessages.gatewayInternalError":
+    "模型閘道在代理回答前發生內部錯誤。請稍後重試；若持續發生，請提供下方的錯誤 ID。",
   "errorMessages.gatewayNoDetails":
     "模型閘道未傳回錯誤詳細資訊，聊天無法復原。請稍候再試；如果問題持續發生，請開始新聊天。",
   "errorMessages.inactivityTimeout":
@@ -283,10 +285,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "開始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升級",
   "feedback.inaccurate": "不準確",
+  "feedback.keyboardHint": "{{shortcut}} Enter 送出",
   "feedback.notHelpful": "沒有幫助",
+  "feedback.placeholder": "告訴我們哪裡出了問題……",
+  "feedback.submit": "送出",
   "feedback.thumbsDown": "不喜歡",
   "feedback.thumbsUp": "喜歡",
   "feedback.tooSlow": "太慢",
+  "feedback.whatWentWrong": "哪裡出了問題？",
   "feedback.wrongTool": "工具錯誤",
   "header.switchToCli": "切換到 CLI",
   "history.active": "使用中",
@@ -328,6 +334,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "還原失敗（{{status}}）。",
   "message.restoreQuestion": "要還原到這裡嗎？",
   "message.restoreRequestFailed": "還原要求失敗。",
+  "message.threadNotFound":
+    "此聊天串已無法使用。請開始新的聊天；如果這是意外情況，也可以重試。",
   "message.restoring": "正在還原...",
   "message.revertHere": "還原到這裡",
   "message.sentAt": "傳送於 {{time}}",
@@ -453,6 +461,12 @@ const messages: AgentChatTranslation = {
   "share.advancedDescription": "控制組織存取權在搜尋結果中的顯示方式。",
   "share.copied": "已複製",
   "share.copy": "複製",
+  "share.shareWithAgents": "與代理分享",
+  "share.agentContext": "代理上下文連結",
+  "share.agentContextDescription": "供外部代理使用的唯讀上下文。",
+  "share.preparingAgentLink": "正在準備代理連結...",
+  "share.agentLinkUnavailable": "無法建立代理連結。",
+  "share.retryAgentLink": "重試",
   "share.editor": "編輯者",
   "share.editorDescription": "可以編輯",
   "share.generalAccess": "一般存取權",

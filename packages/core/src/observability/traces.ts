@@ -879,7 +879,11 @@ export async function instrumentAgentLoop(opts: {
 
     let llmCallCount = 0;
     if (usage || runStatus === "error") {
-      llmCallCount = 1;
+      llmCallCount =
+        usage?.llmCalls ??
+        // Compatibility for custom loop implementations that predate the
+        // attempt counter: a measured run still counts as one call.
+        1;
       const generationUsage = usage ?? {
         inputTokens: 0,
         outputTokens: 0,

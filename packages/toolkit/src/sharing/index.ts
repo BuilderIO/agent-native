@@ -3,6 +3,10 @@ export {
   type ShareAgentsSectionProps,
   ShareCopyRow,
   type ShareCopyRowProps,
+  ShareDisclosureSection,
+  type ShareDisclosureSectionProps,
+  SharePeopleSection,
+  type SharePeopleSectionProps,
   ShareTrigger,
   type ShareTriggerProps,
 } from "./SharePrimitives.js";

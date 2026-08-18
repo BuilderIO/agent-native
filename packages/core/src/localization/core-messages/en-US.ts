@@ -275,6 +275,8 @@ const messages = {
   "errorMessages.builderModelUnauthorized":
     "The provider behind this model rejected the request. Pick a different model, then retry.",
   "errorMessages.errorPrefix": "Error: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
   "errorMessages.inactivityTimeout":
@@ -296,10 +298,14 @@ const messages = {
   "errorMessages.startNewChat": "Start new chat",
   "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
   "feedback.inaccurate": "Inaccurate",
+  "feedback.keyboardHint": "{{shortcut}} Enter to send",
   "feedback.notHelpful": "Not helpful",
+  "feedback.placeholder": "Tell us what went wrong...",
+  "feedback.submit": "Submit",
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",
+  "feedback.whatWentWrong": "What went wrong?",
   "feedback.wrongTool": "Wrong tool",
   "header.switchToCli": "Switch to CLI",
   "history.active": "Active",
@@ -345,6 +351,8 @@ const messages = {
   "message.restoreFailed": "Restore failed ({{status}}).",
   "message.restoreQuestion": "Restore to here?",
   "message.restoreRequestFailed": "Restore request failed.",
+  "message.threadNotFound":
+    "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
   "message.revertHere": "Revert to here",
   "message.sentAt": "Sent {{time}}",
@@ -476,6 +484,12 @@ const messages = {
     "Control how organization access appears in search.",
   "share.copied": "Copied",
   "share.copy": "Copy",
+  "share.shareWithAgents": "Share with agents",
+  "share.agentContext": "Agent context link",
+  "share.agentContextDescription": "Read-only context for an external agent.",
+  "share.preparingAgentLink": "Preparing agent link...",
+  "share.agentLinkUnavailable": "Couldn't create the agent link.",
+  "share.retryAgentLink": "Retry",
   "share.editor": "Editor",
   "share.editorDescription": "Can edit",
   "share.generalAccess": "General access",

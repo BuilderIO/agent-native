@@ -5,7 +5,7 @@ description: "La capa de servidor Nitro en una aplicación nativa del agente: pa
 
 # Servidor
 
-El directorio `server/` es la capa de infraestructura de una aplicación nativa del agente. Se encarga de las tareas de arranque, la autenticación y las superficies HTTP que las actions no cubren. La mayor parte del comportamiento del producto pertenece a [Actions](/docs/actions). El servidor es lo que hace que esas actions estén disponibles.
+El directorio `server/` es la capa de infraestructura de una aplicación nativa del agente. Se encarga de las tareas de arranque, la autenticación y las superficies HTTP que las actions no cubren. La mayor parte del comportamiento del producto pertenece a [Actions](/docs/actions-overview). El servidor es lo que hace que esas actions estén disponibles.
 
 <Diagram id="doc-block-server-overview-1" title="Cómo fluyen las solicitudes a través del servidor" summary="Los llamantes llegan al servidor Nitro, que gestiona la mayoría de las solicitudes mediante Actions. Middleware y Rutas cubren los casos que Actions no puede expresar. Ambos caminos pueden consultar la base de datos.">
 
@@ -223,11 +223,11 @@ La arquitectura de Agent Native es distinta. Cada vez que piense en una nueva fu
 - Herramientas invocables por MCP y A2A.
 - Comandos de CLI para el desarrollo.
 
-Use rutas `/api/*` personalizadas solo cuando necesite un protocolo con forma de ruta o un comportamiento binario/de streaming. Para más detalles, visite [Actions](/docs/actions).
+Use rutas `/api/*` personalizadas solo cuando necesite un protocolo con forma de ruta o un comportamiento binario/de streaming. Para más detalles, visite [Actions](/docs/actions-overview).
 
 ## ¿Qué sigue? {#whats-next}
 
-- [**Actions**](/docs/actions): la superficie de operaciones predeterminada. Recurra a una ruta personalizada solo cuando no encaje.
+- [**Actions**](/docs/actions-overview): la superficie de operaciones predeterminada. Recurra a una ruta personalizada solo cuando no encaje.
 - [**Base de datos**](/docs/server-database): el patrón `getDb()`/esquema que importan tanto las rutas personalizadas como las actions
 - [**Middleware**](/docs/server-middleware): guardias de autenticación y el directorio `server/middleware/`
 - [**Plugins**](/docs/server-plugins): plugins de inicio para migraciones, autenticación y el agente

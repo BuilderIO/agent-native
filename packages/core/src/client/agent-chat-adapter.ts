@@ -3,6 +3,8 @@ import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
@@ -10,6 +12,7 @@ import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../agent/types.js";
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
@@ -20,6 +23,7 @@ import {
   clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -141,6 +145,10 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
+// Budget for everything actually said in the thread — every user ask and every
+// assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
+// tool args/results those turns produced. See limitPriorMessagesForRequest.
+const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
@@ -285,6 +293,29 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   turn_continuation_budget_exhausted:
     "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
 };
+
+/**
+ * Re-decide the mapped copy for whoever is reading it.
+ *
+ * The map above is client-authored copy for a server-produced code, and for the
+ * credential reasons that duplicates a decision the server already makes with
+ * `formatLlmCredentialErrorMessage({ visitorFacing })` — without the one input
+ * the decision needs. Earlier notes called this an unfixable residual gap on the
+ * grounds that the client cannot know the lane; the framing was wrong, because
+ * the lane is a fact about the deployment that the run snapshot can carry
+ * (`deploymentPaysForAi` on `/runs/active`). Everything else in the map is
+ * background-handoff copy that reads the same to either party.
+ */
+function laneAwareTerminalReasonMessage(
+  mapped: string | undefined,
+  terminalReason: string,
+  deploymentPaysForAi: boolean,
+): string | undefined {
+  if (!mapped || !isLlmCredentialError(mapped, terminalReason)) return mapped;
+  return formatLlmCredentialErrorMessage({
+    visitorFacing: deploymentPaysForAi,
+  });
+}
 
 /**
  * `agent_runs.terminal_reason` values that mark a CHUNK boundary, not the end
@@ -983,21 +1014,34 @@ function limitPriorMessagesForRequest<
 >(messages: readonly T[]): T[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES);
   const kept: T[] = [];
-  let totalChars = 0;
+  let words = 0;
+  let payload = 0;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const cost = estimateHistoryMessageCost(message);
-    if (kept.length > 0 && totalChars + cost > MAX_HISTORY_TOTAL_CHARS) {
-      break;
-    }
-    kept.push(message);
-    totalChars += cost;
+    // What was said is cheap and cannot be re-derived; what a tool returned is
+    // ~97% of a tool-heavy turn and can always be re-read. Pricing both against
+    // one budget let a single read-heavy turn evict the whole conversation, so
+    // the agent re-derived the same answer and re-asked the same question.
+    const wordCost = messageTextForHistory(message).length;
+    if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
+    const payloadCost = estimateHistoryMessageCost(message) - wordCost;
+    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const content = affordsPayload
+      ? message.content
+      : message.content.filter((part) => part.type === "text");
+    if (!content.length) continue;
+    kept.push(affordsPayload ? message : { ...message, content });
+    words += wordCost;
+    if (affordsPayload) payload += payloadCost;
   }
 
   kept.reverse();
-  while (kept.length > 0 && kept[0].role !== "user") {
+  // Stop before emptying: this rule exists to start history on a user turn for
+  // providers that require it, not to license sending no history at all. It was
+  // the last step that turned an over-budget turn into a blank conversation.
+  while (kept.length > 1 && kept[0].role !== "user") {
     kept.shift();
   }
   return kept;
@@ -1776,6 +1820,8 @@ export interface CreateAgentChatAdapterOptions {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
   effortRef?: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
@@ -1863,6 +1909,8 @@ export function createAgentChatAdapter(
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
+  const harnessRef = options?.harnessRef;
+  const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
@@ -1967,7 +2015,9 @@ export function createAgentChatAdapter(
       // Queued turns carry the model/engine/effort they were composed with.
       // The refs track the live picker, so without this a queue that flushes
       // after the user switches models runs under the wrong one.
-      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+      const runConfigSelection = (
+        key: "model" | "engine" | "effort" | "harness",
+      ) => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
             ? (runConfig.custom as Record<string, unknown>)[key]
@@ -1979,6 +2029,9 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const harness = hostedHarnessRef?.current
+        ? (runConfigSelection("harness") ?? harnessRef?.current)
+        : undefined;
       const requestedTurnId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2438,11 +2491,14 @@ export function createAgentChatAdapter(
         } catch {
           // Analytics session unavailable — traces just lose replay linkage.
         }
+        headers[ANALYTICS_CLIENT_PLATFORM_HEADER] =
+          getAnalyticsClientPlatform();
         // Surface hint — the server uses this to keep code-editing dev tools
         // out of the app-rendered sidebar. The outer dev frame passes
         // "dev-frame" explicitly; the reusable in-product chat defaults to
         // "app" even when it is running in Desktop or inside a preview iframe.
         headers["x-agent-native-surface"] = surface;
+        if (harness) headers["x-agent-native-hosted-harness"] = "1";
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,
@@ -2777,7 +2833,11 @@ export function createAgentChatAdapter(
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
           const terminalReason = rawTerminalReason.replace(/^error:/, "");
           const mappedMessage = terminalReason
-            ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
+            ? laneAwareTerminalReasonMessage(
+                BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason],
+                terminalReason,
+                lastKnown?.deploymentPaysForAi === true,
+              )
             : undefined;
           const mappedErrorCode =
             terminalReason === "missing_api_key" ||
@@ -2785,31 +2845,44 @@ export function createAgentChatAdapter(
               ? LLM_MISSING_CREDENTIALS_ERROR_CODE
               : terminalReason;
 
-          if (mappedMessage) {
-            yield* emitBackgroundTerminalError({
-              message: mappedMessage,
-              errorCode: mappedErrorCode,
-              details: `terminal_reason: ${rawTerminalReason}`,
-            });
-            return;
-          }
-
           if (hasErrorTerminalReason) {
-            if (lastRecoverableRunError) {
+            // Never REPLACE the wording the server chose for this failure: a
+            // deployment that pays for its own AI answers whoever is chatting
+            // with one visitor line, and the map only knows the owner copy.
+            // Only the captured error whose code IS the terminal reason is that
+            // wording — an earlier auto-recoverable error in the same run is
+            // stale (the cursor reset only clears it when the followed run
+            // changes), and letting it outrank the terminal reason reports a
+            // transient blip for a run that died of something else.
+            const serverChosenError =
+              lastRecoverableRunError?.errorCode === terminalReason
+                ? lastRecoverableRunError
+                : null;
+            if (serverChosenError) {
               yield* emitBackgroundTerminalError({
-                message: lastRecoverableRunError.message,
+                message: serverChosenError.message,
                 errorCode:
-                  lastRecoverableRunError.errorCode ||
+                  serverChosenError.errorCode ||
                   mappedErrorCode ||
                   "background_run_failed",
-                details: lastRecoverableRunError.details,
+                details: serverChosenError.details,
               });
               return;
             }
             yield* emitBackgroundTerminalError({
               message:
+                mappedMessage ??
                 "The agent's background run failed before its final response could be recovered. You can retry from the preserved chat context.",
               errorCode: mappedErrorCode || "background_run_failed",
+              details: `terminal_reason: ${rawTerminalReason}`,
+            });
+            return;
+          }
+
+          if (mappedMessage) {
+            yield* emitBackgroundTerminalError({
+              message: mappedMessage,
+              errorCode: mappedErrorCode,
               details: `terminal_reason: ${rawTerminalReason}`,
             });
             return;
@@ -3759,6 +3832,7 @@ export function createAgentChatAdapter(
                   ...(model ? { model } : {}),
                   ...(engine ? { engine } : {}),
                   ...(effort ? { effort } : {}),
+                  ...(harness ? { harness: { runtime: harness } } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),

@@ -16,6 +16,7 @@ import {
   DEFAULT_WORKSPACE_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
 } from "../packages/core/src/cli/workspace-skill-policy.js";
+import { isRetiredCompatibilityTemplate } from "./template-standard/manifest.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
@@ -345,8 +346,11 @@ function listTemplateDirs() {
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }
-      // Skip leftover/retired shells that no longer ship a package.json.
-      return existsSync(join(templatesDir, entry.name, "package.json"));
+      // Skip retired host compatibility packages; they are not live templates.
+      return (
+        existsSync(join(templatesDir, entry.name, "package.json")) &&
+        !isRetiredCompatibilityTemplate(entry.name)
+      );
     })
     .map((entry) => entry.name)
     .sort();

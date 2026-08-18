@@ -251,12 +251,33 @@ const messages = {
     privateClip: "私密剪辑",
     privateClipMessage: "此剪辑为私密内容。请求访问权限后，所有者会收到通知。",
     privateClipSignedOutMessage:
-      "此剪辑为私密内容。登录后即可向所有者请求访问权限。",
+      "此剪辑为私密内容。登录或输入邮箱即可请求访问权限。",
     requestAccess: "请求访问权限",
+    requestAccessDialogTitle: "请求访问权限",
+    requestAccessDialogDescription: "选择所有者分享此剪辑时识别你的方式。",
+    requestAccessSignIn: "登录或注册",
+    requestAccessOr: "或",
+    requestAccessEmailLabel: "邮箱地址",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint: "获得访问权限后，请使用此邮箱登录以查看剪辑。",
+    requestAccessWithEmail: "通过邮箱请求",
+    requestAccessEmailRequired: "请输入有效的邮箱地址。",
     requestingAccess: "正在请求访问权限...",
     accessRequested: "已请求访问权限",
     accessRequestSent: "剪辑所有者已收到通知。",
+    accessRequestSentWithEmail: "已请所有者将此剪辑分享给 {{email}}。",
     accessRequestFailed: "无法请求访问权限。请重试。",
+    accessApprovalTitle: "已授予访问权限",
+    accessApprovalAlreadyTitle: "已授予访问权限",
+    accessApprovalMessage: "{{email}} 现在可以查看此剪辑。",
+    accessApprovalAlreadyMessage: "{{email}} 已经可以访问此剪辑。",
+    accessApprovalErrorTitle: "无法授予访问权限",
+    accessApprovalInvalid: "此访问请求无效或已过期。",
+    accessApprovalSignInTitle: "登录以允许访问",
+    accessApprovalSignInMessage: "请以剪辑所有者或管理员身份登录以批准此请求。",
+    accessApprovalOpenClip: "打开剪辑",
+    accessApprovalSignIn: "登录",
+    accessApprovalLoading: "正在授予访问权限...",
     clipUnavailable: "剪辑不可用",
     clipUnavailableMessage:
       "该录音不公开，或者链接无效。如果这是您的剪辑，请登录以检查访问权限。",
@@ -633,13 +654,13 @@ const messages = {
     collapse: "收起",
     changelogMarkdown: `# 更新日志
 
-Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd K -> “最新变化”）或设置中打开。
+Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd+K -> “最新变化”）或设置中打开。
 
 ## 2026-06-23
 
 ### 新增
 
-- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd K）和设置。`,
+- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
@@ -970,8 +991,13 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     pauseShortcut: "暂停 (⌥⇧P)",
     stop: "停止录制",
     elapsed: "已用时间",
-    cancel: "取消录制",
-    cancelShortcut: "取消 (⌥⇧C)",
+    cancel: "丢弃录制",
+    cancelShortcut: "丢弃 (⌥⇧C)",
+    discardConfirmTitle: "要丢弃此录制吗?",
+    discardConfirmDescription:
+      "此操作无法撤销,到目前为止的录制内容将被永久删除。",
+    resume: "继续",
+    discardRecording: "丢弃录制",
   },
   countdownOverlay: {
     startsIn: "录制将在 {{count}} 后开始",
@@ -1057,6 +1083,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     searchPrevMatch: "上一个匹配项",
     searchNextMatch: "下一个匹配项",
     searchClose: "关闭搜索",
+  },
+  bulletLink: {
+    jumpToTranscript: "跳转到转录中的 {{time}}",
+    noMatchingMoment: "未找到匹配的时刻",
   },
   editorLayout: {
     trimmed: "已修剪",
@@ -1164,7 +1194,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     seekTo: "Seek to {{time}} (已本地化)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (已本地化)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (已本地化)",
     playPauseTooltip: "Play / Pause (Space) (已本地化)",
     sourceDuration: "({{duration}} src) (已本地化)",
     previewSpeed: "Preview speed (已本地化)",
@@ -1535,7 +1565,14 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     title: "Meetings (已本地化)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (已本地化)",
-    searchPlaceholder: "Search meetings... (已本地化)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (已本地化)",
+    agendaTab: "Agenda (已本地化)",
+    pastTab: "Past (已本地化)",
+    now: "Now (已本地化)",
+    noPastMeetings: "No past meetings yet (已本地化)",
+    loadOlder: "Load older (已本地化)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (已本地化)",
     clearSearch: "Clear search (已本地化)",
     noMeetingsYet: "No meetings yet (已本地化)",
     noMeetingsDescription:

@@ -34,6 +34,23 @@ export interface FirstPartyAnalyticsScope {
   orgId: string | null;
 }
 
+/**
+ * Stored panel SQL is valid PostgreSQL but has no BigQuery equivalent. This is
+ * not a query failure: the panel cannot run for this scope until its SQL or the
+ * scope's sink changes, so retrying is pointless and callers render an
+ * explanatory state instead. `construct` names the exact syntax that has no
+ * mapping, and is the only part safe to show a user.
+ */
+export class FirstPartyAnalyticsUnsupportedSqlError extends Error {
+  readonly construct: string;
+
+  constructor(construct: string, message: string) {
+    super(message);
+    this.name = "FirstPartyAnalyticsUnsupportedSqlError";
+    this.construct = construct;
+  }
+}
+
 interface FirstPartyAnalyticsBackendSetting {
   sink?: unknown;
   table?: unknown;
@@ -572,6 +589,59 @@ function rewriteOutsideSqlLiterals(
   return result;
 }
 
+const SQL_LITERAL_PLACEHOLDER_PREFIX = "_fpa_lit_";
+
+/**
+ * Same intent as `rewriteOutsideSqlLiterals`, but `rewrite` sees one string
+ * with each literal stood in for by an identifier-shaped placeholder rather
+ * than a sequence of fragments split at every quote. A cast operand routinely
+ * sits on the far side of a literal — `'2026-08-01'::date`,
+ * `(COALESCE(properties, '{}'))::text` — and the fragment view cuts that
+ * operand in half, which is why both read as "invalid PostgreSQL cast".
+ */
+function rewriteWithMaskedSqlLiterals(
+  sql: string,
+  rewrite: (code: string) => string,
+): string {
+  if (sql.includes(SQL_LITERAL_PLACEHOLDER_PREFIX)) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      `an identifier reserved for query translation (${SQL_LITERAL_PLACEHOLDER_PREFIX}*)`,
+      `First-party BigQuery query cannot use identifiers starting with ${SQL_LITERAL_PLACEHOLDER_PREFIX}`,
+    );
+  }
+  const literals: string[] = [];
+  let masked = "";
+  let cursor = 0;
+  while (cursor < sql.length) {
+    const literalStart = sql.indexOf("'", cursor);
+    if (literalStart === -1) {
+      masked += sql.slice(cursor);
+      break;
+    }
+    masked += sql.slice(cursor, literalStart);
+    let literalEnd = literalStart + 1;
+    while (literalEnd < sql.length) {
+      if (sql[literalEnd] !== "'") {
+        literalEnd++;
+        continue;
+      }
+      if (sql[literalEnd + 1] === "'") {
+        literalEnd += 2;
+        continue;
+      }
+      literalEnd++;
+      break;
+    }
+    masked += `${SQL_LITERAL_PLACEHOLDER_PREFIX}${literals.length}_`;
+    literals.push(sql.slice(literalStart, literalEnd));
+    cursor = literalEnd;
+  }
+  return rewrite(masked).replace(
+    new RegExp(`${SQL_LITERAL_PLACEHOLDER_PREFIX}(\\d+)_`, "g"),
+    (whole, index: string) => literals[Number(index)] ?? whole,
+  );
+}
+
 function findMatchingSqlParen(sql: string, openIndex: number): number {
   let depth = 0;
   let inLiteral = false;
@@ -651,6 +721,92 @@ function rewriteSqlFunctionCalls(
   return match ? result : result + sql.slice(cursor);
 }
 
+function coerceDateComparisonOperands(sql: string): string {
+  const dateField = "(?:event_date|cohort_date)";
+  const qualifiedDateField = `(?:[A-Za-z_][A-Za-z0-9_]*\\.)?${dateField}`;
+  const comparisonRe = new RegExp(
+    `\\b${qualifiedDateField}\\s*(?:<=|>=|<>|=|<|>)\\s*`,
+    "gi",
+  );
+  let cursor = 0;
+  let result = "";
+  let match = comparisonRe.exec(sql);
+  while (match) {
+    const operandStart = match.index + match[0].length;
+    const formatMatch = /^FORMAT_DATE\s*\(/i.exec(sql.slice(operandStart));
+    if (formatMatch) {
+      const openIndex = operandStart + formatMatch[0].lastIndexOf("(");
+      const closeIndex = findMatchingSqlParen(sql, openIndex);
+      if (closeIndex === -1) {
+        throw new Error(
+          "First-party BigQuery query has an unterminated FORMAT_DATE call",
+        );
+      }
+      const args = splitTopLevelSqlArgs(sql.slice(openIndex + 1, closeIndex));
+      if (args.length === 2 && /^'%Y-%m-%d'$/i.test(args[0] ?? "")) {
+        result += sql.slice(cursor, operandStart) + (args[1] ?? "");
+        cursor = closeIndex + 1;
+        comparisonRe.lastIndex = cursor;
+        match = comparisonRe.exec(sql);
+        continue;
+      }
+    }
+    const matchEnd = match.index + match[0].length;
+    result += sql.slice(cursor, matchEnd);
+    cursor = matchEnd;
+    comparisonRe.lastIndex = cursor;
+    match = comparisonRe.exec(sql);
+  }
+  result += sql.slice(cursor);
+  return result.replace(
+    new RegExp(
+      `(\\b${qualifiedDateField}\\s*(?:<=|>=|<>|=|<|>)\\s*)'(\\d{4}-\\d{2}-\\d{2})'`,
+      "gi",
+    ),
+    "$1DATE '$2'",
+  );
+}
+
+/**
+ * Extent of the operand a `::` cast at `castIndex` applies to.
+ *
+ * The function-call case is the trap: stopping at the matching `(` leaves the
+ * function name outside the rewritten CAST, so `sum(x)::numeric` became
+ * `sumCAST((x) AS NUMERIC)` and BigQuery answered `Function not found: SUMCAST`.
+ */
+function postgresCastOperandBounds(
+  code: string,
+  castIndex: number,
+): { start: number; end: number } {
+  let end = castIndex;
+  while (end > 0 && /\s/.test(code[end - 1] ?? "")) {
+    end--;
+  }
+  let start = end;
+  if (code[end - 1] === ")") {
+    let depth = 0;
+    for (let index = end - 1; index >= 0; index--) {
+      if (code[index] === ")") depth++;
+      if (code[index] !== "(") continue;
+      depth--;
+      if (depth === 0) {
+        start = index;
+        break;
+      }
+    }
+  }
+  while (start > 0 && /[A-Za-z0-9_.$]/.test(code[start - 1] ?? "")) {
+    start--;
+  }
+  if (start === end) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      "a PostgreSQL cast with no readable operand",
+      "First-party BigQuery query has an invalid PostgreSQL cast",
+    );
+  }
+  return { start, end };
+}
+
 function replacePostgresCastsInCode(code: string): string {
   const castType = new RegExp(
     "::\\s*(date|timestamp|timestamptz|int|int2|int4|int8|integer|float|float4|float8|double\\s+precision|numeric|text|varchar|boolean|bool|json|jsonb)\\b",
@@ -682,40 +838,16 @@ function replacePostgresCastsInCode(code: string): string {
     };
     const targetType = mappedType[normalizedType];
     if (!targetType) {
-      throw new Error(
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        `a PostgreSQL ${normalizedType} cast`,
         `First-party BigQuery query does not support PostgreSQL ${normalizedType} casts`,
       );
     }
 
-    let operandEnd = match.index;
-    while (operandEnd > 0 && /\s/.test(result[operandEnd - 1] ?? "")) {
-      operandEnd--;
-    }
-    let operandStart = operandEnd;
-    if (result[operandEnd - 1] === ")") {
-      let depth = 0;
-      for (let index = operandEnd - 1; index >= 0; index--) {
-        if (result[index] === ")") depth++;
-        if (result[index] !== "(") continue;
-        depth--;
-        if (depth === 0) {
-          operandStart = index;
-          break;
-        }
-      }
-    } else {
-      while (
-        operandStart > 0 &&
-        /[A-Za-z0-9_.$]/.test(result[operandStart - 1] ?? "")
-      ) {
-        operandStart--;
-      }
-    }
-    if (operandStart === operandEnd) {
-      throw new Error(
-        "First-party BigQuery query has an invalid PostgreSQL cast",
-      );
-    }
+    const { start: operandStart, end: operandEnd } = postgresCastOperandBounds(
+      result,
+      match.index,
+    );
     const operand = result.slice(operandStart, operandEnd).trim();
     const castEnd = match.index + match[0].length;
     result = `${result.slice(0, operandStart)}CAST(${operand} AS ${targetType})${result.slice(castEnd)}`;
@@ -764,32 +896,80 @@ function replaceBigQueryDateArithmetic(code: string): string {
   return translated;
 }
 
+/**
+ * PostgreSQL truncates to the start of the ISO week (Monday); BigQuery's bare
+ * `WEEK` starts on Sunday, so the week mapping must name the weekday or the
+ * same query silently buckets differently on each backend.
+ */
+const BIGQUERY_DATE_TRUNC_PARTS: Record<string, string> = {
+  day: "DAY",
+  week: "WEEK(MONDAY)",
+  month: "MONTH",
+  quarter: "QUARTER",
+  year: "YEAR",
+};
+
+/**
+ * BigQuery JSONPath field names are always quoted here rather than only when
+ * they look unusual: an unquoted `$.$ai_model` is rejected outright, and an
+ * unquoted `$.page.title` silently reads a nested field the caller never asked
+ * for.
+ */
+function bigQueryJsonPath(key: string): string {
+  return `'$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"'`;
+}
+
 function translatePostgresJsonOperators(sql: string): string {
-  return sql.replace(
-    /\b([A-Za-z_][A-Za-z0-9_.]*)\s*::\s*jsonb\s*->>\s*'([^']+)'/gi,
-    (_match, expression: string, key: string) =>
-      `JSON_VALUE(${expression}, '$.${key}')`,
-  );
+  const jsonExtract = /\s*::\s*jsonb?\s*->>\s*'([^']*)'/gi;
+  let result = sql;
+  let match = jsonExtract.exec(result);
+  while (match) {
+    const { start, end } = postgresCastOperandBounds(result, match.index);
+    const operand = result.slice(start, end).trim();
+    const replacement = `JSON_VALUE(${operand}, ${bigQueryJsonPath(match[1] ?? "")})`;
+    result =
+      result.slice(0, start) +
+      replacement +
+      result.slice(match.index + match[0].length);
+    jsonExtract.lastIndex = start + replacement.length;
+    match = jsonExtract.exec(result);
+  }
+  return result;
 }
 
 function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
   let translated = translatePostgresJsonOperators(sql);
+  translated = rewriteSqlFunctionCalls(translated, "coalesce", (args) => {
+    const uniqueArgs: string[] = [];
+    const seen = new Set<string>();
+    for (const arg of args) {
+      const normalized = arg.trim();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      uniqueArgs.push(arg);
+    }
+    return `COALESCE(${uniqueArgs.join(", ")})`;
+  });
   translated = translated.replace(
     /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'/gi,
     (_match, amount: string, unit: string) =>
       `INTERVAL ${amount} ${unit.replace(/s$/i, "").toUpperCase()}`,
   );
   translated = rewriteSqlFunctionCalls(translated, "date_trunc", (args) => {
-    if (args.length !== 2 || !/^'week'$/i.test(args[0] ?? "")) {
-      throw new Error(
-        "First-party BigQuery query only supports PostgreSQL date_trunc('week', ...) expressions",
+    const unit = /^'([a-z]+)'$/i.exec(args[0] ?? "")?.[1]?.toLowerCase();
+    const datePart = unit ? BIGQUERY_DATE_TRUNC_PARTS[unit] : undefined;
+    if (args.length !== 2 || !datePart) {
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        `date_trunc(${args[0] ?? "?"}, ...)`,
+        `First-party BigQuery query supports PostgreSQL date_trunc with ${Object.keys(BIGQUERY_DATE_TRUNC_PARTS).join(", ")}`,
       );
     }
-    return `DATE_TRUNC(CAST(${translatePostgresDateExpression(args[1] ?? "")} AS DATE), WEEK(MONDAY))`;
+    return `DATE_TRUNC(CAST(${translatePostgresDateExpression(args[1] ?? "")} AS DATE), ${datePart})`;
   });
   translated = rewriteSqlFunctionCalls(translated, "to_char", (args) => {
     if (args.length !== 2 || !/^'YYYY-MM-DD'$/i.test(args[1] ?? "")) {
-      throw new Error(
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        `to_char(..., ${args[1] ?? "?"})`,
         "First-party BigQuery query only supports PostgreSQL to_char(..., 'YYYY-MM-DD') expressions",
       );
     }
@@ -797,7 +977,10 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
   });
   translated = rewriteSqlFunctionCalls(translated, "chr", (args) => {
     if (args.length !== 1) {
-      throw new Error("First-party BigQuery query has an invalid chr call");
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        "a multi-argument chr(...) call",
+        "First-party BigQuery query has an invalid chr call",
+      );
     }
     return `CHR(${args[0]})`;
   });
@@ -807,14 +990,15 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     translated = rewriteSqlFunctionCalls(translated, "split_part", (args) => {
       const index = Number(args[2]);
       if (args.length !== 3 || !Number.isInteger(index) || index < 1) {
-        throw new Error(
+        throw new FirstPartyAnalyticsUnsupportedSqlError(
+          "split_part(...) with a non-literal or non-positive index",
           "First-party BigQuery query only supports split_part with a positive integer index",
         );
       }
       return `SPLIT(${args[0]}, ${args[1]})[SAFE_OFFSET(${index - 1})]`;
     });
   }
-  translated = rewriteOutsideSqlLiterals(translated, (code) => {
+  translated = rewriteWithMaskedSqlLiterals(translated, (code) => {
     let rewritten = replacePostgresCastsInCode(code);
     rewritten = rewritten
       .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
@@ -836,10 +1020,16 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     [/\bINTERVAL\s*'/i, "PostgreSQL interval literals"],
     [/\bAT\s+TIME\s+ZONE\b/i, "AT TIME ZONE"],
     [/\bFILTER\s*\(\s*WHERE\b/i, "FILTER (WHERE ...)"],
+    [/\bDISTINCT\s+ON\b/i, "SELECT DISTINCT ON"],
+    // Anything the JSON translation above could not consume. BigQuery has no
+    // such operators, so leaving it through buys a provider 400 instead of a
+    // rendered explanation.
+    [/->>|->|#>>|@>/, "PostgreSQL JSON operators"],
   ];
   const incompatible = unsupported.find(([pattern]) => pattern.test(code));
   if (incompatible) {
-    throw new Error(
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      incompatible[1],
       `First-party analytics query uses unsupported PostgreSQL syntax (${incompatible[1]}) after BigQuery translation`,
     );
   }
@@ -920,6 +1110,16 @@ function addPartitionPrunedEventDeduplication(
   return result;
 }
 
+/**
+ * Throws `FirstPartyAnalyticsUnsupportedSqlError` when this SQL has no BigQuery
+ * translation. Save-time validation runs on the panel's own (unscoped) SQL,
+ * which is a subset of what the read path translates, so a pass here cannot
+ * pass a construct through that the read path would then reject.
+ */
+export function assertFirstPartyAnalyticsBigQuerySql(sql: string): void {
+  translateFirstPartyAnalyticsBigQuerySql(sql);
+}
+
 export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
@@ -936,7 +1136,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
   return addPartitionPrunedEventDeduplication(
-    qualifyQuerySources(bound, table),
+    coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
   );
 }
@@ -1073,7 +1273,9 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
     WITH scoped_events AS (
       SELECT *
       FROM \`${physical.events}\`
-      WHERE ${tenantFilter}${startDateFilter} AND event_date <= ${today}
+      WHERE ${tenantFilter}${startDateFilter}
+        AND event_name IS DISTINCT FROM 'http.response'
+        AND event_date <= ${today}
     )
     SELECT
       COUNT(*) AS event_count,

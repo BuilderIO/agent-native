@@ -1,5 +1,40 @@
 # @agent-native/toolkit
 
+## 0.16.4
+
+### Patch Changes
+
+- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
+
+## 0.16.3
+
+### Patch Changes
+
+- 81fb79e: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.2
+
+### Patch Changes
+
+- 43fa797: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.1
+
+### Patch Changes
+
+- fb18771: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.0
+
+### Minor Changes
+
+- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
+
+### Patch Changes
+
+- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
+- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
 ## 0.15.1
 
 ### Patch Changes

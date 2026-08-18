@@ -294,6 +294,7 @@ const messages = {
     creatingLink: "링크 생성 중...",
     createShareLink: "공유 링크 만들기",
     copyLink: "링크 복사",
+    copied: "복사됨",
     openSharedLink: "공유 링크 열기",
     anyoneWithLink:
       "이 링크가 있는 사람은 누구나 이 프레젠테이션을 볼 수 있습니다.",
@@ -518,6 +519,11 @@ const messages = {
     newSlide: "새 슬라이드",
     closeAddSlides: "닫기",
     describeThisSlide: "이 슬라이드를 설명하세요",
+    cut: "잘라내기",
+    copy: "복사",
+    paste: "붙여넣기",
+    skipSlide: "슬라이드 건너뛰기",
+    unskipSlide: "건너뛰기 취소",
   },
   presentation: {
     loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",

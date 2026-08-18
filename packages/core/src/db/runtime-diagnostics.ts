@@ -105,6 +105,18 @@ export const DEFAULT_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
     table: "application_state",
     columns: ["session_id", "key", "value", "updated_at"],
   },
+  {
+    table: "integration_remote_devices",
+    columns: [
+      "id",
+      "owner_email",
+      "label",
+      "device_token_hash",
+      "status",
+      "created_at",
+      "updated_at",
+    ],
+  },
 ];
 
 function envValue(key: string): string | undefined {

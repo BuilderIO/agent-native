@@ -34,6 +34,7 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
   putState,
@@ -95,6 +96,7 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
+import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
 import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
@@ -114,7 +116,10 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
-import { readBrowserSessionIdHeader } from "./agent-run-context.js";
+import {
+  readAnalyticsClientPlatformHeader,
+  readBrowserSessionIdHeader,
+} from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
@@ -291,9 +296,8 @@ export async function resolveAgentEngineStatus<
     };
   }
 
-  const envEntry = process.env.AGENT_ENGINE
-    ? lookupEntry(process.env.AGENT_ENGINE)
-    : undefined;
+  const configuredEngine = getAppConfig().agent.engine;
+  const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
   if (envEntry) {
     if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
       return { configured: false, openAiBaseUrlConfigured };
@@ -1672,7 +1676,6 @@ export function createCoreRoutesPlugin(
             : getAllowedCorsOrigin(origin, {
                 allowedOrigins: allowlist,
                 allowAnyOriginWhenNoAllowlist: false,
-                allowLocalhostWhenNoAllowlist: true,
               });
 
           // Reject preflights from disallowed cross-origin callers BEFORE
@@ -3429,8 +3432,14 @@ export function createCoreRoutesPlugin(
             /* org module not present in this template — keep userEmail-only */
           }
 
+          const clientPlatform = readAnalyticsClientPlatformHeader(event);
           const properties: Record<string, unknown> = {
             ...(validation.properties ?? {}),
+            ...(clientPlatform
+              ? {
+                  [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform,
+                }
+              : {}),
             source: "client",
           };
           if (orgId) properties.org_id = orgId;

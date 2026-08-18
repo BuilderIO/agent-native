@@ -30,6 +30,9 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   client: "client-overview",
   // routing.mdx superseded by the Client section's own routing page.
   routing: "client-routing",
+  // actions.mdx split into the Actions section (actions-overview, -defining,
+  // -access-control, -run-context, -other-surfaces, -advanced).
+  actions: "actions-overview",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */

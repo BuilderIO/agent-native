@@ -4,11 +4,12 @@
 // `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
 // GitHub repo). We auto-download in the background, surface progress and
 // readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a sidebar pill / restart prompt. The app also
+// quitAndInstall from a chat-first rail action / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
-// In development and local packaged builds, autoUpdater cannot install a
-// release, so update checks remain explicitly unsupported.
+// Un-packaged development builds cannot install a release. Packaged local
+// builds use the same production feed as signed releases so they can recover
+// to the current production version.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
@@ -33,7 +34,7 @@ const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
 // check's `checkRunning` guard would never release.
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
-  "https://agent-native.com/api/desktop-updates";
+  "https://www.agent-native.com/api/desktop-updates";
 const DESKTOP_UPDATE_FEED_URL = (
   process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
   DEFAULT_DESKTOP_UPDATE_FEED_URL

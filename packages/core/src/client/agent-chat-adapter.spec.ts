@@ -2194,6 +2194,72 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(JSON.stringify(body.structuredHistory).length).toBeLessThan(400_000);
+
+    // Pricing the tool calls was only half of it: the budget then evicted the
+    // asks themselves. One bulky turn costs more than the whole budget, so
+    // walking newest-first and breaking dropped every earlier message —
+    // production thread 062ab179 re-read the same extension and re-stated the
+    // same diagnosis for eight turns because each turn started blind.
+    const historyText = body.structuredHistory
+      .filter((message: any) => message.role === "user")
+      .flatMap((message: any) =>
+        message.content
+          .filter((part: any) => part.type === "text")
+          .map((part: any) => part.text),
+      )
+      .join("\n");
+    expect(historyText).toContain("the original ask");
+    expect(historyText).toContain("second ask");
+    expect(historyText).toContain("third ask");
+  });
+
+  it("keeps an over-budget turn's conclusions after dropping its tool results", async () => {
+    // A tool-heavy turn's results are ~97% of its cost; the prose it wrote is
+    // the other 3% and is the part that cannot be re-read. Dropping the whole
+    // message evicted both, so the agent re-derived the same finding each turn.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-findings",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "why is it empty" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              ...Array.from({ length: 8 }, (_, i) => ({
+                type: "tool-call",
+                toolCallId: `call-${i}`,
+                toolName: "read-source",
+                args: { query: "x".repeat(7_000) },
+                result: "y".repeat(11_000),
+              })),
+              { type: "text", text: "the rate filter excludes zero-rate rows" },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "so change it" }] },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "confirming the filter" }],
+          },
+          { role: "user", content: [{ type: "text", text: "now fix it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = fetchSpy.mock.calls[0][1].body as string;
+    expect(body).toContain("why is it empty");
+    expect(body).toContain("the rate filter excludes zero-rate rows");
+    expect(body).not.toContain("y".repeat(11_000));
   });
 
   it("prices object tool results by what the request actually carries", async () => {
@@ -2233,7 +2299,12 @@ describe("createAgentChatAdapter", () => {
 
     const body = fetchSpy.mock.calls[0][1].body as string;
     expect(body).toContain("now do it");
-    expect(body).not.toContain("the original ask");
+    // Priced correctly, this one turn exceeds the whole assistant budget and is
+    // dropped. Priced as `String(result)` it would cost 15 chars per call and
+    // sail through — so the absent payload, not an evicted user ask, is what
+    // proves the pricing. The asks themselves are on a separate budget and stay.
+    expect(body).not.toContain("y".repeat(13_000));
+    expect(body).toContain("the original ask");
   });
 
   it("preserves structured tool history when auto-continuing after a transient error", async () => {
@@ -7288,6 +7359,258 @@ describe("createAgentChatAdapter", () => {
       );
     },
   );
+
+  // A run reaped before its worker ever claimed it: the reaper writes the
+  // terminal error event AND `terminal_reason: error:<its code>`, so the
+  // replayed event is this failure's own wording (details included) and the map
+  // must not restate it from the reason alone.
+  it("keeps the terminal event's own message and details when it replays", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const serverDetails =
+      "A background-dispatched run was acknowledged (HTTP 202) but its worker never claimed the run, so no progress was produced.";
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [{ type: "auto_continue", reason: "run_timeout" }],
+          "run-bg-unclaimed",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-unclaimed",
+          threadId: "thread-bg-unclaimed",
+          turnId: requestTurnId,
+          status: "errored",
+          terminalReason: "error:background_worker_never_started",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-bg-unclaimed/events")) {
+        return sseResponse(
+          [
+            {
+              type: "error",
+              error:
+                "The agent run was handed off to a background worker that never started. It was recovered so you can try again.",
+              errorCode: "background_worker_never_started",
+              recoverable: true,
+              details: serverDetails,
+            },
+          ],
+          "run-bg-unclaimed",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-unclaimed",
+      threadId: "thread-bg-unclaimed",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "summarize this" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata?.custom?.runError?.errorCode).toBe(
+      "background_worker_never_started",
+    );
+    expect(last.metadata?.custom?.runError?.details).toContain(serverDetails);
+  });
+
+  // The other direction: an earlier auto-recoverable blip in the SAME run is
+  // not this failure's message. A background run that died for want of a
+  // credential must report that, not the stale transient error, or the only
+  // party who can fix it is told to retry a timeout that already passed.
+  it("prefers the terminal reason over a stale in-run recoverable error", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const staleMessage = "The Builder gateway timed out. Retrying.";
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Checking credentials" },
+            {
+              type: "error",
+              error: staleMessage,
+              errorCode: "builder_gateway_timeout",
+              recoverable: true,
+            },
+          ],
+          "run-bg-stale",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-stale",
+          threadId: "thread-bg-stale",
+          turnId: requestTurnId,
+          status: "errored",
+          terminalReason: "error:missing_credentials",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      // The terminal event itself is not replayable — the case the
+      // terminal-reason map exists for.
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-stale",
+      threadId: "thread-bg-stale",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "do the thing" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain("No LLM provider is connected");
+    expect(last.content.at(-1).text).not.toContain(staleMessage);
+    expect(last.metadata?.custom?.runError?.errorCode).toBe(
+      "missing_credentials",
+    );
+    expect(
+      dispatchEvent.mock.calls.some(
+        (call: any[]) => call[0]?.type === "agent-chat:missing-api-key",
+      ),
+    ).toBe(true);
+  });
+
+  // Same path, other reader. The map's credential copy names a Settings page in
+  // an org the visitor is not in, and this is the one branch with no server
+  // message to defer to — so the deployment's own answer to "who pays" comes
+  // over `/runs/active`, and the copy decision goes back to the lane-aware
+  // formatter the server already uses.
+  it("gives a visitor the one line when the deployment pays for its own AI", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [{ type: "text", text: "Checking credentials" }],
+          "run-bg-visitor",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-visitor",
+          threadId: "thread-bg-visitor",
+          turnId: requestTurnId,
+          status: "errored",
+          terminalReason: "error:missing_credentials",
+          dispatchMode: "background-processing",
+          deploymentPaysForAi: true,
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-visitor",
+      threadId: "thread-bg-visitor",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "do the thing" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toBe(
+      "Error: AI features aren't available on this site right now.",
+    );
+    expect(last.content.at(-1).text).not.toContain("Manage agent");
+    expect(last.metadata?.custom?.runError?.errorCode).toBe(
+      "missing_credentials",
+    );
+  });
 
   it("self-POSTs a bounded continuation when a background run is reaped stale", async () => {
     vi.useFakeTimers();

@@ -306,6 +306,7 @@ const messages = {
     creatingLink: "Création du lien...",
     createShareLink: "Créer un lien de partage",
     copyLink: "Copier le lien",
+    copied: "Copié",
     openSharedLink: "Ouvrir le lien partagé",
     anyoneWithLink:
       "Toute personne disposant de ce lien peut voir cette présentation.",
@@ -540,6 +541,11 @@ const messages = {
     newSlide: "Nouvelle diapositive",
     closeAddSlides: "Fermer",
     describeThisSlide: "Décrivez cette diapositive",
+    cut: "Couper",
+    copy: "Copier",
+    paste: "Coller",
+    skipSlide: "Ignorer la diapositive",
+    unskipSlide: "Ne pas ignorer la diapositive",
   },
   presentation: {
     loadFailed: "Impossible de charger cette présentation.",

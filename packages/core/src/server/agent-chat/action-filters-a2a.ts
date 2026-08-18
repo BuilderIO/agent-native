@@ -18,6 +18,7 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
@@ -274,11 +275,11 @@ export function buildAuthenticatedAgentA2ASkills(
 export function resolveArtifactBaseUrl(
   event: any | undefined,
 ): string | undefined {
+  // An artifact link is user-facing, so the canonical URL wins; the platform's
+  // per-deploy URLs are the fallback, not the other way round (that ordering
+  // belongs to self-dispatch, which has to reach *this* deploy).
   const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
+    getAppConfig().app.url ?? process.env.URL ?? process.env.DEPLOY_URL;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   try {
@@ -620,11 +621,54 @@ export function runMCPAgentLoop(
 export function createA2AEngineToolSurface(
   availableTools: EngineTool[],
   initialToolNames?: string[],
+  options: {
+    receiverOwnsObjective?: boolean;
+    localCapabilityNames?: string[];
+  } = {},
 ): { tools: EngineTool[]; availableTools: EngineTool[] } {
+  const selectedInitialNames = options.receiverOwnsObjective
+    ? [
+        ...new Set([
+          ...(initialToolNames ?? []),
+          ...(options.localCapabilityNames ?? []),
+        ]),
+      ]
+    : initialToolNames;
+  const initialTools = filterInitialEngineTools(
+    availableTools,
+    selectedInitialNames,
+  );
   return {
-    tools: filterInitialEngineTools(availableTools, initialToolNames),
+    tools: options.receiverOwnsObjective
+      ? initialTools.filter(
+          (tool) =>
+            tool.name !== "describe-workspace-apps" &&
+            tool.name !== "call-agent",
+        )
+      : initialTools,
     availableTools,
   };
+}
+
+export function isSelectedA2AReceiver(
+  selectedReceiverApp: string | undefined,
+  appId: string | undefined,
+): boolean {
+  const normalize = (value: string | undefined) =>
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/^agent-native-/, "") ?? "";
+  const selected = normalize(selectedReceiverApp);
+  return selected.length > 0 && selected === normalize(appId);
+}
+
+export function buildSelectedA2AReceiverContext(appId: string): string {
+  return `
+<selected-a2a-receiver>
+selectedApp: ${appId}
+The caller already selected this app to own the current objective. Start with this app's declared local capabilities and use tool-search for another local action when needed. A resource name that resembles a different app is not a routing decision. Delegate again only for a genuinely separate subtask; do not substitute another app for loading this app's own actions.
+</selected-a2a-receiver>`;
 }
 
 /**

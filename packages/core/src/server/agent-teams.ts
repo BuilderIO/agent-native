@@ -197,6 +197,10 @@ export interface AgentTask {
   taskId: string;
   threadId: string;
   parentThreadId?: string;
+  /** Request owner used to scope every browser-visible task read and control. */
+  ownerEmail?: string | null;
+  /** Organization scope captured when the task was spawned. */
+  orgId?: string | null;
   name?: string;
   description: string;
   status: "running" | "completed" | "errored";
@@ -215,6 +219,11 @@ export interface AgentTask {
    * Drives the runaway-delegation guardrail (see `evaluateSubagentDepth`).
    */
   delegationDepth?: number;
+}
+
+export interface AgentTeamOwnerScope {
+  ownerEmail: string | null;
+  orgId?: string | null;
 }
 
 export type AgentTeamBackgroundRun = Omit<
@@ -1356,10 +1365,22 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
 
   const runId = taskRunId(taskId);
   const createdAt = Date.now();
+  let orgId: string | null;
+  if (hasRequestContext()) {
+    orgId = getRequestOrgId() ?? null;
+  } else {
+    try {
+      orgId = await resolveOrgIdForEmail(opts.ownerEmail);
+    } catch {
+      orgId = null;
+    }
+  }
   const task: AgentTask = {
     taskId,
     threadId: thread.id,
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
+    ownerEmail: opts.ownerEmail,
+    orgId,
     ...(opts.name ? { name: opts.name } : {}),
     description: opts.description,
     status: "running",
@@ -1395,17 +1416,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   // (integrations/webhook-handler.ts). Execution happens in `processAgentTeamRun`,
   // invoked by the `/_agent-native/agent-teams/_process-run` route mounted
   // inside the agent-chat plugin (where the action/prompt/engine closures live).
-  let orgId: string | null;
-  if (hasRequestContext()) {
-    orgId = getRequestOrgId() ?? null;
-  } else {
-    try {
-      orgId = await resolveOrgIdForEmail(opts.ownerEmail);
-    } catch {
-      orgId = null;
-    }
-  }
-
   const payload: AgentTeamRunPayload = {
     description: opts.description,
     instructions: opts.instructions,
@@ -2104,24 +2114,39 @@ export async function processAgentTeamRun(
   );
 }
 
-/** Get task by ID */
-export async function getTask(taskId: string): Promise<AgentTask | undefined> {
+/** Get task by ID, optionally constrained to the current request scope. */
+export async function getTask(
+  taskId: string,
+  scope?: AgentTeamOwnerScope,
+): Promise<AgentTask | undefined> {
   const task = await loadTask(taskId);
-  return task ? await reconcileTaskWithRun(task) : undefined;
+  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+    return undefined;
+  }
+  return await reconcileTaskWithRun(task);
 }
 
-/** Get task by thread ID */
+/** Get task by thread ID, optionally constrained to the current request scope. */
 export async function getTaskByThread(
   threadId: string,
+  scope?: AgentTeamOwnerScope,
 ): Promise<AgentTask | undefined> {
   const task = await loadTaskByThread(threadId);
-  return task ? await reconcileTaskWithRun(task) : undefined;
+  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+    return undefined;
+  }
+  return await reconcileTaskWithRun(task);
 }
 
-/** List all tasks (most recent first) */
-export async function listTasks(): Promise<AgentTask[]> {
+/** List tasks in the current owner/org scope (most recent first). */
+export async function listTasks(
+  scope?: AgentTeamOwnerScope,
+): Promise<AgentTask[]> {
+  const ownerScope = resolveOwnerScope(scope);
   const entries = await listAppState(TASK_PREFIX);
-  const tasks = entries.map((e) => e.value as unknown as AgentTask);
+  const tasks = entries
+    .map((e) => e.value as unknown as AgentTask)
+    .filter((task) => taskMatchesOwnerScope(task, ownerScope));
   const reconciled = await Promise.all(tasks.map(reconcileTaskWithRun));
   return reconciled.sort(
     (a, b) =>
@@ -2130,25 +2155,27 @@ export async function listTasks(): Promise<AgentTask[]> {
   );
 }
 
-export async function listAgentTeamBackgroundRuns(): Promise<
-  AgentTeamBackgroundRun[]
-> {
-  return (await listTasks()).map(toAgentTaskBackgroundRun);
+export async function listAgentTeamBackgroundRuns(
+  scope?: AgentTeamOwnerScope,
+): Promise<AgentTeamBackgroundRun[]> {
+  return (await listTasks(scope)).map(toAgentTaskBackgroundRun);
 }
 
 export async function getAgentTeamBackgroundRun(
   runId: string,
+  scope?: AgentTeamOwnerScope,
 ): Promise<AgentTeamBackgroundRun | null> {
-  const task = await loadTask(taskIdFromBackgroundRunId(runId));
-  return task
-    ? toAgentTaskBackgroundRun(await reconcileTaskWithRun(task))
-    : null;
+  const task = await getTask(taskIdFromBackgroundRunId(runId), scope);
+  return task ? toAgentTaskBackgroundRun(task) : null;
 }
 
 export async function listAgentTeamBackgroundTranscriptEvents(
   runId: string,
+  scope?: AgentTeamOwnerScope,
 ): Promise<AgentTeamBackgroundTranscriptEvent[]> {
   const taskId = taskIdFromBackgroundRunId(runId);
+  const ownerScope = resolveOwnerScope(scope);
+  if (ownerScope && !(await getTask(taskId, ownerScope))) return [];
   const normalizedRunId = taskRunId(taskId);
   const runIds = await transcriptRunIdsForTask(taskId);
   const output: AgentTeamBackgroundTranscriptEvent[] = [];
@@ -2222,6 +2249,7 @@ async function getPersistedRunEvents(runId: string): Promise<RunEvent[]> {
 export async function sendToTask(
   taskId: string,
   message: string,
+  scope?: AgentTeamOwnerScope,
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -2229,7 +2257,9 @@ export async function sendToTask(
   queuedCount?: number;
 }> {
   const task = await loadTask(taskId);
-  if (!task) return { ok: false, error: "Task not found" };
+  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+    return { ok: false, error: "Task not found" };
+  }
   if (task.status !== "running")
     return { ok: false, error: "Task is not running" };
   if (message.trim().length === 0)
@@ -2252,8 +2282,9 @@ export async function sendToTask(
 export async function sendToAgentTeamBackgroundRun(
   runId: string,
   message: string,
+  scope?: AgentTeamOwnerScope,
 ): Promise<SendToAgentTeamBackgroundRunResult> {
-  return sendToTask(taskIdFromBackgroundRunId(runId), message);
+  return sendToTask(taskIdFromBackgroundRunId(runId), message, scope);
 }
 
 async function sendAgentTeamBackgroundAgentFollowUp(
@@ -2308,10 +2339,13 @@ async function controlAgentTeamBackgroundAgentRun(
 export async function stopAgentTeamBackgroundRun(
   runId: string,
   reason = "user",
+  scope?: AgentTeamOwnerScope,
 ): Promise<ControlAgentTeamBackgroundRunResult> {
   const taskId = taskIdFromBackgroundRunId(runId);
   const task = await loadTask(taskId);
-  if (!task) return { ok: false, error: "Task not found" };
+  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+    return { ok: false, error: "Task not found" };
+  }
   if (task.status !== "running") {
     return { ok: false, error: "Task is not running" };
   }
@@ -2330,6 +2364,33 @@ export async function stopAgentTeamBackgroundRun(
   }
   await completeAgentTeamRun(task.taskId, "failed");
   return { ok: true };
+}
+
+function resolveOwnerScope(
+  scope?: AgentTeamOwnerScope,
+): AgentTeamOwnerScope | undefined {
+  if (scope) return scope;
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail === undefined) return undefined;
+  return {
+    ownerEmail,
+    // A few non-HTTP test/CLI hosts only provide the user scope. Keep that
+    // owner check active without requiring every lightweight request-context
+    // adapter to implement organization lookup.
+    orgId:
+      typeof getRequestOrgId === "function" ? getRequestOrgId() : undefined,
+  };
+}
+
+function taskMatchesOwnerScope(
+  task: AgentTask,
+  scope: AgentTeamOwnerScope | undefined,
+): boolean {
+  if (!scope) return true;
+  return (
+    (task.ownerEmail ?? null) === scope.ownerEmail &&
+    (scope.orgId === undefined || (task.orgId ?? null) === scope.orgId)
+  );
 }
 
 /** Mark a task as errored */
