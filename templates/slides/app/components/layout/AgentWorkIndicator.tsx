@@ -15,7 +15,25 @@ export function isAgentSidebarVisible() {
   if (style.display === "none" || style.visibility === "hidden") return false;
 
   const rect = panel.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
+  if (rect.width <= 0 || rect.height <= 0) return false;
+
+  for (
+    let ancestor = panel.parentElement;
+    ancestor && ancestor !== document.body;
+    ancestor = ancestor.parentElement
+  ) {
+    if (ancestor.getAttribute("aria-hidden") === "true") return false;
+    if (ancestor.inert) return false;
+    const ancestorStyle = window.getComputedStyle(ancestor);
+    if (
+      ancestorStyle.display === "none" ||
+      ancestorStyle.visibility === "hidden"
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function useAgentSidebarVisible() {
@@ -45,7 +63,11 @@ function useAgentSidebarVisible() {
       });
       if (panel.parentElement && panel.parentElement !== document.body) {
         parentObserver = new MutationObserver(update);
-        parentObserver.observe(panel.parentElement, { childList: true });
+        parentObserver.observe(panel.parentElement, {
+          attributes: true,
+          attributeFilter: ["aria-hidden", "class", "inert", "style"],
+          childList: true,
+        });
       }
     };
     const updateAndObserve = () => {

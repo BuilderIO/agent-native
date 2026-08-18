@@ -117,7 +117,9 @@ function appendDevLog(
   logs.push(chunk);
   if (
     chunk.includes("reloading the page") ||
-    chunk.includes("optimized dependencies changed")
+    chunk.includes("optimized dependencies changed") ||
+    chunk.includes("new dependencies optimized") ||
+    chunk.includes("bundling dependencies")
   ) {
     viteReload.lastReloadAt = Date.now();
   }

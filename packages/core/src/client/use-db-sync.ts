@@ -141,6 +141,26 @@ function maxSyncCursor(a: SyncCursor, b: SyncCursor | undefined): SyncCursor {
   return b && compareSyncCursors(b, a) > 0 ? b : a;
 }
 
+function cursorForEvents(events: readonly SyncEvent[]): SyncCursor | undefined {
+  let cursor: SyncCursor | undefined;
+  for (const event of events) {
+    const eventCursor =
+      syncEventCursor(event) ??
+      (typeof event.version === "number" &&
+      Number.isSafeInteger(event.version) &&
+      event.version >= 0
+        ? { version: event.version, id: "" }
+        : undefined);
+    if (
+      eventCursor &&
+      (!cursor || compareSyncCursors(eventCursor, cursor) > 0)
+    ) {
+      cursor = eventCursor;
+    }
+  }
+  return cursor;
+}
+
 function isSyncEventAfterCursor(
   event: SyncEvent,
   cursor: SyncCursor,
@@ -470,8 +490,8 @@ class SyncTransport {
       const base = `${this.gateway.sseUrl}?token=${encodeURIComponent(this.token)}`;
       // Cursor lets the gateway replay the reconnect gap on connect instead of
       // deferring it to the next poll; 0 on first connect means nothing to replay.
-      return this.cursorRef.version > 0
-        ? `${base}&since=${this.cursorRef.version}`
+      return this.cursorRef.version > 0 || this.cursorRef.id
+        ? `${base}&since=${this.cursorRef.version}&cursor=${encodeURIComponent(encodeSyncCursor(this.cursorRef))}`
         : base;
     }
     return this.sseUrl;
@@ -1011,11 +1031,16 @@ class SyncTransport {
           typeof payload?.version === "number" ? payload.version : undefined;
         this.applyVersion(events, version);
         this.fan(events, version, this.cursorRef);
+        const eventCursor = cursorForEvents(events);
         this.broadcast({
           type: "events",
           events,
           version,
-          cursor: this.cursorRef,
+          // A follower may only adopt a cursor for events it received. The
+          // transport cursor can be ahead after a poll response skipped
+          // filtered/unread durable rows, which would make the follower lose
+          // those rows on its own safety poll.
+          cursor: eventCursor,
         });
       } catch {
         // Ignore malformed SSE frames; polling is the safety net.
