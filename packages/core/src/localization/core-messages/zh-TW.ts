@@ -503,6 +503,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "未知人員",
   "share.viewer": "檢視者",
   "share.viewerDescription": "可以檢視",
+  "share.userGroup": "使用者群組",
   "status.resuming": "正在繼續",
   "status.stillWorking": "仍在處理",
   "status.thinking": "正在思考",
