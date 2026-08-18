@@ -67,19 +67,32 @@ describe("verified fleet feature flag transaction", () => {
   });
 
   it("independently reads back Alice-targeted enablement", async () => {
-    const rules = {
+    const mutationRules = {
       mode: "rules",
       emails: ["admin@example.test"],
       orgIds: [],
       percentage: 0,
+      updatedAt: 1,
+      updatedBy: "writer@example.test",
+    };
+    const readBackRules = {
+      ...mutationRules,
+      updatedAt: 2,
+      updatedBy: "admin@example.test",
     };
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(response(200, mutationBody(rules)))
+      .mockResolvedValueOnce(response(200, mutationBody(mutationRules)))
       .mockResolvedValueOnce(
         response(200, {
           contractVersion: 1,
           status: "ready",
-          flags: [{ key: "new-editor", rules, enabledForCurrentUser: true }],
+          flags: [
+            {
+              key: "new-editor",
+              rules: readBackRules,
+              enabledForCurrentUser: true,
+            },
+          ],
           canManage: true,
         }),
       );
@@ -94,6 +107,7 @@ describe("verified fleet feature flag transaction", () => {
       expect.objectContaining({
         contractVersion: 3,
         status: "verified",
+        rules: readBackRules,
         enabledForCurrentUser: true,
       }),
     );
@@ -243,6 +257,42 @@ describe("verified fleet feature flag transaction", () => {
       phase: "verification",
     });
   });
+
+  it.each([
+    [403, null, "authorization"],
+    [404, null, "unsupported-target"],
+    [
+      200,
+      {
+        contractVersion: 1,
+        status: "forbidden",
+        flags: [],
+        canManage: false,
+      },
+      "authorization",
+    ],
+  ] as const)(
+    "preserves read-back status %s as %s",
+    async (status, body, phase) => {
+      const rules = {
+        mode: "off",
+        emails: [],
+        orgIds: [],
+        percentage: 0,
+      };
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(response(200, mutationBody(rules)))
+        .mockResolvedValueOnce(response(status, body));
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+        }),
+      ).rejects.toMatchObject({ phase });
+    },
+  );
 
   it("keeps the legacy response while the rollout gate is off", async () => {
     mocks.isFeatureFlagEnabled.mockResolvedValue(false);

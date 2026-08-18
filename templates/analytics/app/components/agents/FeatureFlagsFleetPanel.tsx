@@ -9,7 +9,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconRefresh } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,16 @@ export function reconcileVerifiedFleetMutation(
           },
     ),
   };
+}
+
+export function recoverFleetMutationFailure(
+  client: QueryClient,
+  context?: { previous: unknown; key: readonly unknown[] },
+) {
+  if (context) client.setQueryData(context.key, context.previous);
+  void client.invalidateQueries({
+    queryKey: ["action", "list-workspace-feature-flags"],
+  });
 }
 
 function asDirectory(value: unknown): FlagDirectory {
@@ -155,9 +165,8 @@ export function FeatureFlagsFleetPanel() {
       });
       return { previous, key };
     },
-    onError: (_error, _input, context: any) => {
-      if (context) client.setQueryData(context.key, context.previous);
-    },
+    onError: (_error, _input, context: any) =>
+      recoverFleetMutationFailure(client, context),
     onSuccess: (result, input, context: any) => {
       if (
         !result ||

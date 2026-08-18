@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   qualifyFleetMutation,
+  recoverFleetMutationFailure,
   reconcileVerifiedFleetMutation,
 } from "./FeatureFlagsFleetPanel";
 
@@ -75,6 +77,20 @@ describe("reconcileVerifiedFleetMutation", () => {
           ],
         },
       ],
+    });
+  });
+
+  it("restores optimistic state and refreshes after a failed mutation", () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const key = ["action", "list-workspace-feature-flags", undefined] as const;
+    const previous = { directoryStatus: "available", apps: [] };
+
+    recoverFleetMutationFailure(client, { previous, key });
+
+    expect(client.getQueryData(key)).toEqual(previous);
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["action", "list-workspace-feature-flags"],
     });
   });
 });

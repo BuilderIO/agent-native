@@ -479,9 +479,15 @@ export async function setWorkspaceFeatureFlag(
   }
   if (readBack.status === 401 || readBack.status === 403)
     throw new WorkspaceFeatureFlagFailure("authorization");
+  if (readBack.status === 404 || readBack.status === 405)
+    throw new WorkspaceFeatureFlagFailure("unsupported-target");
   if (readBack.status < 200 || readBack.status >= 300)
     throw new WorkspaceFeatureFlagFailure("verification");
   const verifiedApp = classifyWorkspaceFeatureFlagList(app, readBack);
+  if (verifiedApp.state === "forbidden")
+    throw new WorkspaceFeatureFlagFailure("authorization");
+  if (verifiedApp.state === "unsupported")
+    throw new WorkspaceFeatureFlagFailure("unsupported-target");
   const verifiedFlag = verifiedApp.flags.find((flag) => flag.key === input.key);
   const expectedEnabled =
     input.operation === "enable-for-current-user"
@@ -521,7 +527,7 @@ export async function setWorkspaceFeatureFlag(
     contractVersion: 3,
     status: "verified",
     key: mutation.key,
-    rules: mutation.rules,
+    rules: verifiedFlag.rules as Record<string, unknown>,
     scope: mutation.scope,
     enabledForCurrentUser: verifiedFlag.enabledForCurrentUser,
   };
