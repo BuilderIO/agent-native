@@ -9,41 +9,104 @@ Agent-native apps use [Nitro](https://nitro.build) under the hood. That means yo
 
 ## Before You Deploy: Pick a Persistent Database {#persistent-database}
 
-Every deployed app needs a persistent SQL database. In local development, agent-native falls back to a SQLite file at `data/app.db`. That is convenient on your machine, but it is not durable in containers, previews, or serverless environments where the filesystem can be reset.
+A **persistent** database is one whose data survives restarts, redeploys, and running on more than one server instance at once. That is what every deployed app needs.
 
-Set `DATABASE_URL` in your deploy provider before promoting an app to production. Agent-native uses Drizzle for schema and queries, so the data layer is portable across Drizzle-compatible SQL backends and the framework auto-detects the dialect from the URL. See [Database](/docs/server-database#production) for the adapter list and dialect details.
+<Comparison>
 
-Use `DATABASE_AUTH_TOKEN` only when your database provider requires a separate token, such as Turso/libSQL. For workspaces, all apps inherit the root `DATABASE_URL` by default. Set `<APP_NAME>_DATABASE_URL` when one app should use a different database.
+### Before
 
-### On-demand schema DDL {#skip-ensure-tables}
+Local development falls back to a SQLite file at `data/app.db`. That's convenient on your machine, but the file lives on the local filesystem, which containers, previews, and serverless platforms can reset at any time.
 
-Each store calls `ensureTable()` on its first database touch, which probes
-`information_schema` / `pg_indexes` and issues `CREATE TABLE` / `ADD COLUMN` /
-`CREATE INDEX` only for what is genuinely missing. On a long-lived Node server
-that cost is paid once per boot and is invisible. On serverless, "first touch" is
-**every cold start**, across ~57 stores. A cold request can pay a few hundred
-serial round trips before it does any real work.
+### After
 
-Two things reduce it:
+Production needs a persistent database, such as Postgres or Turso/libSQL, that survives restarts, redeploys, and running on more than one instance at once.
 
-- The probes are answered from **one batched introspection pass per database**
-  (two queries), instead of one query per table, column, and index. This is
-  automatic and needs no configuration.
-- On Netlify Functions, AWS Lambda, and Vercel Functions in production, the
-  framework skips the probe-and-DDL machinery automatically. No env var is
-  needed on those platforms.
-- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the same machinery on deployments
-  the automatic check does not cover, such as a long-lived Node server, Docker,
-  or another self-hosted setup.
+</Comparison>
 
-Set `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` when your database schema is already
-migrated and you do not want application boot creating or altering tables on
-one of those deployments. This is the normal case for a production deployment
-with a real migration step.
+Connecting one takes three steps:
+
+<Steps>
+
+### Pick a provider
+
+Any Postgres-compatible host (Neon, Supabase, Railway, RDS, and similar) or a libSQL/Turso database works. Agent-native reads and writes through [Drizzle](https://orm.drizzle.team), a TypeScript library that turns your schema into type-safe queries instead of hand-written SQL, so the same app code runs against any of them.
+
+### Get a connection string
+
+Your provider gives you a URL that identifies the database and how to reach it, for example `postgres://user:pass@host:5432/dbname`.
+
+### Set `DATABASE_URL`
+
+Set it in your deploy provider's environment variables before your first production deploy. Agent-native reads the URL and automatically detects which **dialect** (which underlying database engine, Postgres versus SQLite/libSQL) to talk to. See [Database](/docs/server-database#production) for the full adapter list.
+
+</Steps>
+
+<Callout tone="info">
+
+Using Turso or another libSQL provider that authenticates with a separate token? Set `DATABASE_AUTH_TOKEN` alongside `DATABASE_URL`. Building a [workspace](/docs/multi-app-workspace) with more than one app? Every app inherits the root `DATABASE_URL` by default. Set `<APP_NAME>_DATABASE_URL` only for the one app that needs a different database.
+
+</Callout>
+
+### Automatic schema setup {#skip-ensure-tables}
+
+You don't need a separate migration step to get started. The first time any part of your app touches the database, agent-native checks whether the tables, columns, and indexes it needs already exist, and creates whatever is missing. This happens once per server boot and is invisible in normal use.
+
+<Diagram id="doc-block-2ddlboot1" title="What happens on first touch" summary={"Each data store checks its own schema once per boot and creates whatever is missing before serving a real request."}>
+
+```html
+<div class="diagram-boot">
+  <div class="diagram-box" data-rough>Server boots</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">ensureTable()</span
+    ><small class="diagram-muted">checks each store's schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Ready<br /><small class="diagram-muted"
+      >missing tables/columns created</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-boot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-boot .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-boot .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Concretely, each data store calls an internal `ensureTable()` function the first time it's used. That function checks the database's own catalog (Postgres's `information_schema`, for example) and only issues `CREATE TABLE`, `ADD COLUMN`, or `CREATE INDEX` for what is genuinely missing. Those are **DDL** statements, short for Data Definition Language, the part of SQL that shapes tables rather than reading or writing the rows inside them.
+
+### Reducing cold-start latency on serverless {#reducing-cold-start}
+
+On a long-lived server, this check runs once per boot and you likely never notice it. Serverless platforms work differently. A **cold start** is when the platform spins up a brand-new instance of your server to handle a request, and on serverless, "first touch" can mean every cold start, across roughly 57 different stores. That adds up to a few hundred round trips before a request does any real work.
+
+Three things keep that in check:
+
+- **Batched introspection.** Instead of one query per table, column, and index, the checks above run as a single introspection pass per database, just two queries total. This is automatic and needs no configuration.
+- **Automatic skip on managed serverless.** Netlify Functions, AWS Lambda, and Vercel Functions all skip this check entirely in production, with no setup required.
+- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`.** Set this on deployments the automatic skip doesn't cover, such as a long-lived Node server, Docker, or another self-hosted setup, once your schema is already migrated and you don't want application boot creating or altering tables.
 
 <Callout tone="risk">
 
-**Neither this flag nor the automatic serverless skip can fail closed.** If the schema is in fact missing, the first real query fails loudly rather than being repaired on the fly. That is the point, but it means you own the migration story. Do not rely on either one for a deployment that relies on application boot to provision its tables.
+Neither the flag nor the automatic serverless skip can fail closed. If a table really is missing, the first real query that needs it fails loudly instead of being silently repaired. That's deliberate (a silent repair would hide a real migration bug), but it means you own the migration story from here. Don't set this flag, and don't rely on the automatic skip, on a deployment that depends on application boot to create its own tables.
 
 </Callout>
 
