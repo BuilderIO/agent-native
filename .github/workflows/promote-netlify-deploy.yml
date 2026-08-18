@@ -13,10 +13,11 @@ on:
   workflow_dispatch:
     inputs:
       site:
-        description: Site to prioritize
+        description: Site to prioritize, or all production sites
         required: true
         type: choice
         options:
+          - all
           - assets
           - brain
           - design
@@ -31,7 +32,12 @@ on:
           - content
           - calendar
           - analytics
+          - factory
           - fw
+      ref:
+        description: Git ref or commit SHA to promote
+        required: true
+        type: string
       clear_others:
         description: Cancel other sites' queued (not in-progress) production deploys to free build slots
         required: false
@@ -65,6 +71,7 @@ jobs:
           TARGET: ${{ inputs.site }}
           CLEAR_OTHERS: ${{ inputs.clear_others }}
           REBUILD: ${{ inputs.rebuild }}
+          REF: ${{ inputs.ref }}
         with:
           script: |
             const fs = require('fs');
@@ -77,8 +84,15 @@ jobs:
             }
 
             const target = process.env.TARGET;
-            const targetId = sites[target];
-            if (!targetId) {
+            const ref = process.env.REF?.trim();
+            if (!ref) {
+              core.setFailed('A Git ref or commit SHA is required.');
+              return;
+            }
+            const targets = target === 'all'
+              ? Object.entries(sites)
+              : [[target, sites[target]]];
+            if (targets.some(([, id]) => !id)) {
               core.setFailed(`Unknown site: ${target}`);
               return;
             }
@@ -134,7 +148,7 @@ jobs:
               return ok;
             }
 
-            if (clearOthers) {
+            if (clearOthers && target !== 'all') {
               const others = Object.entries(sites).filter(([name]) => name !== target);
               let freed = 0;
               await Promise.all(others.map(async ([name, id]) => {
@@ -143,19 +157,22 @@ jobs:
               core.info(`Cleared ${freed} queued production deploys across other sites.`);
             }
 
-            if (rebuild) {
-              const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, { method: 'POST', headers });
-              if (r.ok) {
-                core.info(`[${target}] triggered a fresh production build.`);
-              } else {
-                core.setFailed(`[${target}] build trigger failed: ${r.status} ${await r.text()}`);
-                return;
+            for (const [name, targetId] of targets) {
+              if (rebuild) {
+                const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, {
+                  method: 'POST',
+                  headers: { ...headers, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ref }),
+                });
+                if (r.ok) {
+                  core.info(`[${name}] triggered a fresh production build for ${ref}.`);
+                } else {
+                  core.setFailed(`[${name}] build trigger failed: ${r.status} ${await r.text()}`);
+                  continue;
+                }
               }
-              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
-              core.info(`[${target}] cleared ${freedTarget} older queued deploys after rebuild trigger.`);
-            } else {
-              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
-              core.info(`[${target}] rebuild not requested; cleared ${freedTarget} older queued deploys so the newest existing deploy runs sooner.`);
+              const freedTarget = await cancelQueuedProductionDeploys(name, targetId, { keepNewest: true });
+              core.info(`[${name}] ${rebuild ? 'cleared' : 'rebuild not requested; cleared'} ${freedTarget} older queued deploys.`);
             }
 
-            core.info(`Promotion complete for ${target} (clear_others=${clearOthers}, rebuild=${rebuild}).`);
+            core.info(`Promotion complete for ${target} (ref=${ref}, clear_others=${clearOthers}, rebuild=${rebuild}).`);

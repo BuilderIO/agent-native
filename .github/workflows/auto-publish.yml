@@ -60,6 +60,12 @@ on:
         required: false
         type: boolean
         default: false
+      releaseChannel:
+        description: "Release channel included in downstream notifications"
+        required: false
+        type: choice
+        options: [latest, beta]
+        default: latest
 
 permissions: {}
 
@@ -194,6 +200,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_CHANNEL: ${{ inputs.releaseChannel || 'latest' }}
         run: |
           set -euo pipefail
           note() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
@@ -275,16 +282,16 @@ jobs:
 
           if has @agent-native/core || has @agent-native/creative-context ||
             has @agent-native/dispatch || has @agent-native/toolkit; then
-            payload="$(jq -cn --arg p "$packages" --arg r "$REPO" --arg u "$RUN_URL" \
-              '{event_type:"agent-native-packages-published",client_payload:{publishedPackages:$p,sourceRepository:$r,sourceRunUrl:$u}}')"
+            payload="$(jq -cn --arg p "$packages" --arg r "$REPO" --arg u "$RUN_URL" --arg c "$RELEASE_CHANNEL" \
+              '{event_type:"agent-native-packages-published",client_payload:{publishedPackages:$p,releaseChannel:$c,sourceRepository:$r,sourceRunUrl:$u}}')"
             dispatch "Builder workspace" "BuilderIO/builder-agent-native-workspace" "$WORKSPACE_TOKEN" "$payload" || rc=1
           else
             note "Builder workspace not notified: no package it consumes was published."
           fi
 
           if has @agent-native/core || has @agent-native/creative-context || has @agent-native/toolkit; then
-            payload="$(jq -cn --arg p "$packages" --arg s "$SHA" \
-              '{event_type:"agent-native-packages-published",client_payload:{sha:$s,publishedPackages:$p}}')"
+            payload="$(jq -cn --arg p "$packages" --arg s "$SHA" --arg c "$RELEASE_CHANNEL" \
+              '{event_type:"agent-native-packages-published",client_payload:{sha:$s,publishedPackages:$p,releaseChannel:$c}}')"
             dispatch "Starter template mirror" "$REPO" "$SELF_TOKEN" "$payload" || rc=1
           else
             note "Starter template mirror not notified: no package it consumes was published."

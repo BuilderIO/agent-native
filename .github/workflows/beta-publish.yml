@@ -1,0 +1,96 @@
+name: Publish beta packages
+
+# Beta snapshots are deliberately manual. They use Changesets' snapshot
+# versioning and the beta npm dist-tag without changing the stable release PR
+# or the stable package versions on main.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-beta-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish beta snapshot
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create beta snapshot versions
+        run: |
+          pnpm changeset pre enter beta
+          pnpm changeset version --snapshot beta
+          pnpm install --lockfile-only
+
+      - name: Build all packages
+        run: pnpm -r build
+
+      - name: Publish beta packages sequentially
+        env:
+          AGENT_NATIVE_NPM_DIST_TAG: beta
+          NPM_CONFIG_PROVENANCE: "true"
+        run: node scripts/changeset-publish-sequential.ts
+
+      - name: Notify downstream repos
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_CHANNEL: beta
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          packages="$(node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const names = new Set([
+            '@agent-native/core',
+            '@agent-native/creative-context',
+            '@agent-native/dispatch',
+            '@agent-native/toolkit',
+          ]);
+          const packages = fs.readdirSync('packages', { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => path.join('packages', entry.name, 'package.json'))
+            .filter((file) => fs.existsSync(file))
+            .map((file) => JSON.parse(fs.readFileSync(file, 'utf8')))
+            .filter((pkg) => names.has(pkg.name))
+            .map((pkg) => ({ name: pkg.name, version: pkg.version }));
+          process.stdout.write(JSON.stringify(packages));
+          NODE
+          )"
+          payload="$(jq -cn --arg p "$packages" --arg c "$RELEASE_CHANNEL" --arg r "$SOURCE_REPOSITORY" --arg u "$SOURCE_RUN_URL" --arg s "$SOURCE_SHA" \
+            '{event_type:"agent-native-packages-published",client_payload:{publishedPackages:$p,releaseChannel:$c,sourceRepository:$r,sourceRunUrl:$u,sha:$s}}')"
+          curl --fail-with-body --retry 5 --retry-all-errors -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --data "$payload" \
+            "https://api.github.com/repos/BuilderIO/builder-agent-native-workspace/dispatches"
