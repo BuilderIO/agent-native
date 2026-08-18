@@ -428,16 +428,33 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
-    { includeAgentCards: false },
+    { includeAgentCards: false, includeArchived: true },
+  );
+  const workspaceApps = useMemo(
+    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
+    [workspaceAppsQuery.data],
+  );
+  const workspaceApp = useMemo(
+    () =>
+      workspaceApps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
+    [appId, workspaceApps],
   );
   const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
     "list_apps",
     {},
+    {
+      // Mounted workspace apps are already fully described by the workspace
+      // registry. Defer the broader MCP grant/discovery scan until that
+      // lookup misses; it is only needed for externally granted apps.
+      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
+    },
   );
   const apps = useMemo(() => {
     const merged = new Map<string, WorkspaceAppSummary>();
 
-    for (const app of mergeChatFirstWorkspaceApps(workspaceAppsQuery.data)) {
+    for (const app of workspaceApps) {
       merged.set(app.id.trim().toLowerCase(), app);
     }
     for (const app of grantedAppsQuery.data?.apps ?? []) {
@@ -453,7 +470,7 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     }
 
     return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, workspaceAppsQuery.data]);
+  }, [grantedAppsQuery.data?.apps, workspaceApps]);
   const app = useMemo(
     () =>
       apps.find(

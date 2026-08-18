@@ -1403,7 +1403,7 @@ export function Layout({
   const chatFirstAppLayoutHydratedRef = useRef(false);
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
-    { includeAgentCards: false },
+    { includeAgentCards: false, includeArchived: true },
     { enabled: chatFirstMode },
   );
   const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
