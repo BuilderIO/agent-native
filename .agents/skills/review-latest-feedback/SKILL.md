@@ -52,6 +52,26 @@ clearly the same symptom into that cluster instead of reopening a new thread for
 each duplicate. Continue to older messages only after the cluster is recorded
 and every grouped report has an auditable disposition.
 
+## Answered clarifications come first
+
+A clarification question is a pending state, not a disposition. Before scanning
+for new messages, re-read every thread this workflow asked a question in that
+has not since been fixed or otherwise dispositioned, oldest question first.
+
+- **The reporter replied** - that thread is the run's first work item. It
+  re-enters triage as a concrete bug carrying the new evidence, ahead of
+  anything newer in the channel: someone answered and is waiting on a fix.
+- **No reply yet** - leave it pending and record it in the recap with the date
+  the question was asked, so an unanswered question stays visible instead of
+  ageing out of the cursor.
+- **The reply does not supply what was asked** - ask the one remaining question
+  only if it is still the blocker; otherwise fix from what is now available.
+
+Our own question is what makes a thread look owned to the cursor rule above,
+which is why this pass runs first. Without it every thread we asked about
+becomes permanently invisible on later runs and the reporter's answer is never
+read.
+
 ## Required reading and tools
 
 Before changing code, read `address-feedback`,
@@ -137,9 +157,10 @@ failure modes, surfaces, or owners.
    after the fix or clarification is ready. A fix reply names what changed and
    the evidence; a clarification reply asks one concrete question. Do not post
    vague progress, technical internals, or a diagnosis that leaves a safely
-   fixable bug undone. Re-read every thread after posting. If this skill's own
-   bot identity is the reply author, treat that reply as a handled marker on
-   the next run.
+   fixable bug undone. Re-read every thread after posting. A fix reply
+   authored by this skill's own identity is a handled marker on the next run;
+   a clarification reply is not. A clarification reply marks the thread pending
+   an answer, to be re-read by the answered-clarifications pass.
 7. Do not close, label, assign, or comment on GitHub issues or Sentry unless
    the invocation explicitly authorizes those mutations. Link the issue or
    event in the recap instead.
@@ -174,10 +195,11 @@ Start cursor: [Slack message](...)
 
 | Source / item | Disposition | Action | Why and evidence |
 | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Clarification needed / Skipped / In progress | ... | ... |
+| [Slack thread](...) | Fixed / Awaiting reply / Clarification needed / Skipped / In progress | ... | ... |
 | [GitHub issue](...) | ... | ... | ... |
 | [Sentry event](...) | ... | ... | ... |
 
+Awaiting reply: [thread](...) - asked YYYY-MM-DD, still unanswered
 Unavailable or unverified: ...
 ```
 
