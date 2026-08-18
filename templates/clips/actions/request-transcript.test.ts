@@ -274,6 +274,52 @@ describe("resolveCleanupSegmentsJson", () => {
       "text here",
     ]);
   });
+
+  it("keeps every measured cue for no-space transcripts", () => {
+    const measured = JSON.stringify([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "古い字幕",
+        source: "system",
+        speaker: "Them",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "を確認",
+        source: "mic",
+        speaker: "Me",
+      },
+    ]);
+    const cleanedText = "新しい日本語の字幕です";
+    const cleaned = JSON.parse(
+      resolveCleanupSegmentsJson(measured, cleanedText, 120_000),
+    );
+
+    expect(cleaned).toHaveLength(2);
+    expect(
+      cleaned.map((segment: { text: string }) => segment.text).join(""),
+    ).toBe(cleanedText);
+    expect(
+      cleaned.map((segment: { startMs: number; endMs: number }) => [
+        segment.startMs,
+        segment.endMs,
+      ]),
+    ).toEqual([
+      [0, 900],
+      [900, 1_800],
+    ]);
+    expect(
+      cleaned.map((segment: { source: string; speaker: string }) => [
+        segment.source,
+        segment.speaker,
+      ]),
+    ).toEqual([
+      ["system", "Them"],
+      ["mic", "Me"],
+    ]);
+  });
 });
 
 describe("builderTranscriptionTimeoutMs", () => {

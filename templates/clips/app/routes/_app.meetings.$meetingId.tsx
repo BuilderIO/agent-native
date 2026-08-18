@@ -469,7 +469,12 @@ export default function MeetingDetailRoute() {
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   };
 
-  const { data, isLoading, isError } = useActionQuery<GetMeetingResp>(
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch: refetchMeeting,
+  } = useActionQuery<GetMeetingResp>(
     "get-meeting",
     { id: meetingId },
     {
@@ -504,8 +509,15 @@ export default function MeetingDetailRoute() {
     meetingId: string;
     items: ActionItem[];
   } | null>(null);
+  const actionItemsAuthoritativeRef = useRef<{
+    meetingId: string;
+    items: ActionItem[];
+  } | null>(null);
   const actionItemsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const actionItemsSaveRevisionRef = useRef(0);
   const pendingActionItemsSavesRef = useRef(0);
+  const richNoteSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const richNoteSaveRevisionRef = useRef(0);
 
   // Imperative scroll-to handle wired by TranscriptBubbles
   const transcriptScrollToRef = useRef<((index: number) => void) | null>(null);
@@ -557,15 +569,21 @@ export default function MeetingDetailRoute() {
   useEffect(() => {
     if (!meeting) {
       actionItemsDraftRef.current = null;
+      actionItemsAuthoritativeRef.current = null;
       return;
     }
     if (
       actionItemsDraftRef.current?.meetingId !== meeting.id ||
       pendingActionItemsSavesRef.current === 0
     ) {
+      const serverItems = meeting.actionItemsJson ?? [];
+      actionItemsAuthoritativeRef.current = {
+        meetingId: meeting.id,
+        items: serverItems,
+      };
       actionItemsDraftRef.current = {
         meetingId: meeting.id,
-        items: meeting.actionItemsJson ?? [],
+        items: serverItems,
       };
     }
   }, [meeting?.id, meeting?.actionItemsJson]);
@@ -640,31 +658,88 @@ export default function MeetingDetailRoute() {
     updateMeeting.mutate({ id: meeting.id, title: next });
   };
 
+  const enqueueRichNoteSave = (
+    meetingId: string,
+    patch: { summaryMd?: string; userNotesMd?: string },
+    label: string,
+  ) => {
+    const revision = ++richNoteSaveRevisionRef.current;
+    const save = richNoteSaveQueueRef.current
+      .catch(() => undefined)
+      .then(() => updateMeeting.mutateAsync({ id: meetingId, ...patch }));
+    richNoteSaveQueueRef.current = save.catch(async (error) => {
+      console.error("[clips] rich note save failed", error);
+      if (richNoteSaveRevisionRef.current === revision) {
+        await refetchMeeting().catch((refetchError) => {
+          console.error(
+            "[clips] meeting refetch after note save failed",
+            refetchError,
+          );
+        });
+      }
+      toast.error(t("transcriptPanel.saveFailed", { status: label }));
+    });
+  };
+
   const handleSummaryChange = (next: string) => {
     if (!meeting) return;
     patchCachedMeeting({ summaryMd: next });
-    updateMeeting.mutate({ id: meeting.id, summaryMd: next });
+    enqueueRichNoteSave(
+      meeting.id,
+      { summaryMd: next },
+      t("meetingDetail.summary"),
+    );
   };
 
   const handleUserNotesChange = (next: string) => {
     if (!meeting) return;
     patchCachedMeeting({ userNotesMd: next });
-    updateMeeting.mutate({ id: meeting.id, userNotesMd: next });
+    enqueueRichNoteSave(
+      meeting.id,
+      { userNotesMd: next },
+      t("meetingDetail.myNotes"),
+    );
   };
 
   const persistActionItems = (next: ActionItem[]) => {
     if (!meeting) return;
     const meetingId = meeting.id;
+    const revision = ++actionItemsSaveRevisionRef.current;
     actionItemsDraftRef.current = { meetingId, items: next };
     patchCachedMeeting({ actionItemsJson: next });
     pendingActionItemsSavesRef.current += 1;
-    actionItemsSaveQueueRef.current = actionItemsSaveQueueRef.current
+    const save = actionItemsSaveQueueRef.current
       .catch(() => undefined)
-      .then(() =>
-        updateMeeting.mutateAsync({ id: meetingId, actionItems: next }),
-      )
-      .catch((error) => {
+      .then(async () => {
+        const result = await updateMeeting.mutateAsync({
+          id: meetingId,
+          actionItems: next,
+        });
+        actionItemsAuthoritativeRef.current = { meetingId, items: next };
+        return result;
+      });
+    actionItemsSaveQueueRef.current = save
+      .catch(async (error) => {
         console.error("[clips] action-item save failed", error);
+        toast.error(
+          t("transcriptPanel.saveFailed", {
+            status: t("meetingDetail.actionItems"),
+          }),
+        );
+        if (actionItemsSaveRevisionRef.current !== revision) return;
+
+        const rollbackItems =
+          actionItemsAuthoritativeRef.current?.meetingId === meetingId
+            ? actionItemsAuthoritativeRef.current.items
+            : [];
+        actionItemsDraftRef.current = { meetingId, items: rollbackItems };
+        patchCachedMeeting({ actionItemsJson: rollbackItems });
+        await refetchMeeting().catch((refetchError) => {
+          console.error(
+            "[clips] meeting refetch after action-item save failed",
+            refetchError,
+          );
+        });
       })
       .finally(() => {
         pendingActionItemsSavesRef.current -= 1;

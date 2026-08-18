@@ -499,40 +499,83 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
+type WordSegmenterConstructor = new (
+  locale?: string | string[],
+  options?: { granularity: "word" },
+) => {
+  segment: (input: string) => Iterable<{ segment: string }>;
+};
+
+function splitMeasuredText(text: string): {
+  units: string[];
+  separator: "" | " ";
+} {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return { units: [], separator: " " };
+  if (/\s/.test(text)) {
+    return {
+      units: normalized.split(" ").filter(Boolean),
+      separator: " ",
+    };
+  }
+
+  // CJK and other scripts often have no spaces between words. Segment those
+  // with the runtime's locale data when available, then fall back to Unicode
+  // code points so every timed cue can still receive some cleaned text.
+  const Segmenter = (
+    Intl as typeof Intl & { Segmenter?: WordSegmenterConstructor }
+  ).Segmenter;
+  if (Segmenter) {
+    const segmented = Array.from(
+      new Segmenter(undefined, { granularity: "word" }).segment(normalized),
+      ({ segment }) => segment,
+    );
+    if (segmented.length > 1) {
+      return { units: segmented, separator: "" };
+    }
+  }
+
+  return { units: Array.from(normalized), separator: "" };
+}
+
 function rewriteMeasuredSegmentText(
   segments: TranscriptSegment[],
   cleanedText: string,
 ): TranscriptSegment[] {
-  const words = cleanedText
-    .replace(/\s+/g, " ")
-    .trim()
-    .split(" ")
-    .filter(Boolean);
-  if (segments.length === 0 || words.length === 0) return [];
+  const cleaned = splitMeasuredText(cleanedText);
+  if (segments.length === 0 || cleaned.units.length === 0) return [];
+
+  // Never silently drop measured cues because a short cleanup result cannot
+  // be split into enough compatible units. Keeping the original cues is safer
+  // than changing speaker/source attribution or making a cue disappear.
+  if (cleaned.units.length < segments.length) return segments;
 
   const weights = segments.map((segment) =>
-    Math.max(1, segment.text.trim().split(/\s+/).filter(Boolean).length),
+    Math.max(1, splitMeasuredText(segment.text).units.length),
   );
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-  let wordIndex = 0;
+  let unitIndex = 0;
   let weightIndex = 0;
 
   return segments.flatMap((segment, index) => {
     const isLast = index === segments.length - 1;
     const remainingSegments = segments.length - index - 1;
     const targetEnd = isLast
-      ? words.length
+      ? cleaned.units.length
       : Math.round(
-          (words.length * (weightIndex + weights[index])) / totalWeight,
+          (cleaned.units.length * (weightIndex + weights[index])) / totalWeight,
         );
     const minimumEnd =
-      words.length >= segments.length ? wordIndex + 1 : wordIndex;
-    const maximumEnd = Math.max(wordIndex, words.length - remainingSegments);
+      cleaned.units.length >= segments.length ? unitIndex + 1 : unitIndex;
+    const maximumEnd = Math.max(
+      unitIndex,
+      cleaned.units.length - remainingSegments,
+    );
     const end = isLast
-      ? words.length
+      ? cleaned.units.length
       : Math.min(maximumEnd, Math.max(minimumEnd, targetEnd));
-    const text = words.slice(wordIndex, end).join(" ");
-    wordIndex = end;
+    const text = cleaned.units.slice(unitIndex, end).join(cleaned.separator);
+    unitIndex = end;
     weightIndex += weights[index];
     return text ? [{ ...segment, text }] : [];
   });
