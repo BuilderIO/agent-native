@@ -1542,6 +1542,7 @@ const deDE = {
     actionsRunContext: "Ausführungskontext",
     actionsOtherSurfaces: "Weitere Oberflächen",
     actionsAdvanced: "Fortgeschritten & Legacy",
+    actionsAgentTools: "Agent-Zugriff in Produktion",
     publicAgentWeb: "Öffentliches Agent Web",
     database: "Datenbank",
     internationalization: "Internationalisierung",

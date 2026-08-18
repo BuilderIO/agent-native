@@ -281,7 +281,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 実稼働エージェントのチャット プラグインは raw SQL ツールをデフォルトで読み取り専用にします (`frameworkTools: { database: "read" }`)。エージェントは `db-schema` / `db-query` でアプリ所有データを検査し、書き込みは型付きアプリ actions 経由で行います。スコープ付きの `db-exec` / `db-patch` も公開する必要がある意図的なメンテナンス面だけで `database: "write"` (または `true`) を設定します。すべてのデータアクセスに型付きアプリ actions を要求するには `database: "off"` / `false` を設定します。
 
-`frameworkTools` は、フレームワーク自身の残りのツールも同じように制御します。共有、レビューコメント、バージョン履歴、feature flags、ローカライズ、監査、Context X-Ray、プロフィール、自動化、docs、resources、web、アプリ間委譲、チャット、メールです。完全な一覧、`"minimal"` プリセット、グループを無効にしても HTTP ルートが残る理由は [Production Agent Tools](/docs/deployment#production-agent-tools) を参照してください。
+`frameworkTools` は、フレームワーク自身の残りのツールも同じように制御します。共有、レビューコメント、バージョン履歴、feature flags、ローカライズ、監査、Context X-Ray、プロフィール、自動化、docs、resources、web、アプリ間委譲、チャット、メールです。完全な一覧、`"minimal"` プリセット、グループを無効にしても HTTP ルートが残る理由は [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) を参照してください。
 
 </Callout>
 

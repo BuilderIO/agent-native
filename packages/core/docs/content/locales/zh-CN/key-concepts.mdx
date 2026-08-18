@@ -284,7 +284,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 生产代理聊天插件默认将原始 SQL 工具设为只读（`frameworkTools: { database: "read" }`），因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的 `db-exec` / `db-patch` 时，才设置 `database: "write"`（或 `true`）；设置 `database: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
 
-`frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/deployment#production-agent-tools)。
+`frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools)。
 
 </Callout>
 

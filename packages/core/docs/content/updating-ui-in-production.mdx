@@ -11,7 +11,7 @@ app's source code. Source changes belong in the repository's development
 workflow. An embedded, local, or Builder frame can edit the repository when
 that frame is intentionally granted workspace and write tooling.
 
-In a standard production deployment with [production code execution](/docs/deployment#production-code-execution) left off, the agent has access to app tools (actions, database, MCP) but not the filesystem. This means the agent can read and write data, run actions, and interact with external services. It can't edit your React components or add new routes on a deployed instance.
+In a standard production deployment with [production code execution](/docs/actions-agent-tools#production-code-execution) left off, the agent has access to app tools (actions, database, MCP) but not the filesystem. This means the agent can read and write data, run actions, and interact with external services. It can't edit your React components or add new routes on a deployed instance.
 
 ## Builder.io: Visual Editing in Production {#builderio}
 
@@ -30,4 +30,4 @@ See [Frames](/docs/frames) for more on the embedded agent panel vs. cloud frame 
 
 - [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
 - [**Frames**](/docs/frames) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits
-- [**Production Agent Tools**](/docs/deployment#production-agent-tools) — what tools the deployed agent has by default
+- [**Production Agent Access**](/docs/actions-agent-tools) — what tools the deployed agent has by default

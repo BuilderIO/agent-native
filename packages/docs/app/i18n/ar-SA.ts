@@ -1530,6 +1530,7 @@ const arSA = {
     actionsRunContext: "سياق التشغيل",
     actionsOtherSurfaces: "أسطح أخرى",
     actionsAdvanced: "متقدم وقديم",
+    actionsAgentTools: "وصول الوكيل في بيئة الإنتاج",
     publicAgentWeb: "ويب الوكيل العام",
     database: "قاعدة البيانات",
     internationalization: "التدويل",

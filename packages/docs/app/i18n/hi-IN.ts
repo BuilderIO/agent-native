@@ -1532,6 +1532,7 @@ const hiIN = {
     actionsRunContext: "रन कॉन्टेक्स्ट",
     actionsOtherSurfaces: "अन्य सतहें",
     actionsAdvanced: "उन्नत और Legacy",
+    actionsAgentTools: "Production में Agent Access",
     publicAgentWeb: "Public agent web",
     database: "डेटाबेस",
     internationalization: "अंतरराष्ट्रीयकरण",

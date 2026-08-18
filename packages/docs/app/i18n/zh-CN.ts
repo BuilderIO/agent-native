@@ -1514,6 +1514,7 @@ const zhCN = {
     actionsRunContext: "运行上下文",
     actionsOtherSurfaces: "其他界面",
     actionsAdvanced: "高级与旧版",
+    actionsAgentTools: "生产环境 Agent 访问权限",
     publicAgentWeb: "公共 Agent Web",
     database: "数据库",
     internationalization: "国际化",

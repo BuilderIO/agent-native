@@ -288,7 +288,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 Das Produktions-Agent-Chat-Plugin setzt rohe SQL-Werkzeuge standardmäßig auf read-only (`frameworkTools: { database: "read" }`). Agenten prüfen App-Daten mit `db-schema` / `db-query` und schreiben über typisierte App-Actions. Setze `database: "write"` (oder `true`) nur für bewusste Wartungsflächen, die auch scoped `db-exec` / `db-patch` anbieten sollen; setze `database: "off"` / `false`, um für jeden Datenzugriff typisierte App-Actions zu verlangen.
 
-`frameworkTools` steuert die übrigen framework-eigenen Tools genauso: Sharing, Review-Kommentare, Versionshistorie, Feature-Flags, Lokalisierung, Audit, Context X-Ray, Profil, Automatisierungen, Docs, Resources, Web, App-übergreifende Delegation, Chat und E-Mail. Siehe [Production Agent Tools](/docs/deployment#production-agent-tools) für die vollständige Liste, das `"minimal"`-Preset und warum eine abgeschaltete Gruppe ihre HTTP-Routen behält.
+`frameworkTools` steuert die übrigen framework-eigenen Tools genauso: Sharing, Review-Kommentare, Versionshistorie, Feature-Flags, Lokalisierung, Audit, Context X-Ray, Profil, Automatisierungen, Docs, Resources, Web, App-übergreifende Delegation, Chat und E-Mail. Siehe [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) für die vollständige Liste, das `"minimal"`-Preset und warum eine abgeschaltete Gruppe ihre HTTP-Routen behält.
 
 </Callout>
 

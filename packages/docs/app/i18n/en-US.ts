@@ -1532,6 +1532,7 @@ const enUS = {
     actionsRunContext: "Run Context",
     actionsOtherSurfaces: "Other Surfaces",
     actionsAdvanced: "Advanced & Legacy",
+    actionsAgentTools: "Production Agent Access",
     publicAgentWeb: "Public Agent Web",
     database: "Database",
     internationalization: "Internationalization",

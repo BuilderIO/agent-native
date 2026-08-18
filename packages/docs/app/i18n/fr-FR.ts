@@ -1543,6 +1543,7 @@ const frFR = {
     actionsRunContext: "Contexte d’exécution",
     actionsOtherSurfaces: "Autres surfaces",
     actionsAdvanced: "Avancé et hérité",
+    actionsAgentTools: "Accès de l'Agent en Production",
     publicAgentWeb: "Agent Web public",
     database: "Base de données",
     internationalization: "Internationalisation",

@@ -1512,6 +1512,7 @@ const messages = {
     actionsRunContext: "執行情境",
     actionsOtherSurfaces: "其他介面",
     actionsAdvanced: "進階與舊版",
+    actionsAgentTools: "正式環境 Agent 存取權限",
     publicAgentWeb: "公開 Agent Web",
     database: "資料庫",
     internationalization: "國際化",

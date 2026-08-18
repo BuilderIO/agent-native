@@ -1,6 +1,7 @@
 # Existing localized documentation files missing for English source docs.
 # Keep this file sorted. Remove entries as localized coverage improves.
 # Format: locale|relative/doc-slug
+ar-SA|actions-agent-tools
 ar-SA|agent-native-config
 ar-SA|automation-connectors
 ar-SA|deployment-cloudflare
@@ -82,6 +83,7 @@ ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
 ar-SA|updating-ui-in-production
 ar-SA|workspace-deployment
+de-DE|actions-agent-tools
 de-DE|agent-native-config
 de-DE|automation-connectors
 de-DE|deployment-cloudflare
@@ -163,6 +165,7 @@ de-DE|toolkit-sharing
 de-DE|toolkit-ui
 de-DE|updating-ui-in-production
 de-DE|workspace-deployment
+es-ES|actions-agent-tools
 es-ES|agent-native-config
 es-ES|automation-connectors
 es-ES|deployment-cloudflare
@@ -244,6 +247,7 @@ es-ES|toolkit-sharing
 es-ES|toolkit-ui
 es-ES|updating-ui-in-production
 es-ES|workspace-deployment
+fr-FR|actions-agent-tools
 fr-FR|agent-native-config
 fr-FR|automation-connectors
 fr-FR|deployment-cloudflare
@@ -325,6 +329,7 @@ fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
 fr-FR|updating-ui-in-production
 fr-FR|workspace-deployment
+hi-IN|actions-agent-tools
 hi-IN|agent-native-config
 hi-IN|automation-connectors
 hi-IN|deployment-cloudflare
@@ -406,6 +411,7 @@ hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
 hi-IN|updating-ui-in-production
 hi-IN|workspace-deployment
+ja-JP|actions-agent-tools
 ja-JP|agent-native-config
 ja-JP|automation-connectors
 ja-JP|deployment-cloudflare
@@ -487,6 +493,7 @@ ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
 ja-JP|updating-ui-in-production
 ja-JP|workspace-deployment
+ko-KR|actions-agent-tools
 ko-KR|agent-native-config
 ko-KR|automation-connectors
 ko-KR|deployment-cloudflare
@@ -568,6 +575,7 @@ ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
 ko-KR|updating-ui-in-production
 ko-KR|workspace-deployment
+pt-BR|actions-agent-tools
 pt-BR|agent-native-config
 pt-BR|automation-connectors
 pt-BR|deployment-cloudflare
@@ -649,6 +657,7 @@ pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
 pt-BR|updating-ui-in-production
 pt-BR|workspace-deployment
+zh-CN|actions-agent-tools
 zh-CN|agent-native-config
 zh-CN|automation-connectors
 zh-CN|deployment-cloudflare
@@ -730,6 +739,7 @@ zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
 zh-CN|updating-ui-in-production
 zh-CN|workspace-deployment
+zh-TW|actions-agent-tools
 zh-TW|agent-native-config
 zh-TW|automation-connectors
 zh-TW|deployment-cloudflare

@@ -598,6 +598,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "actionsAdvanced",
             slug: "actions-advanced",
           },
+          {
+            id: "actions-agent-tools",
+            labelKey: "actionsAgentTools",
+            slug: "actions-agent-tools",
+          },
         ],
       },
       {
