@@ -1352,6 +1352,10 @@ const messages = {
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
     connectStorageToRetryLoom:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
+    leaveConfirmTitle: "離開並捨棄此錄製？",
+    leaveConfirmDescription:
+      "進行中的錄製尚未儲存完成。現在離開此頁面將會捨棄它。",
+    leaveAndDiscard: "離開並捨棄",
   },
   importRoute: {
     pageTitle: "匯入 Loom — Clips",
