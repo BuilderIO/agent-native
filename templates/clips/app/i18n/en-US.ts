@@ -1413,6 +1413,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+    leaveConfirmTitle: "Leave and discard this recording?",
+    leaveConfirmDescription:
+      "Your in-progress recording hasn't finished saving. Leaving this page now will discard it.",
+    leaveAndDiscard: "Leave and discard",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",

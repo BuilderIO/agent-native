@@ -1439,6 +1439,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips tentará importar novamente.",
+    leaveConfirmTitle: "Sair e descartar esta gravação?",
+    leaveConfirmDescription:
+      "Sua gravação em andamento ainda não terminou de ser salva. Se você sair desta página agora, ela será descartada.",
+    leaveAndDiscard: "Sair e descartar",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

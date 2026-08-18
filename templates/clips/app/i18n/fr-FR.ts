@@ -1450,6 +1450,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips relancera l’import.",
+    leaveConfirmTitle: "Quitter et abandonner cet enregistrement ?",
+    leaveConfirmDescription:
+      "Votre enregistrement en cours n’a pas fini d’être sauvegardé. Si vous quittez cette page maintenant, il sera abandonné.",
+    leaveAndDiscard: "Quitter et abandonner",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",
