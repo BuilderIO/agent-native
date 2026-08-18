@@ -1578,6 +1578,76 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  // A gateway 500 says nothing about the request behind it. Without these
+  // counts on the stop event, an oversized payload and an upstream outage are
+  // the same capture — which is exactly how one analytics turn burned a night.
+  it("carries the request shape on a gateway 500", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_shape",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-dashboards",
+            description: "List dashboards",
+            inputSchema: { type: "object", properties: {}, required: [] },
+          },
+        ],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Hi" }] },
+          { role: "assistant", content: [{ type: "text", text: "Hello" }] },
+        ],
+      }),
+    );
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    // The raw envelope rides through untouched: `normalizeChatError` names the
+    // layer from the CODE and keeps this sentence as the `details` line, which
+    // is the only place the error id reaches the reader.
+    expect(stop?.error).toBe(
+      "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+    );
+    expect(stop?.requestShape).toMatchObject({
+      model: BASE_OPTS.model,
+      toolCount: 1,
+      messageCount: 2,
+    });
+    // Measured against the string actually sent, not re-derived here.
+    const sentBody = (globalThis.fetch as any).mock.calls[0][1].body as string;
+    expect(stop?.requestShape?.payloadBytes).toBe(
+      new TextEncoder().encode(sentBody).length,
+    );
+  });
+
+  // Nothing was sent, so there is no shape to report. A zero-byte payload here
+  // would read as "we sent an empty request", which is a different failure.
+  it("omits the request shape when the run failed before the request", async () => {
+    credentialState.builderPrivateKey = null;
+    vi.unstubAllEnvs();
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.requestShape).toBeUndefined();
+  });
+
   it("does not capture to Sentry when the gateway provides an explicit error detail", async () => {
     const captureSpy = vi
       .spyOn(captureErrorModule, "captureError")

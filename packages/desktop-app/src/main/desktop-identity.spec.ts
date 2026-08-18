@@ -1493,6 +1493,22 @@ describe("DesktopIdentityBroker", () => {
     expect(reloadApp).toHaveBeenCalledWith(authority);
     expect(reloadApp).toHaveBeenCalledWith(mail);
     expect(broker.getStatus()).toBe("signed-in");
+
+    const embedSessionRequests = identityFetch.mock.calls.filter(
+      ([input]) =>
+        new URL(String(input)).pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session",
+    );
+    const reloadCount = reloadApp.mock.calls.length;
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+    expect(
+      identityFetch.mock.calls.filter(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toHaveLength(embedSessionRequests.length);
+    expect(reloadApp).toHaveBeenCalledTimes(reloadCount);
   });
 
   it("surfaces a stored desktop exchange error before session adoption", async () => {

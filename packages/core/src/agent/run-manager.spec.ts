@@ -134,6 +134,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  engineRequestShapeTags,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -4364,5 +4365,29 @@ describe("run manager soft timeout", () => {
         expect.anything(),
       );
     });
+  });
+});
+
+describe("engineRequestShapeTags", () => {
+  it("reports what was sent as searchable string tags", () => {
+    expect(
+      engineRequestShapeTags({
+        model: "gpt-5-6-sol",
+        payloadBytes: 131072,
+        toolCount: 39,
+        messageCount: 13,
+      }),
+    ).toEqual({
+      engineModel: "gpt-5-6-sol",
+      enginePayloadBytes: "131072",
+      engineToolCount: "39",
+      engineMessageCount: "13",
+    });
+  });
+
+  // Absent must stay absent: emitting zeros would report an empty request,
+  // which is a different — and wrong — diagnosis than "never sent".
+  it("emits nothing when the failure happened before a request was built", () => {
+    expect(engineRequestShapeTags(undefined)).toEqual({});
   });
 });

@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.161.3
+
+### Patch Changes
+
+- 1e7ce6a: Bound durable-event pruning to one atomic Postgres statement so interrupted serverless workers cannot leave idle transactions behind.
+- 1e7ce6a: Re-arm Neon idle-transaction cleanup and bound concurrent agent-run pruning.
+
 ## 0.161.2
 
 ### Patch Changes

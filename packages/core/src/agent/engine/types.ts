@@ -38,6 +38,8 @@ export class EngineError extends Error {
    * one-shot trim-and-retry recovery.
    */
   readonly contextOverflow?: boolean;
+  /** Sizes and counts of the failed request; see {@link EngineRequestShape}. */
+  readonly requestShape?: EngineRequestShape;
   constructor(
     message: string,
     opts?: {
@@ -47,6 +49,7 @@ export class EngineError extends Error {
       providerRetryable?: boolean;
       requestId?: string;
       contextOverflow?: boolean;
+      requestShape?: EngineRequestShape;
     },
   ) {
     super(message);
@@ -57,6 +60,7 @@ export class EngineError extends Error {
     this.providerRetryable = opts?.providerRetryable;
     this.requestId = opts?.requestId;
     this.contextOverflow = opts?.contextOverflow;
+    this.requestShape = opts?.requestShape;
   }
 }
 
@@ -244,7 +248,24 @@ export type EngineEvent =
        * the time the agent decides whether to trim and retry.
        */
       contextOverflow?: boolean;
+      /**
+       * Sizes and counts of the request that failed. Never prompt or user
+       * content — the point is to make "what did we send" answerable from a
+       * capture, which an opaque gateway 500 otherwise leaves unanswerable.
+       */
+      requestShape?: EngineRequestShape;
     };
+
+/**
+ * Shape-only description of what an engine put on the wire. Every field is a
+ * size, a count, or a model id, so it is safe to attach to an error capture.
+ */
+export interface EngineRequestShape {
+  model: string;
+  payloadBytes: number;
+  toolCount: number;
+  messageCount: number;
+}
 
 // ---------------------------------------------------------------------------
 // Capabilities
