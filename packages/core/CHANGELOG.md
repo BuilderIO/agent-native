@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.161.12
+
+### Patch Changes
+
+- 610103f: Page owners and admins when an app's chat stops answering. The detector already
+  existed as `scripts/chat-health.mjs --strict`, but nothing ran it and nothing
+  alerted, so a sustained outage was found by a user posting in Slack. The same
+  turn-scoring now runs on the durable sweep that already drives stale reaping,
+  scoped to the app it runs in so no cross-app credential is needed. "Not enough
+  turns to judge" and "could not read the ledger" are distinct outcomes from
+  "healthy" — a check that could not run never reports all-clear.
+- 610103f: Rewrite `oneOf` to `anyOf` in generated tool schemas. OpenAI's function-calling
+  validator rejects `oneOf` outright, and Zod v4 emits it for every
+  `z.discriminatedUnion`, so a single action carrying one 400'd the entire chat
+  request before any token streamed — every tool in the payload, not just that
+  action. Measured at 178k errors across 786 users over seven weeks. Also stops a
+  settings-read failure in the chat-health pager from reading as "never paged".
+- 2a7736a: Bound realtime polling, invalidation, collaboration, and autoscroll work so idle or rapidly changing surfaces do not retain unbounded state or repeat expensive refreshes.
+
 ## 0.161.11
 
 ### Patch Changes
