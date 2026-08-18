@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { observeNextPage } from "./infinite-pagination";
+import {
+  observeNextPage,
+  shouldShowPaginationRetry,
+} from "./infinite-pagination";
 
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
@@ -97,5 +100,29 @@ describe("infinite filtered pagination", () => {
     });
 
     expect(FakeIntersectionObserver.instances).toHaveLength(0);
+  });
+
+  it("shows retry for a failed later page even when earlier pages have matches", () => {
+    expect(
+      shouldShowPaginationRetry({
+        hasNextPage: true,
+        isFetchingNextPage: false,
+        isFetchNextPageError: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowPaginationRetry({
+        hasNextPage: true,
+        isFetchingNextPage: true,
+        isFetchNextPageError: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPaginationRetry({
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        isFetchNextPageError: true,
+      }),
+    ).toBe(false);
   });
 });

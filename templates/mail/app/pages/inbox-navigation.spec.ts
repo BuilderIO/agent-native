@@ -32,6 +32,9 @@ describe("Inbox pagination", () => {
       "if (threads.length === 0 && hasNextPage)",
     );
     expect(source).toContain("isFetchNextPageError");
+    const populatedState = source.indexOf("const virtualItems");
+    expect(populatedState).toBeGreaterThan(-1);
+    expect(source.slice(populatedState)).toContain("mail.error.tryAgain");
     expect(inboxSource()).toContain("shouldShowInboxZero");
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
   });

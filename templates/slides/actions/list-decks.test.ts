@@ -125,7 +125,10 @@ describe("list-decks", () => {
     expect(whereFn).toHaveBeenCalledWith({
       and: [
         { allowed: true },
-        { column: "owner_email_col", value: "alice@example.com" },
+        {
+          strings: ["lower(trim(", ")) = ", ""],
+          values: ["owner_email_col", "alice@example.com"],
+        },
       ],
     });
   });

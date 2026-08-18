@@ -6,6 +6,20 @@ interface ObserveNextPageOptions {
   fetchNextPage: () => Promise<unknown>;
 }
 
+export interface PaginationRetryState {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
+}
+
+export function shouldShowPaginationRetry({
+  hasNextPage,
+  isFetchingNextPage,
+  isFetchNextPageError,
+}: PaginationRetryState): boolean {
+  return hasNextPage && isFetchNextPageError && !isFetchingNextPage;
+}
+
 /**
  * Observe a visible infinite-scroll sentinel for one page at a time.
  *

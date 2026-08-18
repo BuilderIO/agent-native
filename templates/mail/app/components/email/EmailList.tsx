@@ -62,7 +62,10 @@ import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { cn } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
-import { observeNextPage } from "./infinite-pagination";
+import {
+  observeNextPage,
+  shouldShowPaginationRetry,
+} from "./infinite-pagination";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -1609,7 +1612,11 @@ export function EmailList({
               {t("mail.empty.loadingMore")}
             </div>
           )}
-          {isFetchNextPageError && !isFetchingNextPage && (
+          {shouldShowPaginationRetry({
+            hasNextPage: Boolean(hasNextPage),
+            isFetchingNextPage: Boolean(isFetchingNextPage),
+            isFetchNextPageError: Boolean(isFetchNextPageError),
+          }) && (
             <button
               type="button"
               onClick={() => void fetchNextPage()}
@@ -1762,6 +1769,19 @@ export function EmailList({
                 <Spinner className="size-3 text-muted-foreground" />
                 {t("mail.empty.loadingMore")}
               </div>
+            )}
+            {shouldShowPaginationRetry({
+              hasNextPage: Boolean(hasNextPage),
+              isFetchingNextPage: Boolean(isFetchingNextPage),
+              isFetchNextPageError: Boolean(isFetchNextPageError),
+            }) && (
+              <button
+                type="button"
+                onClick={() => void fetchNextPage()}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+              >
+                {t("mail.error.tryAgain")}
+              </button>
             )}
           </div>
         )}

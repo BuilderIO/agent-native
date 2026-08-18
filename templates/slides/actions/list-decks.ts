@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -69,8 +69,11 @@ export default defineAction({
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
     const where =
-      args.createdBy === "me" && ownerEmail
-        ? and(visibleDecks, eq(schema.decks.ownerEmail, ownerEmail))
+      args.createdBy === "me" && normalizedOwnerEmail !== null
+        ? and(
+            visibleDecks,
+            sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
+          )
         : visibleDecks;
 
     if (args.light === "true") {
