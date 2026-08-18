@@ -189,7 +189,7 @@ async function recordDecision(input: {
 
 export default defineAction({
   description:
-    "Start the governed clear-bug Builder flow for a Factory item. Slack items are kept in-thread by adding 👀 and tagging @builder.io; grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Start the governed clear-bug Builder flow for a Factory item, or record a skip with a reason when clearBug is false. Slack items are kept in-thread by adding 👀 and tagging @builder.io; grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
     clearBug: z.boolean(),
@@ -345,12 +345,7 @@ export default defineAction({
       userEmail,
       orgId,
       outcome: blocked ? "needs_manual" : "propose_fix",
-      reason: blocked
-        ? guardResults
-            .filter((guard) => !guard.passed)
-            .map((guard) => guard.reason)
-            .join(" ")
-        : reason,
+      reason,
       guardResults,
     });
     await recordFactoryAudit(
@@ -363,7 +358,7 @@ export default defineAction({
         source: item.source,
         sourceUrl: item.sourceUrl,
         status: blocked ? "skipped" : "success",
-        summary: blocked ? "Factory kept this item for manual review." : reason,
+        summary: reason,
         details: {
           decisionId,
           clearBug,
@@ -383,10 +378,7 @@ export default defineAction({
         started: false,
         needsManual: true,
         decisionId,
-        reason: guardResults
-          .filter((guard) => !guard.passed)
-          .map((guard) => guard.reason)
-          .join(" "),
+        reason,
       };
     }
 

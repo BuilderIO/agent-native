@@ -20,6 +20,12 @@ export interface SlackTeamInfo {
   domain: string;
 }
 
+export interface SlackUserInfo {
+  id: string;
+  name: string | null;
+  displayName: string | null;
+}
+
 export interface ChannelHistoryResult {
   messages: SlackMessage[];
   has_more: boolean;
@@ -254,4 +260,34 @@ export async function getTeamInfo(
     tokenResolver,
   );
   return data.team ?? { id: data.team_id ?? "", name: workspace, domain: "" };
+}
+
+export async function getUserInfo(
+  workspace: Workspace,
+  userId: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackUserInfo> {
+  const id = userId.trim();
+  if (!id) throw new Error("A Slack user id is required.");
+  const data = await slackApi<{
+    user?: {
+      id?: string;
+      name?: string;
+      profile?: { display_name?: string };
+    };
+  }>(workspace, "users.info", { user: id }, tokenResolver);
+  const user = data.user;
+  if (!user || typeof user.id !== "string" || !user.id.trim()) {
+    throw new Error("Slack user response is missing a user id.");
+  }
+  const displayName =
+    typeof user.profile?.display_name === "string"
+      ? user.profile.display_name.trim()
+      : "";
+  const name = typeof user.name === "string" ? user.name.trim() : "";
+  return {
+    id: user.id.trim(),
+    name: name || null,
+    displayName: displayName || null,
+  };
 }

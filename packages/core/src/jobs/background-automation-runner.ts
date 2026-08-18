@@ -14,14 +14,30 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import { resolveRunSoftTimeoutMs, startRun } from "../agent/run-manager.js";
+import {
+  resolveRunSoftTimeoutMs,
+  startRun,
+  type ActiveRun,
+} from "../agent/run-manager.js";
 import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
+import {
+  buildAssistantMessage,
+  buildUserMessage,
+  extractThreadMeta,
+  foldAssistantTurn,
+  upsertUserMessage,
+} from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import {
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
-import { createThread } from "../chat-threads/store.js";
+import {
+  createThread,
+  getThread,
+  updateThreadData,
+  withThreadDataLock,
+} from "../chat-threads/store.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -326,6 +342,74 @@ async function recordRunThread(
   }
 }
 
+/**
+ * Chat opens `/chat/:threadId` from `thread_data`, not `agent_run_events`.
+ * Persist before the cut-off/status reject so a failed run still has a
+ * visible trace. Keep the scheduler title — `extractThreadMeta` would
+ * otherwise replace `Job: …` with the prompt excerpt.
+ */
+async function persistBackgroundAutomationTurn(input: {
+  threadId: string;
+  threadTitle: string;
+  prompt: string;
+  run: ActiveRun;
+}): Promise<void> {
+  await withThreadDataLock(input.threadId, async () => {
+    const row = await getThread(input.threadId);
+    if (!row) {
+      throw new Error(
+        `Background automation thread ${input.threadId} was not found while saving run ${input.run.runId}.`,
+      );
+    }
+
+    let repo: unknown;
+    try {
+      repo = JSON.parse(row.threadData || "{}");
+    } catch {
+      throw new Error(
+        `Background automation thread ${input.threadId} has unreadable thread data.`,
+      );
+    }
+    if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+      throw new Error(
+        `Background automation thread ${input.threadId} has unreadable thread data.`,
+      );
+    }
+
+    repo = upsertUserMessage(
+      repo,
+      buildUserMessage({ text: input.prompt, runId: input.run.runId }),
+    );
+    const assistantMsg = buildAssistantMessage(
+      input.run.events ?? [],
+      input.run.runId,
+      {
+        suppressInternalContinuation: true,
+        turnId: input.run.turnId,
+        runDurationMs: Number.isFinite(input.run.startedAt)
+          ? Math.max(0, Date.now() - input.run.startedAt)
+          : undefined,
+      },
+    );
+    if (assistantMsg) {
+      repo = foldAssistantTurn(repo, assistantMsg, {
+        runId: input.run.runId,
+        turnId: input.run.turnId,
+      });
+    }
+
+    const meta = extractThreadMeta(repo);
+    const messages = (repo as { messages?: unknown[] }).messages;
+    await updateThreadData(
+      input.threadId,
+      JSON.stringify(repo),
+      input.threadTitle || row.title,
+      meta.preview || row.preview,
+      Array.isArray(messages) ? messages.length : 0,
+    );
+  });
+}
+
 async function recordRunOutcome(
   historyId: string | null,
   status: "success" | "error",
@@ -486,6 +570,17 @@ async function executeBackgroundAutomation(
             if (hardAbortTimer) {
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
+            }
+            try {
+              await persistBackgroundAutomationTurn({
+                threadId: thread.id,
+                threadTitle,
+                prompt,
+                run,
+              });
+            } catch (err) {
+              reject(err instanceof Error ? err : new Error(String(err)));
+              throw err;
             }
             const cutOffReason = backgroundRunCutOffReason(run);
             if (cutOffReason) {

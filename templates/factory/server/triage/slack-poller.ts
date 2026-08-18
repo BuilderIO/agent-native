@@ -37,17 +37,56 @@ function compactText(text: string): string {
     : compact;
 }
 
-function messageLabel(message: SlackMessage): string {
+function messageLabel(message: SlackMessage, resolvedLabel?: string): string {
   if (message.bot_id || message.username) {
     return `Slack bot ${message.username ?? message.bot_id ?? "unknown"}`;
   }
-  return `Slack user ${message.user ?? "unknown"}`;
+  return `Slack user ${resolvedLabel ?? message.user ?? "unknown"}`;
+}
+
+function slackUserLabel(
+  user: { name: string | null; displayName: string | null } | null,
+  userId: string,
+): string {
+  const displayName = user?.displayName?.trim();
+  if (displayName) return displayName;
+  const name = user?.name?.trim();
+  if (name) return name.startsWith("@") ? name : `@${name}`;
+  return userId;
+}
+
+async function resolveUserLabels(
+  slack: ReturnType<typeof createSlackReader>,
+  workspace: Workspace,
+  messages: SlackMessage[],
+): Promise<Map<string, string>> {
+  const userIds = [
+    ...new Set(
+      messages
+        .filter((message) => !message.bot_id && !message.username)
+        .map((message) => message.user?.trim())
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  ];
+  const labels = new Map<string, string>();
+  await Promise.all(
+    userIds.map(async (userId) => {
+      try {
+        const user = await slack.getUserInfo(workspace, userId);
+        labels.set(userId, slackUserLabel(user, userId));
+      } catch {
+        labels.set(userId, userId);
+      }
+    }),
+  );
+  return labels;
 }
 
 function toEnvelope(
   channelId: string,
   message: SlackMessage,
   teamDomain?: string,
+  userLabels?: Map<string, string>,
 ): IngestionEnvelope {
   const threadTs = message.thread_ts ?? message.ts;
   const suppliedPermalink = (message as SlackMessage & { permalink?: string })
@@ -63,7 +102,10 @@ function toEnvelope(
     externalId: `${channelId}:${threadTs}`,
     receivedAt: new Date().toISOString(),
     ...(sourceUrl ? { sourceUrl } : {}),
-    title: messageLabel(message),
+    title: messageLabel(
+      message,
+      message.user ? userLabels?.get(message.user) : undefined,
+    ),
     summary: compactText(message.text),
     channelId,
     threadTs,
@@ -149,9 +191,15 @@ export async function pollSlackChannel({
     { value: priorTs, raw: priorLastSlackTs },
   );
 
+  const userLabels = await resolveUserLabels(
+    slack,
+    workspace,
+    uniqueNewMessages.map(({ message }) => message),
+  );
+
   return {
     envelopes: uniqueNewMessages.map(({ message }) =>
-      toEnvelope(channelId, message, teamDomain),
+      toEnvelope(channelId, message, teamDomain, userLabels),
     ),
     nextLastSlackTs: maxSeen.raw,
     nextHistoryCursor,

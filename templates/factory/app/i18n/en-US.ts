@@ -69,6 +69,7 @@ const messages = {
     status: "Status",
     coverage: "Coverage",
     reason: "Reason",
+    updatedAt: "Updated",
     detailTitle: "Decision detail",
     selectItem: "Select an item to inspect its evidence and decisions.",
     detailError: "Could not load this observation.",

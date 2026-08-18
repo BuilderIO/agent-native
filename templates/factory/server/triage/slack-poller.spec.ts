@@ -11,6 +11,7 @@ const mockedCreateSlackReader = vi.mocked(createSlackReader);
 const mockedSlackReader = {
   getChannelHistory: vi.fn(),
   getTeamInfo: vi.fn(),
+  getUserInfo: vi.fn(),
   getThread: vi.fn(),
   addEyesReaction: vi.fn(),
   postThreadReply: vi.fn(),
@@ -19,6 +20,13 @@ const mockedSlackReader = {
 beforeEach(() => {
   mockedCreateSlackReader.mockReset().mockReturnValue(mockedSlackReader);
   mockedSlackReader.getChannelHistory.mockReset();
+  mockedSlackReader.getUserInfo
+    .mockReset()
+    .mockImplementation(async (_workspace, userId: string) => ({
+      id: userId,
+      name: null,
+      displayName: null,
+    }));
   mockedSlackReader.getThread.mockReset();
   mockedSlackReader.addEyesReaction.mockReset();
   mockedSlackReader.postThreadReply.mockReset();
@@ -141,6 +149,44 @@ describe("pollSlackChannel", () => {
         coverage: "partial",
       },
     ]);
+  });
+
+  it("titles people with display name, then handle, then user id", async () => {
+    mockedSlackReader.getChannelHistory.mockResolvedValue({
+      messages: [
+        { type: "message", user: "U1", text: "named", ts: "40.1" },
+        { type: "message", user: "U2", text: "handled", ts: "40.2" },
+        { type: "message", user: "U3", text: "unknown", ts: "40.3" },
+        { type: "message", user: "U1", text: "same author again", ts: "40.4" },
+      ],
+      has_more: false,
+    });
+    mockedSlackReader.getUserInfo.mockImplementation(
+      async (_workspace, userId: string) => {
+        if (userId === "U1") {
+          return { id: "U1", name: "johnsmith", displayName: "John Smith" };
+        }
+        if (userId === "U2") {
+          return { id: "U2", name: "janedoe", displayName: null };
+        }
+        throw new Error("users_not_found");
+      },
+    );
+
+    const result = await pollSlackChannel({
+      workspace: "primary",
+      channelId: "C321",
+      priorLastSlackTs: "40.0",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result.envelopes.map((envelope) => envelope.title)).toEqual([
+      "Slack user John Smith",
+      "Slack user @janedoe",
+      "Slack user U3",
+      "Slack user John Smith",
+    ]);
+    expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(3);
   });
 
   it("propagates Slack history failures", async () => {

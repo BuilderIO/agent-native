@@ -48,6 +48,17 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   return { ...actual, getDbExec: () => rawClient };
 });
 
+const getThreadMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "thread-1",
+    title: "Job: daily-digest",
+    preview: "",
+    threadData: "{}",
+    messageCount: 0,
+  })),
+);
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
     inputTokens: 0,
@@ -60,6 +71,10 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: vi.fn(async () => ({ id: "thread-1" })),
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
+  withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 // Narrow re-implementation, not `vi.importActual` — pulling in the real
@@ -233,6 +248,146 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       attachSpy.mockRestore();
       finishSpy.mockRestore();
     }
+  });
+});
+
+function persistedRepo() {
+  const threadData = updateThreadDataMock.mock.calls.at(-1)?.[1];
+  expect(typeof threadData).toBe("string");
+  return JSON.parse(threadData as string) as {
+    messages: Array<{ message?: { role?: string; content?: unknown[] } }>;
+  };
+}
+
+function assistantContent() {
+  const repo = persistedRepo();
+  const entry = repo.messages[1];
+  const message = entry?.message ?? entry;
+  return Array.isArray(message?.content) ? message.content : [];
+}
+
+describe("runBackgroundAutomation — thread transcript", () => {
+  it("persists the prompt and tool-call turn, keeping the Job title", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Checking Slack." });
+        opts.send?.({
+          type: "tool_start",
+          id: "tc_1",
+          tool: "poll-slack-channel",
+          input: { channel: "C123" },
+        });
+        opts.send?.({
+          type: "tool_done",
+          id: "tc_1",
+          tool: "poll-slack-channel",
+          result: JSON.stringify({ checked: 1 }),
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    await runBackgroundAutomation(
+      {
+        automation: {
+          name: "slack-feedback",
+          meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+          body: "Poll Slack.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: "jobs/slack-feedback.md",
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Poll the configured Slack channel.",
+        threadTitle: "Job: Slack Feedback — Aug 17, 2026",
+        runIdPrefix: "job-slack-feedback",
+        usageLabel: "recurring-job:slack-feedback",
+      },
+      {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+      },
+    );
+
+    expect(updateThreadDataMock).toHaveBeenCalledTimes(1);
+    const [, threadData, title, , messageCount] =
+      updateThreadDataMock.mock.calls[0];
+    expect(title).toBe("Job: Slack Feedback — Aug 17, 2026");
+    expect(messageCount).toBe(2);
+    expect(JSON.parse(threadData as string).messages).toHaveLength(2);
+    expect(assistantContent()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "poll-slack-channel",
+        }),
+      ]),
+    );
+  });
+
+  it("persists a partial turn when the run is cut off", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Started polling." });
+        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    await expect(
+      runBackgroundAutomation(
+        {
+          automation: {
+            name: "cut-off-digest",
+            meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/cut-off-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: cut-off-digest — Aug 17, 2026",
+          runIdPrefix: "job-cut-off-digest",
+          usageLabel: "recurring-job:cut-off-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      ),
+    ).rejects.toThrow(/cut off before finishing \(no_progress\)/);
+
+    expect(updateThreadDataMock).toHaveBeenCalled();
+    const [, , title] = updateThreadDataMock.mock.calls[0];
+    expect(title).toBe("Job: cut-off-digest — Aug 17, 2026");
+    expect(assistantContent()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", text: "Started polling." }),
+      ]),
+    );
   });
 });
 
