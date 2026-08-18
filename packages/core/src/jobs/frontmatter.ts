@@ -53,6 +53,22 @@ export interface JobFrontmatter {
   domain?: string;
   /** Explicit application owner used by the recurring-job scheduler. */
   appId?: string;
+  /** Optional paired execution host for code-agent work. */
+  executionHostId?: string;
+  /** Optional engine id understood by the selected execution host. */
+  executionEngine?: string;
+  /** Optional host-local workspace path used by code-agent work. */
+  executionCwd?: string;
+  /** Stable remote dispatch key for a running host-targeted job. */
+  remoteRequestId?: string;
+  /** Durable relay command id for a running host-targeted job. */
+  remoteCommandId?: string;
+  /** Durable remote code-agent run id, when the host has started one. */
+  remoteRunId?: string;
+  /** Durable automation history row associated with the remote dispatch. */
+  remoteAutomationRunId?: string;
+  /** Whether a completed remote dispatch should advance the cron schedule. */
+  remoteAdvanceSchedule?: boolean;
   /**
    * Optional application-owned policy id carried into actions by the trusted
    * trigger dispatcher. It is not model-supplied action input.
@@ -96,6 +112,19 @@ const MAX_JOB_MCP_TOOLS = 64;
 const JOB_MCP_TOOL_NAME_RE = /^mcp__[^\s]+__[^\s]+$/;
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/;
 const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
+const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
+const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
+
+function assertBoundedFrontmatterValue(
+  value: string | undefined,
+  label: string,
+  pattern: RegExp,
+): void {
+  if (value === undefined) return;
+  if (!pattern.test(value)) {
+    throw new Error(`${label} must be a bounded opaque identifier.`);
+  }
+}
 
 /**
  * Normalize the non-secret MCP capability references persisted with a job.
@@ -252,6 +281,30 @@ function parseKnownField(
     case "appId":
       meta.appId = value || undefined;
       break;
+    case "executionHostId":
+      meta.executionHostId = value || undefined;
+      break;
+    case "executionEngine":
+      meta.executionEngine = value || undefined;
+      break;
+    case "executionCwd":
+      meta.executionCwd = value || undefined;
+      break;
+    case "remoteRequestId":
+      meta.remoteRequestId = value || undefined;
+      break;
+    case "remoteCommandId":
+      meta.remoteCommandId = value || undefined;
+      break;
+    case "remoteRunId":
+      meta.remoteRunId = value || undefined;
+      break;
+    case "remoteAutomationRunId":
+      meta.remoteAutomationRunId = value || undefined;
+      break;
+    case "remoteAdvanceSchedule":
+      meta.remoteAdvanceSchedule = value !== "false";
+      break;
     case "delegatedPolicyId":
       meta.delegatedPolicyId = value || undefined;
       break;
@@ -330,6 +383,44 @@ export function buildJobResourceContent(
       "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
     );
   }
+  assertBoundedFrontmatterValue(
+    meta.executionHostId,
+    "Execution host IDs",
+    EXECUTION_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.executionEngine,
+    "Execution engine IDs",
+    EXECUTION_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteRequestId,
+    "Remote request IDs",
+    REMOTE_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteCommandId,
+    "Remote command IDs",
+    REMOTE_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteRunId,
+    "Remote run IDs",
+    REMOTE_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.remoteAutomationRunId,
+    "Remote automation run IDs",
+    REMOTE_ID_RE,
+  );
+  if (
+    meta.executionCwd !== undefined &&
+    (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
+  ) {
+    throw new Error(
+      "Execution workspace paths must be at most 1024 characters.",
+    );
+  }
 
   const lines = [
     "---",
@@ -343,6 +434,16 @@ export function buildJobResourceContent(
   pushString(lines, "domain", meta.domain);
   pushString(lines, "appId", meta.appId);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
+  pushString(lines, "executionHostId", meta.executionHostId);
+  pushString(lines, "executionEngine", meta.executionEngine);
+  pushString(lines, "executionCwd", meta.executionCwd);
+  pushString(lines, "remoteRequestId", meta.remoteRequestId);
+  pushString(lines, "remoteCommandId", meta.remoteCommandId);
+  pushString(lines, "remoteRunId", meta.remoteRunId);
+  pushString(lines, "remoteAutomationRunId", meta.remoteAutomationRunId);
+  if (meta.remoteAdvanceSchedule !== undefined) {
+    lines.push(`remoteAdvanceSchedule: ${meta.remoteAdvanceSchedule}`);
+  }
   // Keep the long-standing human-readable owner shape used by existing
   // resources and diagnostics; values that can contain free-form text use
   // JSON quoting below.

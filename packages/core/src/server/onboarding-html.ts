@@ -15,6 +15,7 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
+import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -89,6 +90,7 @@ function isBuilderPreviewLocalDevEnabled(): boolean {
 }
 
 const EN_AUTH_COPY = {
+  ...NATIVE_AUTH_COPY["en-US"],
   languageLabel: "Language",
   systemLanguage: "System",
   pageTitleSignIn: "Sign in",
@@ -105,25 +107,11 @@ const EN_AUTH_COPY = {
   resetPasswordSubtitle: "Reset your password",
   upgradeCopy:
     "Continue signing in to attach this app to your account and migrate local data.",
-  googleButton: "Sign in with Google",
-  dividerOr: "or",
   createAccount: "Create account",
-  signIn: "Sign in",
-  email: "Email",
-  password: "Password",
-  confirmPassword: "Confirm password",
   passwordMinPlaceholder: `At least ${PASSWORD_MIN_LENGTH} characters`,
   confirmPasswordPlaceholder: "Confirm password",
-  enterPasswordPlaceholder: "Enter password",
-  magicLinkTitle: "Welcome",
-  magicLinkSubtitle: "Create an account or sign in",
-  sendMagicLink: "Continue",
-  magicLinkSent: "Check your email",
-  magicLinkSentCopy: "We sent a secure sign-in link to",
-  magicLinkFailed:
-    "We couldn't send a sign-in link. Check your email and try again.",
-  usePasswordInstead: "Use a password instead",
-  backToMagicLink: "Use a sign-in link instead",
+  magicLinkTitle: NATIVE_AUTH_COPY["en-US"].welcomeTitle,
+  magicLinkSubtitle: NATIVE_AUTH_COPY["en-US"].welcomeSubtitle,
   signupProgress: "Signup progress",
   progressAccount: "Account",
   progressVerify: "Verify",
@@ -136,8 +124,6 @@ const EN_AUTH_COPY = {
     "You can keep this tab open. If it has not refreshed after you come back, use Continue.",
   continue: "Continue",
   resendEmail: "Resend email",
-  back: "Back",
-  forgotPassword: "Forgot password?",
   sendResetLink: "Send reset link",
   backToSignIn: "Back to sign in",
   localNotePrefix: "Your account is stored in this app's own DB",
@@ -152,14 +138,7 @@ const EN_AUTH_COPY = {
   useOwnGoogleClient: "Use your own Google OAuth client:",
   copyCommand: "Copy command",
   copied: "Copied",
-  close: "Close",
   closeGoogleChoices: "Close Google sign-in choices",
-  legalPrefix: "By signing up, you accept our",
-  legalTerms: "Terms",
-  legalConnector: "and",
-  legalPrivacy: "Privacy Policy",
-  legalSuffix: ".",
-  invalidEmail: "Enter a valid email address, like you@example.com.",
   signInToContinue: "Sign in to continue.",
   finishSignInFailed:
     "We couldn't finish signing you in. Please sign in manually.",
@@ -173,9 +152,7 @@ const EN_AUTH_COPY = {
     "We couldn't check your verification status. Please try again.",
   verificationLinkInvalid:
     "This verification link is invalid or expired. Request a new one.",
-  checking: "Checking...",
   checkingVerification: "Checking your verification...",
-  sending: "Sending...",
   sent: "Sent",
   sentVerification: "Sent a fresh verification link.",
   resendVerificationFailed:
@@ -193,19 +170,15 @@ const EN_AUTH_COPY = {
   resetEmailSent: "If that email exists, a reset link is on its way.",
   resetEmailFailed:
     "We couldn't send a password reset email. Check your email and try again.",
-  signingIn: "Signing in…",
-  invalidLogin: "The email or password is incorrect.",
   googleNotConfigured: "Google sign-in is not available right now.",
-  failedToConnect: "We couldn't connect. Please try again.",
   migrateLocalFallback: "Continue signing in to migrate local data.",
   googlePopupHelp: "Allow popups for this site and try again",
-  googleNeverFinished:
-    "Google sign-in did not finish. Check the Google OAuth redirect URI and server logs for [agent-native][google-oauth].",
 };
 
 const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
   "en-US": EN_AUTH_COPY,
   "zh-CN": {
+    ...NATIVE_AUTH_COPY["zh-CN"],
     languageLabel: "语言",
     systemLanguage: "系统",
     pageTitleSignIn: "登录",
@@ -221,24 +194,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     finishAccountSubtitle: "完成账户创建",
     resetPasswordSubtitle: "重置你的密码",
     upgradeCopy: "继续登录，将此应用关联到你的账户并迁移本地数据。",
-    googleButton: "使用 Google 登录",
-    dividerOr: "或",
     createAccount: "创建账户",
-    signIn: "登录",
-    email: "电子邮箱",
-    password: "密码",
-    confirmPassword: "确认密码",
     passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 个字符`,
     confirmPasswordPlaceholder: "确认密码",
-    enterPasswordPlaceholder: "输入密码",
-    magicLinkTitle: "欢迎",
-    magicLinkSubtitle: "创建账户或登录",
-    sendMagicLink: "继续",
-    magicLinkSent: "检查你的邮箱",
-    magicLinkSentCopy: "我们已向以下邮箱发送安全登录链接：",
-    magicLinkFailed: "无法发送登录链接。",
-    usePasswordInstead: "改用密码",
-    backToMagicLink: "改用登录链接",
+    magicLinkTitle: NATIVE_AUTH_COPY["zh-CN"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["zh-CN"].welcomeSubtitle,
     signupProgress: "注册进度",
     progressAccount: "账户",
     progressVerify: "验证",
@@ -250,8 +210,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "你可以保持此标签页打开。如果回来后没有自动刷新，请点击继续。",
     continue: "继续",
     resendEmail: "重新发送邮件",
-    back: "返回",
-    forgotPassword: "忘记密码？",
     sendResetLink: "发送重置链接",
     backToSignIn: "返回登录",
     localNotePrefix: "你的账户存储在此应用自己的数据库中",
@@ -266,14 +224,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "使用你自己的 Google OAuth 客户端：",
     copyCommand: "复制命令",
     copied: "已复制",
-    close: "关闭",
     closeGoogleChoices: "关闭 Google 登录选项",
-    legalPrefix: "注册即表示你接受我们的",
-    legalTerms: "条款",
-    legalConnector: "和",
-    legalPrivacy: "隐私政策",
-    legalSuffix: "。",
-    invalidEmail: "请输入有效邮箱地址，例如 you@example.com。",
     signInToContinue: "登录以继续。",
     finishSignInFailed: "无法自动完成登录。",
     enterPasswordAfterVerification: "验证邮箱后请输入密码。",
@@ -282,9 +233,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "仍在等待验证。请点击邮件中的链接，然后再次点击继续。",
     checkVerificationFailed: "无法检查验证状态。请重试。",
     verificationLinkInvalid: "此验证链接无效或已过期。请重新请求一个。",
-    checking: "正在检查...",
     checkingVerification: "正在检查验证状态...",
-    sending: "正在发送...",
     sent: "已发送",
     sentVerification: "新的验证链接已发送。",
     resendVerificationFailed: "无法重新发送验证邮件。",
@@ -298,16 +247,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     emailVerifiedSignIn: "邮箱已验证。请登录以继续。",
     resetEmailSent: "如果该邮箱存在，重置链接已在发送途中。",
     resetEmailFailed: "无法发送重置邮件。",
-    signingIn: "正在登录…",
-    invalidLogin: "邮箱或密码无效",
     googleNotConfigured: "Google OAuth 未配置。",
-    failedToConnect: "连接失败。请重试。",
     migrateLocalFallback: "继续登录以迁移本地数据。",
     googlePopupHelp: "请允许此网站弹出窗口后重试",
-    googleNeverFinished:
-      "Google 登录未完成。请检查 Google OAuth 重定向 URI 和服务器日志中的 [agent-native][google-oauth]。",
   },
   "zh-TW": {
+    ...NATIVE_AUTH_COPY["zh-TW"],
     languageLabel: "語言",
     systemLanguage: "系統",
     pageTitleSignIn: "登入",
@@ -323,24 +268,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     finishAccountSubtitle: "完成帳號建立",
     resetPasswordSubtitle: "重設你的密碼",
     upgradeCopy: "繼續登入，將此應用程式連結到你的帳號並遷移本機資料。",
-    googleButton: "使用 Google 登入",
-    dividerOr: "或",
     createAccount: "建立帳號",
-    signIn: "登入",
-    email: "電子郵件",
-    password: "密碼",
-    confirmPassword: "確認密碼",
     passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 個字元`,
     confirmPasswordPlaceholder: "確認密碼",
-    enterPasswordPlaceholder: "輸入密碼",
-    magicLinkTitle: "歡迎",
-    magicLinkSubtitle: "建立帳戶或登入",
-    sendMagicLink: "繼續",
-    magicLinkSent: "檢查你的電子郵件",
-    magicLinkSentCopy: "我們已向以下電子郵件寄送安全登入連結：",
-    magicLinkFailed: "無法寄送登入連結。",
-    usePasswordInstead: "改用密碼",
-    backToMagicLink: "改用登入連結",
+    magicLinkTitle: NATIVE_AUTH_COPY["zh-TW"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["zh-TW"].welcomeSubtitle,
     signupProgress: "註冊進度",
     progressAccount: "帳號",
     progressVerify: "驗證",
@@ -352,8 +284,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "你可以保持此分頁開啟。如果回來後沒有自動重新整理，請點擊繼續。",
     continue: "繼續",
     resendEmail: "重新寄送郵件",
-    back: "返回",
-    forgotPassword: "忘記密碼？",
     sendResetLink: "寄送重設連結",
     backToSignIn: "返回登入",
     localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
@@ -368,14 +298,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
     copyCommand: "複製指令",
     copied: "已複製",
-    close: "關閉",
     closeGoogleChoices: "關閉 Google 登入選項",
-    legalPrefix: "註冊即表示你接受我們的",
-    legalTerms: "條款",
-    legalConnector: "和",
-    legalPrivacy: "隱私權政策",
-    legalSuffix: "。",
-    invalidEmail: "請輸入有效的電子郵件地址，例如 you@example.com。",
     signInToContinue: "登入以繼續。",
     finishSignInFailed: "無法自動完成登入。",
     enterPasswordAfterVerification: "驗證電子郵件後請輸入密碼。",
@@ -384,9 +307,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "仍在等待驗證。請點擊郵件中的連結，然後再次點擊繼續。",
     checkVerificationFailed: "無法檢查驗證狀態。請重試。",
     verificationLinkInvalid: "此驗證連結無效或已過期。請重新索取。",
-    checking: "正在檢查...",
     checkingVerification: "正在檢查驗證狀態...",
-    sending: "正在寄送...",
     sent: "已送出",
     sentVerification: "新的驗證連結已送出。",
     resendVerificationFailed: "無法重新寄送驗證郵件。",
@@ -400,16 +321,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     emailVerifiedSignIn: "電子郵件已驗證。請登入以繼續。",
     resetEmailSent: "如果該電子郵件存在，重設連結已在寄送途中。",
     resetEmailFailed: "無法寄送重設郵件。",
-    signingIn: "正在登入...",
-    invalidLogin: "電子郵件或密碼無效",
     googleNotConfigured: "Google OAuth 尚未設定。",
-    failedToConnect: "連線失敗。請重試。",
     migrateLocalFallback: "繼續登入以遷移本機資料。",
     googlePopupHelp: "請允許此網站開啟彈出式視窗後重試",
-    googleNeverFinished:
-      "Google 登入未完成。請檢查 Google OAuth 重新導向 URI，以及伺服器記錄中的 [agent-native][google-oauth]。",
   },
   "es-ES": {
+    ...NATIVE_AUTH_COPY["es-ES"],
     languageLabel: "Idioma",
     systemLanguage: "Sistema",
     pageTitleSignIn: "Iniciar sesión",
@@ -426,24 +343,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "Restablece tu contraseña",
     upgradeCopy:
       "Sigue iniciando sesión para conectar esta app a tu cuenta y migrar datos locales.",
-    googleButton: "Iniciar sesión con Google",
-    dividerOr: "o",
     createAccount: "Crear cuenta",
-    signIn: "Iniciar sesión",
-    email: "Email",
-    password: "Contraseña",
-    confirmPassword: "Confirmar contraseña",
     passwordMinPlaceholder: `Al menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar contraseña",
-    enterPasswordPlaceholder: "Introduce la contraseña",
-    magicLinkTitle: "Bienvenido",
-    magicLinkSubtitle: "Crea una cuenta o inicia sesión",
-    sendMagicLink: "Continuar",
-    magicLinkSent: "Revisa tu email",
-    magicLinkSentCopy: "Enviamos un enlace seguro a",
-    magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
-    usePasswordInstead: "Usar una contraseña",
-    backToMagicLink: "Usar un enlace de inicio de sesión",
+    magicLinkTitle: NATIVE_AUTH_COPY["es-ES"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["es-ES"].welcomeSubtitle,
     signupProgress: "Progreso de registro",
     progressAccount: "Cuenta",
     progressVerify: "Verificar",
@@ -456,8 +360,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Puedes dejar esta pestaña abierta. Si no se actualiza al volver, usa Continuar.",
     continue: "Continuar",
     resendEmail: "Reenviar email",
-    back: "Volver",
-    forgotPassword: "¿Olvidaste tu contraseña?",
     sendResetLink: "Enviar enlace de restablecimiento",
     backToSignIn: "Volver a iniciar sesión",
     localNotePrefix:
@@ -474,14 +376,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "Usa tu propio cliente de Google OAuth:",
     copyCommand: "Copiar comando",
     copied: "Copiado",
-    close: "Cerrar",
     closeGoogleChoices: "Cerrar opciones de inicio con Google",
-    legalPrefix: "Al registrarte, aceptas nuestros",
-    legalTerms: "Términos",
-    legalConnector: "y",
-    legalPrivacy: "Política de privacidad",
-    legalSuffix: ".",
-    invalidEmail: "Introduce un email válido, como you@example.com.",
     signInToContinue: "Inicia sesión para continuar.",
     finishSignInFailed: "No se pudo completar el inicio automáticamente.",
     enterPasswordAfterVerification:
@@ -494,9 +389,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "No se pudo comprobar la verificación. Inténtalo de nuevo.",
     verificationLinkInvalid:
       "Este enlace de verificación no es válido o ha caducado. Solicita uno nuevo.",
-    checking: "Comprobando...",
     checkingVerification: "Comprobando tu verificación...",
-    sending: "Enviando...",
     sent: "Enviado",
     sentVerification: "Se envió un nuevo enlace de verificación.",
     resendVerificationFailed: "No se pudo reenviar el email de verificación.",
@@ -511,17 +404,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetEmailSent:
       "Si ese email existe, el enlace de restablecimiento está en camino.",
     resetEmailFailed: "No se pudo enviar el email de restablecimiento.",
-    signingIn: "Iniciando sesión…",
-    invalidLogin: "Email o contraseña no válidos",
     googleNotConfigured: "Google OAuth no está configurado.",
-    failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
     migrateLocalFallback: "Sigue iniciando sesión para migrar datos locales.",
     googlePopupHelp:
       "Permite ventanas emergentes para este sitio e inténtalo de nuevo",
-    googleNeverFinished:
-      "El inicio de sesión con Google no terminó. Comprueba el URI de redirección de Google OAuth y los logs del servidor para [agent-native][google-oauth].",
   },
   "fr-FR": {
+    ...NATIVE_AUTH_COPY["fr-FR"],
     languageLabel: "Langue",
     systemLanguage: "Système",
     pageTitleSignIn: "Connexion",
@@ -538,24 +427,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "Réinitialisez votre mot de passe",
     upgradeCopy:
       "Continuez la connexion pour associer cette app à votre compte et migrer les données locales.",
-    googleButton: "Se connecter avec Google",
-    dividerOr: "ou",
     createAccount: "Créer un compte",
-    signIn: "Connexion",
-    email: "E-mail",
-    password: "Mot de passe",
-    confirmPassword: "Confirmer le mot de passe",
     passwordMinPlaceholder: `Au moins ${PASSWORD_MIN_LENGTH} caractères`,
     confirmPasswordPlaceholder: "Confirmer le mot de passe",
-    enterPasswordPlaceholder: "Saisir le mot de passe",
-    magicLinkTitle: "Bienvenue",
-    magicLinkSubtitle: "Créez un compte ou connectez-vous",
-    sendMagicLink: "Continuer",
-    magicLinkSent: "Vérifiez votre e-mail",
-    magicLinkSentCopy: "Nous avons envoyé un lien sécurisé à",
-    magicLinkFailed: "Impossible d'envoyer le lien de connexion.",
-    usePasswordInstead: "Utiliser un mot de passe",
-    backToMagicLink: "Utiliser un lien de connexion",
+    magicLinkTitle: NATIVE_AUTH_COPY["fr-FR"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["fr-FR"].welcomeSubtitle,
     signupProgress: "Progression de l'inscription",
     progressAccount: "Compte",
     progressVerify: "Vérifier",
@@ -568,8 +444,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Vous pouvez garder cet onglet ouvert. S'il ne s'actualise pas à votre retour, utilisez Continuer.",
     continue: "Continuer",
     resendEmail: "Renvoyer l'e-mail",
-    back: "Retour",
-    forgotPassword: "Mot de passe oublié ?",
     sendResetLink: "Envoyer le lien de réinitialisation",
     backToSignIn: "Retour à la connexion",
     localNotePrefix:
@@ -586,14 +460,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "Utilisez votre propre client Google OAuth :",
     copyCommand: "Copier la commande",
     copied: "Copié",
-    close: "Fermer",
     closeGoogleChoices: "Fermer les choix de connexion Google",
-    legalPrefix: "En vous inscrivant, vous acceptez nos",
-    legalTerms: "Conditions",
-    legalConnector: "et",
-    legalPrivacy: "Politique de confidentialité",
-    legalSuffix: ".",
-    invalidEmail: "Saisissez une adresse e-mail valide, comme you@example.com.",
     signInToContinue: "Connectez-vous pour continuer.",
     finishSignInFailed: "Impossible de terminer la connexion automatiquement.",
     enterPasswordAfterVerification:
@@ -606,9 +473,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Impossible de vérifier l'état. Veuillez réessayer.",
     verificationLinkInvalid:
       "Ce lien de vérification est invalide ou expiré. Demandez-en un nouveau.",
-    checking: "Vérification...",
     checkingVerification: "Vérification en cours...",
-    sending: "Envoi...",
     sent: "Envoyé",
     sentVerification: "Nouveau lien de vérification envoyé.",
     resendVerificationFailed:
@@ -624,17 +489,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetEmailSent:
       "Si cet e-mail existe, un lien de réinitialisation est en route.",
     resetEmailFailed: "Impossible d'envoyer l'e-mail de réinitialisation.",
-    signingIn: "Connexion…",
-    invalidLogin: "E-mail ou mot de passe invalide",
     googleNotConfigured: "Google OAuth n'est pas configuré.",
-    failedToConnect: "Connexion impossible. Veuillez réessayer.",
     migrateLocalFallback:
       "Continuez la connexion pour migrer les données locales.",
     googlePopupHelp: "Autorisez les fenêtres pop-up pour ce site et réessayez",
-    googleNeverFinished:
-      "La connexion Google n'a pas abouti. Vérifiez l'URI de redirection Google OAuth et les logs serveur pour [agent-native][google-oauth].",
   },
   "de-DE": {
+    ...NATIVE_AUTH_COPY["de-DE"],
     languageLabel: "Sprache",
     systemLanguage: "System",
     pageTitleSignIn: "Anmelden",
@@ -651,24 +512,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "Setze dein Passwort zurück",
     upgradeCopy:
       "Melde dich weiter an, um diese App mit deinem Konto zu verbinden und lokale Daten zu migrieren.",
-    googleButton: "Mit Google anmelden",
-    dividerOr: "oder",
     createAccount: "Konto erstellen",
-    signIn: "Anmelden",
-    email: "E-Mail",
-    password: "Passwort",
-    confirmPassword: "Passwort bestätigen",
     passwordMinPlaceholder: `Mindestens ${PASSWORD_MIN_LENGTH} Zeichen`,
     confirmPasswordPlaceholder: "Passwort bestätigen",
-    enterPasswordPlaceholder: "Passwort eingeben",
-    magicLinkTitle: "Willkommen",
-    magicLinkSubtitle: "Konto erstellen oder anmelden",
-    sendMagicLink: "Weiter",
-    magicLinkSent: "Prüfe deine E-Mail",
-    magicLinkSentCopy: "Wir haben einen sicheren Anmeldelink gesendet an",
-    magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
-    usePasswordInstead: "Stattdessen Passwort verwenden",
-    backToMagicLink: "Stattdessen Anmeldelink verwenden",
+    magicLinkTitle: NATIVE_AUTH_COPY["de-DE"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["de-DE"].welcomeSubtitle,
     signupProgress: "Registrierungsfortschritt",
     progressAccount: "Konto",
     progressVerify: "Prüfen",
@@ -681,8 +529,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Du kannst diesen Tab geöffnet lassen. Wenn er nach deiner Rückkehr nicht aktualisiert wird, nutze Weiter.",
     continue: "Weiter",
     resendEmail: "E-Mail erneut senden",
-    back: "Zurück",
-    forgotPassword: "Passwort vergessen?",
     sendResetLink: "Reset-Link senden",
     backToSignIn: "Zurück zur Anmeldung",
     localNotePrefix:
@@ -699,14 +545,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "Eigenen Google-OAuth-Client verwenden:",
     copyCommand: "Befehl kopieren",
     copied: "Kopiert",
-    close: "Schließen",
     closeGoogleChoices: "Google-Anmeldeoptionen schließen",
-    legalPrefix: "Mit der Registrierung akzeptierst du unsere",
-    legalTerms: "Bedingungen",
-    legalConnector: "und",
-    legalPrivacy: "Datenschutzrichtlinie",
-    legalSuffix: ".",
-    invalidEmail: "Gib eine gültige E-Mail-Adresse ein, z. B. you@example.com.",
     signInToContinue: "Melde dich an, um fortzufahren.",
     finishSignInFailed:
       "Die Anmeldung konnte nicht automatisch abgeschlossen werden.",
@@ -720,9 +559,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Bestätigung konnte nicht geprüft werden. Bitte erneut versuchen.",
     verificationLinkInvalid:
       "Dieser Bestätigungslink ist ungültig oder abgelaufen. Fordere einen neuen an.",
-    checking: "Prüfen...",
     checkingVerification: "Bestätigung wird geprüft...",
-    sending: "Senden...",
     sent: "Gesendet",
     sentVerification: "Ein neuer Bestätigungslink wurde gesendet.",
     resendVerificationFailed:
@@ -738,16 +575,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetEmailSent:
       "Falls diese E-Mail existiert, ist ein Reset-Link unterwegs.",
     resetEmailFailed: "Reset-E-Mail konnte nicht gesendet werden.",
-    signingIn: "Anmeldung…",
-    invalidLogin: "E-Mail oder Passwort ungültig",
     googleNotConfigured: "Google OAuth ist nicht konfiguriert.",
-    failedToConnect: "Verbindung fehlgeschlagen. Bitte erneut versuchen.",
     migrateLocalFallback: "Melde dich weiter an, um lokale Daten zu migrieren.",
     googlePopupHelp: "Erlaube Pop-ups für diese Website und versuche es erneut",
-    googleNeverFinished:
-      "Die Google-Anmeldung wurde nicht abgeschlossen. Prüfe die Google-OAuth-Redirect-URI und Serverlogs für [agent-native][google-oauth].",
   },
   "ja-JP": {
+    ...NATIVE_AUTH_COPY["ja-JP"],
     languageLabel: "言語",
     systemLanguage: "システム",
     pageTitleSignIn: "サインイン",
@@ -764,24 +597,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "パスワードをリセットします",
     upgradeCopy:
       "サインインを続けて、このアプリをアカウントに接続し、ローカルデータを移行します。",
-    googleButton: "Google でサインイン",
-    dividerOr: "または",
     createAccount: "アカウントを作成",
-    signIn: "サインイン",
-    email: "メール",
-    password: "パスワード",
-    confirmPassword: "パスワードを確認",
     passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} 文字以上`,
     confirmPasswordPlaceholder: "パスワードを確認",
-    enterPasswordPlaceholder: "パスワードを入力",
-    magicLinkTitle: "ようこそ",
-    magicLinkSubtitle: "アカウントを作成するかサインインしてください",
-    sendMagicLink: "続行",
-    magicLinkSent: "メールを確認してください",
-    magicLinkSentCopy: "安全なサインインリンクを送信しました：",
-    magicLinkFailed: "サインインリンクを送信できませんでした。",
-    usePasswordInstead: "パスワードを使用する",
-    backToMagicLink: "サインインリンクを使用する",
+    magicLinkTitle: NATIVE_AUTH_COPY["ja-JP"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["ja-JP"].welcomeSubtitle,
     signupProgress: "登録の進行状況",
     progressAccount: "アカウント",
     progressVerify: "確認",
@@ -794,8 +614,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "このタブは開いたままで構いません。戻っても更新されない場合は、続行を押してください。",
     continue: "続行",
     resendEmail: "メールを再送信",
-    back: "戻る",
-    forgotPassword: "パスワードをお忘れですか？",
     sendResetLink: "リセットリンクを送信",
     backToSignIn: "サインインに戻る",
     localNotePrefix: "アカウントはこのアプリ自身の DB に保存されます",
@@ -810,15 +628,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "自分の Google OAuth クライアントを使用:",
     copyCommand: "コマンドをコピー",
     copied: "コピーしました",
-    close: "閉じる",
     closeGoogleChoices: "Google サインインの選択肢を閉じる",
-    legalPrefix: "登録すると、以下に同意したものとみなされます:",
-    legalTerms: "利用規約",
-    legalConnector: "および",
-    legalPrivacy: "プライバシーポリシー",
-    legalSuffix: "。",
-    invalidEmail:
-      "you@example.com のような有効なメールアドレスを入力してください。",
     signInToContinue: "続行するにはサインインしてください。",
     finishSignInFailed: "サインインを自動で完了できませんでした。",
     enterPasswordAfterVerification:
@@ -831,9 +641,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "確認状態をチェックできませんでした。もう一度お試しください。",
     verificationLinkInvalid:
       "この確認リンクは無効か期限切れです。新しいリンクをリクエストしてください。",
-    checking: "確認中...",
     checkingVerification: "確認状態をチェック中...",
-    sending: "送信中...",
     sent: "送信済み",
     sentVerification: "新しい確認リンクを送信しました。",
     resendVerificationFailed: "確認メールを再送信できませんでした。",
@@ -848,17 +656,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "メールを確認しました。続行するにはサインインしてください。",
     resetEmailSent: "そのメールが存在する場合、リセットリンクを送信しました。",
     resetEmailFailed: "リセットメールを送信できませんでした。",
-    signingIn: "サインイン中…",
-    invalidLogin: "メールまたはパスワードが正しくありません",
     googleNotConfigured: "Google OAuth が設定されていません。",
-    failedToConnect: "接続できませんでした。もう一度お試しください。",
     migrateLocalFallback: "サインインを続けてローカルデータを移行します。",
     googlePopupHelp:
       "このサイトのポップアップを許可してから、もう一度お試しください",
-    googleNeverFinished:
-      "Google サインインが完了しませんでした。Google OAuth リダイレクト URI と [agent-native][google-oauth] のサーバーログを確認してください。",
   },
   "ko-KR": {
+    ...NATIVE_AUTH_COPY["ko-KR"],
     languageLabel: "언어",
     systemLanguage: "시스템",
     pageTitleSignIn: "로그인",
@@ -875,24 +679,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "비밀번호를 재설정하세요",
     upgradeCopy:
       "계속 로그인하여 이 앱을 계정에 연결하고 로컬 데이터를 마이그레이션하세요.",
-    googleButton: "Google로 로그인",
-    dividerOr: "또는",
     createAccount: "계정 만들기",
-    signIn: "로그인",
-    email: "이메일",
-    password: "비밀번호",
-    confirmPassword: "비밀번호 확인",
     passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH}자 이상`,
     confirmPasswordPlaceholder: "비밀번호 확인",
-    enterPasswordPlaceholder: "비밀번호 입력",
-    magicLinkTitle: "환영합니다",
-    magicLinkSubtitle: "계정을 만들거나 로그인하세요",
-    sendMagicLink: "계속",
-    magicLinkSent: "이메일을 확인하세요",
-    magicLinkSentCopy: "안전한 로그인 링크를 보냈습니다:",
-    magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
-    usePasswordInstead: "비밀번호 사용",
-    backToMagicLink: "로그인 링크 사용",
+    magicLinkTitle: NATIVE_AUTH_COPY["ko-KR"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["ko-KR"].welcomeSubtitle,
     signupProgress: "가입 진행 상황",
     progressAccount: "계정",
     progressVerify: "확인",
@@ -905,8 +696,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "이 탭을 열어 두어도 됩니다. 돌아온 뒤 새로고침되지 않으면 계속을 누르세요.",
     continue: "계속",
     resendEmail: "이메일 다시 보내기",
-    back: "뒤로",
-    forgotPassword: "비밀번호를 잊으셨나요?",
     sendResetLink: "재설정 링크 보내기",
     backToSignIn: "로그인으로 돌아가기",
     localNotePrefix: "계정은 이 앱의 자체 DB에 저장됩니다",
@@ -921,14 +710,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "내 Google OAuth 클라이언트 사용:",
     copyCommand: "명령 복사",
     copied: "복사됨",
-    close: "닫기",
     closeGoogleChoices: "Google 로그인 선택 닫기",
-    legalPrefix: "가입하면 다음에 동의하게 됩니다:",
-    legalTerms: "약관",
-    legalConnector: "및",
-    legalPrivacy: "개인정보 처리방침",
-    legalSuffix: ".",
-    invalidEmail: "you@example.com 같은 올바른 이메일 주소를 입력하세요.",
     signInToContinue: "계속하려면 로그인하세요.",
     finishSignInFailed: "자동으로 로그인을 완료할 수 없습니다.",
     enterPasswordAfterVerification: "이메일을 확인한 후 비밀번호를 입력하세요.",
@@ -939,9 +721,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkVerificationFailed: "확인 상태를 확인할 수 없습니다. 다시 시도하세요.",
     verificationLinkInvalid:
       "이 인증 링크가 유효하지 않거나 만료되었습니다. 새 링크를 요청하세요.",
-    checking: "확인 중...",
     checkingVerification: "확인 상태 확인 중...",
-    sending: "보내는 중...",
     sent: "보냄",
     sentVerification: "새 확인 링크를 보냈습니다.",
     resendVerificationFailed: "확인 이메일을 다시 보낼 수 없습니다.",
@@ -955,16 +735,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     emailVerifiedSignIn: "이메일 확인됨. 계속하려면 로그인하세요.",
     resetEmailSent: "해당 이메일이 있으면 재설정 링크가 발송됩니다.",
     resetEmailFailed: "재설정 이메일을 보낼 수 없습니다.",
-    signingIn: "로그인 중…",
-    invalidLogin: "이메일 또는 비밀번호가 올바르지 않습니다",
     googleNotConfigured: "Google OAuth가 구성되지 않았습니다.",
-    failedToConnect: "연결하지 못했습니다. 다시 시도하세요.",
     migrateLocalFallback: "계속 로그인하여 로컬 데이터를 마이그레이션하세요.",
     googlePopupHelp: "이 사이트의 팝업을 허용한 뒤 다시 시도하세요",
-    googleNeverFinished:
-      "Google 로그인이 완료되지 않았습니다. Google OAuth 리디렉션 URI와 [agent-native][google-oauth] 서버 로그를 확인하세요.",
   },
   "pt-BR": {
+    ...NATIVE_AUTH_COPY["pt-BR"],
     languageLabel: "Idioma",
     systemLanguage: "Sistema",
     pageTitleSignIn: "Entrar",
@@ -981,24 +757,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "Redefina sua senha",
     upgradeCopy:
       "Continue entrando para conectar este app à sua conta e migrar dados locais.",
-    googleButton: "Entrar com Google",
-    dividerOr: "ou",
     createAccount: "Criar conta",
-    signIn: "Entrar",
-    email: "Email",
-    password: "Senha",
-    confirmPassword: "Confirmar senha",
     passwordMinPlaceholder: `Pelo menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar senha",
-    enterPasswordPlaceholder: "Digite a senha",
-    magicLinkTitle: "Bem-vindo",
-    magicLinkSubtitle: "Crie uma conta ou entre",
-    sendMagicLink: "Continuar",
-    magicLinkSent: "Confira seu email",
-    magicLinkSentCopy: "Enviamos um link seguro para",
-    magicLinkFailed: "Não foi possível enviar o link de acesso.",
-    usePasswordInstead: "Usar uma senha",
-    backToMagicLink: "Usar um link de acesso",
+    magicLinkTitle: NATIVE_AUTH_COPY["pt-BR"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["pt-BR"].welcomeSubtitle,
     signupProgress: "Progresso do cadastro",
     progressAccount: "Conta",
     progressVerify: "Verificar",
@@ -1011,8 +774,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Você pode manter esta aba aberta. Se ela não atualizar quando você voltar, use Continuar.",
     continue: "Continuar",
     resendEmail: "Reenviar email",
-    back: "Voltar",
-    forgotPassword: "Esqueceu a senha?",
     sendResetLink: "Enviar link de redefinição",
     backToSignIn: "Voltar para entrar",
     localNotePrefix:
@@ -1029,14 +790,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "Use seu próprio cliente Google OAuth:",
     copyCommand: "Copiar comando",
     copied: "Copiado",
-    close: "Fechar",
     closeGoogleChoices: "Fechar opções de login com Google",
-    legalPrefix: "Ao se cadastrar, você aceita nossos",
-    legalTerms: "Termos",
-    legalConnector: "e",
-    legalPrivacy: "Política de Privacidade",
-    legalSuffix: ".",
-    invalidEmail: "Digite um email válido, como you@example.com.",
     signInToContinue: "Entre para continuar.",
     finishSignInFailed: "Não foi possível concluir o login automaticamente.",
     enterPasswordAfterVerification:
@@ -1048,9 +802,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkVerificationFailed: "Não foi possível verificar. Tente novamente.",
     verificationLinkInvalid:
       "Este link de verificação é inválido ou expirou. Solicite um novo.",
-    checking: "Verificando...",
     checkingVerification: "Verificando sua confirmação...",
-    sending: "Enviando...",
     sent: "Enviado",
     sentVerification: "Enviamos um novo link de verificação.",
     resendVerificationFailed:
@@ -1066,16 +818,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetEmailSent:
       "Se esse email existir, um link de redefinição está a caminho.",
     resetEmailFailed: "Não foi possível enviar o email de redefinição.",
-    signingIn: "Entrando…",
-    invalidLogin: "Email ou senha inválidos",
     googleNotConfigured: "Google OAuth não está configurado.",
-    failedToConnect: "Não foi possível conectar. Tente novamente.",
     migrateLocalFallback: "Continue entrando para migrar dados locais.",
     googlePopupHelp: "Permita pop-ups para este site e tente novamente",
-    googleNeverFinished:
-      "O login com Google não terminou. Confira o URI de redirecionamento do Google OAuth e os logs do servidor para [agent-native][google-oauth].",
   },
   "hi-IN": {
+    ...NATIVE_AUTH_COPY["hi-IN"],
     languageLabel: "भाषा",
     systemLanguage: "सिस्टम",
     pageTitleSignIn: "साइन इन",
@@ -1092,24 +840,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "अपना पासवर्ड रीसेट करें",
     upgradeCopy:
       "इस ऐप को अपने खाते से जोड़ने और स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
-    googleButton: "Google से साइन इन करें",
-    dividerOr: "या",
     createAccount: "खाता बनाएं",
-    signIn: "साइन इन",
-    email: "ईमेल",
-    password: "पासवर्ड",
-    confirmPassword: "पासवर्ड की पुष्टि करें",
     passwordMinPlaceholder: `कम से कम ${PASSWORD_MIN_LENGTH} अक्षर`,
     confirmPasswordPlaceholder: "पासवर्ड की पुष्टि करें",
-    enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
-    magicLinkTitle: "स्वागत है",
-    magicLinkSubtitle: "खाता बनाएं या साइन इन करें",
-    sendMagicLink: "जारी रखें",
-    magicLinkSent: "अपना ईमेल देखें",
-    magicLinkSentCopy: "हमने सुरक्षित साइन-इन लिंक यहां भेजा है:",
-    magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
-    usePasswordInstead: "पासवर्ड का उपयोग करें",
-    backToMagicLink: "साइन-इन लिंक का उपयोग करें",
+    magicLinkTitle: NATIVE_AUTH_COPY["hi-IN"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["hi-IN"].welcomeSubtitle,
     signupProgress: "साइनअप प्रगति",
     progressAccount: "खाता",
     progressVerify: "सत्यापित करें",
@@ -1122,8 +857,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "आप यह टैब खुला रख सकते हैं। वापस आने पर अगर यह refresh नहीं होता है, तो Continue दबाएं।",
     continue: "जारी रखें",
     resendEmail: "ईमेल फिर भेजें",
-    back: "वापस",
-    forgotPassword: "पासवर्ड भूल गए?",
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignIn: "साइन इन पर वापस जाएं",
     localNotePrefix: "आपका खाता इस ऐप के अपने DB में संग्रहीत है",
@@ -1138,14 +871,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "अपना Google OAuth client उपयोग करें:",
     copyCommand: "कमांड कॉपी करें",
     copied: "कॉपी हो गया",
-    close: "बंद करें",
     closeGoogleChoices: "Google साइन-इन विकल्प बंद करें",
-    legalPrefix: "साइन अप करके, आप हमारी",
-    legalTerms: "शर्तें",
-    legalConnector: "और",
-    legalPrivacy: "गोपनीयता नीति",
-    legalSuffix: "स्वीकार करते हैं।",
-    invalidEmail: "एक मान्य ईमेल पता दर्ज करें, जैसे you@example.com.",
     signInToContinue: "जारी रखने के लिए साइन इन करें।",
     finishSignInFailed: "साइन इन अपने आप पूरा नहीं हो सका।",
     enterPasswordAfterVerification: "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
@@ -1156,9 +882,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkVerificationFailed: "सत्यापन जांच नहीं हो सकी। कृपया फिर कोशिश करें।",
     verificationLinkInvalid:
       "यह सत्यापन लिंक अमान्य या समाप्त हो गया है। नया लिंक मांगें।",
-    checking: "जांच हो रही है...",
     checkingVerification: "आपका सत्यापन जांच रहे हैं...",
-    sending: "भेजा जा रहा है...",
     sent: "भेजा गया",
     sentVerification: "नया सत्यापन लिंक भेजा गया।",
     resendVerificationFailed: "सत्यापन ईमेल फिर नहीं भेजा जा सका।",
@@ -1172,16 +896,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     emailVerifiedSignIn: "ईमेल सत्यापित। जारी रखने के लिए साइन इन करें।",
     resetEmailSent: "अगर वह ईमेल मौजूद है, तो reset लिंक भेजा जा रहा है।",
     resetEmailFailed: "रीसेट ईमेल नहीं भेजा जा सका।",
-    signingIn: "साइन इन हो रहा है…",
-    invalidLogin: "ईमेल या पासवर्ड अमान्य है",
     googleNotConfigured: "Google OAuth configured नहीं है।",
-    failedToConnect: "कनेक्ट नहीं हो सका। कृपया फिर कोशिश करें।",
     migrateLocalFallback: "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
     googlePopupHelp: "इस साइट के लिए pop-ups allow करें और फिर कोशिश करें",
-    googleNeverFinished:
-      "Google साइन इन पूरा नहीं हुआ। Google OAuth redirect URI और [agent-native][google-oauth] के server logs देखें।",
   },
   "ar-SA": {
+    ...NATIVE_AUTH_COPY["ar-SA"],
     languageLabel: "اللغة",
     systemLanguage: "النظام",
     pageTitleSignIn: "تسجيل الدخول",
@@ -1198,24 +918,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetPasswordSubtitle: "أعد تعيين كلمة المرور",
     upgradeCopy:
       "تابع تسجيل الدخول لربط هذا التطبيق بحسابك وترحيل البيانات المحلية.",
-    googleButton: "تسجيل الدخول باستخدام Google",
-    dividerOr: "أو",
     createAccount: "إنشاء حساب",
-    signIn: "تسجيل الدخول",
-    email: "البريد الإلكتروني",
-    password: "كلمة المرور",
-    confirmPassword: "تأكيد كلمة المرور",
     passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} أحرف على الأقل`,
     confirmPasswordPlaceholder: "تأكيد كلمة المرور",
-    enterPasswordPlaceholder: "أدخل كلمة المرور",
-    magicLinkTitle: "مرحبًا",
-    magicLinkSubtitle: "أنشئ حسابًا أو سجّل الدخول",
-    sendMagicLink: "متابعة",
-    magicLinkSent: "تحقق من بريدك الإلكتروني",
-    magicLinkSentCopy: "أرسلنا رابط تسجيل دخول آمنًا إلى",
-    magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
-    usePasswordInstead: "استخدام كلمة مرور بدلًا من ذلك",
-    backToMagicLink: "استخدام رابط تسجيل الدخول بدلًا من ذلك",
+    magicLinkTitle: NATIVE_AUTH_COPY["ar-SA"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["ar-SA"].welcomeSubtitle,
     signupProgress: "تقدم التسجيل",
     progressAccount: "الحساب",
     progressVerify: "التحقق",
@@ -1228,8 +935,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "يمكنك إبقاء هذه النافذة مفتوحة. إذا لم يتم التحديث بعد عودتك، استخدم متابعة.",
     continue: "متابعة",
     resendEmail: "إعادة إرسال البريد",
-    back: "رجوع",
-    forgotPassword: "هل نسيت كلمة المرور؟",
     sendResetLink: "إرسال رابط إعادة التعيين",
     backToSignIn: "العودة إلى تسجيل الدخول",
     localNotePrefix: "يتم تخزين حسابك في قاعدة بيانات هذا التطبيق",
@@ -1244,14 +949,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     useOwnGoogleClient: "استخدم عميل Google OAuth الخاص بك:",
     copyCommand: "نسخ الأمر",
     copied: "تم النسخ",
-    close: "إغلاق",
     closeGoogleChoices: "إغلاق خيارات تسجيل الدخول عبر Google",
-    legalPrefix: "بالتسجيل، فإنك توافق على",
-    legalTerms: "الشروط",
-    legalConnector: "و",
-    legalPrivacy: "سياسة الخصوصية",
-    legalSuffix: ".",
-    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا، مثل you@example.com.",
     signInToContinue: "سجّل الدخول للمتابعة.",
     finishSignInFailed: "تعذر إكمال تسجيل الدخول تلقائيًا.",
     enterPasswordAfterVerification:
@@ -1263,9 +961,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkVerificationFailed: "تعذر التحقق من الحالة. حاول مرة أخرى.",
     verificationLinkInvalid:
       "رابط التحقق هذا غير صالح أو منتهي الصلاحية. اطلب رابطًا جديدًا.",
-    checking: "جارٍ التحقق...",
     checkingVerification: "جارٍ التحقق من حالتك...",
-    sending: "جارٍ الإرسال...",
     sent: "تم الإرسال",
     sentVerification: "تم إرسال رابط تحقق جديد.",
     resendVerificationFailed: "تعذر إعادة إرسال رسالة التحقق.",
@@ -1279,14 +975,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     emailVerifiedSignIn: "تم التحقق من البريد. سجّل الدخول للمتابعة.",
     resetEmailSent: "إذا كان هذا البريد موجودًا، فسيصل رابط إعادة التعيين.",
     resetEmailFailed: "تعذر إرسال بريد إعادة التعيين.",
-    signingIn: "جارٍ تسجيل الدخول…",
-    invalidLogin: "البريد الإلكتروني أو كلمة المرور غير صحيحة",
     googleNotConfigured: "لم يتم إعداد Google OAuth.",
-    failedToConnect: "تعذر الاتصال. حاول مرة أخرى.",
     migrateLocalFallback: "تابع تسجيل الدخول لترحيل البيانات المحلية.",
     googlePopupHelp: "اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى",
-    googleNeverFinished:
-      "لم يكتمل تسجيل الدخول عبر Google. تحقق من URI إعادة التوجيه في Google OAuth وسجلات الخادم لـ [agent-native][google-oauth].",
   },
 };
 
@@ -1515,6 +1206,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
   const builderPreviewLocalDevEnabled = isBuilderPreviewLocalDevEnabled();
   const localeInitScript = getLocaleInitScript();
+  const embeddedAuthInitScript = `(function() {
+  try {
+    var params = new URLSearchParams(window.location.search || "");
+    if (params.get("embedded") === "1" || window.self !== window.top) {
+      document.documentElement.setAttribute("data-agent-native-embedded", "1");
+    }
+  } catch (error) {
+    void error;
+  }
+})();`;
 
   const marketing: AuthMarketingContent | undefined =
     opts.marketing ??
@@ -1637,6 +1338,9 @@ ${localeMenuItemsHtml}
       </div>`
     : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const embeddedAuthCss = identitySsoHtml
+    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
+    : "";
   const localDevHtml = `
   <div class="local-dev-signin" id="local-dev-signin" hidden>
     <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
@@ -2005,6 +1709,7 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
 <head>
 <meta charset="UTF-8">
 <script data-agent-native-locale-init>${localeInitScript}</script>
+<script data-agent-native-embedded-init>${embeddedAuthInitScript}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${hasMarketing ? esc(marketing!.appName) + " — " + esc(t("pageTitleSignIn")) : esc(t("pageTitleWelcome"))}</title>
 <link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
@@ -2554,6 +2259,7 @@ ${marketingStyles}
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
   body.simplified-auth .local-note { display: none !important; }
+${embeddedAuthCss}
 </style>
 </head>
 <body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
@@ -2589,14 +2295,14 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="' + esc(t("emailPlaceholder")) + '" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
 
     <form id="signup-form" class="form">
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-      <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
+      <input id="s-email" type="email" autocomplete="email" autofocus placeholder="${esc(t("emailPlaceholder"))}" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
     <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
@@ -2628,7 +2334,7 @@ ${signupLocalModeNoteHtml}
 
     <form id="login-form" class="form">
     <label for="l-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-    <input id="l-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+    <input id="l-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
     <label for="l-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
     <input id="l-pass" type="password" autocomplete="current-password" placeholder="${esc(t("enterPasswordPlaceholder"))}"${i18nPlaceholderAttr("enterPasswordPlaceholder")} required />
     <button type="submit"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
@@ -2641,7 +2347,7 @@ ${signupLocalModeNoteHtml}
 
   <form id="forgot-form" class="form">
     <label for="f-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-    <input id="f-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+    <input id="f-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
     <button type="submit"${i18nAttr("sendResetLink")}>${esc(t("sendResetLink"))}</button>
     <p class="msg" id="f-msg"></p>
     <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">

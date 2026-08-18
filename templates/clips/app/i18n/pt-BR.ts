@@ -697,13 +697,13 @@ const messages = {
     collapse: "Recolher",
     changelogMarkdown: `# Registro de alterações
 
-Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd K -> "Novidades") ou pelas Configurações.
+Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd+K -> "Novidades") ou pelas Configurações.
 
 ## 2026-06-23
 
 ### Adicionado
 
-- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd K) e nas Configurações.`,
+- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd+K) e nas Configurações.`,
     playback: "Reprodução",
     defaultPlaybackSpeed: "Velocidade padrão de reprodução",
     playbackDescription:
@@ -1056,8 +1056,13 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     pauseShortcut: "Pausar (⌥⇧P)",
     stop: "Parar gravação",
     elapsed: "Tempo decorrido",
-    cancel: "Cancelar gravação",
-    cancelShortcut: "Cancelar (⌥⇧C)",
+    cancel: "Descartar gravação",
+    cancelShortcut: "Descartar (⌥⇧C)",
+    discardConfirmTitle: "Descartar esta gravação?",
+    discardConfirmDescription:
+      "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
+    resume: "Retomar",
+    discardRecording: "Descartar gravação",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",
@@ -1260,7 +1265,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1628,7 +1633,14 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Agora",
+    noPastMeetings: "Ainda não há reuniões anteriores",
+    loadOlder: "Carregar anteriores",
+    searchFailed:
+      "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

@@ -22,6 +22,9 @@ const getDbExecMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
 const sendMessageToTargetMock = vi.hoisted(() => vi.fn());
 const runAgentLoopWrapperMock = vi.hoisted(() => vi.fn());
+const dispatchRemoteAutomationMock = vi.hoisted(() => vi.fn());
+const finishRemoteAutomationHistoryMock = vi.hoisted(() => vi.fn());
+const getRemoteAutomationStatusMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: runAgentLoopWrapperMock,
@@ -89,6 +92,12 @@ vi.mock("../agent/run-manager.js", () => ({
 
 vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
+}));
+
+vi.mock("./remote-execution.js", () => ({
+  dispatchRemoteAutomation: dispatchRemoteAutomationMock,
+  finishRemoteAutomationHistory: finishRemoteAutomationHistoryMock,
+  getRemoteAutomationStatus: getRemoteAutomationStatusMock,
 }));
 
 vi.mock("../integrations/adapters/index.js", () => ({
@@ -217,6 +226,49 @@ Summarize the inbox.`,
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
+    dispatchRemoteAutomationMock.mockResolvedValue({
+      command: { id: "remote-command-1" },
+    });
+    finishRemoteAutomationHistoryMock.mockResolvedValue(undefined);
+    getRemoteAutomationStatusMock.mockResolvedValue({ state: "not-remote" });
+  });
+
+  it("queues a host-targeted run without invoking the local agent loop", async () => {
+    const resource = {
+      id: "resource-remote",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/nightly.md",
+      content: `---
+schedule: "0 * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+executionHostId: remote-device-laptop
+executionEngine: claude-cli
+
+---
+
+Inspect the workspace.`,
+    };
+    resourceGetByPathMock.mockResolvedValueOnce(resource);
+
+    const result = await runJobNow(resource.owner, "nightly", {
+      getActions: vi.fn(async () => ({})),
+      getSystemPrompt: vi.fn(async () => ""),
+      apiKey: "test-api-key",
+    });
+
+    expect(result).toEqual({ status: "success", runId: "remote-command-1" });
+    expect(dispatchRemoteAutomationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: resource.owner,
+        meta: expect.objectContaining({
+          executionHostId: "remote-device-laptop",
+          executionEngine: "claude-cli",
+        }),
+        advanceSchedule: false,
+      }),
+    );
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("does not manually overlap an active automation", async () => {

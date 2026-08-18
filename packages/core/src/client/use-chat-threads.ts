@@ -619,10 +619,9 @@ export function useChatThreads(
   //   it; the server hasn't seen it yet because there's no POST anymore,
   //   the row gets written when the user sends a message.
   // - savedId is set but not on the current page → look it up directly. A
-  //   found thread stays active. An auto-creating surface replaces a confirmed
-  //   404 with a fresh local tab rather than reusing an inaccessible server id.
-  //   A list-only surface keeps the saved id as an optimistic empty tab so a
-  //   never-posted tab remains selectable after reload.
+  //   found thread stays active. An unavailable lookup keeps the saved id for
+  //   list-only readers and explicit routes, while a normal home surface drops
+  //   a dead local pointer instead of opening with a restore error.
   // - No savedId → synthesize a fresh local id (no POST; server creates the
   //   row on first message). The server may contain chats from another
   //   branch, preview, or project that shares the same user/database, so
@@ -673,8 +672,13 @@ export function useChatThreads(
           scopeRef.current,
         ),
       );
+      // A missing saved id is stale local UI state on a normal home surface,
+      // not a reason to show an error above a fresh composer. Preserve it for
+      // explicit routes and list-only readers, where the caller still owns
+      // recovery for a deliberately selected thread.
       const restoredNeedsReplacement =
-        restoredBelongsElsewhere || (restoredIsUnavailable && autoCreate);
+        restoredBelongsElsewhere ||
+        (restoredIsUnavailable && autoCreate && !routeControlsActiveThread);
       if (restoredNeedsReplacement) setActiveThreadId(null);
       const savedId = restoredNeedsReplacement ? null : restoredId;
       const loadedHasSavedId = Boolean(
@@ -700,7 +704,8 @@ export function useChatThreads(
       } else if (
         savedId &&
         !newlyCreatedRef.current.has(savedId) &&
-        !loadedHasSavedId
+        !loadedHasSavedId &&
+        !restoredIsUnavailable
       ) {
         // The tab the user left open isn't a server thread and we didn't
         // create it this session (newlyCreatedRef was wiped by the

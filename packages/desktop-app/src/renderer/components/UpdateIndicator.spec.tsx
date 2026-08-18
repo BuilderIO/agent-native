@@ -39,9 +39,9 @@ describe("UpdateIndicator", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders a restart action in the chat-first rail variant", async () => {
+  it("renders a restart action in the chat-first rail", async () => {
     await act(async () => {
-      root.render(<UpdateIndicator variant="rail" />);
+      root.render(<UpdateIndicator />);
       await Promise.resolve();
     });
 

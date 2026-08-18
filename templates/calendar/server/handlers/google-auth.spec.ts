@@ -168,6 +168,16 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
+  it("carries native mobile intent into the signed OAuth state", async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    await getGoogleAuthUrl(createEvent({ mobile: "1" }) as any);
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({ mobile: true }),
+    );
+  });
+
   it("uses Calendar API credentials when a signed-in user connects Google Calendar", async () => {
     mocks.getSession.mockResolvedValue({
       email: "owner@example.com",
@@ -299,6 +309,44 @@ describe("Calendar Google auth-url handler", () => {
         desktop: true,
         addAccount: true,
         flowId: "flow-456",
+      }),
+    );
+  });
+
+  it("returns a mobile session when Calendar connect came from the native app", async () => {
+    const event = createEvent({
+      code: "google-code",
+      state: "encoded-state",
+    });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+      orgId: "org-123",
+      mobile: true,
+      addAccount: true,
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "owner@example.com",
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("steve@builder.io");
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    await handleGoogleCallback(event as any);
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "owner@example.com",
+      expect.objectContaining({ mobile: true }),
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "steve@builder.io",
+      expect.objectContaining({
+        mobile: true,
+        sessionToken: "owner-session-token",
       }),
     );
   });

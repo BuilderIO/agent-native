@@ -112,7 +112,7 @@ describe("executeCodeAgentRun", () => {
     expect(output.read()).toContain("I checked the workspace");
     expect(
       listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
-    ).toEqual(["user", "status", "system", "status"]);
+    ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
   });
 
   it("pauses with a credential hint when no provider key is available", async () => {
@@ -310,6 +310,135 @@ describe("executeCodeAgentRun", () => {
           kind: "system",
           message: "Claude final answer",
           metadata: expect.objectContaining({ engine: "claude-cli" }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Codex JSON tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "const outputPath = outputIndex === -1 ? '' : args[outputIndex + 1];",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  if (outputPath) fs.writeFileSync(outputPath, 'Codex final answer');",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', status: 'in_progress' } });",
+        "  emit({ type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', aggregated_output: 'package.json', exit_code: 0, status: 'completed' } });",
+        "  emit({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'I inspected the workspace.' } });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Codex tool events",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "bash",
+            input: { command: "rg --files" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "bash",
+            result: "package.json",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "system",
+          message: "I inspected the workspace.",
+          metadata: expect.objectContaining({ role: "assistant" }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Claude stream-json tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'package.json' } }] } });",
+        "  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: '{\\\"name\\\":\\\"agentnative\\\"}' }] } });",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'I inspected package.json.' }] } });",
+        "  emit({ type: 'result', result: 'Claude final answer' });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Claude tool events",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect package.json",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "Read",
+            input: { file_path: "package.json" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "Read",
+            result: '{"name":"agentnative"}',
+          }),
         }),
       ]),
     );
@@ -1453,6 +1582,7 @@ describe("buildCodeAgentSystemPrompt", () => {
 
   it("includes nested AGENTS.md precedence note in every prompt", () => {
     const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain("only project checkout for this run");
     expect(prompt).toContain(
       "More deeply nested AGENTS.md files take precedence",
     );

@@ -62,6 +62,9 @@ export interface DefineAutomationInput {
   domain?: string;
   delegatedPolicyId?: string;
   model?: string;
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
   mcpTools?: unknown;
   delivery?: AutomationDelivery;
 }
@@ -78,6 +81,9 @@ export interface UpdateAutomationInput {
   schedule?: string;
   timezone?: string;
   model?: string | null;
+  executionHostId?: string | null;
+  executionEngine?: string | null;
+  executionCwd?: string | null;
   mcpTools?: unknown;
 }
 
@@ -87,6 +93,28 @@ interface OrganizationMembership {
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
+}
+
+function normalizeExecutionTarget(
+  value: string | null | undefined,
+  label: string,
+  options: { opaque?: boolean; max?: number } = {},
+): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const max = options.max ?? (options.opaque ? 128 : 1024);
+  if (
+    normalized.length > max ||
+    /[\r\n]/.test(normalized) ||
+    (options.opaque && !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(normalized))
+  ) {
+    throw httpError(
+      `${label} must be a bounded identifier${options.opaque ? " using letters, numbers, dots, underscores, colons, or hyphens" : ""}.`,
+      400,
+    );
+  }
+  return normalized;
 }
 
 function normalizeActor(actor: AutomationActor): AutomationActor {
@@ -342,6 +370,26 @@ export async function defineAutomation(
       : undefined;
 
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
+  const executionHostId = normalizeExecutionTarget(
+    input.executionHostId,
+    "execution_host_id",
+    { opaque: true },
+  );
+  const executionEngine = normalizeExecutionTarget(
+    input.executionEngine,
+    "execution_engine",
+    { opaque: true },
+  );
+  const executionCwd = normalizeExecutionTarget(
+    input.executionCwd,
+    "execution_cwd",
+  );
+  if (executionHostId && input.triggerType !== "schedule") {
+    throw httpError(
+      "Execution hosts are currently supported for scheduled code automations only.",
+      400,
+    );
+  }
   const meta: JobFrontmatter = {
     schedule: input.triggerType === "schedule" ? schedule : "",
     timezone,
@@ -361,6 +409,9 @@ export async function defineAutomation(
         ? nextOccurrence(schedule, undefined, timezone).toISOString()
         : undefined,
     model: input.model?.trim() || undefined,
+    executionHostId,
+    executionEngine,
+    executionCwd,
     mcpTools: mcpTools?.length ? mcpTools : undefined,
     originScopeId: input.delivery?.originScopeId,
     deliveryPlatform: input.delivery?.platform,
@@ -438,6 +489,32 @@ export async function updateAutomation(
   }
   if (input.model !== undefined) {
     meta.model = input.model?.trim() || undefined;
+  }
+  if (input.executionHostId !== undefined) {
+    if (input.executionHostId && meta.triggerType !== "schedule") {
+      throw httpError(
+        "Execution hosts are currently supported for scheduled code automations only.",
+        400,
+      );
+    }
+    meta.executionHostId = normalizeExecutionTarget(
+      input.executionHostId,
+      "execution_host_id",
+      { opaque: true },
+    );
+  }
+  if (input.executionEngine !== undefined) {
+    meta.executionEngine = normalizeExecutionTarget(
+      input.executionEngine,
+      "execution_engine",
+      { opaque: true },
+    );
+  }
+  if (input.executionCwd !== undefined) {
+    meta.executionCwd = normalizeExecutionTarget(
+      input.executionCwd,
+      "execution_cwd",
+    );
   }
   if (input.mcpTools !== undefined) {
     const mcpTools = normalizeJobMcpTools(input.mcpTools);

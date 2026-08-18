@@ -68,18 +68,42 @@ export function requireAddedLines(cwd, guardName, options) {
   if (added !== null) return added;
   console.error(
     `${guardName}: could not determine which lines this branch added ` +
-      "(no GUARD_DIFF_BASE/GITHUB_BASE_REF, no origin/main or main ref, or " +
-      "git diff failed), so the check did not run.\n" +
-      "  Fix with:  git fetch origin main   (or set GUARD_DIFF_BASE=<ref>)",
+      "(no GUARD_DIFF_BASE/GITHUB_BASE_REF, no origin/main or main ref, " +
+      "git diff failed, or git reported a source file as binary), so the " +
+      "check did not run.\n" +
+      "  Fix with:  git fetch origin main   (or set GUARD_DIFF_BASE=<ref>)\n" +
+      "  If a source file diffs as binary, it contains a NUL or other binary\n" +
+      "  byte - find it with:  git diff --numstat   (look for '-' counts)",
   );
   process.exit(GUARD_EXIT_COULD_NOT_RUN);
 }
 
-function parseUnifiedDiff(diff, cwd) {
+/**
+ * Extensions a guard is expected to inspect. A binary diff for one of these is
+ * a guard that cannot see the file, not a file with nothing in it.
+ */
+const SOURCE_EXTENSIONS =
+  /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
+
+export function parseUnifiedDiff(diff, cwd) {
   const result = new Map();
   let file = null;
   let line = 0;
   for (const raw of diff.split("\n")) {
+    // Git emits no +++/@@/+ lines for a file it considers binary, so such a
+    // file contributes nothing here and every diff-scoped guard passes having
+    // inspected none of it. A single stray NUL byte is enough to mark a .ts
+    // file binary, which is indistinguishable from a clean check. Refuse to
+    // scope rather than report a pass over a file we never read.
+    const binary = /^Binary files (?:a\/)?(.+?) and (?:b\/)?(.+?) differ$/.exec(
+      raw,
+    );
+    if (
+      binary &&
+      (SOURCE_EXTENSIONS.test(binary[1]) || SOURCE_EXTENSIONS.test(binary[2]))
+    ) {
+      return null;
+    }
     if (raw.startsWith("+++ ")) {
       const target = raw.slice(4).trim();
       file =

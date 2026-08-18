@@ -1588,6 +1588,7 @@ const frFR = {
     messagingRecipes: "Recettes de messagerie",
     messagingInternals: "Détails internes",
     dispatch: "Dispatch",
+    portal: "Portail",
     a2aProtocol: "Protocole A2A",
     mcpClients: "Clients MCP (ajouter des outils)",
     httpApi: "API HTTP (appeler des opérations)",

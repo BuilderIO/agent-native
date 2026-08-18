@@ -35,6 +35,7 @@ export type BrowserCommand =
   | { type: "type"; target: BrowserTarget; text: string; replace?: boolean }
   | { type: "key"; key: BrowserKey; modifiers?: BrowserModifier[] }
   | { type: "navigate"; url: string }
+  | { type: "open-tab"; url: string }
   | { type: "scroll"; deltaX: number; deltaY: number; x?: number; y?: number };
 
 export type NativeRequest = {

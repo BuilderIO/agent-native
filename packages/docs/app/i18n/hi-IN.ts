@@ -1577,6 +1577,7 @@ const hiIN = {
     messagingRecipes: "मैसेजिंग रेसिपीज़",
     messagingInternals: "मैसेजिंग इंटरनल्स",
     dispatch: "डिस्पैच",
+    portal: "पोर्टल",
     a2aProtocol: "A2A प्रोटोकॉल",
     mcpClients: "MCP Clients (Tools जोड़ें)",
     httpApi: "HTTP API (क्रियाएँ कॉल करें)",

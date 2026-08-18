@@ -51,6 +51,13 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 
+import {
+  hostedHarnessAgentOption,
+  isHostedHarnessConfigured,
+  isHostedHarnessRuntime,
+  normalizeHostedHarnessRuntimes,
+  type HostedHarnessRuntime,
+} from "../agent/harness/hosted.js";
 import type { AgentRun } from "../progress/types.js";
 import {
   DropdownMenu,
@@ -99,7 +106,10 @@ import {
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
   buildAppChatSidebarStateMessage,
   isPerAppChatStorageKey,
+  requestPerAppChatCommand,
+  usePerAppChatState,
 } from "./app-chat-sidebar.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 import { readClientAppState } from "./application-state.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
@@ -125,6 +135,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-sta
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
+import { useActionQuery } from "./use-action.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
@@ -2192,6 +2203,7 @@ function AgentPanelInner({
             "@media (hover:hover) and (pointer:fine){" +
             ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
             ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
+            ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}" +
             "}" +
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
@@ -3023,6 +3035,10 @@ export interface AgentSidebarProps {
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
   /** Local or hosted agent runtimes shown above the model list. */
   availableAgents?: AssistantChatProps["availableAgents"];
+  /** Host-provided model catalog used by native chat surfaces. */
+  availableModels?: AssistantChatProps["availableModels"];
+  /** Whether the host-provided model catalog is still loading. */
+  modelListLoading?: AssistantChatProps["modelListLoading"];
   /** Selected agent runtime identifier. */
   selectedAgent?: AssistantChatProps["selectedAgent"];
   /** Callback when the user picks an agent runtime. */
@@ -3091,6 +3107,11 @@ export interface AgentSidebarProps {
   suppressFirstRunOnboarding?: boolean;
 }
 
+interface HostedHarnessStatus {
+  enabled: boolean;
+  runtimes: HostedHarnessRuntime[];
+}
+
 /**
  * Wraps app content with a toggleable agent sidebar.
  * Use AgentToggleButton in your header to open/close it.
@@ -3105,6 +3126,8 @@ export function AgentSidebar({
   onComposerTextChange,
   imageModelMenu,
   availableAgents,
+  availableModels,
+  modelListLoading,
   selectedAgent,
   onAgentChange,
   onConnectLocalRuntime,
@@ -3135,8 +3158,59 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
+  const staticHostedHarnessEnabled = isHostedHarnessConfigured(
+    injectedAgentNativeConfig().harness,
+  );
+  const hostedHarnessQuery = useActionQuery<HostedHarnessStatus>(
+    "get-hosted-harness-config" as never,
+    undefined,
+    { enabled: staticHostedHarnessEnabled },
+  );
+  const hostedHarnessStatus = hostedHarnessQuery.data;
+  const hostedHarnessEnabled = hostedHarnessStatus?.enabled === true;
+  const hostedHarnessRuntimes = useMemo(
+    () =>
+      hostedHarnessEnabled
+        ? normalizeHostedHarnessRuntimes(hostedHarnessStatus?.runtimes)
+        : [],
+    [hostedHarnessEnabled, hostedHarnessStatus?.runtimes],
+  );
+  const hostedHarnessUi = hostedHarnessEnabled;
+  const hostedHarnessStorageKey = `agent-native-hosted-harness${storageKey ? `:${storageKey}` : ""}`;
+  const [hostedHarnessRuntime, setHostedHarnessRuntime] =
+    useState<HostedHarnessRuntime>("claude-code");
+  const hostedHarnessAgentOptions = useMemo(
+    () => hostedHarnessRuntimes.map(hostedHarnessAgentOption),
+    [hostedHarnessRuntimes],
+  );
+  const effectiveAvailableAgents = hostedHarnessEnabled
+    ? [
+        ...hostedHarnessAgentOptions,
+        ...(availableAgents ?? []).filter(
+          (agent) => !isHostedHarnessRuntime(agent.id),
+        ),
+      ]
+    : availableAgents;
+  const effectiveSelectedAgent = hostedHarnessEnabled
+    ? hostedHarnessRuntime
+    : selectedAgent;
+  const effectiveOnAgentChange = hostedHarnessEnabled
+    ? (agent: string) => {
+        if (isHostedHarnessRuntime(agent)) {
+          setHostedHarnessRuntime(agent);
+        }
+        onAgentChange?.(agent);
+      }
+    : onAgentChange;
+  const effectivePosition = hostedHarnessUi ? "left" : position;
+  const effectiveDefaultOpen = hostedHarnessUi || defaultOpen;
+  const effectiveShowTabBar = hostedHarnessUi || showTabBar;
+  const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
   const sidebarOpenStorageKey = openStorageKey ?? storageKey;
   const isPerAppChatSidebar = isPerAppChatStorageKey(sidebarOpenStorageKey);
+  const perAppChatState = usePerAppChatState(!isPerAppChatSidebar);
+  const isPerAppChatHosted =
+    !isPerAppChatSidebar && perAppChatState.hosted === true;
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const firstRunOnboardingGateOwnsSurface =
     useFirstRunOnboardingGateOwnsSurface();
@@ -3148,7 +3222,7 @@ export function AgentSidebar({
   const [open, setOpen] = useState(
     () =>
       openOnChatRunning ||
-      getInitialAgentSidebarOpen(defaultOpen, sidebarOpenStorageKey),
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -3217,6 +3291,42 @@ export function AgentSidebar({
     [sidebarOpenStorageKey],
   );
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(hostedHarnessStorageKey);
+      if (saved && isHostedHarnessRuntime(saved)) {
+        setHostedHarnessRuntime(saved);
+      }
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+      // The picker falls back to Claude Code when storage is unavailable.
+    }
+  }, [hostedHarnessStorageKey]);
+
+  useEffect(() => {
+    if (!hostedHarnessEnabled || hostedHarnessRuntimes.length === 0) return;
+    const next = hostedHarnessRuntimes.includes(hostedHarnessRuntime)
+      ? hostedHarnessRuntime
+      : hostedHarnessRuntimes[0];
+    if (!next) return;
+    if (next !== hostedHarnessRuntime) setHostedHarnessRuntime(next);
+    try {
+      localStorage.setItem(hostedHarnessStorageKey, next);
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+      // The selected runtime remains in memory for this tab.
+    }
+  }, [
+    hostedHarnessEnabled,
+    hostedHarnessRuntimes,
+    hostedHarnessRuntime,
+    hostedHarnessStorageKey,
+  ]);
+
+  useEffect(() => {
+    if (hostedHarnessUi) setOpenPersisted(true);
+  }, [hostedHarnessUi, setOpenPersisted]);
+
   const applyUrlOpenOverride = useCallback(() => {
     const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
     if (override !== null) setOpenPersisted(override);
@@ -3228,8 +3338,8 @@ export function AgentSidebar({
   }, [applyUrlOpenOverride]);
 
   useEffect(() => {
-    if (openOnChatRunning) setOpen(true);
-  }, [openOnChatRunning]);
+    if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
+  }, [isPerAppChatHosted, openOnChatRunning]);
 
   // Track whether the frame is controlling the sidebar (code mode = frame active).
   // Default to true when inside an iframe — assume the frame sidebar is active
@@ -3257,6 +3367,7 @@ export function AgentSidebar({
     () => new Set(),
   );
   const shouldMountPanel =
+    !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
     (open || backgroundPanelActive || runningTabIds.size > 0);
@@ -3271,9 +3382,11 @@ export function AgentSidebar({
     // Skip the initial emit in frame-owned mode — wait until the frame has
     // sent us its real sidebar state. Once we know, this effect re-runs and
     // dispatches the correct value.
-    if (frameOwned && !hasFrameSidebarState) return;
+    if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
     dispatchAgentSidebarStateChange({
-      open: !presentationMode && (frameOwned ? frameSidebarOpen : open),
+      open: isPerAppChatHosted
+        ? perAppChatState.open
+        : !presentationMode && (frameOwned ? frameSidebarOpen : open),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
     });
@@ -3283,6 +3396,8 @@ export function AgentSidebar({
     open,
     presentationMode,
     hasFrameSidebarState,
+    isPerAppChatHosted,
+    perAppChatState.open,
   ]);
 
   useEffect(() => {
@@ -3332,7 +3447,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
-        if (openOnChatRunning) setOpen(true);
+        if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);
@@ -3358,7 +3473,7 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, [openOnChatRunning, setOpenPersisted]);
+  }, [isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
     const replayAfterMount = (type: string, event: Event) => {
@@ -3399,6 +3514,10 @@ export function AgentSidebar({
 
   useEffect(() => {
     const toggleHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("toggle");
+        return;
+      }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         // Forward toggle to frame parent — the frame sidebar handles it
         window.parent.postMessage(
@@ -3410,6 +3529,10 @@ export function AgentSidebar({
       }
     };
     const openHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("open");
+        return;
+      }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
           { type: "agentNative.toggleSidebar", data: { open: true } },
@@ -3420,6 +3543,10 @@ export function AgentSidebar({
       }
     };
     const closeHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("close");
+        return;
+      }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
           { type: "agentNative.toggleSidebar", data: { open: false } },
@@ -3437,7 +3564,7 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode]);
+  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.
@@ -3638,11 +3765,11 @@ export function AgentSidebar({
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
-  const isLeft = position === "left";
+  const isLeft = effectivePosition === "left";
   const wideDrawerEnabled = isWideDrawer && !isMobile;
   const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !isMobile && animateDesktop;
+    !presentationMode && !isMobile && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -3739,6 +3866,7 @@ export function AgentSidebar({
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
+      zIndex: hostedHarnessUi ? SIDEBAR_OVERLAY_Z_INDEX : undefined,
       borderLeft:
         !panelOpen || isLeft || showResizeHandle
           ? "none"
@@ -3762,7 +3890,7 @@ export function AgentSidebar({
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
-          position={position}
+          position={effectivePosition}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -3783,7 +3911,10 @@ export function AgentSidebar({
                 : undefined
         }
         data-agent-sidebar-layout={panelLayout}
-        data-agent-sidebar-position={position}
+        data-agent-sidebar-position={effectivePosition}
+        data-agent-native-hosted-harness-ui={
+          hostedHarnessUi ? "desktop" : undefined
+        }
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
         data-agent-sidebar-per-app-chat={
           isPerAppChatSidebar ? "true" : undefined
@@ -3809,16 +3940,19 @@ export function AgentSidebar({
             composerSlot={composerSlot}
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
-            availableAgents={availableAgents}
-            selectedAgent={selectedAgent}
-            onAgentChange={onAgentChange}
+            availableAgents={effectiveAvailableAgents}
+            availableModels={availableModels}
+            modelListLoading={modelListLoading}
+            selectedAgent={effectiveSelectedAgent}
+            onAgentChange={effectiveOnAgentChange}
+            hostedHarness={hostedHarnessEnabled}
             onConnectLocalRuntime={onConnectLocalRuntime}
             runtime={runtime}
             adapterReloadKey={adapterReloadKey}
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}
-            showTabBar={showTabBar}
+            showTabBar={effectiveShowTabBar}
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
             missingApiKeySetupLayout="sidebar"
@@ -3840,7 +3974,7 @@ export function AgentSidebar({
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle
-          position={position}
+          position={effectivePosition}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -3869,11 +4003,18 @@ export function AgentSidebar({
         )}
         <div
           className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-          data-agent-sidebar-position={position}
+          data-agent-sidebar-position={effectivePosition}
+          data-agent-native-hosted-harness-ui={
+            hostedHarnessUi ? "desktop" : undefined
+          }
+          data-agent-native-hosted-chat={
+            isPerAppChatHosted ? "true" : undefined
+          }
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >
           {/* Mobile backdrop — tapping it closes the sidebar */}
           {isMobile &&
+            !isPerAppChatHosted &&
             !presentationMode &&
             (mobileAnimationEnabled ? shouldRenderPanel : open) && (
               <div

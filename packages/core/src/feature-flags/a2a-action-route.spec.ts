@@ -28,6 +28,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS;
   verifyA2ATokenWithClaimsMock.mockResolvedValue({
     email: "admin@example.com",
     orgDomain: "builder.io",
@@ -106,5 +107,41 @@ describe("feature flag mutation replay protection", () => {
 
     await expect(auth.resolveCaller(event)).resolves.toBeTruthy();
     expect(consumeOneTimeJtiMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["list-feature-flags", "flags:read"],
+    ["set-feature-flag", "flags:write"],
+  ] as const)(
+    "allows an explicitly allowlisted no-org %s delegation",
+    async (actionName, scope) => {
+      process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS = "admin@example.com";
+      resolveOrgByDomainMock.mockResolvedValue(null);
+      verifyA2ATokenWithClaimsMock.mockResolvedValue({
+        email: " ADMIN@example.com ",
+        orgDomain: "builder.io",
+        scope: [scope],
+        jti: `${actionName}-1`,
+        issuer: "analytics",
+      });
+
+      const auth = createFeatureFlagA2AActionRouteAuth(actionName);
+
+      await expect(auth.resolveCaller(event)).resolves.toEqual(
+        expect.objectContaining({
+          owner: " ADMIN@example.com ",
+          orgId: null,
+        }),
+      );
+    },
+  );
+
+  it("rejects a no-org delegation from an email outside the allowlist", async () => {
+    resolveOrgByDomainMock.mockResolvedValue(null);
+    await expect(
+      createFeatureFlagA2AActionRouteAuth("list-feature-flags").resolveCaller(
+        event,
+      ),
+    ).rejects.toThrow("Invalid feature flag delegation");
   });
 });

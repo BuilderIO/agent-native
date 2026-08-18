@@ -198,6 +198,7 @@
       "dependencies": [
         "@assistant-ui/react",
         "@radix-ui/react-popover",
+        "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "@tiptap/core",

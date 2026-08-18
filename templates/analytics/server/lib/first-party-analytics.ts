@@ -10,6 +10,8 @@ import {
   type DerivedExceptionFields,
 } from "./error-capture.js";
 import {
+  assertFirstPartyAnalyticsBigQuerySql,
+  type FirstPartyAnalyticsSink,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
@@ -1088,6 +1090,44 @@ function inferSchema(rows: Record<string, unknown>[]): {
   }));
 }
 
+/**
+ * Which store this query actually runs against under a given sink. Save-time
+ * validation and the read path both route through here: a panel validated for
+ * one store and executed against the other is the whole bug class.
+ */
+function firstPartyAnalyticsQueryTarget(
+  sql: string,
+  sink: FirstPartyAnalyticsSink,
+): "sql-store" | "bigquery" {
+  if (sink !== "bigquery") return "sql-store";
+  const usesSessionRecordings = /\bsession_recordings\b/i.test(sql);
+  const usesEventTables =
+    /\banalytics_events\b|\banalytics_event_daily_rollups\b|\banalytics_user_days\b/i.test(
+      sql,
+    );
+  if (usesSessionRecordings && usesEventTables) {
+    throw new Error(
+      "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
+    );
+  }
+  return usesSessionRecordings ? "sql-store" : "bigquery";
+}
+
+/**
+ * Save-time counterpart to `queryFirstPartyAnalytics`. `sink` is a mutable
+ * per-scope setting, so generic PostgreSQL validation alone accepts panels the
+ * live backend cannot execute.
+ */
+export async function validateFirstPartyAnalyticsSqlForScope(
+  sql: string,
+  scope: AnalyticsScope,
+): Promise<void> {
+  validateFirstPartyAnalyticsSql(sql);
+  const backend = await getFirstPartyAnalyticsBackend(scope);
+  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") return;
+  assertFirstPartyAnalyticsBigQuerySql(sql);
+}
+
 export async function queryFirstPartyAnalytics(
   sql: string,
   scope: AnalyticsScope,
@@ -1095,22 +1135,10 @@ export async function queryFirstPartyAnalytics(
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSql(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
-  if (backend.sink === "bigquery") {
-    const usesSessionRecordings = /\bsession_recordings\b/i.test(sql);
-    const usesEventTables =
-      /\banalytics_events\b|\banalytics_event_daily_rollups\b|\banalytics_user_days\b/i.test(
-        sql,
-      );
-    if (usesSessionRecordings && usesEventTables) {
-      throw new Error(
-        "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
-      );
-    }
-    if (!usesSessionRecordings) {
-      const table = await getFirstPartyAnalyticsTable(backend.table);
-      const scoped = scopedAnalyticsSql(sql, scope);
-      return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
-    }
+  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
+    const table = await getFirstPartyAnalyticsTable(backend.table);
+    const scoped = scopedAnalyticsSql(sql, scope);
+    return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
   const scoped = scopedAnalyticsSql(sql, scope);
   const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;

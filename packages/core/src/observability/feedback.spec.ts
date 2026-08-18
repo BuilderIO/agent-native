@@ -122,6 +122,36 @@ describe("computeSatisfactionScore", () => {
     expect(upsertSatisfactionScore).toHaveBeenCalledTimes(1);
   });
 
+  it("scores the persisted chat-thread message envelope", async () => {
+    setThread([
+      {
+        message: { role: "user", content: "make a list of five companies" },
+        parentId: null,
+      },
+      {
+        message: { role: "assistant", content: "Here is a list." },
+        parentId: "user-1",
+      },
+      {
+        message: {
+          role: "user",
+          content: "make a list of five companies - try again, that is wrong",
+        },
+        parentId: "assistant-1",
+      },
+      {
+        message: { role: "assistant", content: "Here is a revised list." },
+        parentId: "user-2",
+      },
+    ]);
+
+    const score = await computeSatisfactionScore("t1");
+
+    expect(score.rephrasingScore).toBeGreaterThan(0);
+    expect(score.sentimentScore).toBeGreaterThan(0);
+    expect(score.frustrationScore).toBeGreaterThan(0);
+  });
+
   it("flags abandonment when the thread ends on an unanswered user message", async () => {
     setThread([{ role: "user", content: "Can you help me with the report?" }]);
 

@@ -13,6 +13,17 @@ export function redirectParam(url: string, name: string): string | null {
   return value && value.length > 0 ? value : null;
 }
 
+/** Persist the server-minted state before handing the URL to the browser. */
+export async function rememberOAuthState(url: string): Promise<void> {
+  const state = redirectParam(url, "state");
+  if (!state) return;
+  const existingState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
+  if (existingState && existingState !== state) {
+    throw new Error("Another Google sign-in is already in progress.");
+  }
+  await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
+}
+
 // Validate a callback `state` against the one stored before the browser opened,
 // consuming it so it can't be replayed. A custom URL scheme is not
 // origin-authenticated, so without this a mismatched or forged callback could
@@ -40,10 +51,12 @@ export async function resolveAndStoreOwnerKey(
 ): Promise<void> {
   if (!ownerKeyName || !baseUrl) return;
   try {
-    const res = await fetch(
-      `${baseUrl}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
-      { headers: { Accept: "application/json" } },
-    );
+    const res = await fetch(`${baseUrl}/_agent-native/auth/session`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
     const data = (await res.json()) as { email?: unknown; orgId?: unknown };
     if (typeof data.email === "string" && data.email.trim()) {
       await AsyncStorage.setItem(

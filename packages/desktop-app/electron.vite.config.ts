@@ -266,6 +266,7 @@ export default defineConfig({
         input: {
           index: resolve("src/preload/index.ts"),
           webview: resolve("src/preload/webview.ts"),
+          "webview-chat": resolve("src/preload/webview-chat.ts"),
         },
         output: {
           format: "cjs",

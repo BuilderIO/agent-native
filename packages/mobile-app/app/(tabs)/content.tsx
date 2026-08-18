@@ -8,8 +8,12 @@ const content = TEMPLATE_APPS.find((a) => a.id === "content")!;
 
 export default function ContentTab() {
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
-      <AppWebView url={getAppUrl(content)} />
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
+      <AppWebView
+        url={getAppUrl(content)}
+        captureSessionToken
+        workspaceAppId="content"
+      />
     </SafeAreaView>
   );
 }

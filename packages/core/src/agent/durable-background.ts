@@ -41,6 +41,7 @@ import {
   hasConfiguredA2ASecret,
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   extractBearerToken,
   verifyInternalToken,
@@ -100,8 +101,8 @@ export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
  * app id is configured (single-template deploy).
  */
 function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
-  const raw = process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
-  if (typeof raw !== "string") return null;
+  const raw = getAppConfig().app.workspaceId;
+  if (raw === undefined) return null;
   // Mirror the workspace app-id normalization (resources/store.ts): take the
   // first path segment and accept only the safe slug shape used for function
   // names. Anything else falls back to the single-template name.

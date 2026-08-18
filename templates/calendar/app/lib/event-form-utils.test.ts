@@ -137,6 +137,12 @@ describe("recurrence helpers", () => {
     ]);
   });
 
+  it("builds a daily recurrence rule for event creation", () => {
+    expect(buildRecurrenceRules("daily", "2026-05-20T16:00:00.000Z")).toEqual([
+      "RRULE:FREQ=DAILY",
+    ]);
+  });
+
   it("builds weekly rules using the event timezone", () => {
     expect(
       buildRecurrenceRules("weekly", "2026-05-17T15:30:00.000Z", "Asia/Tokyo"),

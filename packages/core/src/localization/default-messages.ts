@@ -813,6 +813,9 @@ const messages = {
     statusDone: "Done",
     statusFailed: "Failed",
     statusStopped: "Stopped",
+    statusNeedsApproval: "Needs approval",
+    statusNeedsInput: "Needs input",
+    statusPaused: "Paused",
     updatedJustNow: "Updated just now",
     finishedJustNow: "Finished just now",
     updatedMinutes: "Updated {{count}}m ago",
@@ -823,8 +826,8 @@ const messages = {
     finishedDate: "Finished {{date}}",
   },
   agentTask: {
-    backgroundTask: "Background task",
-    stop: "Stop background task",
+    spawnedAgent: "Spawned agent",
+    stop: "Stop spawned agent",
     openThread: "Open task thread",
   },
   codeRequired: {

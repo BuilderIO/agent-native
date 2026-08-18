@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
+  runDesktopStartupStep,
 } from "./desktop-startup.js";
 
 function createDependencies(
@@ -31,6 +32,39 @@ describe("initializeDesktopStartup", () => {
     expect(resolveDesktopSsoBrokerStatePath("/isolated-canary-profile")).toBe(
       "/isolated-canary-profile/desktop-sso.json",
     );
+  });
+
+  it("stops startup and cleans up when shutdown wins an async startup race", async () => {
+    let finishStart: () => void = () => undefined;
+    let shuttingDown = false;
+    const abort = vi.fn(async () => undefined);
+    const startup = runDesktopStartupStep({
+      start: () =>
+        new Promise<void>((resolve) => {
+          finishStart = resolve;
+        }),
+      isShuttingDown: () => shuttingDown,
+      abort,
+    });
+
+    shuttingDown = true;
+    finishStart();
+
+    await expect(startup).resolves.toBe(false);
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  it("continues startup without cleanup when the async step finishes first", async () => {
+    const abort = vi.fn(async () => undefined);
+
+    await expect(
+      runDesktopStartupStep({
+        start: async () => undefined,
+        isShuttingDown: () => false,
+        abort,
+      }),
+    ).resolves.toBe(true);
+    expect(abort).not.toHaveBeenCalled();
   });
 
   it("isolates a packaged canary before initializing profile consumers", () => {

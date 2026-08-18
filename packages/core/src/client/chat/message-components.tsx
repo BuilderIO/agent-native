@@ -340,6 +340,17 @@ export const MessageActionsContext = React.createContext<{
   bannerRunErrorKey?: string | null;
 } | null>(null);
 
+export function isLocalDevelopmentHost(hostname: string): boolean {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  return (
+    normalizedHostname === "localhost" ||
+    normalizedHostname === "127.0.0.1" ||
+    normalizedHostname === "0.0.0.0" ||
+    normalizedHostname === "::1" ||
+    normalizedHostname === "[::1]"
+  );
+}
+
 /**
  * Restore rewrites the working tree, so only offer it when the server actually
  * has a checkpoint for this turn. Auto-checkpointing skips turns that started
@@ -352,8 +363,10 @@ export function shouldOfferRestore(args: {
   isLast: boolean;
   runId: string | undefined;
   checkpointRunIds: ReadonlySet<string> | undefined;
+  hostname: string;
 }): boolean {
   return Boolean(
+    isLocalDevelopmentHost(args.hostname) &&
     args.devMode &&
     args.isComplete &&
     !args.isLast &&
@@ -1860,6 +1873,7 @@ export function AssistantMessage() {
     isLast,
     runId: messageRunId,
     checkpointRunIds: cpCtx?.checkpointRunIds,
+    hostname: window.location.hostname,
   });
 
   // Collect parts for the files-changed summary (code-agent turns only).

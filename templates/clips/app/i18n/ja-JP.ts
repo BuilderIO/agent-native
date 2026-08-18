@@ -697,13 +697,13 @@ const messages = {
     collapse: "折りたたむ",
     changelogMarkdown: `# 変更履歴
 
-Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd K -> "最新情報"）または設定からいつでも開けます。
+Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd+K -> "最新情報"）または設定からいつでも開けます。
 
 ## 2026-06-23
 
 ### 追加
 
-- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd K）と設定にあります。`,
+- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -1047,8 +1047,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     pauseShortcut: "一時停止 (⌥⇧P)",
     stop: "録画を停止",
     elapsed: "経過時間",
-    cancel: "録画をキャンセル",
-    cancelShortcut: "キャンセル (⌥⇧C)",
+    cancel: "録画を破棄",
+    cancelShortcut: "破棄 (⌥⇧C)",
+    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmDescription:
+      "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
+    resume: "再開",
+    discardRecording: "録画を破棄",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",
@@ -1252,7 +1257,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     seekTo: "Seek to {{time}} (ローカライズ済み)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (ローカライズ済み)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
     playPauseTooltip: "Play / Pause (Space) (ローカライズ済み)",
     sourceDuration: "({{duration}} src) (ローカライズ済み)",
     previewSpeed: "Preview speed (ローカライズ済み)",
@@ -1633,7 +1638,15 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     title: "Meetings (ローカライズ済み)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
-    searchPlaceholder: "Search meetings... (ローカライズ済み)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (ローカライズ済み)",
+    agendaTab: "Agenda (ローカライズ済み)",
+    pastTab: "Past (ローカライズ済み)",
+    now: "Now (ローカライズ済み)",
+    noPastMeetings: "No past meetings yet (ローカライズ済み)",
+    loadOlder: "Load older (ローカライズ済み)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",
     clearSearch: "Clear search (ローカライズ済み)",
     noMeetingsYet: "No meetings yet (ローカライズ済み)",
     noMeetingsDescription:

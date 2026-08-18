@@ -20,7 +20,6 @@ import {
   IconDeviceDesktop,
   IconDownload,
   IconDots,
-  IconExternalLink,
   IconLock,
   IconLogin2,
 } from "@tabler/icons-react";
@@ -60,6 +59,7 @@ import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
+import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
 import {
   TimestampedCommentBar,
   TimestampedCommentButton,
@@ -563,7 +563,13 @@ export default function ShareRoute() {
   );
 
   const dataQ = useQuery({
-    queryKey: ["public-recording", shareId, password, agentAccessToken],
+    queryKey: [
+      "public-recording",
+      shareId,
+      password,
+      agentAccessToken,
+      session?.email ?? null,
+    ],
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -1145,18 +1151,10 @@ export default function ShareRoute() {
               onOpenInsights={() => setPanel("insights")}
             />
             {session ? null : (
-              <Button variant="ghost" size="sm" asChild>
-                <a
-                  href={appPath("/")}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="gap-1.5"
-                  onClick={() => fireShareCtaClick("try_clips")}
-                >
-                  {t("sharePage.tryClips")}
-                  <IconExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
+              <SignedOutShareActions
+                recordingId={recording.id}
+                onCtaClick={fireShareCtaClick}
+              />
             )}
             {!viewerCanEdit && canDownloadRecording ? (
               <DropdownMenu
@@ -1509,6 +1507,7 @@ export default function ShareRoute() {
                 shareId,
                 password,
                 agentAccessToken,
+                session?.email ?? null,
               ]}
               selectComments={(d: any) => d?.data?.comments}
               applyComments={(d: any, next) =>

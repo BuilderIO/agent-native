@@ -1084,6 +1084,8 @@ const enUS = {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      pdfExportError: "Could not export PDF",
+      pdfDownloaded: "PDF downloaded",
       pdfAllScreensDownloaded: "PDF downloaded (all screens)",
       openScreenSvg: "Open a screen before exporting SVG",
       svgDownloaded: "SVG downloaded",
