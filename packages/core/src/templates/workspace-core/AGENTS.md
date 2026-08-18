@@ -89,6 +89,27 @@ Dispatch vault access is workspace-wide by default: every saved vault key is
 available to every workspace app. Only create or request per-app vault grants
 when Dispatch's vault access setting is switched to manual mode.
 
+Before implementing an app that connects to an external service, inspect the
+framework and toolkit for existing settings, secrets/vault, OAuth,
+workspace-connection, onboarding, and provider API primitives. Reuse the
+strongest existing primitive by default:
+
+- Use scoped vault entries for API and service keys, with human labels,
+  descriptions, docs links, validators, and the narrowest correct scope.
+- Use native OAuth and the OAuth token store for authorization-code and refresh
+  token flows.
+- Store account, customer, manager, and other non-secret identifiers as scoped
+  connection metadata or app data.
+- Keep custom setup UI only for provider-specific prerequisites, sequencing,
+  readiness, or health checks. It must link to or call shared settings/OAuth and
+  action surfaces, not duplicate credential storage or transport.
+- Model one logical connection as one onboarding outcome; do not mark every
+  field required by reflex.
+
+The agent and UI must use the same action/helper and connection-status path. Do
+not add a second credential-management surface or a pass-through route just to
+make a framework-owned secret endpoint easier to call.
+
 Workspace apps are discovered from `apps/<app-name>/package.json`. There is no
 separate workspace app registry to edit for Dispatch to list the app. Always
 save a concise, human-readable `description` there; Dispatch lists and A2A

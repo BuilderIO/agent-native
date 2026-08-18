@@ -96,6 +96,11 @@ contract:
 - Do not create pass-through routes whose main job is to call, repackage, or
   re-export an action.
 
+Rules that must influence app generation or the runtime agent cannot live only
+in `scope: dev` skills. Put the short invariant in the generated `AGENTS.md`
+or another runtime-visible instruction surface, then keep the implementation
+details in the relevant skill.
+
 ## Budget the first model request
 
 Treat the initial prompt and tool catalog as a latency budget. The agent should

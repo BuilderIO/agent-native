@@ -74,6 +74,16 @@ Builder/internal data, or customer data in the action, UI, seed data, fixtures,
 docs, prompts, or generated extension/app content. Register required secrets,
 use OAuth helpers, or read scoped values from the vault/credential store.
 
+Before writing custom setup or credential UI, perform the shared-primitive
+preflight from `agent-native-toolkit`: inspect settings, secrets/vault, OAuth,
+workspace connections, onboarding, and provider API support. Use native OAuth
+for OAuth flows, scoped vault entries for API/service keys, and ordinary
+connection metadata for non-secret identifiers. Keep any app-local wizard thin
+and provider-specific - it may explain prerequisites, ordering, or readiness,
+but it must not become a second vault or custom credential transport. Do not
+mark each field `required` by reflex; model onboarding around the logical
+connection outcome.
+
 If the feature involves attachments, images, recordings, screenshots, exports,
 or other file-like payloads, design the upload path in the same change:
 provider upload first, then URL/id/blob handle in SQL. Do not add base64/binary

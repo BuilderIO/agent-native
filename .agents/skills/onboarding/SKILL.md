@@ -23,6 +23,17 @@ onboarding checklist stay in one place. For OAuth, check the scoped OAuth token
 store. Use deployment env vars only for deploy-level configuration, not
 per-user credentials.
 
+Model onboarding around the logical connection outcome, not its individual
+fields. Because `registerRequiredSecret({ required: true })` auto-injects a
+checklist item per registration, do not mark every credential/config field as
+required by reflex. Use one composite onboarding step or connection readiness
+check when several values are needed for one provider.
+
+A custom setup page is appropriate only when it adds provider-specific
+prerequisites, sequencing, or health checks. Keep it as a thin guide over the
+shared settings, vault, OAuth, and action surfaces; never make it a second place
+that stores or manages credentials.
+
 ## Registering a Step
 
 ```ts

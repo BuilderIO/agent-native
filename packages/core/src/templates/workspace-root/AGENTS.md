@@ -104,6 +104,17 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 - Dispatch vault access is workspace-wide by default: every saved vault key is
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.
+- Before implementing an app that connects to an external service, inspect the
+  framework and toolkit for existing settings, secrets/vault, OAuth,
+  workspace-connection, onboarding, and provider API primitives. Reuse the
+  strongest existing primitive by default. Use scoped vault entries for API and
+  service keys, native OAuth for authorization-code and refresh-token flows,
+  and ordinary connection metadata for non-secret identifiers.
+- Keep custom setup UI only for provider-specific prerequisites, sequencing,
+  readiness, or health checks. It must link to or call shared settings/OAuth and
+  action surfaces, not duplicate credential storage or transport. Model one
+  logical connection as one onboarding outcome instead of marking every field
+  required by reflex.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/chat` or another existing app unless the user explicitly asks to
   modify that existing app.

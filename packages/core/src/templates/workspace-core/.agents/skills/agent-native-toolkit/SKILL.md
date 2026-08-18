@@ -38,6 +38,27 @@ preference, notification preference, or usage/billing surface, register it as a
 settings tab or app settings panel first. Only add sidebar UI when it is needed
 in the moment of agent use.
 
+## Integration Setup Preflight
+
+Before building any setup, settings, credential, OAuth, or connection surface,
+search the framework and toolkit for an existing primitive and classify each
+provider value by its lifecycle and scope:
+
+| Need | Default primitive |
+| --- | --- |
+| Deploy- or app-level configuration | Runtime configuration or deployment env vars |
+| User-, workspace-, or org-scoped API/service key | `registerRequiredSecret({ kind: "api-key" })` and the vault |
+| Authorization-code or refresh-token flow | `kind: "oauth"` with `@agent-native/core/oauth-tokens` |
+| Account, customer, or other non-secret identifiers | Scoped connection metadata or app data |
+| Provider-specific prerequisites, sequencing, or health | A thin app-local guide over the shared primitives |
+
+Do not register every provider field as a generic secret, mark every field as
+required, or create a second credential-management surface. One logical
+connection should normally produce one onboarding outcome. A custom setup page
+is appropriate only when it adds domain-specific guidance or readiness checks;
+it should link to or call the shared settings, OAuth, and action surfaces rather
+than duplicating their storage or transport.
+
 ## Reusable Kits
 
 - **Settings kit**: a searchable settings page with account, workspace, AI

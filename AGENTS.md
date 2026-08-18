@@ -61,6 +61,11 @@ step is still pending. Use `🔴` only when blocked on user input.
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
   actions.
+- Before adding settings, setup, credential, OAuth, or connection UI for an
+  external service, inspect the shared toolkit, settings, vault, OAuth,
+  workspace-connection, onboarding, and provider API primitives. Use the
+  strongest existing primitive by default; keep custom UI only for
+  provider-specific prerequisites, sequencing, status, or health checks.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
