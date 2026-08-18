@@ -45,7 +45,8 @@ describe("hand-written tool schemas", () => {
     const walk = (n: any, path: string) => {
       if (!n || typeof n !== "object" || Array.isArray(n)) return;
       if (!TYPED.some((k) => n[k] !== undefined)) bad.push(path);
-      if (n.items && typeof n.items === "object") walk(n.items, `${path}.items`);
+      if (n.items && typeof n.items === "object")
+        walk(n.items, `${path}.items`);
       if (n.properties)
         for (const [k, v] of Object.entries(n.properties))
           walk(v, `${path}.${k}`);
