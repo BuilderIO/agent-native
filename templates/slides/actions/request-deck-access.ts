@@ -51,6 +51,29 @@ function accessRequestEventId(deckId: string, requesterEmail: string): string {
   );
 }
 
+type AccessRequestPayload = {
+  requestId?: string;
+  requesterEmail?: string;
+  requesterName?: string;
+  requestedAt?: string;
+  notifiedOwner?: boolean;
+  notifiedAt?: string;
+};
+
+function parseAccessRequestPayload(
+  payload: string | null | undefined,
+): AccessRequestPayload | null {
+  try {
+    const parsed = JSON.parse(payload ?? "") as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as AccessRequestPayload)
+      : null;
+  } catch {
+    // coercion-ok: malformed historical event payload cannot represent a matching requester.
+    return null;
+  }
+}
+
 function cleanSubjectPart(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
 }
@@ -85,6 +108,48 @@ async function notifyOwner(input: {
   return true;
 }
 
+async function notifyAccessRequestOwner(input: {
+  deckId: string;
+  deckTitle: string;
+  ownerEmail: string | null;
+  requesterEmail: string;
+  requesterName: string;
+}): Promise<boolean> {
+  const ownerEmail = input.ownerEmail;
+  const ownerEmailKey = ownerEmail ? normalizeEmail(ownerEmail) : null;
+  if (!ownerEmail || ownerEmailKey === input.requesterEmail) return false;
+
+  let notifiedOwner = false;
+  try {
+    const notification = await notify(
+      {
+        severity: "info",
+        title: "Deck access requested",
+        body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
+        metadata: {
+          deckId: input.deckId,
+          requesterEmail: input.requesterEmail,
+          link: getDeckUrl(input.deckId),
+        },
+      },
+      // Keep the stored owner identity's original casing. Authentication may
+      // preserve that casing, while the requester's dedupe key is canonical.
+      { owner: ownerEmail },
+    );
+    notifiedOwner = Boolean(notification);
+  } catch (error) {
+    console.warn("[deck-access] in-app notification failed:", error);
+  }
+
+  try {
+    notifiedOwner = (await notifyOwner(input)) || notifiedOwner;
+  } catch (error) {
+    console.warn("[deck-access] access request notification failed:", error);
+  }
+
+  return notifiedOwner;
+}
+
 export default defineAction({
   description:
     "Request access to a private Agent-Native Slides deck. Records an access-request event and notifies the owner when email is configured.",
@@ -100,6 +165,25 @@ export default defineAction({
     const requesterEmail = normalizeEmail(rawRequesterEmail);
 
     const db = getDb();
+    const recordNotification = async (
+      requestId: string,
+      payload: AccessRequestPayload,
+    ): Promise<void> => {
+      try {
+        await db
+          .update(schema.deckEvents)
+          .set({
+            payload: JSON.stringify({
+              ...payload,
+              notifiedOwner: true,
+              notifiedAt: new Date().toISOString(),
+            }),
+          })
+          .where(eq(schema.deckEvents.id, requestId));
+      } catch (error) {
+        console.warn("[deck-access] notification status update failed:", error);
+      }
+    };
     const [deck] = await db
       .select({
         id: schema.decks.id,
@@ -124,8 +208,14 @@ export default defineAction({
       };
     }
 
+    const requesterName =
+      getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
+    const ownerEmail = deck.ownerEmail?.trim() || null;
     const previousRequests = await db
-      .select({ payload: schema.deckEvents.payload })
+      .select({
+        id: schema.deckEvents.id,
+        payload: schema.deckEvents.payload,
+      })
       .from(schema.deckEvents)
       .where(
         and(
@@ -133,33 +223,54 @@ export default defineAction({
           eq(schema.deckEvents.type, "deck.access_requested"),
         ),
       );
-    const alreadyRequested = previousRequests.some((event) => {
-      try {
-        const payload = JSON.parse(event.payload ?? "") as {
-          requesterEmail?: string;
-        };
-        return (
-          typeof payload.requesterEmail === "string" &&
-          normalizeEmail(payload.requesterEmail) === requesterEmail
-        );
-      } catch {
-        // coercion-ok: malformed historical event payload cannot represent a matching requester.
-        return false;
-      }
+    const previousRequest = previousRequests.find((event) => {
+      const payload = parseAccessRequestPayload(event.payload);
+      return (
+        typeof payload?.requesterEmail === "string" &&
+        normalizeEmail(payload.requesterEmail) === requesterEmail
+      );
     });
 
-    if (alreadyRequested) {
+    if (previousRequest) {
+      const previousPayload = parseAccessRequestPayload(
+        previousRequest.payload,
+      );
+      const previousRequestId =
+        previousPayload?.requestId || previousRequest.id;
+      if (previousPayload?.notifiedOwner) {
+        return {
+          ok: true as const,
+          alreadyHasAccess: false,
+          alreadyRequested: true,
+          notifiedOwner: true,
+          requestId: previousRequestId,
+          message: "Your access request is already with the deck owner.",
+        };
+      }
+
+      const notifiedOwner = await notifyAccessRequestOwner({
+        deckId,
+        deckTitle: deck.title,
+        ownerEmail,
+        requesterEmail,
+        requesterName: previousPayload?.requesterName?.trim() || requesterName,
+      });
+      if (notifiedOwner && previousPayload) {
+        await recordNotification(previousRequestId, previousPayload);
+      }
+
       return {
         ok: true as const,
         alreadyHasAccess: false,
         alreadyRequested: true,
-        notifiedOwner: false,
-        message: "Your access request is already with the deck owner.",
+        notifiedOwner,
+        requestId: previousRequestId,
+        message: notifiedOwner
+          ? "Access request sent to the deck owner."
+          : "Your access request is already with the deck owner.",
       };
     }
 
-    const requesterName =
-      getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
     const requestId = accessRequestEventId(deckId, requesterEmail);
     const requestedAt = new Date().toISOString();
 
@@ -175,6 +286,7 @@ export default defineAction({
           requesterEmail,
           requesterName,
           requestedAt,
+          notifiedOwner: false,
         }),
         createdBy: "human",
         createdAt: requestedAt,
@@ -193,39 +305,21 @@ export default defineAction({
     }
 
     let notifiedOwner = false;
-    const ownerEmail = deck.ownerEmail ? normalizeEmail(deck.ownerEmail) : null;
-    try {
-      if (ownerEmail && ownerEmail !== requesterEmail) {
-        const notification = await notify(
-          {
-            severity: "info",
-            title: "Deck access requested",
-            body: `${requesterName} requested access to “${deck.title}”.`,
-            metadata: {
-              deckId,
-              requesterEmail,
-              link: getDeckUrl(deckId),
-            },
-          },
-          { owner: ownerEmail },
-        );
-        notifiedOwner = Boolean(notification);
-      }
-    } catch (error) {
-      console.warn("[deck-access] in-app notification failed:", error);
-    }
-
-    try {
-      notifiedOwner =
-        (await notifyOwner({
-          deckId,
-          deckTitle: deck.title,
-          ownerEmail,
-          requesterEmail,
-          requesterName,
-        })) || notifiedOwner;
-    } catch (error) {
-      console.warn("[deck-access] access request notification failed:", error);
+    notifiedOwner = await notifyAccessRequestOwner({
+      deckId,
+      deckTitle: deck.title,
+      ownerEmail,
+      requesterEmail,
+      requesterName,
+    });
+    if (notifiedOwner) {
+      await recordNotification(requestId, {
+        requestId,
+        requesterEmail,
+        requesterName,
+        requestedAt,
+        notifiedOwner: false,
+      });
     }
 
     return {

@@ -12,8 +12,9 @@ const state = vi.hoisted(() => ({
   emailConfigured: true,
   inAppNotification: true,
   insertConflict: false,
-  previousRequests: [] as { payload: string | null }[],
+  previousRequests: [] as { id: string; payload: string | null }[],
   insertedRows: [] as Record<string, unknown>[],
+  updatedPayload: null as string | null,
 }));
 
 const limitSelect = vi.hoisted(() =>
@@ -30,6 +31,13 @@ const insertValues = vi.hoisted(() =>
     };
   }),
 );
+const updateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const updateSet = vi.hoisted(() =>
+  vi.fn((values: Record<string, unknown>) => {
+    state.updatedPayload = values.payload as string;
+    return { where: updateWhere };
+  }),
+);
 const db = vi.hoisted(() => ({
   select: vi.fn((selection: Record<string, unknown>) => ({
     from: vi.fn(() => ({
@@ -41,6 +49,7 @@ const db = vi.hoisted(() => ({
     })),
   })),
   insert: vi.fn(() => ({ values: insertValues })),
+  update: vi.fn(() => ({ set: updateSet })),
 }));
 
 const sendEmail = vi.hoisted(() => vi.fn(async () => undefined));
@@ -122,6 +131,7 @@ beforeEach(() => {
   state.insertConflict = false;
   state.previousRequests = [];
   state.insertedRows = [];
+  state.updatedPayload = null;
 });
 
 describe("request-deck-access", () => {
@@ -145,6 +155,10 @@ describe("request-deck-access", () => {
       requestId: expect.stringMatching(/^access-request-[a-f0-9]{64}$/),
       requesterEmail: "requester@example.com",
       requesterName: "Requester",
+      notifiedOwner: false,
+    });
+    expect(JSON.parse(state.updatedPayload as string)).toMatchObject({
+      notifiedOwner: true,
     });
     expect(sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -169,6 +183,23 @@ describe("request-deck-access", () => {
     );
   });
 
+  it("preserves the owner email casing used by notification reads", async () => {
+    state.deck = {
+      id: "deck-1",
+      title: "Quarterly Review",
+      ownerEmail: "Owner@Example.com",
+    };
+
+    await action.run({ deckId: "deck-1" });
+
+    expect(notify).toHaveBeenCalledWith(expect.anything(), {
+      owner: "Owner@Example.com",
+    });
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "Owner@Example.com" }),
+    );
+  });
+
   it("keeps the durable request and in-app notice when owner email fails", async () => {
     sendEmail.mockRejectedValueOnce(new Error("SMTP unavailable"));
 
@@ -183,10 +214,45 @@ describe("request-deck-access", () => {
     expect(state.insertedRows).toHaveLength(1);
   });
 
+  it("retries owner notification after a previous attempt failed", async () => {
+    state.inAppNotification = false;
+    sendEmail.mockRejectedValueOnce(new Error("SMTP unavailable"));
+
+    const firstResult = await action.run({ deckId: "deck-1" });
+    const requestId = firstResult.requestId as string;
+    expect(firstResult).toMatchObject({ notifiedOwner: false, requestId });
+
+    state.previousRequests = [
+      {
+        id: requestId,
+        payload: state.insertedRows[0].payload as string,
+      },
+    ];
+    state.inAppNotification = true;
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: true,
+      notifiedOwner: true,
+      requestId,
+      message: "Access request sent to the deck owner.",
+    });
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(state.updatedPayload).toBeTruthy();
+    expect(JSON.parse(state.updatedPayload as string)).toMatchObject({
+      notifiedOwner: true,
+    });
+  });
+
   it("does not duplicate a request already recorded for this requester", async () => {
     state.previousRequests = [
       {
-        payload: JSON.stringify({ requesterEmail: "REQUESTER@example.com" }),
+        id: "access-request-existing",
+        payload: JSON.stringify({
+          requesterEmail: "REQUESTER@example.com",
+          notifiedOwner: true,
+        }),
       },
     ];
 
@@ -194,7 +260,8 @@ describe("request-deck-access", () => {
       ok: true,
       alreadyHasAccess: false,
       alreadyRequested: true,
-      notifiedOwner: false,
+      notifiedOwner: true,
+      requestId: "access-request-existing",
       message: "Your access request is already with the deck owner.",
     });
     expect(state.insertedRows).toHaveLength(0);
