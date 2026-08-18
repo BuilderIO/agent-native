@@ -36,6 +36,7 @@ async function loadPublicJsonAsset<T>(
     try {
       return JSON.parse(await readFile(filePath, "utf-8")) as T;
     } catch {
+      // coercion-ok: a missing local build location should try the next location.
       // Try the next known build output location.
     }
   }
@@ -50,6 +51,7 @@ async function loadPublicJsonAsset<T>(
     if (!response.ok) return undefined;
     return (await response.json()) as T;
   } catch {
+    // coercion-ok: a failed same-origin asset fetch is an unavailable asset.
     return undefined;
   }
 }
