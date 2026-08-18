@@ -3854,6 +3854,53 @@ describe("SSE event processor error classification", () => {
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
   });
 
+  it("does not auto-continue a breaker stop that preserved its underlying transient code", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The server's no-progress breaker keeps the gateway code and reference id
+    // so the failure stays diagnosable. Reading the code instead of the flag
+    // re-POSTs the exact chain the server just refused to continue.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 0f3c9ab21d7e\n\nThis failed 2 times in a row without making any progress, so I stopped instead of retrying again.",
+            errorCode: "builder_gateway_internal_error",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-no-progress-breaker",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "builder_gateway_internal_error",
+    );
+  });
+
   it("does not auto-continue a repeat-guard stop whose message names a tool that matches the transient message sniff", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

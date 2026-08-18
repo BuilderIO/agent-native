@@ -597,6 +597,41 @@ describe("buildAssistantMessage", () => {
     }
   });
 
+  it("keeps a breaker stop that preserved its underlying transient code", () => {
+    // The no-progress breaker ends the turn with the gateway's own code and
+    // reference id so the failure stays diagnosable. Folding it as a
+    // continuation boundary would drop the one error the user is supposed to
+    // see, and record a turn nothing is continuing as continued.
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a\n\nThis failed 2 times in a row without making any progress, so I stopped instead of retrying again.",
+            errorCode: "builder_gateway_internal_error",
+            recoverable: false,
+          },
+        },
+      ],
+      "run-no-progress-breaker",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-no-progress-breaker",
+      },
+    );
+
+    expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata?.custom?.continued).toBeUndefined();
+    expect(message?.metadata?.custom?.runError).toMatchObject({
+      errorCode: "builder_gateway_internal_error",
+      details: expect.stringContaining(
+        "ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    });
+  });
+
   // `providerRetryable` is the ENGINE's "another attempt may succeed", which is
   // not the same claim as "this run stopped at an internal boundary". Reading it
   // here would drop a provider throttle from the persisted turn and record the

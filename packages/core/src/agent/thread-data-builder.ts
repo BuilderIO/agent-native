@@ -65,6 +65,12 @@ function isInternalContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit `recoverable: false` outranks the code and message inference
+  // below, matching `isRecoverableContinuationError`. The background
+  // no-progress breaker stops a turn while PRESERVING the underlying transient
+  // code, so reading the code instead of the flag drops the one error the user
+  // was supposed to see out of the persisted turn.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
