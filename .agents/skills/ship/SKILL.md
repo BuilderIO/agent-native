@@ -86,6 +86,15 @@ question - route the item back through `/review-latest-feedback`, use the
 evidence, and refresh the fix or disposition before merge. A ship handoff is
 not complete while an answered clarification is still sitting as pending.
 
+Keep evidence that is absent separate from a linked artifact that is present
+but inaccessible because of permissions, expiry, connector gaps, or another
+read failure. If the inaccessible artifact is required to identify or verify
+the change, route the item back through the feedback workflow for a targeted
+request for access or a fresh/replacement link; do not ask again for contents
+that are already known to be in that artifact. If it is not required, continue
+with the available evidence and record the limitation as unavailable/unverified
+in the ship ledger rather than treating it as missing.
+
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
 when the branch changes after triage or when new comments, Slack replies,

@@ -25,6 +25,12 @@ status.
 - Read `address-feedback`, `concurrent-agents`, and `verifying-changes` first.
 - Read the linked Slack parent and every reply. If a message points to a Clips
   link, transcript, video, screenshot, file, or newer follow-up, inspect it too.
+- Inspect every linked artifact that is accessible, but track an artifact that
+  is permission-gated, expired, or otherwise unreadable separately from
+  evidence that is absent. Do not treat an inaccessible artifact as proof that
+  its contents are missing. If that artifact is actually needed to identify or
+  verify the fix, ask for access or a fresh/replacement link; if it is not
+  needed, continue with the available evidence and record the limitation.
 - Before asking for clarification, build a known-evidence / missing-evidence
   ledger from the entire current thread and its linked artifacts. Record the
   app or surface, URL, repro, exact error, screenshots or files, run or request
@@ -113,10 +119,12 @@ information is already present anywhere in the thread or linked evidence.
    - **Fixed** - say only that it is fixed and when it should be live.
    - **Clarification needed** - ask one concrete, plain-language question that
      unblocks the next investigation, only when reporter or product input is
-     missing from the available run, app, Slack, and linked-file evidence.
+     missing, or a needed linked artifact is inaccessible, after checking the
+     available run, app, Slack, and linked-file evidence.
      Re-read the full thread immediately before posting and verify the exact
-     requested detail is absent; do not ask again for evidence already supplied
-     in the parent, a reply, a file, or a linked run.
+     requested detail is absent or the exact access/replacement blocker still
+     exists; do not ask again for evidence already supplied in the parent, a
+     reply, a file, or a linked run.
    Apply a reply gate before every external post: a reply must either say the
    fix is complete and give its expected live timing, or ask the one essential
    missing question. Never post a blocked/unresolved status without a question
@@ -179,9 +187,12 @@ Write as Steve, not as a formal support bot:
   window is actually known.
 - If it is not fixed, do not post a status-only update. Continue the fix, or
   ask one concrete question only when reporter or product information is
-  genuinely missing after exhausting the Slack thread, linked
-  files/transcript/video, app state, run ID, sessions, and history. Internal
-  verification blockers do not justify a reporter question. Never ask for a
+  genuinely missing, or a needed linked artifact is inaccessible, after
+  exhausting the Slack thread, linked files/transcript/video, app state, run
+  ID, sessions, and history. Internal
+  verification blockers do not justify a reporter question. When an artifact
+  is linked but inaccessible, ask for access or a fresh/replacement artifact,
+  not for its contents as though the evidence were absent. Never ask for a
   prompt, run ID, session, or file already present or available through those
   sources, and never write “not fixed yet” without a real question that
   unblocks the fix.

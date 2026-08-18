@@ -60,15 +60,22 @@ newer follow-up. Paginate until there are no more replies. Build a small
 evidence ledger for the thread with the values already known - surface or app,
 URL, account or session, repro steps, exact error, screenshot or file, run or
 request ID, and the answer to each earlier question - and a separate list of
-what is still missing. Treat an attachment or an earlier reply as evidence to
-inspect, not as a reason to ask for the same thing again.
+what is still missing. Keep a separate list of linked artifacts that are
+present but inaccessible because of permissions, expiry, connector gaps, or
+another read failure. Treat an attachment or an earlier reply as evidence to
+inspect, not as a reason to ask for the same thing again; inaccessible evidence
+is not the same as absent evidence.
 
 The clarification question must be derived from that missing-evidence list.
 Never ask for a URL, screenshot, error, run ID, or repro detail that is already
 in the parent or a reply. If the reporter supplies it later, re-read the whole
 thread before doing anything else, remove that field from the missing list,
 and try the fix from the new evidence before asking another question. If the
-answer only partially fills the gap, ask only for the one remaining field.
+answer only partially fills the gap, ask only for the one remaining field. If a
+needed linked artifact is inaccessible, ask for access or a fresh/replacement
+link rather than asking for the artifact's contents again. If the available
+evidence is enough without it, continue and record the limitation instead of
+creating a reporter blocker.
 
 ## Answered clarifications come first
 
@@ -107,8 +114,11 @@ Use the configured Slack, GitHub, and Sentry connectors when available:
    traces, route or component, frequency, affected release, and event links.
 
 If a connector or permission is missing, continue with the other sources and
-name the exact gap in the final recap. Do not infer a Sentry “no results” state
-from an unavailable API.
+name the exact gap in the final recap. Treat that as unavailable evidence, not
+as “nothing matched.” If the unavailable source is required to identify or
+verify a safe fix, ask for access or a fresh/replacement artifact; do not ask
+again for details that the inaccessible source was already known to contain.
+Do not infer a Sentry “no results” state from an unavailable API.
 
 ## Triage and fix-altitude gate
 
@@ -121,9 +131,11 @@ evidence, likely owner, and disposition. Use this order:
    it and keep working until the smallest meaningful verification is green.
 2. **Missing reporter evidence** - after reading the full thread and linked
    evidence, ask one specific question naming the exact reproduction, input, or
-   surface needed to choose and verify a safe fix. Add `👀` before asking. If
-   only internal test, deployment, or tooling verification is unavailable,
-   keep that blocker internal and do not ask the reporter for it.
+   surface needed to choose and verify a safe fix. Add `👀` before asking. If a
+   needed linked artifact is inaccessible, ask for access or a fresh/replacement
+   link instead of treating its contents as absent. If only internal test,
+   deployment, or tooling verification is unavailable, keep that blocker
+   internal and do not ask the reporter for it.
 3. **Subjective UX or product suggestion** - do not turn a preference into a
    code or prompt rule. Act only when the report identifies a concrete broken
    behavior, an existing product invariant, or repeated independent evidence;
