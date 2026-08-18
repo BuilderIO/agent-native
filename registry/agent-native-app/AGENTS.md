@@ -56,6 +56,7 @@ the agent can use.
   or search `node_modules/@agent-native/core/corpus`.
 - Before building common workspace or agent UI, read `agent-native-toolkit` to
   inventory existing public kits and installed package seams.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Before overriding shared UI or integrations, read `customizing-agent-native`.
   Use the supported ladder: configure → compose → eject the smallest unit →
   propose a shared seam. Preview before `--apply`, commit
