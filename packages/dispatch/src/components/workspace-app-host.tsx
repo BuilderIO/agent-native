@@ -246,7 +246,7 @@ export interface WorkspaceAppFrameApp {
 
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
-  navigateToTopWindow?: (href: string) => void;
+  navigateToTopWindow?: (href: string) => boolean | void;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
   /** Chat-first app surfaces own the parent chat rail around the iframe. */
@@ -273,6 +273,8 @@ export function WorkspaceAppFrame({
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
+  const [topWindowNavigationFailed, setTopWindowNavigationFailed] =
+    useState(false);
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
   const postThemeToFrame = useCallback(() => {
     embedFrameRef.current?.contentWindow?.postMessage(
@@ -331,12 +333,26 @@ export function WorkspaceAppFrame({
   }, [app.id, app.path, app.url, appHref, embedPath]);
 
   useEffect(() => {
-    if (!openInTopWindow || !topWindowHref) return;
-    navigateToTopWindow(topWindowHref);
+    if (!openInTopWindow) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
+    if (!topWindowHref) {
+      setTopWindowNavigationFailed(true);
+      return;
+    }
+
+    let didNavigate = false;
+    try {
+      didNavigate = navigateToTopWindow(topWindowHref) !== false;
+    } catch {
+      didNavigate = false;
+    }
+    setTopWindowNavigationFailed(!didNavigate);
   }, [navigateToTopWindow, openInTopWindow, topWindowHref]);
 
   useEffect(() => {
-    if (!embedInput || openInTopWindow) return;
+    if (!embedInput || (openInTopWindow && !topWindowNavigationFailed)) return;
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
@@ -384,6 +400,7 @@ export function WorkspaceAppFrame({
     embedPath,
     embedAttempt,
     openInTopWindow,
+    topWindowNavigationFailed,
     workspaceSsoEnabled,
   ]);
 
@@ -454,7 +471,7 @@ export function WorkspaceAppHost({
   navigateToTopWindow = navigateToWorkspaceApp,
 }: {
   appId?: string;
-  navigateToTopWindow?: (href: string) => void;
+  navigateToTopWindow?: (href: string) => boolean | void;
 }) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(

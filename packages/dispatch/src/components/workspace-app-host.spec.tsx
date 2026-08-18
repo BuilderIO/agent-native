@@ -392,6 +392,34 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
+  it("falls back to the embedded app when top-window navigation is blocked", async () => {
+    const navigateToTopWindow = vi.fn(() => false);
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{ id: "mail", name: "Mail", path: "/mail" }}
+          navigateToTopWindow={navigateToTopWindow}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail");
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail",
+      chrome: "minimal",
+    });
+    expect(container.querySelector("iframe")).not.toBeNull();
+  });
+
   it("preserves a chat-first deep route in the top window when embedded", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
     const embedPath = "/emails?status=failed#latest";

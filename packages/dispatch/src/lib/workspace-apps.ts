@@ -164,13 +164,20 @@ export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   return isInBuilderFrame() || window.parent !== window;
 }
 
-export function navigateToWorkspaceApp(href: string): void {
-  if (typeof window === "undefined") return;
+export function navigateToWorkspaceApp(href: string): boolean {
+  if (typeof window === "undefined") return false;
 
-  const url = new URL(href, window.location.href).href;
-  const targetWindow =
-    shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
-  targetWindow.location.href = url;
+  try {
+    const url = new URL(href, window.location.href).href;
+    const targetWindow =
+      shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
+    targetWindow.location.href = url;
+    return true;
+  } catch {
+    // A sandboxed or otherwise restricted iframe may not be allowed to
+    // navigate its top window. Let the caller keep its embedded fallback.
+    return false;
+  }
 }
 
 /**

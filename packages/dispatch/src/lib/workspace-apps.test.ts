@@ -94,4 +94,25 @@ describe("navigateToWorkspaceApp", () => {
       new URL("/mail", window.location.href).href,
     );
   });
+
+  it("reports when the embedded top window rejects navigation", () => {
+    const location = {} as Location;
+    Object.defineProperty(location, "href", {
+      configurable: true,
+      set: () => {
+        throw new Error("Top navigation is blocked");
+      },
+    });
+    const topWindow = { location } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    expect(navigateToWorkspaceApp("/mail")).toBe(false);
+  });
 });

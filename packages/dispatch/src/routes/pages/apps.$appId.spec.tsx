@@ -7,9 +7,9 @@ const routeState = vi.hoisted(() => ({
   appId: "mail",
   hostProps: null as {
     appId?: string;
-    navigateToTopWindow?: (href: string) => void;
+    navigateToTopWindow?: (href: string) => boolean | void;
   } | null,
-  navigateToWorkspaceApp: vi.fn(),
+  navigateToWorkspaceApp: vi.fn(() => true),
 }));
 
 vi.mock("react-router", () => ({
