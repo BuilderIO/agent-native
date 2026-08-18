@@ -1,5 +1,8 @@
+import { createHmac } from "node:crypto";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -13,11 +16,13 @@ const resolveOrgIdForEmailMock = vi.hoisted(() =>
 const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
 );
+const resolveSecretMock = vi.hoisted(() => vi.fn(() => null));
 const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const recordIntegrationResponseDeliveryMock = vi.hoisted(() => vi.fn());
 const handleWebhookMock = vi.hoisted(() =>
   vi.fn(async () => ({ status: 200, body: "ok" })),
 );
@@ -26,9 +31,62 @@ const resourceListMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceGetMock = vi.hoisted(() => vi.fn(async () => null));
 const claimPendingTaskMock = vi.hoisted(() => vi.fn());
+const getPendingTaskMock = vi.hoisted(() => vi.fn());
+const failIntegrationCampaignTaskDeliveryContainmentMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
 const markTaskRetryableMock = vi.hoisted(() => vi.fn());
+const markTaskDeliveryRetryableMock = vi.hoisted(() => vi.fn());
+const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
+const insertPendingTaskMock = vi.hoisted(() => vi.fn());
+const retryStuckPendingTasksMock = vi.hoisted(() => vi.fn());
+const getNextPendingTaskForThreadMock = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
+const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const recoverDueIntegrationCampaignsMock = vi.hoisted(() =>
+  vi.fn(async () => ({ selected: 0, dispatched: 0, skipped: 0, failed: 0 })),
+);
+const recoverDueA2AContinuationsMock = vi.hoisted(() =>
+  vi.fn(async () => ({ dispatched: 0, failed: 0 })),
+);
+const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
+const startPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const processA2AContinuationByIdMock = vi.hoisted(() => vi.fn());
+const recoverA2AContinuationAfterProcessorFailureMock = vi.hoisted(() =>
+  vi.fn(),
+);
+const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
+const failA2AContinuationMock = vi.hoisted(() => vi.fn());
+const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const refreshIntegrationCampaignTaskA2AReceiptRetryMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const terminalizeIntegrationCampaignForTaskMock = vi.hoisted(() => vi.fn());
+const transitionIntegrationCampaignTaskToA2AReceiptRetryMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const transitionIntegrationCampaignTaskToDeliveryRetryMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const waitForA2AIntegrationCampaignMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const getA2AContinuationTaskOutcomeMock = vi.hoisted(() =>
+  vi.fn(async () => "active"),
+);
+const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const failIntegrationCampaignMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -38,12 +96,21 @@ vi.mock("../server/auth.js", () => ({
   getSession: getSessionMock,
 }));
 
+vi.mock("../server/credential-provider.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../server/credential-provider.js")
+  >("../server/credential-provider.js");
+  return { ...actual, resolveSecret: resolveSecretMock };
+});
+
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
+  hasRequestContext: vi.fn(() => false),
+  markRequestBoundaryInstalled: vi.fn(),
   runWithRequestContext: runWithRequestContextMock,
 }));
 
@@ -53,8 +120,60 @@ vi.mock("./config-store.js", () => ({
 }));
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
-  startPendingTasksRetryJob: vi.fn(),
+  startPendingTasksRetryJob: startPendingTasksRetryJobMock,
+  retryStuckPendingTasks: retryStuckPendingTasksMock,
 }));
+
+vi.mock("./integration-campaign-recovery.js", () => ({
+  recoverDueIntegrationCampaigns: recoverDueIntegrationCampaignsMock,
+}));
+
+vi.mock("./integration-campaigns-store.js", () => ({
+  claimIntegrationCampaignDeliveryForTask:
+    claimIntegrationCampaignDeliveryForTaskMock,
+  completeIntegrationCampaignTaskAfterA2A:
+    completeIntegrationCampaignTaskAfterA2AMock,
+  completeIntegrationCampaignTask: completeIntegrationCampaignTaskMock,
+  failIntegrationCampaignTaskDeliveryContainment:
+    failIntegrationCampaignTaskDeliveryContainmentMock,
+  failIntegrationCampaign: failIntegrationCampaignMock,
+  failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
+  refreshIntegrationCampaignTaskA2AReceiptRetry:
+    refreshIntegrationCampaignTaskA2AReceiptRetryMock,
+  terminalizeIntegrationCampaignForTask:
+    terminalizeIntegrationCampaignForTaskMock,
+  transitionIntegrationCampaignTaskToDeliveryRetry:
+    transitionIntegrationCampaignTaskToDeliveryRetryMock,
+  transitionIntegrationCampaignTaskToA2AReceiptRetry:
+    transitionIntegrationCampaignTaskToA2AReceiptRetryMock,
+  waitForA2AIntegrationCampaign: waitForA2AIntegrationCampaignMock,
+}));
+
+vi.mock("./a2a-continuations-store.js", () => ({
+  ensureA2AContinuationsTable: vi.fn(async () => {}),
+  failA2AContinuation: failA2AContinuationMock,
+  getA2AContinuationTaskOutcome: getA2AContinuationTaskOutcomeMock,
+}));
+
+vi.mock("./a2a-continuation-processor.js", () => ({
+  processA2AContinuationById: processA2AContinuationByIdMock,
+  processDueA2AContinuations: processDueA2AContinuationsMock,
+  recoverA2AContinuationAfterProcessorFailure:
+    recoverA2AContinuationAfterProcessorFailureMock,
+  recoverDueA2AContinuations: recoverDueA2AContinuationsMock,
+  reconcileTerminalA2AParentIfDisabled:
+    reconcileTerminalA2AParentIfDisabledMock,
+}));
+
+vi.mock("./integration-durable-dispatch.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("./integration-durable-dispatch.js")
+  >("./integration-durable-dispatch.js");
+  return {
+    ...actual,
+    dispatchPendingIntegrationTask: dispatchPendingIntegrationTaskMock,
+  };
+});
 
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: vi.fn(),
@@ -77,13 +196,16 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
   claimPendingTask: claimPendingTaskMock,
-  getPendingTask: vi.fn(),
-  getNextPendingTaskIdForThread: vi.fn(async () => null),
-  insertPendingTask: vi.fn(),
+  getPendingTask: getPendingTaskMock,
+  getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
+  insertPendingTask: insertPendingTaskMock,
   isDuplicateEventError: vi.fn(() => false),
   markTaskCompleted: markTaskCompletedMock,
   markTaskFailed: markTaskFailedMock,
   markTaskRetryable: markTaskRetryableMock,
+  markTaskDeliveryRetryable: markTaskDeliveryRetryableMock,
+  recordPendingTaskDispatchAttempt: vi.fn(),
+  stageTaskDeliveryPayload: stageTaskDeliveryPayloadMock,
 }));
 
 vi.mock("./webhook-handler.js", async () => {
@@ -94,6 +216,27 @@ vi.mock("./webhook-handler.js", async () => {
     ...actual,
     handleWebhook: handleWebhookMock,
     processIntegrationTask: processIntegrationTaskMock,
+    recordIntegrationResponseDelivery: recordIntegrationResponseDeliveryMock,
+  };
+});
+
+// Default mirrors the real non-Slack service path so existing webhook tests
+// keep their behavior; individual tests override with mockRejectedValueOnce.
+const resolveDefaultExecutionContextMock = vi.hoisted(() =>
+  vi.fn(async (incoming: { platform: string }) => ({
+    ownerEmail: `integration@${incoming.platform}`,
+    orgId: null,
+    principalType: "service" as const,
+  })),
+);
+
+vi.mock("./identity.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./identity.js")>("./identity.js");
+  return {
+    ...actual,
+    resolveDefaultIntegrationExecutionContext:
+      resolveDefaultExecutionContextMock,
   };
 });
 
@@ -106,6 +249,7 @@ async function dispatch(
   pathname: string,
   method = "GET",
   body?: unknown,
+  headers?: Record<string, string>,
 ) {
   const url = `https://app.test${pathname}`;
   const requestBody = body === undefined ? undefined : JSON.stringify(body);
@@ -121,6 +265,7 @@ async function dispatch(
         host: "app.test",
         "x-forwarded-proto": "https",
         ...(requestBody ? { "content-type": "application/json" } : {}),
+        ...headers,
       },
     }),
     res: {
@@ -135,6 +280,7 @@ async function dispatch(
           host: "app.test",
           "x-forwarded-proto": "https",
           ...(requestBody ? { "content-type": "application/json" } : {}),
+          ...headers,
         },
       },
       res: {
@@ -195,14 +341,32 @@ function claimedTask(attempts: number) {
   };
 }
 
+function signedTaskHeaders(taskId: string) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) throw new Error("A2A_SECRET must be set before signing a task");
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(`${taskId}:${timestamp}`)
+    .digest("hex");
+  return { authorization: `Bearer ${timestamp}.${signature}` };
+}
+
 describe("integrations plugin routes", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalA2ASecret = process.env.A2A_SECRET;
+  const originalNetlify = process.env.NETLIFY;
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
     process.env.NODE_ENV = originalNodeEnv;
+    if (originalNetlify === undefined) {
+      delete process.env.NETLIFY;
+    } else {
+      process.env.NETLIFY = originalNetlify;
+    }
     if (originalA2ASecret === undefined) {
       delete process.env.A2A_SECRET;
     } else {
@@ -218,9 +382,33 @@ describe("integrations plugin routes", () => {
     runWithRequestContextMock.mockImplementation(
       (_ctx: unknown, fn: () => unknown) => fn(),
     );
+    resolveSecretMock.mockReset();
+    resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    retryStuckPendingTasksMock.mockResolvedValue({
+      selected: 0,
+      dispatched: 0,
+      markedFailed: 0,
+      skipped: 0,
+      dispatchFailed: 0,
+    });
     resourceGetByPathMock.mockImplementation(async () => null);
   });
+
+  it.each([
+    "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    "__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__",
+  ])(
+    "does not start recurring integration jobs in the %s worker",
+    async (key) => {
+      vi.stubGlobal(key, true);
+      const nitroApp = createNitroApp();
+
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);
@@ -301,6 +489,49 @@ describe("integrations plugin routes", () => {
         },
       },
     });
+  });
+
+  it("resolves Slack OAuth credentials inside the signed-in request context", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-team", role: "owner" });
+    const contextResolutionFlags: boolean[] = [];
+    let inRequestContext = false;
+    runWithRequestContextMock.mockImplementationOnce(
+      async (_ctx: unknown, fn: () => unknown) => {
+        inRequestContext = true;
+        try {
+          return await fn();
+        } finally {
+          inRequestContext = false;
+        }
+      },
+    );
+    resolveSecretMock.mockImplementation((key: string) => {
+      contextResolutionFlags.push(inRequestContext);
+      return `configured-${key}`;
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install?return=%2Fmessaging",
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveSecretMock).toHaveBeenCalledWith("SLACK_CLIENT_ID");
+    expect(resolveSecretMock).toHaveBeenCalledWith("SLACK_CLIENT_SECRET");
+    expect(resolveSecretMock).toHaveBeenCalledWith("SLACK_SIGNING_SECRET");
+    expect(contextResolutionFlags).toEqual([true, true, true]);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-team",
+      },
+      expect.any(Function),
+    );
   });
 
   it("runs integration status checks in the signed-in request context", async () => {
@@ -393,6 +624,415 @@ describe("integrations plugin routes", () => {
     });
   });
 
+  it("rejects unsigned durable recovery sweeps", async () => {
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/retry-stuck-tasks",
+      "POST",
+      { taskId: "integration-pending-tasks-sweep" },
+    );
+
+    expect(result.status).toBe(401);
+    expect(retryStuckPendingTasksMock).not.toHaveBeenCalled();
+  });
+
+  it("runs a bounded durable-only sweep with a valid internal token", async () => {
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    retryStuckPendingTasksMock.mockResolvedValueOnce({
+      selected: 0,
+      dispatched: 0,
+      markedFailed: 0,
+      skipped: 0,
+      dispatchFailed: 0,
+    });
+    const subject = "integration-pending-tasks-sweep";
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${subject}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/retry-stuck-tasks",
+      "POST",
+      { taskId: subject },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(200);
+    // Sweeps every dispatch mode: portable tasks are the ones most likely to
+    // be stranded, since their self-dispatch dies with the container.
+    expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
+      webhookBaseUrl: "https://app.test",
+      limit: 20,
+    });
+    expect(recoverDueIntegrationCampaignsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookBaseUrl: "https://app.test",
+        limit: 20,
+      }),
+    );
+    expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
+      webhookBaseUrl: "https://app.test",
+      limit: 10,
+    });
+  });
+
+  it("records the durable lease as part of the background worker claim", async () => {
+    process.env.NODE_ENV = "development";
+    claimPendingTaskMock.mockResolvedValueOnce(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "background-task", __agentNativeProcessor: "integration" },
+    );
+
+    expect(claimPendingTaskMock).toHaveBeenCalledWith("background-task", {
+      dispatchOutcome: "background-acknowledged",
+    });
+  });
+
+  it("finishes a checkpointed campaign delivery without rerunning the agent", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Parent checkpoint", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+        campaignTerminalStatus: "completed",
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${task.id}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(200);
+    expect(claimPendingTaskMock).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).toHaveBeenCalledWith(
+      task.id,
+      { status: "completed" },
+    );
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("leases an unreceipted campaign delivery so overlapping wakes send once", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["reply-once"],
+    }));
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Campaign stopped safely", platformContext: {} },
+        campaignTerminalStatus: "failed",
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task).mockResolvedValueOnce(task);
+    claimIntegrationCampaignDeliveryForTaskMock
+      .mockResolvedValueOnce({ id: "campaign-1", status: "processing" })
+      .mockResolvedValueOnce(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const results = await Promise.all([
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        {
+          taskId: task.id,
+          __integrationCampaignContinuation: true,
+        },
+        signedTaskHeaders(task.id),
+      ),
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        {
+          taskId: task.id,
+          __integrationCampaignContinuation: true,
+        },
+        signedTaskHeaders(task.id),
+      ),
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual([200, 202]);
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(failIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-1",
+      expect.objectContaining({
+        runId: expect.stringContaining("integration-delivery-"),
+        leaseToken: expect.any(String),
+      }),
+    );
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("fails a queued continuation closed after the durable scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    delete process.env.A2A_SECRET;
+    const task = claimedTask(1);
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true, failed: "campaign-disabled" });
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      task.id,
+    );
+    expect(claimPendingTaskMock).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("finishes an A2A parent after its partial receipt is reconciled last", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-delivered",
+    );
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
+    );
+
+    expect(result.status).toBe(200);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      task.id,
+    );
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("finishes a history-finalized A2A parent after its rollout scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-delivered",
+    );
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, sendResponse }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
+    );
+
+    expect(result.status).toBe(200);
+    expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      task.id,
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("does not send an unreceipted campaign delivery after scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Do not send this", platformContext: {} },
+        campaignTerminalStatus: "completed",
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true, failed: "campaign-disabled" });
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      task.id,
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a confirmed campaign delivery even after scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Campaign stopped safely", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["reply-1"] },
+        campaignTerminalStatus: "failed",
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(markTaskFailedMock).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining("exhausted"),
+    );
+  });
+
+  it("keeps an A2A-waiting campaign active after reconciling its partial receipt", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
+    );
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      ok: true,
+      taskId: task.id,
+      continuing: true,
+    });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
   it("loads compact owner resources when processing queued integration tasks", async () => {
     process.env.NODE_ENV = "development";
     claimPendingTaskMock.mockResolvedValueOnce({
@@ -471,6 +1111,679 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("preserves the queued successor's channel scope during immediate dispatch", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "next-task",
+      dispatchScope: "channel-7",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "next-task",
+        task: {
+          platform: task.platform,
+          externalThreadId: task.externalThreadId,
+          platformContext: { channelId: "channel-7" },
+        },
+      }),
+    );
+  });
+
+  it("checkpoints a failed reply for delivery-only retry without rerunning the agent", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "Slack response delivery failed",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(markTaskDeliveryRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      JSON.stringify(deliveryPayload),
+      "Slack response delivery failed",
+    );
+    expect(stageTaskDeliveryPayloadMock).not.toHaveBeenCalled();
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("atomically releases a terminal campaign into delivery-only retry", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Campaign stopped safely", platformContext: {} },
+      campaignTerminalStatus: "failed" as const,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "Slack response delivery failed",
+      campaignLease: {
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+        campaignStatus: "failed",
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(
+      transitionIntegrationCampaignTaskToDeliveryRetryMock,
+    ).toHaveBeenCalledWith(task.id, {
+      payload: JSON.stringify(deliveryPayload),
+      errorMessage: "Slack response delivery failed",
+      campaignStatus: "failed",
+      campaignId: "campaign-1",
+      runId: "run-1",
+      leaseToken: "lease-1",
+    });
+    expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).toHaveBeenCalledOnce();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: task.id }),
+    );
+    expect(
+      dispatchPendingIntegrationTaskMock.mock.calls.at(-1)?.[0]
+        ?.campaignContinuation,
+    ).toBeUndefined();
+  });
+
+  it("hands partial A2A delivery retry custody to the continuation without reopening the task", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Parent result", platformContext: {} },
+      awaitingA2ACompletion: true as const,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "Slack response delivery failed",
+      campaignLease: {
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+        campaignStatus: "waiting-a2a",
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(
+      transitionIntegrationCampaignTaskToA2AReceiptRetryMock,
+    ).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({
+        payload: JSON.stringify(deliveryPayload),
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+      }),
+    );
+    expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.id,
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: false,
+      }),
+    );
+  });
+
+  it("retries partial A2A history while preserving processing custody", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Parent result", platformContext: {} },
+      deliveryReceipt: { status: "delivered" as const },
+      awaitingA2ACompletion: true as const,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "history checkpoint failed",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(
+      refreshIntegrationCampaignTaskA2AReceiptRetryMock,
+    ).toHaveBeenCalledWith(task.id, {
+      payload: JSON.stringify(deliveryPayload),
+      errorMessage: "history checkpoint failed",
+    });
+    expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.id,
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
+      }),
+    );
+  });
+
+  it("lets a successor campaign keep custody when the delivery lease is superseded", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Stale result", platformContext: {} },
+      campaignTerminalStatus: "completed" as const,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "Slack response delivery failed",
+      campaignLease: {
+        campaignId: "campaign-1",
+        runId: "stale-run",
+        leaseToken: "stale-lease",
+        campaignStatus: "completed",
+      },
+    });
+    transitionIntegrationCampaignTaskToDeliveryRetryMock.mockResolvedValueOnce(
+      false,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      ok: true,
+      taskId: task.id,
+      continuing: true,
+    });
+    expect(dispatchPendingIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).not.toHaveBeenCalled();
+    expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed instead of requeuing stale payload when the atomic delivery transition fails", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: { status: "delivered" as const },
+      userMessageId: "user-1",
+      assistantMessageId: "assistant-1",
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "history checkpoint failed",
+    });
+    markTaskDeliveryRetryableMock.mockRejectedValueOnce(
+      new Error("database transition failed"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(500);
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining("database transition failed"),
+    );
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("delivers a response checkpoint without rerunning the mutation", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["reply-1"],
+    }));
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(2);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Updated /page/request_123" }),
+      expect.objectContaining({ externalThreadId: "fake-thread" }),
+      {},
+    );
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("atomically preserves a provider receipt when delivery checkpointing fails", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["reply-sent-once"],
+    }));
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(1);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    stageTaskDeliveryPayloadMock.mockRejectedValueOnce(
+      new Error("receipt checkpoint unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const firstResult = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(firstResult.status).toBe(202);
+    expect(sendResponse).toHaveBeenCalledOnce();
+    const retryPayload = markTaskDeliveryRetryableMock.mock.calls.at(-1)?.[1];
+    expect(typeof retryPayload).toBe("string");
+    if (typeof retryPayload !== "string") {
+      throw new Error("Expected an enriched delivery retry payload");
+    }
+    expect(JSON.parse(retryPayload)).toMatchObject({
+      kind: "response-delivery",
+      deliveryReceipt: {
+        status: "delivered",
+        messageRefs: ["reply-sent-once"],
+      },
+    });
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+
+    claimPendingTaskMock.mockResolvedValueOnce({
+      ...task,
+      attempts: 2,
+      payload: retryPayload,
+    });
+    const secondResult = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(secondResult.status).toBe(200);
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("keeps an unconfirmed response checkpoint retryable", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn(async () => undefined);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(2);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(500);
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      "fake response completed without delivery proof",
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("finishes a provider-confirmed checkpoint without posting it twice", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn();
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(2);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: {
+        status: "delivered",
+        messageRefs: ["reply-already-sent"],
+      },
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("keeps a confirmed delivery receipt retryable after history retries exhaust", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn();
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(3);
+    const incoming = JSON.parse(task.payload).incoming;
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: {
+        status: "delivered" as const,
+        messageRefs: ["reply-already-sent"],
+      },
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+    };
+    task.payload = JSON.stringify(deliveryPayload);
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    recordIntegrationResponseDeliveryMock.mockRejectedValueOnce(
+      new Error("history database unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(markTaskDeliveryRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      JSON.stringify(deliveryPayload),
+      expect.stringContaining("history database unavailable"),
+    );
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("contains a failed confirmed-delivery requeue transition", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(3);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: { status: "delivered", messageRefs: ["reply-sent"] },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    recordIntegrationResponseDeliveryMock.mockRejectedValueOnce(
+      new Error("history database unavailable"),
+    );
+    markTaskDeliveryRetryableMock.mockRejectedValueOnce(
+      new Error("retry transition unavailable"),
+    );
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "successor-task",
+      dispatchScope: "C-SUCCESSOR",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/process-task", "POST", {
+        taskId: task.id,
+      }),
+    ).resolves.toMatchObject({ status: 500 });
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining("retry transition unavailable"),
+    );
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "successor-task",
+        task: expect.objectContaining({
+          platformContext: { channelId: "C-SUCCESSOR" },
+        }),
+      }),
+    );
+  });
+
+  it("delivers persisted system notices from the fresh task processor", async () => {
+    process.env.NODE_ENV = "development";
+    const sendSystemNotice = vi.fn(async () => {});
+    const noticeAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      sendSystemNotice,
+    };
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "A1:T1:D1:4.4",
+      text: "",
+      senderId: "U1",
+      tenantId: "T1",
+      conversationType: "dm",
+      platformContext: { teamId: "T1", channelId: "D1" },
+      timestamp: Date.now(),
+    };
+    claimPendingTaskMock.mockResolvedValueOnce({
+      id: "notice-task",
+      platform: "slack",
+      externalThreadId: incoming.externalThreadId,
+      payload: JSON.stringify({
+        kind: "system-notice",
+        incoming,
+        text: "Please reconnect Slack.",
+        dedupeKey: "decline:T1:U1:unverified",
+        dedupeTtlMs: 300_000,
+      }),
+      ownerEmail: "integration@slack",
+      orgId: null,
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [noticeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "notice-task" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendSystemNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ externalThreadId: incoming.externalThreadId }),
+      "Please reconnect Slack.",
+      {
+        dedupeKey: "decline:T1:U1:unverified",
+        dedupeTtlMs: 300_000,
+      },
+    );
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith("notice-task");
+  });
+
+  it("retries persisted system notices when delivery fails", async () => {
+    process.env.NODE_ENV = "development";
+    const sendSystemNotice = vi.fn(async () => {
+      throw new Error("Slack bot token not configured for system notice");
+    });
+    const noticeAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      sendSystemNotice,
+    };
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "A1:T1:D1:5.5",
+      text: "",
+      senderId: "U1",
+      tenantId: "T1",
+      conversationType: "dm",
+      platformContext: { teamId: "T1", channelId: "D1" },
+      timestamp: Date.now(),
+    };
+    claimPendingTaskMock.mockResolvedValueOnce({
+      id: "notice-task-retry",
+      platform: "slack",
+      externalThreadId: "system-notice:notice-task-retry",
+      payload: JSON.stringify({
+        kind: "system-notice",
+        incoming,
+        text: "Please reconnect Slack.",
+      }),
+      ownerEmail: "integration@slack",
+      orgId: null,
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [noticeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "notice-task-retry" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(sendSystemNotice).toHaveBeenCalledTimes(1);
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      "notice-task-retry",
+      "Slack bot token not configured for system notice",
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
   it("reschedules transient processor failures without terminally scrubbing the task", async () => {
     process.env.NODE_ENV = "development";
     claimPendingTaskMock.mockResolvedValueOnce(claimedTask(1));
@@ -493,6 +1806,35 @@ describe("integrations plugin routes", () => {
       "temporary downstream outage",
     );
     expect(markTaskFailedMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an escaped A2A continuation processor failure in durable recovery custody", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.A2A_SECRET;
+    processA2AContinuationByIdMock.mockRejectedValueOnce(
+      new Error("temporary continuation store outage"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-a2a-continuation",
+      "POST",
+      { continuationId: "cont-boundary-failure" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(
+      recoverA2AContinuationAfterProcessorFailureMock,
+    ).toHaveBeenCalledWith(
+      "cont-boundary-failure",
+      expect.objectContaining({
+        adapters: expect.any(Map),
+        reason: "temporary continuation store outage",
+      }),
+    );
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
   });
 
   it("terminally fails a processor task only after its retry budget is exhausted", async () => {
@@ -652,5 +1994,443 @@ describe("integrations plugin routes", () => {
     expect(Object.keys(options.actions)).toEqual(
       expect.arrayContaining(["call-agent", "template-action"]),
     );
+  });
+
+  it("politely declines a Slack DM when the default identity ladder declines", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const sendSystemNotice = vi.fn(async () => {});
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:1.1",
+        text: "hello",
+        senderId: "U1",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice,
+    };
+    resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+      new IntegrationIdentityDeclinedError(
+        "guest",
+        "guest member declined",
+        "This assistant is only available to members of this workspace's organization.",
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("ok");
+    expect(sendSystemNotice).not.toHaveBeenCalled();
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "slack",
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+        externalEventKey: expect.stringContaining(
+          "system-notice:decline:T1:U1:guest:",
+        ),
+      }),
+    );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        kind: "system-notice",
+        text: "This assistant is only available to members of this workspace's organization.",
+        dedupeKey: "decline:T1:U1:guest",
+        dedupeTtlMs: 5 * 60 * 1_000,
+      }),
+    );
+    expect(handleWebhookMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps persisted system notices out of the user thread queue", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:notice-lane",
+        text: "hello",
+        senderId: "U1",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+      new IntegrationIdentityDeclinedError(
+        "guest",
+        "guest member declined",
+        "Members only.",
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+      }),
+    );
+    expect(insertPendingTaskMock.mock.calls[0][0].externalThreadId).not.toBe(
+      "A1:T1:D1:notice-lane",
+    );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted.incoming.externalThreadId).toBe("A1:T1:D1:notice-lane");
+  });
+
+  it("does not let a legacy owner resolver bypass a declined Slack DM identity", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const sendSystemNotice = vi.fn(async () => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const resolveOwner = vi.fn(async () => "legacy-owner@example.com");
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:1.1",
+        text: "hello",
+        senderId: "U1",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice,
+    };
+    resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+      new IntegrationIdentityDeclinedError(
+        "guest",
+        "guest member declined",
+        "This assistant is only available to organization members.",
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveOwner,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendSystemNotice).not.toHaveBeenCalled();
+    expect(insertPendingTaskMock).toHaveBeenCalledTimes(1);
+    expect(resolveOwner).not.toHaveBeenCalled();
+    expect(handleWebhookMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a custom execution-context resolver fully own Slack DM identity resolution", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:custom-auth",
+        text: "hello",
+        senderId: "U-custom",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    const resolveExecutionContext = vi.fn(async () => ({
+      ownerEmail: "custom-auth@example.test",
+      orgId: "org-custom",
+      principalType: "member" as const,
+    }));
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveExecutionContext,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveDefaultExecutionContextMock).not.toHaveBeenCalled();
+    expect(resolveExecutionContext).toHaveBeenCalledTimes(1);
+    expect(handleWebhookMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        ownerEmail: "custom-auth@example.test",
+        orgId: "org-custom",
+      }),
+    );
+  });
+
+  it("fails closed for unlinked Slack DM members unless the anonymous org tier is explicitly enabled", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:2.2",
+        text: "hello",
+        senderId: "U-unlinked",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    resolveDefaultExecutionContextMock.mockResolvedValueOnce({
+      ownerEmail: "integration@slack",
+      orgId: "org-qa",
+      principalType: "service",
+      anonymousMember: true,
+    });
+    const resolveOwner = vi.fn(async () => "cross-org-sender@example.test");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      appId: "mail",
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveOwner,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(handleWebhookMock).not.toHaveBeenCalled();
+    expect(resolveOwner).not.toHaveBeenCalled();
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+        externalEventKey: expect.stringContaining(
+          "system-notice:anonymous-tier-disabled:T1:U-unlinked:",
+        ),
+      }),
+    );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted.text).toContain("users:read.email scope");
+  });
+
+  it("allows the anonymous Slack DM org tier only with explicit plugin opt-in", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:3.3",
+        text: "hello",
+        senderId: "U-opted-in",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    resolveDefaultExecutionContextMock.mockResolvedValueOnce({
+      ownerEmail: "integration@slack",
+      orgId: "org-qa",
+      principalType: "service",
+      anonymousMember: true,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      allowAnonymousOrgScopedSlackDm: true,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+        externalEventKey: expect.stringContaining(
+          "system-notice:anonymous-tier:T1:U-opted-in:",
+        ),
+      }),
+    );
+  });
+
+  it("persists stable decline dedupe keys per sender and reason", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      getIntegrationConfigMock.mockResolvedValue({
+        configData: { enabled: true },
+      });
+      const slackDmAdapter: PlatformAdapter = {
+        ...adapter,
+        platform: "slack",
+        label: "Slack",
+        parseIncomingMessage: async () => ({
+          platform: "slack",
+          externalThreadId: "A9:T-dedupe:D-dedupe:1.1",
+          text: "hello",
+          senderId: "U-dedupe",
+          tenantId: "T-dedupe",
+          conversationType: "dm",
+          platformContext: { teamId: "T-dedupe", channelId: "D-dedupe" },
+          timestamp: Date.now(),
+        }),
+        sendSystemNotice: vi.fn(async () => {}),
+      };
+      const declineWith = (
+        reason: ConstructorParameters<
+          typeof IntegrationIdentityDeclinedError
+        >[0],
+      ) =>
+        resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+          new IntegrationIdentityDeclinedError(
+            reason,
+            `${reason} declined`,
+            `Declined: ${reason}.`,
+          ),
+        );
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({
+        adapters: [slackDmAdapter],
+        systemPrompt: "Base prompt.",
+      })(nitroApp);
+      const post = () =>
+        dispatch(
+          nitroApp,
+          "/_agent-native/integrations/slack/webhook",
+          "POST",
+          {
+            event: "message",
+          },
+        );
+
+      declineWith("unverified");
+      const first = await post();
+      expect(first.status).toBe(200);
+      expect(first.body).toBe("ok");
+      expect(insertPendingTaskMock).toHaveBeenCalledTimes(1);
+
+      declineWith("unverified");
+      const second = await post();
+      expect(second.status).toBe(200);
+      expect(second.body).toBe("ok");
+      expect(insertPendingTaskMock).toHaveBeenCalledTimes(2);
+      expect(insertPendingTaskMock.mock.calls[0][0].externalEventKey).toBe(
+        insertPendingTaskMock.mock.calls[1][0].externalEventKey,
+      );
+
+      declineWith("guest");
+      const third = await post();
+      expect(third.status).toBe(200);
+      expect(insertPendingTaskMock).toHaveBeenCalledTimes(3);
+      expect(insertPendingTaskMock.mock.calls[2][0].externalEventKey).not.toBe(
+        insertPendingTaskMock.mock.calls[1][0].externalEventKey,
+      );
+      expect(handleWebhookMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

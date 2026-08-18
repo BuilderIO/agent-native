@@ -175,7 +175,7 @@ export async function decideComputerApproval(input: {
           SET status = ?, decision_result_json = ?, decided_by = ?,
               decided_at = ?, updated_at = ?
           WHERE id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND action_hash = ? AND status = 'pending' AND expires_at > ?`,
     args: [
       input.decision,
@@ -204,7 +204,7 @@ export async function getComputerApprovalForOwner(input: {
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_computer_approvals
           WHERE id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           LIMIT 1`,
     args: [
       input.id,
@@ -228,7 +228,7 @@ export async function listComputerApprovalsForOwner(input: {
   await ensureComputerApprovalStore();
   const clauses = [
     "owner_email = ?",
-    "((org_id IS NULL AND ? IS NULL) OR org_id = ?)",
+    "((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)",
   ];
   const args: Array<string | number | null> = [
     input.ownerEmail,
@@ -295,7 +295,7 @@ export async function authorizeComputerOperation(
   const { rows } = await client.execute({
     sql: `SELECT * FROM integration_computer_approvals
           WHERE id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND device_id = ? AND task_id = ? AND run_id = ?
           LIMIT 1`,
     args: [

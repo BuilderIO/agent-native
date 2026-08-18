@@ -9,13 +9,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
  */
 
 import type {
+  OnboardingAppProfile,
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  dispatchFirstRunOnboardingStatus,
+  fetchFirstRunOnboardingStatus,
+} from "./first-run-status.js";
 
 export interface UseOnboardingResult {
   steps: OnboardingStepStatus[];
+  profile: OnboardingAppProfile | null;
   loading: boolean;
   error: string | null;
   /** Active step = first required+incomplete, else first incomplete. */
@@ -34,17 +40,28 @@ export interface UseOnboardingResult {
   dismiss: () => Promise<void>;
   /** Re-open the panel after dismissal. */
   reopen: () => Promise<void>;
+  /** True until the post-signup full-screen flow is completed. */
+  firstRun: boolean;
+  /** Clear the post-signup full-screen flow marker. */
+  completeFirstRun: () => Promise<void>;
 }
 
 export function useOnboarding(
-  options: { preview?: boolean } = {},
+  options: { preview?: boolean; initialFirstRun?: boolean } = {},
 ): UseOnboardingResult {
   const preview = options.preview === true;
+  const initialFirstRun = options.initialFirstRun === true;
   const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
+  const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [firstRun, setFirstRun] = useState(preview || initialFirstRun);
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    setFirstRun(preview || initialFirstRun);
+  }, [initialFirstRun, preview]);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -53,16 +70,37 @@ export function useOnboarding(
           ? "/_agent-native/onboarding/steps?preview=1"
           : "/_agent-native/onboarding/steps",
       );
-      const [stepsRes, dismissRes] = await Promise.all([
-        fetch(stepsUrl),
-        fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
-      ]);
+      const firstRunPromise = preview
+        ? Promise.resolve(true).then((value) => {
+            dispatchFirstRunOnboardingStatus(value);
+            return value;
+          })
+        : fetchFirstRunOnboardingStatus();
+      const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
+        [
+          fetch(stepsUrl),
+          fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
+          fetch(agentNativePath("/_agent-native/onboarding/profile")),
+          firstRunPromise,
+        ],
+      );
       if (!mountedRef.current) return;
       if (!stepsRes.ok) {
         throw new Error(`steps: ${stepsRes.status}`);
       }
       const stepsData: OnboardingStepStatus[] = await stepsRes.json();
       setSteps(stepsData);
+
+      if (!profileRes.ok) {
+        throw new Error(`profile: ${profileRes.status}`);
+      }
+      setProfile((await profileRes.json()) as OnboardingAppProfile);
+
+      if (preview) {
+        setFirstRun(true);
+      } else {
+        setFirstRun(firstRunRes === true);
+      }
 
       if (dismissRes.ok) {
         const d = (await dismissRes.json()) as {
@@ -135,6 +173,35 @@ export function useOnboarding(
     await fetchAll();
   }, [fetchAll]);
 
+  const completeFirstRun = useCallback(async () => {
+    if (preview) {
+      setFirstRun(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:first-run-completed"),
+        );
+      }
+      return;
+    }
+    const response = await fetch(
+      agentNativePath("/_agent-native/onboarding/first-run/complete"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!response.ok) {
+      setError(`first-run completion: ${response.status}`);
+      return;
+    }
+    setFirstRun(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+    }
+    await fetchAll();
+  }, [fetchAll, preview]);
+
   const totalCount = steps.length;
   const completeCount = steps.filter((s) => s.complete).length;
   const allComplete = steps.filter((s) => s.required).every((s) => s.complete);
@@ -146,6 +213,7 @@ export function useOnboarding(
 
   return {
     steps,
+    profile,
     loading,
     error,
     currentStepId,
@@ -157,6 +225,8 @@ export function useOnboarding(
     complete,
     dismiss,
     reopen,
+    firstRun,
+    completeFirstRun,
   };
 }
 

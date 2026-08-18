@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 觸發分析事件。扇出到所有註冊的提供者。
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` 可以是直接傳遞的動作 `ctx`，也可以是沒有 `ctx` 的呼叫端所使用的 `{ userId, anonymousId, sessionId }` 中繼資料物件。
+
+瀏覽器工作階段不需要呼叫端自行提供：它來自環境請求內容（`RequestContext.browserSessionId`，由動作用戶端、聊天與瀏覽器端 `track()` 都會送出的 `X-Agent-Native-Session-Id` 標頭設定），因此無論事件是由介面或代理程式觸發，都會關聯到同一次造訪。每個供應商都會將它對應到自己的工作階段欄位：PostHog 使用 `$session_id`，藉此把事件與工作階段重播連結起來；Mixpanel 與 Amplitude 使用 `session_id` 屬性；Webhook 與 Agent Native Analytics 使用最上層的 `sessionId`。對於沒有瀏覽器的呼叫端（cron、CLI、MCP、A2A）此值不存在，而中繼資料物件中的 `sessionId` 會覆寫它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 需要自訂後端、提供者註冊表 API 或批處理/單例內部元件？見最後的[Advanced: custom providers & internals](#advanced)。
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // 直接傳遞 ctx：事件歸屬於 ctx.userEmail，並關聯到發出呼叫的
+    // 瀏覽器工作階段。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -176,8 +182,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +201,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 Agent Native 應用程式可以選擇加入第一方瀏覽器工作階段重播，而無需新增第二個分析 SDK。在瀏覽器根目錄中呼叫一次 `configureTracking()`，並傳入 Analytics 公開金鑰以及收集器端點：
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -237,6 +241,8 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 - 敏感區域會透過選擇器（例如 `[data-sensitive]`、`.an-block`、`.an-private`、`data-an-block`、`data-an-private`，以及類似信用卡/密碼/社會安全號碼的欄位）進行封鎖。
 - URL 會使用瀏覽器分析所用的同一個 `scrubUrl()` 輔助函式進行清理。
 - 重播擷取僅限於網頁，且為選擇加入；它不會錄製原生桌面畫面。
+
+由框架管理的 iframe（包括擴充功能與轉譯後的電子郵件內容）會納入重播擷取。錄製的 frame 內同樣套用遮罩與封鎖選擇器。第三方跨來源 iframe 會維持不透明，除非其本身的文件執行相容的 rrweb 記錄器並啟用跨來源 iframe 錄製；父頁面無法繞過瀏覽器的來源界線。
 
 在錄製期間，工作階段重播還會擷取瀏覽器主控台輸出（`log`、`info`、`warn`、`error`、`debug`，以及視窗的 `error`/`unhandledrejection`）與網路請求元資料（`fetch` 與 XHR），並以帶標籤的 rrweb 自訂事件形式儲存，讓代理與重播檢視器能夠偵錯使用者回報的問題。啟用重播後，擷取功能預設為開啟；可透過 `sessionReplay.console` 與 `sessionReplay.network` 選項進行調整或停用，這兩個選項都接受布林值或選項物件（`{ maxEvents?: number }`，其中 `network` 另外還可接受 `captureErrorBodies` 與 `maxErrorBodyLength`）。請求主體與標頭永遠不會被擷取；回應主體僅在 5xx（伺服器錯誤）回應時才會被擷取，且僅擷取一段有邊界、經過遮蔽處理的片段（`captureErrorBodies`，預設為 `true`，上限為 `maxErrorBodyLength` 個字元，預設 2048）——非 5xx 及網路失敗（狀態碼 0）的回應永遠不會帶有主體。URL 會被清理，訊息會被截斷，記錄器自身的擷取/追蹤流量會被排除，且每個工作階段的預算（1000 個主控台事件／2000 個網路事件）在超過時會加上截斷提示。
 
@@ -351,6 +357,6 @@ interface TrackingEvent {
 
 ## 下一步是什麼
 
-- [**Actions**](/docs/actions) — 大多數跟蹤呼叫的發起位置
-- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` 在啟動時在 core-routes 外掛中執行
+- [**Actions**](/docs/actions-overview) — 大多數跟蹤呼叫的發起位置
+- [**Server Plugins**](/docs/server-plugins) - `registerBuiltinProviders()` 在啟動時在 core-routes 外掛中執行
 - [**安全性 — 秘密管理**](/docs/security#secrets) — 管理用於跟蹤提供者的 API 金鑰

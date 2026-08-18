@@ -2,6 +2,7 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { parseCssColor } from "@shared/color-utils";
 
 export const KEEPALIVE_ACTION_MAX_BYTES = 60_000;
 
@@ -47,6 +48,50 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
+/** Accepts a canvas background only if it parses as a CSS colour. It is
+ *  interpolated into a style attribute, so an arbitrary string is an injection
+ *  vector — this gates both the persisted value and any in-flight draft. */
+export function sanitizeCanvasBackground(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return parseCssColor(trimmed) ? trimmed : null;
+}
+
+/** Design-level canvas background, or null when unset/unsafe. */
+export function getDesignCanvasBackground(
+  designData: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!isRecord(designData)) return null;
+  return sanitizeCanvasBackground(designData.canvasBackground);
+}
+
+/** Breakpoint widths persisted on the design, ascending and de-duplicated.
+ *  Reads the live design data rather than a screen's mirrored copy so callers
+ *  running after a mutation see what is actually stored. */
+export function getDesignBreakpointWidths(
+  designData: Record<string, unknown> | null | undefined,
+): number[] {
+  if (!isRecord(designData)) return [];
+  const breakpointSet = designData.breakpointSet;
+  if (!isRecord(breakpointSet)) return [];
+  const breakpoints = breakpointSet.breakpoints;
+  if (!Array.isArray(breakpoints)) return [];
+  const widths = new Set<number>();
+  for (const entry of breakpoints) {
+    if (!isRecord(entry)) continue;
+    const widthPx = entry.widthPx;
+    if (
+      typeof widthPx === "number" &&
+      Number.isFinite(widthPx) &&
+      widthPx > 0
+    ) {
+      widths.add(widthPx);
+    }
+  }
+  return [...widths].sort((a, b) => a - b);
+}
+
 export function viewportSizeFromFrameGeometry(
   geometry: CanvasFrameGeometry | undefined,
 ): { width: number; height: number } | null {
@@ -69,6 +114,8 @@ export function buildFrameGeometryDataOperations(args: {
   nextGeometry: CanvasFrameGeometryById;
   designData: Record<string, unknown>;
   syncViewportFrameIds?: readonly string[];
+  /** Frames whose height the user just dragged. */
+  pinHeightFrameIds?: readonly string[];
 }): DesignDataOperation[] {
   const operations: DesignDataOperation[] = [];
   const frameIds = new Set([
@@ -109,6 +156,18 @@ export function buildFrameGeometryDataOperations(args: {
         op: "set",
         path: ["screenMetadata", frameId, "height"],
         value: viewport.height,
+      });
+    }
+    // A resize is a deliberate height. Without this the content-fit pass in
+    // MultiScreenCanvas grows the frame straight back past the drag.
+    if (
+      args.pinHeightFrameIds?.includes(frameId) &&
+      !metadataEntry.heightPinned
+    ) {
+      operations.push({
+        op: "set",
+        path: ["screenMetadata", frameId, "heightPinned"],
+        value: true,
       });
     }
 

@@ -154,6 +154,7 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain('"agentNative.embedSessionExpired"');
+    expect(html).toContain("message.embedStartUrl === appFrame?.src");
     expect(html).toContain("refreshExpiredEmbedSession");
     expect(html).toContain("const maxEmbedSessionRefreshAttempts = 2");
     expect(html).toContain("let embedSessionRefreshAttempts = 0");
@@ -248,6 +249,11 @@ describe("embedApp", () => {
 
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("renderFrameFallback");
+    expect(html).toContain("function clearFallbackOverlay");
+    expect(html).toContain("function renderFallbackOverlay");
+    expect(html).toContain(".fallback-overlay");
+    expect(html).toContain("data-fallback-overlay");
+    expect(html).toContain('frame.addEventListener("error"');
     expect(html).toContain("openFallbackExternal");
     expect(html).toContain("let url = withChatBridgeParam(openUrl)");
     expect(html).toContain("const buttonUrl = openUrl");

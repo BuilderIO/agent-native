@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBook,
   IconCheck,
@@ -154,9 +154,7 @@ export default function KnowledgeRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow={t("navigation.knowledge")}
         title={t("knowledge.title")}
-        description={t("knowledge.description")}
         actions={
           <Badge variant="outline" className="gap-2">
             <IconTable className="size-4" />

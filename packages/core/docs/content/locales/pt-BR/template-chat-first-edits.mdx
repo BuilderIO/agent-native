@@ -1,0 +1,70 @@
+---
+title: "Seu primeiro recurso no Chat"
+description: "O único arquivo que renderiza a tela inicial do Chat, o que suas props reais fazem, e um passo a passo completo para adicionar um recurso do início ao fim."
+---
+
+# Seu primeiro recurso no Chat
+
+Esta página é para desenvolvedores que estão estendendo o [modelo de bate-papo](/docs/template-chat). Ela cobre o único arquivo que renderiza a tela de chat inicial e depois percorre tudo que o agente costuma tocar quando você pede um recurso real.
+
+## Primeiro código a ser inspecionado {#first-code}
+
+- `actions/hello.ts` é o comportamento inicial que o agente pode chamar. Substitua-o ou
+  adicione actions ao lado dele.
+- `app/routes/_index.tsx` renderiza a superfície de chat de página inteira. Ajuste o
+  sugestões, estado vazio, compositor ou layout circundante aqui.
+- `AGENTS.md` informa ao agente integrado como trabalhar dentro deste aplicativo.
+
+<FileTree
+  id="doc-block-hy56z3"
+  title="Layout do template Chat"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "A action de exemplo; substitua ou adicione actions ao lado dela",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexto padrão que o agente lê",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navegação padrão",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Renderiza a superfície de chat em página inteira; edite sugestões, estado vazio e composer",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "reexporta _index.tsx para que /chat/:threadId renderize a mesma superfície com um id de thread na URL",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Orientação centrada em chat que o agente integrado lê",
+    },
+  ]}
+/>
+
+O arquivo inicial real é mais do que um simples `<AgentChatSurface />`; veja `app/routes/_index.tsx` para a sincronização de URL da thread, a identidade da aba e o layout hero do composer.
+
+## Use seu próprio back-end de agente {#own-agent-backend}
+
+O modelo usa o loop de agente de aplicativo integrado por padrão. Para conectar um back-end personalizado, troque o tempo de execução do chat pelo plug-in de chat do agente em vez de reescrever o UI. A rota de bate-papo deve permanecer como um renderizador fino em torno da superfície de bate-papo compartilhada; a escolha de back-end pertence ao plug-in do servidor/adaptador de tempo de execução.
+
+Use isso quando a orquestração do seu modelo já estiver em outro lugar, mas você ainda quiser um aplicativo com autenticação, threads, estado actions, UI e páginas implantáveis.
+
+## Primeiras edições {#first-edits}
+
+Após o andaime, pergunte ao agente:
+
+> Adicione um modelo de dados para `notes`. Uma nota possui id, título, corpo e proprietário. Renderize uma página de notas em `/notes`, adicione criar/listar actions e mantenha o chat capaz de criar notas.
+
+O agente deve adicionar um esquema Drizzle, actions, rota, navegação e instruções. Depois, você pode usar o recurso de notas do UI ou do chat.
+
+## O que vem a seguir
+
+- [**Modelo de bate-papo**](/docs/template-chat) — o que vem por padrão e quando escolhê-lo
+- [**Chat — superfícies de runtime e administração**](/docs/template-chat-developers) — tabelas principais, auth e as páginas de administração
+- [**Actions**](/docs/actions-overview) — o bate-papo do sistema de ação e UI chamam
+- [**Native Interface de chat**](/docs/native-chat-ui) — primitivas da superfície de bate-papo e opções de tempo de execução

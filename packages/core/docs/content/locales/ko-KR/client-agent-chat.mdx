@@ -1,0 +1,315 @@
+---
+title: "Agent 채팅"
+description: "에이전트 채팅으로 들어가는 클라이언트 측 진입점: sendToAgentChat, openAgentSettings, askUserQuestion, 동적 제안, useAgentChatGenerating, 그리고 단계적 에이전트 채팅 컨텍스트 상태."
+---
+
+# Agent 채팅
+
+여러분의 애플리케이션 클라이언트는 작은 클라이언트 헬퍼 집합을 통해 에이전트와 대화할 수 있습니다. 여기에는 프롬프트 전송, 숨겨진 컨텍스트 준비, 사용자에게 블로킹 질문하기, 에이전트 패널 열기가 포함됩니다.
+
+아래 예시에서는 **답변 초안 작성** 버튼이 에이전트에게 사용자에게 질문을 하도록 요청합니다. 사용자가 답변하면 에이전트는 현재 페이지 컨텍스트와 사용자의 응답을 염두에 두고 답변 초안을 작성합니다.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="실행 기록 사이드바를 보여주는 Dispatch 앱 스크린샷"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Dispatch의 실행 기록 사이드바."
+/>
+
+## 작동 방식
+
+Agent-Native가 제공하는 클라이언트 헬퍼 메서드를 사용하면 UI가 다양한 방식으로 사용자와 상호작용하도록 에이전트에게 요청할 수 있습니다. 아래 다이어그램은 사용자가 클릭한 "답변 초안 작성" 버튼이 응답을 생성하기 전에 에이전트가 사용자와 상호작용하도록 요청하는 과정을 보여줍니다.
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="'각 단계는 누구의 몫인가'라는 제목의 시퀀스 다이어그램. App Code, UI, Agent라는 세 개의 라이프라인을 보여준다. 사용자가 'draft response'를 클릭하면 askUserQuestion()이 트리거된다. 이는 에이전트 패널에 인라인으로 렌더링된다는 설명이 붙어 있다. 사용자가 답변하면 sendDraftRequest()가 Agent에서 호출되어 draft-ticket-reply를 호출하고, 작성된 답글을 UI의 작성기로 반환한다."
+  align="full"
+  width={600}
+  caption="'답변 초안 작성' 버튼 흐름을 시각화한 시퀀스 다이어그램."
+/>
+
+사용자 경험은 다음과 같습니다.
+
+1. 사용자가 **답변 초안 작성** 버튼을 클릭하면 `askUserQuestion()` 함수가 호출됩니다. 질문은 에이전트 패널 안에서 인라인으로 답변됩니다.
+
+1. 사용자가 **환불 제공**을 선택하면 `sendDraftRequest()`가 프롬프트와 티켓 컨텍스트를 에이전트에게 전송합니다.
+
+1. 에이전트는 `draft-ticket-reply` [action](/docs/actions-overview)을 호출하고, 작성된 답글이 답글 작성기에 나타납니다.
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description:
+        "질문, 그 옵션들, 그리고 이것이 어떻게 동작해야 하는지입니다.",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description:
+            "완전한 질문입니다. 명확하고 구체적이며 물음표로 끝나야 합니다.",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            '약 12자 정도의 매우 짧은 칩/제목입니다. 예: `"Response"`.',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "2~4개의 서로 다른 옵션입니다. 각각은 `{ label, value?, description?, preview?, recommended? }`입니다. `value`의 기본값은 `label`입니다.",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            '담당자가 직접 입력할 수 있는 자유 텍스트 "기타" 옵션을 추가합니다.',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "단일 선택 대신 다중 선택입니다.",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description: "에이전트 패널이 폴링하는 애플리케이션 상태 키입니다.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      '선택된 `value`(`allowMultiple`인 경우 `value[]`), 담당자가 입력한 "기타" 텍스트, 또는 건너뛴 경우 `null`입니다. 답변할 때까지 대기 상태로 유지됩니다. 에이전트 패널이 마운트되어 있어야 하며, 모든 템플릿에서 이는 이미 마운트되어 있습니다.',
+  }}
+/>
+
+이 함수는 앱 코드에서 사용자에게 객관식 질문을 던지고, 이를 에이전트 패널 안에 인라인으로 렌더링한 뒤 답변을 기다립니다. UI가 에이전트 작업을 시작하기 전에 2~4개 옵션 중 작은 결정 하나가 필요할 때, 커스텀 모달을 만드는 대신 이 함수를 사용하세요.
+
+아래 예시에서는 티켓 페이지의 "답변 초안 작성" 버튼이 에이전트에게 무언가를 보내기 전에 담당자에게 어떻게 응답하고 싶은지 묻습니다.
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "`[isGenerating, send]` 튜플입니다. `isGenerating`은 `send()`가 호출된 순간부터 에이전트 채팅 실행이 중지되었다고 보고할 때까지 `true`입니다. `send(opts)`는 `sendToAgentChat()`과 동일한 시그니처를 가지며, 전송된 탭 id를 반환합니다.",
+  }}
+/>
+
+이 React 후크는 `sendToAgentChat()`을 로딩 상태 추적과 함께 감쌉니다.
+
+1. 첫 번째 반환값인 `isGenerating`은 호출 시점에 true가 되고, 에이전트가 생성을 마치면 false로 재설정됩니다.
+
+2. 두 번째 반환값인 `send()`는 `sendToAgentChat()` 함수를 그대로 미러링합니다.
+
+`isGenerating`은 실행이 실제로 시작되어 중지되었다고 보고할 때만 재설정됩니다. `submit: false` 호출은 실행을 시작하지 않고 초안만 미리 채우므로, 그 이후로는 `isGenerating`이 영원히 `true`로 남습니다. 이 후크는 `submit: true` 전송에만 사용하세요. 미리 채우기만 하는 전송에는 `sendToAgentChat()`을 직접 호출하세요.
+
+위의 `askUserQuestion()` 예시와 이 후크를 결합하면 버튼의 핸들러가 완성됩니다.
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title={"답변 초안 작성 핸들러 완성하기"}
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "로딩 상태 + 전송, 함께",
+      note: "`useAgentChatGenerating()`은 단순한 `sendToAgentChat()` 호출과 동일한 형태의 튜플을 반환하지만, 요청이 진행 중일 때 버튼을 비활성화할 수 있도록 `isDrafting`을 추가로 제공합니다.",
+    },
+    {
+      lines: "10-17",
+      label: "질문 단계 재사용",
+      note: "위 섹션의 `askUserQuestion()` 호출과 정확히 동일하며, 이제 버튼 자체의 핸들러 안에 들어 있습니다.",
+    },
+    {
+      lines: "18",
+      label: "답변을 사용하기 전에 좁혀두기",
+      note: "반환 타입은 항상 `allowMultiple`로 인한 `string[]`을 허용하므로, 이 호출이 그 옵션을 사용하지 않더라도 이 검사가 필요합니다.",
+    },
+    {
+      lines: "20-25",
+      label: "선택 결과를 문장으로 변환",
+      note: "선택된 값이나 담당자가 직접 입력한 텍스트를, 아래 프롬프트가 자연스럽게 읽을 수 있는 표현으로 매핑합니다.",
+    },
+    {
+      lines: "27-32",
+      label: "action과 의도를 명시하기",
+      note: "이 메시지는 에이전트에게 어떤 action을 호출할지(`draft-ticket-reply`)를 정확히 알려주고, 답글을 그대로 전송하지 말라고 상기시킵니다. `openSidebar: true`는 사이드바가 닫혀 있었더라도 작성된 답글이 보이도록 합니다.",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting이 버튼을 제어",
+      note: "`sendDraftRequest()`가 진행 중일 때만 비활성화되고 레이블이 바뀝니다. `askUserQuestion()`이 담당자의 응답을 기다리는 동안은 버튼이 계속 클릭 가능합니다. 이는 `sendDraftRequest()`가 호출되기 전에 일어나기 때문입니다.",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+`postMessage`를 통해 에이전트 채팅에 메시지를 보냅니다. 이는 위의 `useAgentChatGenerating()`이 감싸고 있는 더 저수준의 기본 요소로, UI 상호작용이 자체적인 로딩 상태 추적을 필요로 하지 않을 때 유용합니다. 모델은 봐야 하지만 사용자는 보지 않아야 하는 추가 세부 정보에는 `context`를 전달하세요. 이는 에이전트로 전송되는 메시지에 `<context>` 태그로 감싸여 추가되며, 채팅 UI에 메시지가 렌더링되기 전에 다시 제거됩니다. 즉시 전송하려면 `submit: true`를, 사용자가 먼저 검토할 초안을 미리 채우려면 `submit: false`를 전달하세요.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// 숨겨진 컨텍스트로 프롬프트 자동 전송
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| 옵션          | 유형       | 설명                                                                                        |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | 채팅에 전송되는 프롬프트이며, 채팅 UI에 표시되는 유일한 부분입니다                          |
+| `context`     | `string?`  | 전송 전에 메시지에 추가되는 모델에게만 보이는 컨텍스트입니다. 채팅 UI 표시에서는 제거됩니다 |
+| `submit`      | `boolean?` | true = 자동 제출, false = 미리 채우기만                                                     |
+| `newTab`      | `boolean?` | 이 프롬프트를 위한 별도의 채팅 스레드를 생성합니다                                          |
+| `openSidebar` | `boolean?` | 사이드바를 열지 않고 제출/미리 채우려면 false로 설정하세요                                  |
+
+MCP 앱 임베드 내부에서 이를 실행하는 경우, 또는 사이드바를 열지 않고 실행을 백그라운드로 보내는 경우는 모두 [고급](/docs/client-advanced#background-send)에서 다룹니다.
+
+## 동적 제안 {#dynamic-suggestions}
+
+대화가 시작되기 전, `<AgentSidebar>`, `<AgentPanel>`, `<AssistantChat>`은 빈 채팅에 프롬프트 칩을 보여줍니다. 기본적으로 이는 여러분이 고정한 `suggestions` 목록만이 아닙니다. 프레임워크는 애플리케이션 상태에서 `navigation`, `selection`, `pending-selection-context`, 그리고 현재 URL을 읽어, 실제 화면에 있는 내용과 일치하는 칩을 병합합니다.
+
+이는 두 가지 검사를 통해 이루어집니다. 무언가가 선택되어 있으면 "이 선택 항목 요약"과 같은 일반적인 칩을 추가합니다. 별도로, `navigation`에서 이메일 스레드의 `threadId`/`emailId`나 차트의 `dashboardId`/`chartId`처럼 이미 여러 앱이 사용하는 흔한 필드 이름을 찾아, 스레드에는 "답장 초안 작성", 차트에는 "이 데이터에서 이상치 찾기"처럼 그 화면 종류에 맞는 칩을 추가합니다. 그 결과는 여러분의 고정 `suggestions`와 병합되고, 중복이 제거되며, `max`로 상한이 설정됩니다.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+현재 화면이 이 휴리스틱이 인식하는 어떤 것과도 일치하지 않고 아무것도 선택되어 있지 않다면, 이는 아무 칩도 제공하지 않고 빈 채팅은 여러분의 고정 `suggestions`만으로 되돌아갑니다. 고정 칩만 유지하려면 `dynamicSuggestions={false}`를 설정하세요. 앱의 내비게이션 형태가 내장 휴리스틱과 맞지 않거나, 완전히 결정론적인 앱 전용 칩을 원한다면 [고급](/docs/client-advanced#custom-suggestions)을 참조하세요.
+
+## openAgentSettings(section?) {#openagentsettings}
+
+앱 설정 페이지나 설정 카드가 에이전트 사이드바의 설정 탭을 열어야 할 때
+`openAgentSettings()`를 사용하세요. 특정 섹션을 열려면 `"llm"`, `"secrets"`,
+`"automations"`, `"voice"`, `"limits"`와 같은 섹션 id를 전달하세요.
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+`agent-panel:open-settings`를 직접 디스패치하는 것보다 이 헬퍼를 사용하는 것을 우선하세요.
+
+## Agent 채팅 컨텍스트 상태 {#agent-chat-context-state}
+
+컨텍스트 상태 API는 단계적으로 준비된 컨텍스트 칩과 양방향 동기화가 필요한 UI를 위한 선택적 배관입니다: 현재 준비된 항목을 작성기 밖에서 렌더링하거나, 어떤 항목이 이미 첨부되어 있는지 반영하거나, 명시적인 제거/삭제 컨트롤을 제공하는 경우입니다.
+
+단순한 "이것을 에이전트에게 보내기"나 "이 초안을 검토용으로 미리 채우기" 흐름에는 이 헬퍼들을 사용하지 마세요. 그런 경우에는 [`sendToAgentChat()`](#sendtoagentchat)을 `context`와 `submit`과 함께 사용하세요.
+
+| API                               | 사용 시점                                                                |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| `useAgentChatContext()`           | React 컴포넌트가 현재 준비된 컨텍스트 목록을 실시간으로 필요로 할 때     |
+| `setAgentChatContextItem(item)`   | 명령형 코드가 키를 가진 컨텍스트 항목 하나를 준비하거나 대체해야 할 때   |
+| `listAgentChatContext()`          | React가 아닌 코드가 준비된 컨텍스트의 일회성 스냅샷이 필요할 때          |
+| `removeAgentChatContextItem(key)` | UI가 안정적인 `key`로 준비된 컨텍스트 항목 하나를 제거해야 할 때         |
+| `clearAgentChatContext()`         | 화면이나 모드가 재설정된 뒤처럼 UI가 준비된 컨텍스트를 전부 지워야 할 때 |
+| `refreshAgentChatContext()`       | 명령형 코드가 최신으로 저장된 컨텍스트 스냅샷을 다시 읽어야 할 때        |
+
+`useAgentChatContext()`는 `{ items, set, remove, clear, refresh }`를 반환합니다.
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()`는 현재 준비된 항목을 한 번만 검사하면 되는 명령형 코드를 위한 것입니다. `clearAgentChatContext()`는 의도적으로 광범위합니다. 선택 항목 하나만 바뀌었다면 `removeAgentChatContextItem(key)`를 사용하세요.
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| 옵션          | 유형       | 설명                                                                 |
+| ------------- | ---------- | -------------------------------------------------------------------- |
+| `key`         | `string`   | 기존 항목을 대체하는 데 사용되는 안정적인 식별자                     |
+| `title`       | `string`   | 작성기 칩에 표시되는 짧은 레이블                                     |
+| `context`     | `string`   | 다음에 제출되는 프롬프트에 포함되는 숨겨진 컨텍스트                  |
+| `openSidebar` | `boolean?` | 기본값은 true입니다. 조용히 컨텍스트를 준비하려면 false를 전달하세요 |
+
+## 다음 단계
+
+- [**개요**](/docs/client-overview) — 이 헬퍼들이 `app/` 안에서 차지하는 위치
+- [**데이터 및 동기화**](/docs/client-data) — UI 자체를 최신 상태로 유지하는 action 후크와 `useDbSync`
+- [**드롭인 에이전트**](/docs/drop-in-agent) — 이 헬퍼들이 렌더링될 곳을 마련하기 위한 `<AgentSidebar>`/`<AgentPanel>` 마운트
+- [**고급**](/docs/client-advanced) — 백그라운드 전송, 맞춤 제안 칩, MCP 앱 호스트 브리지
+- [**Generative UI**](/docs/generative-ui) — `askUserQuestion`을 넘어서는 더 풍부한 인라인 채팅 컨트롤 만들기

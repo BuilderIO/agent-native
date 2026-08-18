@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
 const notifyWithDeliveryMock = vi.hoisted(() => vi.fn(async () => undefined));
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -25,6 +26,12 @@ vi.mock("@agent-native/core/notifications", async (importOriginal) => {
   return { ...actual, notifyWithDelivery: notifyWithDeliveryMock };
 });
 
+vi.mock("@agent-native/core/settings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/settings")>();
+  return { ...actual, getUserSetting: getUserSettingMock };
+});
+
 import { schema } from "../db/index.js";
 import {
   candidateFingerprintsForConsole,
@@ -32,7 +39,10 @@ import {
   deriveConsoleExceptionIdentity,
   extractExceptionInput,
   fingerprint,
+  getErrorIssue,
   ingestException,
+  isBenignBrowserAbortException,
+  listErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
@@ -155,6 +165,12 @@ describe("normalizeFrameFile", () => {
     expect(normalizeFrameFile("/assets/chunk-9a8b7c6d5e.js")).toBe(
       "/assets/chunk.js",
     );
+    expect(normalizeFrameFile("/assets/entry-ClHrLGJQ.js")).toBe(
+      "/assets/entry.js",
+    );
+    expect(normalizeFrameFile("/assets/entry-CVi_y2nS.js")).toBe(
+      "/assets/entry.js",
+    );
   });
 
   it("returns empty string for null", () => {
@@ -181,6 +197,92 @@ describe("fingerprint", () => {
     );
     expect(fingerprint("TypeError", frames, "boom")).not.toBe(
       fingerprint("RangeError", frames, "boom"),
+    );
+    expect(fingerprint("Error", frames, "boom")).toBe(
+      fingerprint("UnhandledRejection", frames, "boom"),
+    );
+  });
+
+  it("separates different messages thrown through the same frame", () => {
+    // Real regression: every server action error shares one minified dispatch
+    // frame, so a frame-only key merged unrelated failures under whichever
+    // title arrived first.
+    const frames = parseStack(
+      "Error: boom\n    at runAction (https://app.example.com/assets/server.js:1:1)",
+    );
+    expect(
+      fingerprint(
+        "Error",
+        frames,
+        "A booking link with this slug already exists",
+      ),
+    ).not.toBe(
+      fingerprint(
+        "Error",
+        frames,
+        "Action update-visual-plan failed: Internal server error",
+      ),
+    );
+  });
+
+  it("groups the same logical error when only ids/values differ", () => {
+    const frames = parseStack(
+      "Error: boom\n    at runAction (https://app.example.com/assets/server.js:1:1)",
+    );
+    const same = (message: string) => fingerprint("Error", frames, message);
+    expect(same("DB query timed out after 8000ms")).toBe(
+      same("DB query timed out after 30000ms"),
+    );
+    expect(
+      same(
+        "Destructive structured replacement would remove 4 existing block IDs (phase4-h, phase6-h, seq-h, oq-h)",
+      ),
+    ).toBe(
+      same(
+        "Destructive structured replacement would remove 2 existing block IDs (current-state, status-matrix)",
+      ),
+    );
+    expect(same(`Build step "react-router-build" failed`)).toBe(
+      same(`Build step "netlify-deploy" failed`),
+    );
+    expect(same("Failed to read /Users/ada/app/src/main.ts")).toBe(
+      same("Failed to read /Users/grace/other/lib/util.ts"),
+    );
+    // An apostrophe is not an opening quote: these stay distinct.
+    expect(same("Can't find variable: EmptyRanges")).not.toBe(
+      same("Can't find variable: __firefox__"),
+    );
+  });
+
+  it("groups agent-chat failures that differ only by the opaque ERROR ID", () => {
+    // Real outage: 18 chat failures in one day rendered as 18 issues of
+    // count 1, because the gateway embeds a fresh hex id in every message.
+    // A per-occurrence grouping key makes an outage look like noise.
+    const frames = parseStack(
+      "EngineError: boom\n    at Fa (https://analytics.example.com/assets/production-agent.mjs:140:12)",
+    );
+    const withId = (id: string) =>
+      fingerprint(
+        "EngineError",
+        frames,
+        `Sorry, we ran into an issue processing your request. ERROR ID: ${id}`,
+      );
+    const ids = [
+      "a3f9c2d1",
+      "7b1e0c4da9f23188",
+      "0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f",
+    ];
+    expect(new Set(ids.map(withId)).size).toBe(1);
+    // Still a different issue from another EngineError through the same frame.
+    expect(withId("a3f9c2d1")).not.toBe(
+      fingerprint("EngineError", frames, "Builder gateway timed out"),
+    );
+  });
+
+  it("keeps hex-shaped words that are not ids in their own group", () => {
+    // No digit, so it is a word and not an id.
+    expect(fingerprint("Error", [], "decade decade")).not.toBe(
+      fingerprint("Error", [], "deadbeef facade"),
     );
   });
 
@@ -327,6 +429,21 @@ describe("extractExceptionInput", () => {
     expect(input.type).toBe("Error");
     expect(input.level).toBe("error");
   });
+
+  it("recognizes expected browser request cancellations", () => {
+    expect(
+      isBenignBrowserAbortException({
+        type: "AbortError",
+        message: "signal is aborted without reason",
+      }),
+    ).toBe(true);
+    expect(
+      isBenignBrowserAbortException({
+        type: "AbortError",
+        message: "The request was aborted by the server",
+      }),
+    ).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -438,6 +555,26 @@ async function createTables(client: Client): Promise<void> {
       org_id text
     )
   `);
+  await client.execute(`
+    CREATE TABLE session_recordings (
+      id text PRIMARY KEY,
+      client_recording_id text NOT NULL,
+      owner_email text NOT NULL,
+      org_id text,
+      visibility text NOT NULL DEFAULT 'private'
+    )
+  `);
+  await client.execute(`
+    CREATE TABLE session_recording_shares (
+      id text PRIMARY KEY,
+      resource_id text NOT NULL,
+      principal_type text NOT NULL,
+      principal_id text NOT NULL,
+      role text NOT NULL DEFAULT 'viewer',
+      created_by text NOT NULL,
+      created_at text NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
 }
 
 describe("ingestException", () => {
@@ -450,6 +587,8 @@ describe("ingestException", () => {
     getDbMock.mockReturnValue(db);
     recordChangeMock.mockReset();
     notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -482,6 +621,28 @@ describe("ingestException", () => {
     );
     // A brand new issue raises a best-effort notification.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ channels: ["inbox"] }),
+      expect.anything(),
+    );
+  });
+
+  it("sends error email only when the owner opts in", async () => {
+    getUserSettingMock.mockResolvedValue({
+      errorEmailNotifications: true,
+    });
+
+    await ingestException(SCOPE, baseRaw(), derivedFor());
+
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: ["inbox", "email"],
+        metadata: expect.objectContaining({
+          emailRecipients: [SCOPE.ownerEmail],
+        }),
+      }),
+      expect.anything(),
+    );
   });
 
   it("bumps counts and first/last seen on repeat occurrences (same fingerprint)", async () => {
@@ -513,6 +674,32 @@ describe("ingestException", () => {
     });
     // Only the first (new) issue notifies.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts only real identities as affected users", async () => {
+    const anonymous = derivedFor({
+      userId: null,
+      anonymousId: null,
+      userKey: null,
+      sessionId: null,
+    });
+    await ingestException(SCOPE, baseRaw(), anonymous);
+    await ingestException(SCOPE, baseRaw(), {
+      ...anonymous,
+      timestamp: "2026-07-08T12:00:01.000Z",
+    });
+    let issues = await loadIssues();
+    // A flood with no identity is volume, never user impact.
+    expect(issues[0]).toMatchObject({ eventCount: 2, usersAffected: 0 });
+
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userId: null, anonymousId: null, userKey: null }),
+    );
+    issues = await loadIssues();
+    // The session id is a real identity; the two anonymous events still are not.
+    expect(issues[0]).toMatchObject({ eventCount: 3, usersAffected: 1 });
   });
 
   it("keeps earliest firstSeen when an older occurrence arrives late", async () => {
@@ -572,6 +759,160 @@ describe("ingestException", () => {
       new Set(["alice@example.com", "bob@example.com"]),
     );
   });
+
+  it("filters issues by matching occurrence user and session recording", async () => {
+    const tim = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userId: "tim-user-id", userKey: "tim@example.com" }),
+    );
+    const other = await ingestException(
+      SCOPE,
+      baseRaw({
+        type: "RangeError",
+        message: "another failure",
+        rawStack:
+          "RangeError: another failure\n    at otherThing (https://app.example.com/other.js:1:1)",
+      }),
+      derivedFor({ userId: "other-user-id", userKey: "other@example.com" }),
+    );
+    const db = drizzle(client, { schema }) as any;
+    await client.execute({
+      sql: `
+        INSERT INTO session_recordings
+          (id, client_recording_id, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: ["sr_tim", "client-tim", SCOPE.ownerEmail, null, "private"],
+    });
+    await db
+      .update(schema.errorEvents)
+      .set({ clientRecordingId: "client-tim" })
+      .where(eq(schema.errorEvents.id, tim.eventId));
+    await db
+      .update(schema.errorEvents)
+      .set({ sessionRecordingId: "sr_other" })
+      .where(eq(schema.errorEvents.id, other.eventId));
+
+    const byRecording = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { sessionRecordingId: "sr_tim" },
+    );
+    expect(byRecording.map((issue) => issue.id)).toEqual([tim.issueId]);
+
+    const byUserId = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "tim-user-id" },
+    );
+    expect(byUserId.map((issue) => issue.id)).toEqual([tim.issueId]);
+
+    const byUserKey = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "tim@example.com" },
+    );
+    expect(byUserKey.map((issue) => issue.id)).toEqual([tim.issueId]);
+  });
+
+  it("does not match an occurrence outside its issue owner scope", async () => {
+    const tim = await ingestException(SCOPE, baseRaw(), derivedFor());
+    const db = drizzle(client, { schema }) as any;
+    await db
+      .update(schema.errorEvents)
+      .set({
+        ownerEmail: "other@example.com",
+        userId: "other@example.com",
+        userKey: "other@example.com",
+        sessionRecordingId: "sr_other",
+      })
+      .where(eq(schema.errorEvents.id, tim.eventId));
+
+    const issues = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "other@example.com", sessionRecordingId: "sr_other" },
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("keeps real identities in list and detail reads", async () => {
+    const result = await ingestException(
+      SCOPE,
+      baseRaw({
+        message: "Checkout failed for customer@example.com",
+        rawStack:
+          "TypeError: customer@example.com\n    at doThing (https://app.example.com/main.js:12:34)",
+        tags: { reporter: "support@example.com" },
+        extra: { accountEmail: "customer@example.com" },
+        breadcrumbs: [{ message: "Signed in as customer@example.com" }],
+      }),
+      derivedFor({
+        userId: "customer@example.com",
+        userKey: "customer@example.com",
+        url: "https://app.example.com/checkout?email=customer@example.com",
+      }),
+    );
+    const normalDetail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    expect(JSON.stringify(normalDetail)).toContain("customer@example.com");
+
+    const issues = await listErrorIssues({
+      userEmail: SCOPE.ownerEmail,
+      orgId: null,
+    });
+    const detail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    const rendered = JSON.stringify({ issues, detail });
+
+    expect(rendered).toContain("customer@example.com");
+    expect(rendered).toContain("support@example.com");
+    expect(detail.events[0]).toMatchObject({
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
+      url: "https://app.example.com/checkout?email=customer@example.com",
+      tags: { reporter: "support@example.com" },
+      extra: { accountEmail: "customer@example.com" },
+    });
+  });
+
+  it("does not expose private replay links through an org-shared issue", async () => {
+    await client.execute({
+      sql: `
+        INSERT INTO session_recordings
+          (id, client_recording_id, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: [
+        "sr_private",
+        "client-private",
+        "alice@example.com",
+        "org_1",
+        "private",
+      ],
+    });
+
+    const result = await ingestException(
+      { ownerEmail: "alice@example.com", orgId: "org_1" },
+      baseRaw({ clientRecordingId: "client-private" }),
+      derivedFor(),
+    );
+
+    const readerScope = { userEmail: "bob@example.com", orgId: "org_1" };
+    const [summary] = await listErrorIssues(readerScope);
+    expect(summary).toMatchObject({
+      id: result.issueId,
+      lastSessionRecordingId: null,
+      lastSessionRecordingPath: null,
+    });
+
+    const detail = await getErrorIssue(readerScope, result.issueId);
+    expect(detail.issue.lastSessionRecordingPath).toBeNull();
+    expect(detail.events[0].sessionRecordingId).toBeNull();
+    expect(detail.events[0].sessionRecordingPath).toBeNull();
+    expect(detail.sessions).toEqual([]);
+  });
 });
 
 describe("matchErrorIssuesBySignatures", () => {
@@ -584,6 +925,8 @@ describe("matchErrorIssuesBySignatures", () => {
     getDbMock.mockReturnValue(db);
     recordChangeMock.mockReset();
     notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
   });
 
   afterEach(() => {

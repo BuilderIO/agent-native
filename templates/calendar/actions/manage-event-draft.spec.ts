@@ -50,3 +50,13 @@ describe("manage-event-draft deep link", () => {
     expect(body).not.toContain("encode");
   });
 });
+
+describe("manage-event-draft out-of-office semantics", () => {
+  it("persists full-day and decline settings for UI review", () => {
+    const source = manageEventDraftSource();
+
+    expect(source).toContain('setIfPresent(draft, "fullDay", args.fullDay)');
+    expect(source).toContain("draft.outOfOfficeProperties = {");
+    expect(source).toContain('draft.title = "Out of office"');
+  });
+});

@@ -14,11 +14,13 @@ import {
   classifyCodeAgentCommandPermission,
   codeAgentMcpInvocationPolicy,
   codeAgentSystemPrompt,
+  executeDenyCodeAgentApproval,
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
   writeCodeAgentUsageSnapshot,
 } from "./code-agent-executor.js";
 import {
+  appendCodeAgentTranscriptEvent,
   createCodeAgentRunRecord,
   codeAgentRunTranscriptPath,
   getCodeAgentRunRecord,
@@ -110,7 +112,7 @@ describe("executeCodeAgentRun", () => {
     expect(output.read()).toContain("I checked the workspace");
     expect(
       listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
-    ).toEqual(["user", "status", "system", "status"]);
+    ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
   });
 
   it("pauses with a credential hint when no provider key is available", async () => {
@@ -141,6 +143,13 @@ describe("executeCodeAgentRun", () => {
   it("runs a Codex CLI-backed session without provider API keys", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    process.env.MCP_SERVERS = JSON.stringify({
+      workspaceHttp: {
+        type: "http",
+        url: "https://workspace.example/mcp",
+      },
+    });
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
     const argsPath = path.join(root, "codex-args.json");
@@ -187,29 +196,299 @@ describe("executeCodeAgentRun", () => {
       stdout: output.stream,
     });
 
+    try {
+      expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+        status: "completed",
+        phase: "complete",
+        metadata: {
+          engine: "codex-cli",
+          model: "codex-default",
+        },
+      });
+      expect(output.read()).toContain("Codex streamed output");
+      expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+      const execIndex = args.indexOf("exec");
+      expect(execIndex).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeLessThan(execIndex);
+      expect(args.indexOf("--sandbox")).toBeGreaterThan(-1);
+      expect(args.indexOf("--sandbox")).toBeLessThan(execIndex);
+      expect(args.indexOf("--cd")).toBeGreaterThan(-1);
+      expect(args.indexOf("--cd")).toBeLessThan(execIndex);
+      expect(args.indexOf("-c")).toBeGreaterThan(-1);
+      expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+      expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+      expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            message: "Codex final answer",
+            metadata: expect.objectContaining({ engine: "codex-cli" }),
+          }),
+        ]),
+      );
+    } finally {
+      if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
+      else process.env.MCP_SERVERS = originalMcpServers;
+    }
+  });
+
+  it("runs a Claude Code CLI-backed session through a Claude subscription", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Claude streamed output' }] } }) + '\\n');",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'Claude final answer' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: {
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
     expect(getCodeAgentRunRecord(run.id)).toMatchObject({
       status: "completed",
       phase: "complete",
       metadata: {
-        engine: "codex-cli",
-        model: "codex-default",
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
       },
     });
-    expect(output.read()).toContain("Codex streamed output");
-    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
-    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
-    const execIndex = args.indexOf("exec");
-    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
-    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+    expect(output.read()).toContain("Claude streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5");
+    expect(args).toContain("--effort");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "acceptEdits"]),
+    );
+    expect(args).not.toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
     expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: "system",
-          message: "Codex final answer",
-          metadata: expect.objectContaining({ engine: "codex-cli" }),
+          message: "Claude final answer",
+          metadata: expect.objectContaining({ engine: "claude-cli" }),
         }),
       ]),
     );
+  });
+
+  it("persists Codex JSON tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "const outputPath = outputIndex === -1 ? '' : args[outputIndex + 1];",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  if (outputPath) fs.writeFileSync(outputPath, 'Codex final answer');",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'item.started', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', status: 'in_progress' } });",
+        "  emit({ type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', aggregated_output: 'package.json', exit_code: 0, status: 'completed' } });",
+        "  emit({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: 'I inspected the workspace.' } });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Codex tool events",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "bash",
+            input: { command: "rg --files" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "bash",
+            result: "package.json",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "system",
+          message: "I inspected the workspace.",
+          metadata: expect.objectContaining({ role: "assistant" }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists Claude stream-json tool events for the shared transcript UI", async () => {
+    const root = useTempCodeAgentsHome();
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        "process.stdin.on('data', () => {});",
+        "process.stdin.on('end', () => {",
+        "  const emit = (event) => process.stdout.write(JSON.stringify(event) + '\\n');",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'package.json' } }] } });",
+        "  emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: '{\\\"name\\\":\\\"agentnative\\\"}' }] } });",
+        "  emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'I inspected package.json.' }] } });",
+        "  emit({ type: 'result', result: 'Claude final answer' });",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Persist Claude tool events",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect package.json",
+      streamToolOutputToStdout: false,
+    });
+
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_start",
+            tool: "Read",
+            input: { file_path: "package.json" },
+          }),
+        }),
+        expect.objectContaining({
+          kind: "status",
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            tool: "Read",
+            result: '{"name":"agentnative"}',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("maps read-only OpenCode runs to the built-in Plan agent", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "opencode-cli";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "opencode-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const opencodeBin = path.join(binDir, "opencode");
+    fs.writeFileSync(
+      opencodeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdout.write('OpenCode streamed output');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect with OpenCode",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "read-only",
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the repository",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "opencode-cli" },
+    });
+    expect(output.read()).toContain("OpenCode streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--agent", "plan"]));
+    expect(args[args.indexOf("--agent") + 1]).toBe("plan");
   });
 
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
@@ -263,6 +542,167 @@ describe("executeCodeAgentRun", () => {
     });
     expect(output.read()).toContain("Codex streamed output");
     expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+  });
+
+  it("pauses a canceled Codex CLI run and can recover it on a later invocation", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const codexBin = path.join(binDir, "codex");
+    const startedPath = path.join(root, "codex-started");
+    const stoppedPath = path.join(root, "codex-stopped");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
+        "process.on('SIGTERM', () => {",
+        `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
+        "  process.exit(143);",
+        "});",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Cancelable Codex run",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+    const controller = new AbortController();
+    const execution = executeCodeAgentRun({
+      runId: run.id,
+      prompt: "wait until canceled",
+      signal: controller.signal,
+    });
+
+    await waitForFile(startedPath);
+    controller.abort();
+    await execution;
+
+    expect(fs.readFileSync(stoppedPath, "utf8")).toBe("stopped");
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "paused",
+      phase: "paused",
+      progress: { failed: 0 },
+    });
+
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "fs.writeFileSync(args[outputIndex + 1], 'Recovered Codex run.');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "resume after cancellation",
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Recovered Codex run.",
+        }),
+      ]),
+    );
+  });
+
+  it("forwards cancellation through a denied approval when the Codex run resumes", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const codexBin = path.join(binDir, "codex");
+    const startedPath = path.join(root, "codex-resume-started");
+    const stoppedPath = path.join(root, "codex-resume-stopped");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
+        "process.on('SIGTERM', () => {",
+        `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
+        "  process.exit(143);",
+        "});",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Denied approval cancellation",
+      status: "needs-approval",
+      phase: "approval-required",
+      needsApproval: true,
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+    appendCodeAgentTranscriptEvent({
+      runId: run.id,
+      kind: "user",
+      message: "resume after denying the command",
+    });
+    updateCodeAgentRunRecord(run.id, {
+      metadata: {
+        pendingApproval: {
+          id: "approval-cancel",
+          tool: "bash",
+          command: "rm -rf generated-output",
+          reason: "destructive cleanup",
+          requestedAt: new Date().toISOString(),
+          permissionMode: "ask-before-edit",
+        },
+      },
+    });
+    const controller = new AbortController();
+    const execution = executeDenyCodeAgentApproval(run.id, {
+      signal: controller.signal,
+    });
+
+    await waitForFile(startedPath);
+    controller.abort();
+    await execution;
+
+    expect(fs.readFileSync(stoppedPath, "utf8")).toBe("stopped");
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "paused",
+      phase: "paused",
+      metadata: {
+        lastApproval: { id: "approval-cancel", denied: true },
+      },
+    });
+    expect(updated?.metadata?.pendingApproval).toBeUndefined();
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message: "Codex CLI run paused.",
+          metadata: expect.objectContaining({
+            status: "paused",
+            phase: "paused",
+          }),
+        }),
+      ]),
+    );
   });
 
   it("can execute a run whose initial prompt was written by Desktop", async () => {
@@ -363,6 +803,38 @@ describe("executeCodeAgentRun", () => {
         "write_file",
         "apply_patch",
         "run_command",
+      ]),
+    );
+  });
+
+  it("keeps structured tool output out of the assistant stdout stream", async () => {
+    useTempCodeAgentsHome();
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Render tool output separately",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "run a command",
+      stdout: output.stream,
+      streamToolOutputToStdout: false,
+      engine: createBashExecutionEngine(),
+    });
+
+    expect(output.read()).toContain("done");
+    expect(output.read()).not.toContain("desktop-tool-output");
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            result: expect.stringContaining("desktop-tool-output"),
+          }),
+        }),
       ]),
     );
   });
@@ -609,6 +1081,45 @@ function createToolCaptureEngine(
   };
 }
 
+function createBashExecutionEngine(): AgentEngine {
+  let turn = 0;
+  return {
+    name: "bash-execution",
+    label: "Bash Execution",
+    defaultModel: "bash-execution",
+    supportedModels: ["bash-execution"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      if (turn++ === 0) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "bash-output",
+              name: "bash",
+              input: { command: "echo desktop-tool-output" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
 function createWriteAttemptEngine(filePath: string): AgentEngine {
   let turn = 0;
   return {
@@ -654,6 +1165,16 @@ function useTempCodeAgentsHome(): string {
   tmpRoots.push(root);
   process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
   return root;
+}
+
+async function waitForFile(filePath: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -936,6 +1457,34 @@ describe("buildCodeAgentSystemPrompt", () => {
     expect(prompt).toContain("Always run pnpm typecheck before committing.");
   });
 
+  it("uses the configured development instruction file without leaking runtime instructions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-audiences-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "app-agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app-agent", "AGENTS.md"),
+      "Runtime-only instructions.",
+    );
+    fs.writeFileSync(
+      path.join(root, "DEVELOPING.md"),
+      "Development-only instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("Development-only instructions.");
+    expect(prompt).not.toContain("Runtime-only instructions.");
+  });
+
   it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-claude-"));
     tmpRoots.push(root);
@@ -1033,8 +1582,19 @@ describe("buildCodeAgentSystemPrompt", () => {
 
   it("includes nested AGENTS.md precedence note in every prompt", () => {
     const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain("only project checkout for this run");
     expect(prompt).toContain(
       "More deeply nested AGENTS.md files take precedence",
+    );
+  });
+
+  it("scales verification to the changed area instead of requiring a ritual", () => {
+    const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain(
+      "use the narrowest relevant test, typecheck, formatter, or direct invocation",
+    );
+    expect(prompt).toContain(
+      "Do not restart a dev server or run broad checks as a generic post-edit ritual",
     );
   });
 

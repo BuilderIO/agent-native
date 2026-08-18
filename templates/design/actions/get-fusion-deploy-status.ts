@@ -6,6 +6,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getFusionDeploys } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -13,10 +14,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import {
-  FULL_APP_BUILDING_ENABLED,
-  readFusionApp,
-} from "../shared/full-app.js";
+import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -33,8 +31,8 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ designId }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

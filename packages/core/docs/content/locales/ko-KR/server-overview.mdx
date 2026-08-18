@@ -1,0 +1,232 @@
+---
+title: "서버"
+description: "에이전트 기반 앱의 Nitro 서버 계층: 무엇을 위한 것인지, 언제 커스텀 라우트를 사용해야 하는지, 그 구성 요소들이 어떻게 연결되는지."
+---
+
+# 서버
+
+`server/` 디렉터리는 에이전트 기반 앱의 인프라 계층입니다. 시작 작업, 인증, 그리고 액션이 다루지 못하는 HTTP 표면을 처리합니다. 대부분의 제품 동작은 [Actions](/docs/actions-overview)에 있어야 합니다. 서버는 그런 액션들을 외부에서 사용할 수 있게 만드는 역할을 합니다.
+
+<Diagram id="doc-block-server-overview-1" title="요청이 서버를 통과하는 흐름" summary="호출자는 Nitro 서버에 도달하며, 대부분의 요청은 액션을 통해 처리됩니다. 미들웨어와 라우트는 액션이 다루지 못하는 경우를 처리합니다. 두 경로 모두 데이터베이스를 조회할 수 있습니다.">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">브라우저 / UI</div>
+    <div class="diagram-node">에이전트 루프</div>
+    <div class="diagram-node">
+      외부 클라이언트<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro 서버</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">액션</span
+      ><small class="diagram-muted">주 경로</small>
+    </div>
+    <div class="srv-or diagram-muted">또는</div>
+    <div class="srv-path">
+      <span class="diagram-pill">미들웨어</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">라우트</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL 데이터베이스<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 서버가 차지하는 위치 {#role}
+
+전통적인 웹 앱에서는 대부분의 로직이 서버에 있습니다. 비즈니스 규칙, 데이터 접근, 화면 표현이 모두 라우트 핸들러 안에서 일어납니다. 에이전트 기반 앱은 다르게 동작합니다. 로직은 액션에 있으며, 에이전트와 UI는 이를 동등한 파트너로서 공유합니다. 서버의 역할은 조율입니다. 데이터베이스 마이그레이션을 실행하고, 인증을 구성하고, 에이전트 루프를 마운트하고, 액션 스스로 표현할 수 없는 좁은 범위의 HTTP 관심사를 처리합니다.
+
+<Diagram id="doc-block-server-overview-2" title="전통적인 서버 대 Agent Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">전통적인 방식</div>
+    <div class="diagram-node">브라우저</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>서버</strong>
+      <small class="diagram-muted">로직이 여기 있음</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">라우트 핸들러</span>
+        <span class="cmp-tag">비즈니스 로직</span>
+        <span class="cmp-tag">데이터 접근</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>데이터베이스</div>
+  </div>
+  <div class="cmp-vs diagram-muted">vs</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">브라우저 / UI</div>
+      <div class="diagram-node">에이전트</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>서버</strong>
+      <small class="diagram-muted">조율만 담당</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">액션</span>
+        <span class="cmp-tag">인증</span>
+        <span class="cmp-tag">마이그레이션</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>데이터베이스</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+브라우저 요청, 에이전트 루프, 외부 API 클라이언트는 모두 동일한 Nitro 서버를 거쳐가고 동일한 SQL 데이터베이스에서 읽습니다. 에이전트 전용 백엔드나 UI 전용 백엔드는 따로 없습니다. 서버 계층이 액션을 외부 세계에 노출하는 역할을 합니다.
+
+## server/ 디렉터리 안에는 무엇이 있는가 {#server-directory}
+
+다음은 모든 에이전트 기반 앱이 갖추는 `server/` 내부의 디렉터리와 파일들입니다. 각 항목은 서버 계층의 특정 부분에 대응합니다. 무엇을 하는지, 언제 사용해야 하는지, 프레임워크의 나머지 부분과 어떻게 연결되는지를 다룹니다.
+
+| 페이지                                    | 다루는 내용                                                                            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| **[데이터베이스](/docs/server-database)** | `table()` 도우미를 사용한 스키마 정의, `getDb`, 그리고 소유 가능한 테이블 패턴         |
+| **[미들웨어](/docs/server-middleware)**   | `server/middleware/`의 인증 가드와 그것이 플러그인이 아니라 이곳에서 실행되는 이유     |
+| **[플러그인](/docs/server-plugins)**      | 인증과 에이전트 채팅을 위한 시작 플러그인 및 선택적 앱 소유 DB 마이그레이션            |
+| **[라우트](/docs/server-routes)**         | 파일 기반 라우트, SSR catch-all, 그리고 커스텀 라우트를 요청 사용자로 범위 지정하는 법 |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build)는 에이전트 기반 HTTP 계층을 지원하는 서버 툴킷입니다. `server/`에서 구성하게 될 대부분은 Nitro입니다. 파일 기반 라우트, 시작 플러그인, 미들웨어가 그것입니다.
+
+- **파일 기반 라우팅**: 파일 이름이 등록 없이 곧바로 HTTP 메서드와 URL 경로에 매핑됩니다. `server/routes/api/health.get.ts`는 자동으로 `GET /api/health`가 됩니다. 자세한 내용은 [라우트](/docs/server-routes)를 참조하세요.
+- **플러그인**: 서버 시작 시 등록되어 한 번 로드되는 코드입니다. 프레임워크 헬퍼가 인증과 에이전트 채팅을 초기화하며, 선택적 앱 소유 DB 마이그레이션은 첫 요청이 들어올 때도 실행 중일 수 있습니다. 자세한 내용은 [플러그인](/docs/server-plugins)을 참조하세요.
+- **미들웨어**: 라우트에 도달하기 전, 들어오는 모든 요청에 대해 실행되는 코드입니다. 인증 가드는 `server/middleware/`에 있습니다. 자세한 내용은 [미들웨어](/docs/server-middleware)를 참조하세요.
+
+Nitro는 또한 배포 방식에 구애받지 않습니다. 동일한 앱이 코드 변경 없이 Node.js, Cloudflare Workers, Netlify, Vercel 및 기타 런타임에 배포됩니다. 프리셋만 설정하면 됩니다. [배포](/docs/deployment)를 참조하세요.
+
+기반이 되는 요청/응답 API는 [H3](https://h3.unjs.io)입니다. 커스텀 라우트에서 `defineEventHandler`, `createError`, `getQuery`를 보게 된다면 그것이 H3입니다. 프레임워크가 직접 다루지 않는 모든 것에 대해서는 [Nitro 문서](https://nitro.build/guide)와 [H3 문서](https://h3.unjs.io)를 참고하세요.
+
+## 우선 액션부터 고려하기 {#actions-first}
+
+Agent Native 아키텍처는 다릅니다. 애플리케이션의 새 기능을 떠올릴 때마다, 먼저 그것이 액션이 될 수 있는지 고려하세요. 예를 들어 UI와 에이전트가 둘 다 어떤 작업을 해야 한다면, 커스텀 API 라우트 대신 액션을 정의하세요. 액션은 자동으로 다음이 됩니다.
+
+- 에이전트 도구.
+- 타입이 지정된 프런트엔드 후크.
+- `/_agent-native/actions/:name` 아래의 HTTP 엔드포인트.
+- MCP 및 A2A로 호출 가능한 도구.
+- 개발용 CLI 명령.
+
+라우트 형태의 프로토콜이나 바이너리/스트리밍 동작이 필요한 경우에만 커스텀 `/api/*` 라우트를 사용하세요. 자세한 내용은 [Actions](/docs/actions-overview)를 참조하세요.
+
+## 다음 단계 {#whats-next}
+
+- [**Actions**](/docs/actions-overview): 기본 작업 표면입니다. 맞지 않을 때만 커스텀 라우트를 사용하세요.
+- [**데이터베이스**](/docs/server-database): 커스텀 라우트와 액션이 모두 가져다 쓰는 `getDb()`/스키마 패턴
+- [**미들웨어**](/docs/server-middleware): 인증 가드와 `server/middleware/` 디렉터리
+- [**플러그인**](/docs/server-plugins): 마이그레이션, 인증, 에이전트를 위한 시작 플러그인
+- [**라우트**](/docs/server-routes): 파일 기반 라우트, 요청 컨텍스트, SSR catch-all

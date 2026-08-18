@@ -1,0 +1,76 @@
+# @agent-native/creative-context
+
+Creative Context lets an agent use a workspace's decks, designs, images,
+websites, and writing as a versioned, searchable creative repository. It is
+the creative equivalent of connecting a code repository: import once, grep or
+search examples, reuse approved parts first, and record the exact evidence used
+for every generated artifact.
+
+## Core guarantees
+
+- Structured corpus data lives in the app's existing SQL database. Large and
+  private binaries live in private blob storage and SQL stores only handles.
+- PostgreSQL installations use pgvector in the same `DATABASE_URL` database.
+  SQLite keeps lexical and caption search; visual search fails with explicit
+  PostgreSQL setup guidance. No additional database or vector service exists.
+- Imports are inventory-first, incremental, leased, resumable, idempotent, and
+  versioned. Context packs pin immutable item versions for reproducibility.
+- Imported text is untrusted evidence, never system instruction. Only
+  human-published structured brand fields enter the prompt context provider.
+- Sources are private by default. Organization promotion previews the exact
+  container and item count and requires an organization admin or verified
+  container owner.
+
+## Sources
+
+The package supports Google Slides, Figma, Notion, websites, and file or folder
+uploads (PPTX, DOCX, PDF, and images). Website rendering is provider-neutral:
+hosted apps use the platform-managed Builder Browser path, desktop and
+self-hosted apps can use local Playwright, and a disclosed static extractor is
+the zero-browser fallback. Firecrawl is not required.
+
+## Retrieval and generation
+
+Use `search-creative-context` for lexical, filtered, and multimodal retrieval,
+then `get-context-item` for the selected immutable evidence. Every generation
+must snapshot its inputs in a context pack and persist that pack id and
+per-element provenance on the output.
+
+Context packs are private by default because their request and influence
+manifest can reveal work intent. Share them explicitly; readers must also retain
+access to every underlying source item.
+
+The required reuse order is: use approved native material unchanged; compose
+approved pieces; duplicate and lightly adapt a real example; generate new work
+conditioned on retrieved references; create entirely net-new work only when the
+library has no useful evidence.
+
+## Setup
+
+Call `setupCreativeContext({ appId })` from the app's server plugin and mount
+the shared Library tab and context chip from `@agent-native/creative-context/client`.
+The package registers its actions, additive SQL migrations, shareable
+resources, prompt-context provider, and background import work.
+
+Shared-workspace generation reads Creative Context in-process. For an isolated
+deployment only, `CREATIVE_CONTEXT_A2A_URL` opts into the bounded remote
+resolve/validate/read/record protocol. Authenticate it with a shared
+`A2A_SECRET` or matching org-scoped `CREATIVE_CONTEXT_A2A_KEY`; the receiving
+app rechecks the signed caller against its own item and pack access. Responses
+are opaque, size-limited, strictly validated, and fail closed on timeout or
+malformation. Context mode `off` never calls the remote deployment.
+
+Google Slides imports use the workspace's existing Google OAuth client and a
+separate workspace-connection callback at
+`/_agent-native/connections/oauth/google_drive/callback`; it requests offline
+Drive metadata plus read-only Slides consent without changing Google sign-in.
+Figma and Notion Connect buttons use workspace-owned OAuth apps configured with `FIGMA_CLIENT_ID` /
+`FIGMA_CLIENT_SECRET` and `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`. Register
+`/_agent-native/connections/oauth/{provider}/callback` on the deployed app
+origin for each provider. User tokens are encrypted in the shared OAuth token
+store and granted only to the consuming app. `FIGMA_ACCESS_TOKEN` remains an
+explicit admin-mode fallback; it is never substituted for a selected user
+connection.
+
+For the full retrieval and generation contract, read
+`docs/skills/creative-context/SKILL.md`.

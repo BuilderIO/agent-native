@@ -80,6 +80,7 @@ description: "फ़्रेमवर्क में निर्मित प
 जब आप किसी विशिष्ट उपयोगकर्ता या संगठन के साथ साझा करते हैं, तो आप एक भूमिका चुनते हैं:
 
 - **दर्शक** — केवल पढ़ने के लिए।
+- **टिप्पणीकार** — पढ़ सकते हैं और टिप्पणियां जोड़ सकते हैं, लेकिन संसाधन को संपादित या शेयर प्रबंधित नहीं कर सकते।
 - **संपादक** - पढ़ें + लिखें।
 - **एडमिन** - पढ़ें + लिखें + शेयर प्रबंधित करें (अन्य लोगों को जोड़/हटा सकते हैं)।
 
@@ -122,8 +123,7 @@ description: "फ़्रेमवर्क में निर्मित प
 शेयर बटन एक एकल आयात है:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -245,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "दर्शक | संपादक | व्यवस्थापक",
+          note: "दर्शक | टिप्पणीकार | संपादक | व्यवस्थापक",
         },
         {
           name: "created_by",

@@ -42,6 +42,20 @@ function nestedScrollableConsumesVerticalIntent(
   return false;
 }
 
+/**
+ * @deprecated Nothing in this repo calls this any more — `AgentConversation`
+ * and `AssistantChat` both stick to the bottom via the shadcn `MessageScroller`
+ * primitive, which does it with one mechanism instead of five.
+ *
+ * What is below is five independent things all writing `scrollTop`: a scroll
+ * listener with a content-shrank heuristic, a ResizeObserver re-attached to
+ * every child on each mutation, a MutationObserver that scrolls, a
+ * rAF+rAF+setTimeout(80) chain, and a 100ms interval while streaming. Each was
+ * added to fix a different report and none replaced the one before it, so they
+ * race: that is the "text bumps up and down rapidly" and "flashing and
+ * jittering" users kept describing. Kept only so an external template importing
+ * it does not break; do not adopt it, and delete it in the next major.
+ */
 export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   followKey,
   streaming = false,
@@ -53,7 +67,32 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   const followGenerationRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const lastTouchYRef = useRef<number | null>(null);
+  const pendingAnimationFrameIdsRef = useRef<Set<number>>(new Set());
+  const pendingTimeoutIdsRef = useRef<Set<number>>(new Set());
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const cancelPendingScrolls = useCallback(() => {
+    for (const id of pendingAnimationFrameIdsRef.current) {
+      window.cancelAnimationFrame(id);
+    }
+    pendingAnimationFrameIdsRef.current.clear();
+    for (const id of pendingTimeoutIdsRef.current) {
+      window.clearTimeout(id);
+    }
+    pendingTimeoutIdsRef.current.clear();
+  }, []);
+
+  const scheduleAnimationFrame = useCallback(
+    (callback: FrameRequestCallback) => {
+      let id = 0;
+      id = window.requestAnimationFrame((time) => {
+        pendingAnimationFrameIdsRef.current.delete(id);
+        callback(time);
+      });
+      pendingAnimationFrameIdsRef.current.add(id);
+    },
+    [],
+  );
 
   const isAtBottom = useCallback(
     (el: HTMLElement) =>
@@ -234,14 +273,30 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   }, [detachFromBottom, enabled, scrollToBottomIfFollowing, updateBottomState]);
 
   const scrollToBottomAfterPaint = useCallback(() => {
+    cancelPendingScrolls();
     const generation = followGenerationRef.current;
     scrollToBottomIfFollowing(generation);
-    requestAnimationFrame(() => {
+    scheduleAnimationFrame(() => {
       scrollToBottomIfFollowing(generation);
-      requestAnimationFrame(() => scrollToBottomIfFollowing(generation));
+      scheduleAnimationFrame(() => scrollToBottomIfFollowing(generation));
     });
-    window.setTimeout(() => scrollToBottomIfFollowing(generation), 80);
-  }, [scrollToBottomIfFollowing]);
+    const timeoutId = window.setTimeout(() => {
+      pendingTimeoutIdsRef.current.delete(timeoutId);
+      scrollToBottomIfFollowing(generation);
+    }, 80);
+    pendingTimeoutIdsRef.current.add(timeoutId);
+  }, [cancelPendingScrolls, scheduleAnimationFrame, scrollToBottomIfFollowing]);
+
+  useEffect(() => {
+    if (!enabled) cancelPendingScrolls();
+    return cancelPendingScrolls;
+  }, [cancelPendingScrolls, enabled]);
+
+  const resumeFollowing = useCallback(() => {
+    const el = scrollRef.current;
+    setFollowingBottom(true, true, el ?? undefined);
+    scrollToBottomAfterPaint();
+  }, [scrollToBottomAfterPaint, setFollowingBottom]);
 
   const markNearBottom = useCallback(() => {
     setFollowingBottom(true, true, scrollRef.current ?? undefined);
@@ -267,5 +322,6 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     markNearBottom,
     scrollToBottom,
     scrollToBottomAfterPaint,
+    resumeFollowing,
   };
 }

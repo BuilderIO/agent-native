@@ -150,6 +150,58 @@ describe("fetchOrgApps", () => {
     ]);
   });
 
+  it("requests the directory app only when explicitly enabled", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(
+        (init?.headers as Record<string, string>)[
+          "X-Agent-Native-Include-Directory-App"
+        ],
+      ).toBe("1");
+      return new Response(JSON.stringify({ apps: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchOrgApps({
+      selfId: "analytics",
+      includeDirectoryApp: true,
+    });
+  });
+
+  it("isolates directory-inclusion responses in the cache", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      const includeDirectory =
+        (init?.headers as Record<string, string>)[
+          "X-Agent-Native-Include-Directory-App"
+        ] === "1";
+      return new Response(
+        JSON.stringify({
+          apps: includeDirectory
+            ? [
+                {
+                  id: "dispatch",
+                  name: "Dispatch",
+                  url: "https://dispatch.acme.com",
+                },
+              ]
+            : [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
+    await expect(
+      fetchOrgApps({ selfId: "analytics", includeDirectoryApp: true }),
+    ).resolves.toEqual([expect.objectContaining({ id: "dispatch" })]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("strips the current app by origin too", async () => {
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL = "https://hub.acme.com";
     vi.stubGlobal(

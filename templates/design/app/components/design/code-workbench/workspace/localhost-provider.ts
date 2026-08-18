@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 import {
   WorkspaceStaleVersionError,
@@ -53,6 +53,40 @@ interface WriteLocalFileResponse {
   versionHash?: string;
 }
 
+const LOCAL_READ_TIMEOUT_MS = 15_000;
+
+export class LocalWorkspaceTimeoutError extends Error {
+  constructor(operation: "list" | "read") {
+    super(
+      operation === "list"
+        ? "Local files took too long to load. Check the local connection and try again." /* i18n-ignore */
+        : "This local file took too long to load. Check the local connection and try again." /* i18n-ignore */,
+    );
+    this.name = "LocalWorkspaceTimeoutError";
+  }
+}
+
+export async function withLocalReadTimeout<T>(
+  operation: "list" | "read",
+  request: Promise<T>,
+  timeoutMs = LOCAL_READ_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new LocalWorkspaceTimeoutError(operation)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Detect the write-local-file action's grant-related error messages. */
 function isWriteConsentError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -103,10 +137,13 @@ export function createLocalhostProvider(
   };
 
   async function listFiles(): Promise<WorkspaceFileEntry[]> {
-    const response = await callAction<ListLocalFilesResponse>(
-      "list-local-files",
-      { designId, connectionId },
-      { method: "GET" },
+    const response = await withLocalReadTimeout(
+      "list",
+      callAction<ListLocalFilesResponse>(
+        "list-local-files",
+        { designId, connectionId },
+        { method: "GET" },
+      ),
     );
     return response.files.map((file) => ({
       path: file.path,
@@ -116,10 +153,13 @@ export function createLocalhostProvider(
   }
 
   async function readFile(path: string): Promise<WorkspaceReadResult> {
-    const response = await callAction<ReadLocalFileResponse>(
-      "read-local-file",
-      { designId, connectionId, path },
-      { method: "GET" },
+    const response = await withLocalReadTimeout(
+      "read",
+      callAction<ReadLocalFileResponse>(
+        "read-local-file",
+        { designId, connectionId, path },
+        { method: "GET" },
+      ),
     );
     return {
       content: response.content,

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "crm",
+  "displayName": "CRM",
+  "description": "A typed, bitemporal CRM grid with lists, pipelines, and saved board views — running on its own SQL or as a field-policy-aware HubSpot and Salesforce companion.",
+  "mcp": { "serverName": "agent-native-crm" },
+  "local": {
+    "template": "crm",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8107",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Start with Native SQL without an external connection, or connect HubSpot or Salesforce through workspace Connections. CRM never accepts or stores provider credentials."
+  },
+  "surfaces": [
+    { "id": "crm-workspace", "action": "get-crm-workspace", "path": "/" },
+    { "id": "crm-records", "action": "list-crm-records", "path": "/records" },
+    { "id": "crm-lists", "action": "list-crm-lists", "path": "/lists" },
+    {
+      "id": "crm-saved-views",
+      "action": "list-crm-saved-views",
+      "path": "/views"
+    },
+    { "id": "crm-tasks", "action": "list-crm-tasks", "path": "/tasks" },
+    {
+      "id": "crm-proposals",
+      "action": "list-crm-proposals",
+      "path": "/proposals"
+    },
+    {
+      "id": "crm-pipeline",
+      "action": "get-crm-dashboard",
+      "path": "/dashboard"
+    },
+    {
+      "id": "crm-attributes",
+      "action": "list-crm-attributes",
+      "path": "/settings/fields"
+    },
+    {
+      "id": "crm-signals",
+      "action": "list-crm-signal-hits",
+      "path": "/records"
+    },
+    {
+      "id": "crm-clips-review-recipe",
+      "action": "get-crm-automation-recipe",
+      "path": "/records"
+    }
+  ],
+  "skills": [
+    { "path": ".agents/skills/crm", "visibility": "both", "exportAs": "crm" }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}

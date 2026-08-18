@@ -1,0 +1,154 @@
+---
+title: "प्लगइन्स"
+description: "server/plugins/ में स्टार्टअप प्लगइन्स — ये क्या हैं, हर ऐप जो दो प्लगइन शिप करता है, वैकल्पिक डेटाबेस प्लगइन, और अपना खुद का कैसे लिखें।"
+---
+
+# प्लगइन्स
+
+प्लगइन्स स्टार्टअप हुक हैं। Nitro `server/plugins/` की हर फ़ाइल को सर्वर शुरू होने पर एक बार लोड करता है। ये एकबारगी सेटअप के लिए सही जगह हैं: auth कॉन्फ़िगर करना, एजेंट लूप माउंट करना, डेटाबेस माइग्रेशन चलाना या अन्य इनिशियलाइज़ेशन कोड रजिस्टर करना। Framework helpers अपने async सेटअप को क्रमबद्ध करते हैं; custom plugin का काम पहली request आने पर अभी चल रहा हो सकता है।
+
+Nitro फ़ाइल सिस्टम से प्लगइन्स को स्वचालित रूप से खोजता है। किसी रजिस्ट्रेशन या इम्पोर्ट की आवश्यकता नहीं है। फ़ाइलें वर्णानुक्रम में चलती हैं, इसलिए निष्पादन क्रम फ़ाइलनाम प्रीफ़िक्स द्वारा नियंत्रित होता है।
+
+हर एजेंट-नेटिव ऐप डिफ़ॉल्ट रूप से दो प्लगइन्स शिप करता है:
+
+```text
+server/plugins/
+  auth.ts        -> auth प्रदाता और सार्वजनिक पथ कॉन्फ़िगर करें
+  agent-chat.ts  -> अपनी actions और सिस्टम प्रॉम्प्ट के साथ एजेंट लूप माउंट करें
+```
+
+जिन ऐप्स को कस्टम डेटाबेस तालिकाओं की आवश्यकता होती है, वे एक तीसरा जोड़ते हैं:
+
+```text
+server/plugins/
+  db.ts          -> local startup के लिए app-owned migrations register करें
+```
+
+## Auth प्लगइन {#auth-plugin}
+
+`server/plugins/auth.ts` कॉन्फ़िगर करता है कि उपयोगकर्ता कैसे साइन इन करते हैं। `@agent-native/core/server` से `createAuthPlugin` auth प्रदाता को जोड़ता है और साइन-इन पेज ब्रांडिंग सेट करता है:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+विशिष्ट रूट्स को अप्रमाणित उपयोगकर्ताओं के लिए खोलने के लिए, `publicPaths` पास करें:
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+Auth प्लगइन गार्ड को कॉन्फ़िगर करता है। `server/middleware/auth.ts` में मिडलवेयर इसे हर अनुरोध पर लागू करता है। [मिडलवेयर](/docs/server-middleware) देखें।
+
+## Agent-Chat प्लगइन {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` आपके ऐप की actions, सिस्टम प्रॉम्प्ट, और प्रारंभिक टूल सेट के साथ एजेंट लूप माउंट करता है। यही वह प्लगइन है जो आपके ऐप को एक एजेंट-नेटिव ऐप बनाता है।
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` जनरेट की गई रजिस्ट्री के माध्यम से `actions/` से निर्यात की गई हर action उठाता है। `initialToolNames` यह नियंत्रित करता है कि बातचीत की शुरुआत में एजेंट के पास किन actions तक पहुँच है। यह आवश्यकता पड़ने पर अन्य को भी कॉल कर सकता है।
+
+## डेटाबेस प्लगइन {#database-plugin}
+
+यदि आपका ऐप कस्टम डेटाबेस तालिकाएँ परिभाषित करता है, तो स्टार्टअप पर स्कीमा माइग्रेशन चलाने के लिए `server/plugins/db.ts` जोड़ें। यह `@agent-native/core/db` से `runMigrations` का उपयोग करता है:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+हर प्रविष्टि को एक `version` संख्या और एक `sql` स्ट्रिंग की आवश्यकता होती है। `table` विकल्प माइग्रेशन ट्रैकिंग तालिका का नाम रखता है। अपने ऐप के लिए एक अनूठा नाम उपयोग करें ताकि यह फ्रेमवर्क माइग्रेशन से न टकराए। पूरी स्कीमा लेखन गाइड के लिए [डेटाबेस](/docs/server-database) देखें।
+
+<Callout tone="warning">
+  माइग्रेशन योगात्मक होने चाहिए। स्टार्टअप प्लगइन्स में कभी भी विनाशकारी SQL
+  (`DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) न रखें।
+</Callout>
+
+## कस्टम प्लगइन्स लिखना {#custom-plugins}
+
+फ्रेमवर्क हेल्पर्स (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) में से प्रत्येक एक Nitro प्लगइन फ़ंक्शन लौटाता है। इन हेल्पर्स के बाहर किसी भी चीज़ के लिए, `defineNitroPlugin` का उपयोग करके एक प्लगइन लिखें:
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // हर अनुरोध पर चलता है
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // सर्वर बंद होने पर चलता है
+  });
+});
+```
+
+प्लगइन्स Nitro के किसी भी लाइफ़साइकिल हुक का उपयोग कर सकते हैं: `request`, `beforeResponse`, `close`, और अन्य। [Nitro प्लगइन डॉक्स](https://nitro.build/guide/plugins) पूरी हुक API और प्लगइन अनुबंध को विस्तार से कवर करते हैं।
+
+## स्टार्टअप क्रम {#startup-order}
+
+Nitro प्लगइन्स को फ़ाइलनाम के वर्णानुक्रम में शुरू करता है। फ़ाइल क्रम यह तय करता है कि plugin कब शुरू होगा, यह नहीं कि उसका async काम कब पूरा होगा; इसलिए यह न मानें कि अगला plugin शुरू होने से पहले पिछला पूरा हो गया है। एक विशिष्ट क्रम:
+
+1. `db.ts` — local startup पर app-owned migrations; production में release step के रूप में
+2. `auth.ts` — अनुरोध आने से पहले auth कॉन्फ़िगरेशन जगह पर होता है
+3. `agent-chat.ts` — auth कॉन्फ़िगर होने के बाद एजेंट रूट्स माउंट होते हैं
+
+<Callout tone="warning">
+  Production या serverless deployments में migrations को पहली request पर नहीं,
+  बल्कि release या deploy step में चलाएं। Chat template इसके लिए `pnpm
+  migrate:production` देता है।
+</Callout>
+
+यदि आप कस्टम प्लगइन्स जोड़ते हैं, तो अनुक्रम में वे कहाँ आते हैं यह नियंत्रित करने के लिए उनके फ़ाइलनाम को प्रीफ़िक्स करें।
+
+## आगे क्या है {#whats-next}
+
+- [**डेटाबेस**](/docs/server-database): स्कीमा हेल्पर्स और प्लगइन्स के भीतर उपयोग किया जाने वाला `getDb` पैटर्न
+- [**मिडलवेयर**](/docs/server-middleware): Auth गार्ड जो auth प्लगइन के कॉन्फ़िगर किए गए को लागू करता है
+- [**रूट्स**](/docs/server-routes): कस्टम फ़ाइल रूट्स और उनका उपयोग कब करें
+- [**लेखन एजेंट निर्देश और कौशल**](/docs/writing-agent-instructions): agent-chat प्लगइन में `systemPrompt` कैसे तैयार करें
+- [**Nitro प्लगइन डॉक्स**](https://nitro.build/guide/plugins): पूरी प्लगइन API और लाइफ़साइकिल हुक

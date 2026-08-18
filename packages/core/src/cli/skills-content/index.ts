@@ -8,6 +8,7 @@
 export * from "./help.js";
 export * from "./assets-skill.js";
 export * from "./content-skill.js";
+export * from "./rewind-skill.js";
 export * from "./design-exploration-skill.js";
 export * from "./design-visual-edit-skill.js";
 export * from "./plan-setup-auth.js";

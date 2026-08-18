@@ -1,0 +1,366 @@
+---
+title: "Calendar: Developer Guide"
+description: "Quick start, the full action inventory, data model, routes, and how to extend the Calendar template."
+---
+
+# Developer Guide
+
+This page is for anyone customizing the Calendar template or extending it: the quick start, every action, the data model, the route surface, and how to add to it. See [Calendar](/docs/template-calendar) for what the app does.
+
+## Quick start
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+```
+
+See [Getting started](/docs/getting-started) for installing dependencies and running the dev server.
+
+To connect Google Calendar in dev, open the Settings view, paste a `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from [Google Cloud Console](https://console.cloud.google.com/), and click "Connect Google Calendar." The OAuth redirect URI is `http://localhost:8082/_agent-native/google/callback` in dev (8082 is the default Calendar dev port). Tokens are stored in the framework `oauth_tokens` table and refresh automatically.
+
+To enable Zoom conferencing on booking links, set `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` from a [Zoom OAuth app](https://marketplace.zoom.us/). Its redirect URI is `/_agent-native/zoom/callback`. Without these set, booking links can still offer Google Meet — Zoom just won't appear as a conferencing option.
+
+<Callout tone="info">
+
+**Events live in Google Calendar, not SQL.** Every event action calls the Google Calendar API directly — there is no local events table. Only booking links, bookings, availability, and connection state are stored locally. Never read or write event data with raw SQL.
+
+</Callout>
+
+## Action inventory
+
+Every operation is a TypeScript file in `templates/calendar/actions/`, auto-mounted at `POST /_agent-native/actions/:name`.
+
+**Events & guests** — event data lives in Google Calendar, never SQL:
+
+- `list-events`, `search-events`, `get-event` — read events in a range or by id
+- `create-event`, `update-event`, `delete-event` — write events, including recurrence (RRULE), working locations, and status types (`outOfOffice`, `focusTime`)
+- `manage-event-draft` — stage an unsent invite for user review before anything is written or guests are notified
+- `rsvp-event` — accept/decline/tentative on an invitation
+- `get-attendee-timezones`, `set-attendee-timezone` — per-guest timezone overrides for showing local times
+
+**Availability & finding time:**
+
+- `get-availability`, `update-availability` — the weekly schedule, timezone, buffer, notice, and advance-window settings
+- `check-availability` — open slots for one date
+- `find-a-time` — shared free-slot search across an organizer and named attendees, combining Google free/busy with local conflicts
+
+**Booking links & bookings:**
+
+- `create-booking-link`, `update-booking-link`, `duplicate-booking-link` — link lifecycle, including co-hosts (`hosts`)
+- `list-booking-links`, `list-bookings` — accessible links and their confirmed appointments
+
+**External calendars (read-only ICS feeds):**
+
+- `add-external-calendar`, `list-external-calendars`, `remove-external-calendar`, `update-external-calendars`
+
+**People & overlays:**
+
+- `search-people` — Google Contacts + Workspace directory search
+- `get-overlay-people`, `update-overlay-people` — other people's calendars pinned into your view
+
+**Zoom:**
+
+- `get-zoom-status` — connection status for the current user; connect/disconnect happen through `/_agent-native/zoom/*` routes, not an action, since OAuth needs the signed-in browser session
+
+**Google Calendar connection & sync:**
+
+- `connect-google-calendar` — returns the OAuth connect URL for the signed-in browser session
+- `sync-google-calendar` — forces a resync
+
+**Settings & preferences:**
+
+- `get-settings`, `update-settings` — user-level settings
+- `update-calendar-visual-preferences` — local-only display prefs (event colors, hidden weekends); never touches Google Calendar
+
+**Navigation & UI state:**
+
+- `navigate` — moves the UI to a view, date, or event
+- `view-screen` — reads the current view back for the agent
+
+**Provider API escalation** — the raw Google Calendar (and connected CRM) API, for when the actions above are too narrow:
+
+- `provider-api-catalog`, `provider-api-docs`, `provider-api-request`
+- `list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset` — for staging and querying large scans instead of returning raw results
+
+## Data model
+
+Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stored locally — events themselves live in Google Calendar.
+
+<DataModel
+  id="doc-block-calendar6"
+  title="Calendar data model"
+  summary={
+    "Only non-event data is stored locally — events live in Google Calendar. Booking links use ownableColumns so the sharing system applies; booking usernames are a separate reservation table because a username is shared across every link a user owns."
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-style link definitions (ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public page at /book/{username}/{slug}",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "primary duration in minutes" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "alternative durations",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "required co-hosts besides the owner",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "pause without deleting" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "Confirmed appointments from public booking pages",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "custom field responses",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom, Google Meet, or custom",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "connected account that owns the event",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "powers /booking/manage/{token}",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "Keeps old public URLs working after a link's slug is renamed",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "the link's current slug",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "Reserves the {username} segment of /book/{username}/{slug}, one per owner",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "unique — one booking username per user",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "Audit trail enforcing the 3-changes-per-30-days rate limit",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "Share grants for booking links",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "user or org" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "has bookings",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+Availability rules live in per-user settings under the `calendar-availability` key; overlay people under `calendar-overlay-people`; attendee timezone overrides under `attendee-timezones`; subscribed ICS feeds under `external-calendars`. Google and Zoom OAuth tokens live in the framework `oauth_tokens` table. Ephemeral UI state (current view, date, selected event) lives in `application_state` under the `navigation` key.
+
+## An action walked through
+
+`create-booking-link` shows the two guardrails every booking-link write needs: a validated slug and a check against the other table that can claim one.
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="Creating a booking link"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "38-42",
+      label: "Slug format is validated up front",
+      note: "The regex enforces lowercase, hyphen-separated URL slugs before anything touches the database, so a malformed slug never reaches the uniqueness check below.",
+    },
+    {
+      lines: "59-61",
+      label: "Hosts are optional",
+      note: "Omitting `hosts` creates a solo link. A non-empty list becomes required co-hosts who must also be free before `find-a-time` offers a slot.",
+    },
+    {
+      lines: "76-90",
+      label: "A slug must be free in two tables",
+      note: "A new slug has to be unused in both `booking_links` and `booking_slug_redirects` — otherwise a fresh link could silently claim a URL an older, renamed link still forwards visitors from.",
+    },
+    {
+      lines: "110",
+      label: "Co-host input is normalized once",
+      note: "`serializeBookingHosts` accepts emails, comma-separated strings, or `{email, displayName}` objects and always stores the same JSON shape, so every reader only handles one format.",
+    },
+  ]}
+/>
+
+## Routes reference
+
+<FileTree
+  id="doc-block-calendar7"
+  title="Calendar template layout"
+  entries={[
+    {
+      path: "actions/",
+      note: "every agent-callable action — events, availability, booking, people, Zoom, sharing",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "the main calendar view (day/week/month)",
+    },
+    { path: "app/routes/_app.agent.tsx", note: "full-page agent chat tab" },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "the availability editor",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "booking link list; _app.booking-links.$id.tsx edits one",
+    },
+    { path: "app/routes/_app.bookings.tsx", note: "confirmed bookings list" },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "Extension widget routes",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "Google/Zoom connect, availability defaults, sharing",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "the public booking page (canonical: /book/{username}/{slug})",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "the visitor's reschedule/cancel page",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "standalone inline event-preview page the agent embeds in chat",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle tables — booking_links, bookings, booking_usernames, shares",
+    },
+    { path: "server/lib/zoom.ts", note: "Zoom OAuth + meeting creation" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "the Google Calendar API client",
+    },
+    {
+      path: "shared/api.ts",
+      note: "shared TypeScript types used by server and client",
+    },
+  ]}
+/>
+
+Two legacy routes stay mounted for links shared before a URL scheme changed: `book.$slug.tsx` (no username segment) and `meet.$username.$slug.tsx`, both of which canonicalize to `/book/:username/:slug`. `_app.team.tsx` redirects to `/settings/organization` — team management lives in Settings, not a separate page.
+
+## Customizing it
+
+Every part of the app is editable source. Start here:
+
+- `templates/calendar/actions/` — add a new file with `defineAction` to expose new capability to both the agent and the frontend.
+- `templates/calendar/app/routes/` — the UI, listed above.
+- `templates/calendar/server/db/schema.ts` — add columns or tables with Drizzle. Keep the code dialect-agnostic so the template runs on SQLite, Postgres, Turso, D1, and Neon.
+- `templates/calendar/server/lib/` — provider integrations: `google-calendar.ts`, `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`, `find-time.ts`, `provider-api.ts`.
+- `templates/calendar/AGENTS.md` — agent instructions. Update this when you teach the agent new capabilities or conventions.
+- `templates/calendar/.agents/skills/` — detailed patterns the agent follows. Relevant skills: `event-management`, `availability-booking`, `real-time-sync`, `storing-data`, `delegate-to-agent`, `frontend-design`.
+- `templates/calendar/shared/api.ts` — the shared TypeScript types (`CalendarEvent`, `BookingLink`, `ExternalCalendar`, `ConferencingConfig`, etc.) used by both the server and the client.
+
+If you add a feature, remember to update all four areas: UI, action, skill or AGENTS.md entry, and any application state the agent needs to see. That is what keeps the agent and the UI in parity.
+
+## What's next
+
+- [**Calendar**](/docs/template-calendar) — the overview and getting-started steps
+- [**Events, Availability & Finding Time**](/docs/template-calendar-scheduling) — the user-facing behavior these actions power
+- [**Booking Links**](/docs/template-calendar-booking-links) — the user-facing behavior this data model powers
+- [**Talking to the Agent**](/docs/template-calendar-agent) — how the agent chooses between these actions and the raw Google Calendar API
+- [**Actions**](/docs/actions-overview) — the action system this template is built on
+- [**Sharing**](/docs/sharing) — the share-grant model `booking_link_shares` uses

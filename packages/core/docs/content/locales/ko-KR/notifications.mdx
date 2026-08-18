@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 각 기능은 소유자 범위로, 사용자 간 읽기, 사용자 간 쓰기가 불가능합니다.
@@ -363,7 +363,7 @@ export function HeaderBar() {
 ## 작동 방식 {#internals}
 
 - **소유자 범위** — 모든 행에는 `owner` 열이 있습니다. 모든 쿼리는 이를 필터링합니다. 모든 경로는 인증된 세션의 이메일을 사용합니다. 사용자는 서로의 알림을 볼 수 없습니다.
-- **폴 통합** — 모든 변이는 `recordChange()`를 호출하므로 [`useDbSync`](/docs/client)를 사용하는 템플릿은 추가 배선 없이 자동 무효화됩니다.
+- **폴 통합** — 모든 변이는 `recordChange()`를 호출하므로 [`useDbSync`](/docs/client-data#usedbsync)를 사용하는 템플릿은 추가 배선 없이 자동 무효화됩니다.
 - **최선의 팬아웃** — 채널 오류가 포착되어 기록됩니다. 하나의 실패한 채널이 다른 채널이나 받은편지함 쓰기를 차단하지 않습니다.
 - **Fire-and-forget** — 받은 편지함 쓰기가 완료된 후 `notify()`가 반환됩니다. 맞춤 채널은 백그라운드에서 실행됩니다.
 
@@ -371,4 +371,4 @@ export function HeaderBar() {
 
 - [**Automations**](/docs/automations) — `notify()`의 가장 일반적인 호출자
 - [**Security**](/docs/security) — 웹훅 채널을 구동하는 `${keys.NAME}` 대체
-- [**Server plugins**](/docs/server) — 시작 시 맞춤 채널이 등록되는 곳
+- [**Server plugins**](/docs/server-overview) — 시작 시 맞춤 채널이 등록되는 곳

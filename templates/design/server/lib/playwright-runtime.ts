@@ -15,13 +15,17 @@ export type PlaywrightModule = {
 };
 
 /**
- * Dynamic import of a real Chromium-capable Playwright package.  Tries the
- * bare `"playwright"` package first (present when `@agent-native/core`'s
- * optional dependency resolved), then falls back to `@playwright/test` (a
+ * Dynamic import of a real Chromium-capable Playwright package. Tries the bare
+ * `"playwright"` package first (supplied as an optional dependency of
+ * `@agent-native/creative-context`), then falls back to `@playwright/test` (a
  * direct devDependency of this template, used by its own e2e suite, which
  * re-exports the same chromium/Browser API). Loaded via a non-literal
  * specifier so bundlers don't try to statically resolve/include it — it's
  * optional and can be entirely absent (e.g. in a hosted deploy).
+ *
+ * When both are absent the FIRST error is what callers need: reporting the
+ * fallback's "Cannot find package '@playwright/test'" names a package the user
+ * never asked for and sends them installing the wrong thing.
  */
 export async function importPlaywright(): Promise<PlaywrightModule> {
   try {
@@ -29,8 +33,12 @@ export async function importPlaywright(): Promise<PlaywrightModule> {
     return (await import(
       /* @vite-ignore */ specifier
     )) as unknown as PlaywrightModule;
-  } catch {
-    return (await import("@playwright/test")) as unknown as PlaywrightModule;
+  } catch (playwrightErr) {
+    try {
+      return (await import("@playwright/test")) as unknown as PlaywrightModule;
+    } catch {
+      throw playwrightErr;
+    }
   }
 }
 

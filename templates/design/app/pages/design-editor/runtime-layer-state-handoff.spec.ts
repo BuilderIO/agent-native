@@ -32,15 +32,24 @@ describe("DesignEditor runtime layer state handoff", () => {
     (state, start, end) => {
       const section = sourceSection(start, end);
       const handoffCall = `sendRuntimeLayerStateSemanticHandoff(layerId, "${state}", ${state})`;
+      const previewCall = `applyLayerStatePreview(layerScreenId, layerId, "${state}", ${state})`;
 
       expect(section).toContain("if (owner?.runtimeOnly)");
       expect(section).toContain(handoffCall);
-      expect(section).toContain("layerStateOverridesRef.current.set(layerId");
+      expect(section).toContain(previewCall);
       expect(section.indexOf(handoffCall)).toBeLessThan(
-        section.indexOf("layerStateOverridesRef.current.set(layerId"),
+        section.lastIndexOf(previewCall),
       );
       expect(section).not.toMatch(
         /if \(owner\?\.runtimeOnly\) \{\s*return;\s*\}/,
+      );
+      // A target with no React source to write into returns "preview-only",
+      // which must still apply the visual layer state — only an outright
+      // false (source exists but the anchor is unresolvable) may bail.
+      expect(section).toMatch(
+        new RegExp(
+          `sendRuntimeLayerStateSemanticHandoff\\(\\s*layerId,\\s*"${state}",\\s*${state},?\\s*\\)\\s*===\\s*false`,
+        ),
       );
     },
   );

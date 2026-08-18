@@ -43,8 +43,14 @@
   border-radius: 999px;
   background: hsl(var(--popover));
   color: hsl(var(--foreground));
-  box-shadow: 0 10px 30px hsl(var(--background) / 0.28);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: 0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   cursor: pointer;
+}
+
+.dark .agent-conversation__scroll-bottom {
+  --agent-shadow-o: 0.08;
 }
 
 .agent-conversation-message {
@@ -326,16 +332,37 @@
 }
 
 .agent-mcp-app__error {
+  pointer-events: none;
+  background: transparent;
+}
+
+.agent-mcp-app__error-box {
+  display: flex;
+  max-width: min(100%, 540px);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background) / 0.96);
+  box-shadow: 0 8px 24px hsl(var(--foreground) / 0.12);
+  color: hsl(var(--destructive));
+  text-align: center;
+  pointer-events: auto;
+}
+
+.agent-mcp-app__error {
   flex-direction: column;
   text-align: center;
 }
 
 .agent-mcp-app__open {
   min-height: 28px;
-  border: 1px solid hsl(var(--destructive) / 0.35);
+  border: 1px solid hsl(var(--foreground));
   border-radius: calc(var(--radius) - 2px);
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
   cursor: pointer;
   font: inherit;
   font-weight: 600;
@@ -343,7 +370,7 @@
 }
 
 .agent-mcp-app__open:hover {
-  background: hsl(var(--muted));
+  opacity: 0.86;
 }
 
 .agent-mcp-app__error,
@@ -493,6 +520,39 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 1.5rem);
 }
 
+.agent-chat-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 200ms var(--ease-collapse),
+    opacity 150ms ease-out;
+}
+
+@starting-style {
+  .agent-chat-collapse[data-state="open"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+.agent-chat-collapse[data-state="closed"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-chat-collapse__content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-collapse {
+    transition-duration: 0.01ms;
+  }
+}
+
 /* ─── Agent-Markdown (AssistantChat react-markdown render surface) ─────────── */
 /* These classes are applied by the SmoothMarkdownText/MarkdownText components  */
 /* in the AssistantChat/AssistantChatInner tree. The shiki dual-theme rules      */
@@ -605,6 +665,17 @@
   font-size: 0.875em;
 }
 
+.agent-markdown-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.agent-markdown-table-wrap > table {
+  min-width: 100%;
+  width: max-content;
+}
+
 .agent-markdown th,
 .agent-markdown td {
   border: 1px solid hsl(var(--border, 0 0% 20%));
@@ -620,7 +691,7 @@
 
 /* Streaming caret appended after last non-code paragraph while text is live. */
 .agent-markdown[data-streaming="true"]
-  > :last-child:not(pre):not(table)::after {
+  > :last-child:not(pre):not(table):not(.agent-markdown-table-wrap)::after {
   content: "";
   display: inline-block;
   width: 0.42em;
@@ -645,7 +716,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .agent-markdown[data-streaming="true"]
-    > :last-child:not(pre):not(table)::after {
+    > :last-child:not(pre):not(table):not(.agent-markdown-table-wrap)::after {
     animation: none;
     opacity: 0.28;
   }

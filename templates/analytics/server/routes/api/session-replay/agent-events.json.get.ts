@@ -6,8 +6,8 @@ import {
 } from "h3";
 
 import {
+  resolveSessionReplayAgentAccess,
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
-  verifySessionReplayAgentAccess,
 } from "../../../lib/session-replay-agent-context.js";
 import {
   getSessionReplayTokenizedEvents,
@@ -43,7 +43,8 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "id and agent access token are required" };
   }
-  if (!verifySessionReplayAgentAccess(id, token)) {
+  const access = resolveSessionReplayAgentAccess(id, token);
+  if (!access) {
     setResponseStatus(event, 401);
     return { error: "Invalid or expired agent access" };
   }
@@ -55,7 +56,11 @@ export default defineEventHandler(async (event) => {
   };
 
   try {
-    return await getSessionReplayTokenizedEvents(id, options);
+    return await getSessionReplayTokenizedEvents(
+      id,
+      access.viewerEmail,
+      options,
+    );
   } catch (error: any) {
     setResponseStatus(event, error?.statusCode ?? 400);
     return { error: error?.message || String(error) };

@@ -64,6 +64,7 @@ const {
   reapIfStale,
   setRunInFlightMarker,
   IN_FLIGHT_RUN_STALE_GRACE_MS,
+  IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS,
   BACKGROUND_RUN_STALE_MS,
 } = await import("./run-store.js");
 
@@ -293,6 +294,13 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
 
     await setRunInFlightMarker(runId, false);
     expect(readInFlightSince(runId)).toBeNull();
+
+    // A delayed clear from an older tool must not erase a newer marker.
+    await setRunInFlightMarker(runId, true, 111);
+    await setRunInFlightMarker(runId, false, 999);
+    expect(readInFlightSince(runId)).toBe(111);
+    await setRunInFlightMarker(runId, false, 111);
+    expect(readInFlightSince(runId)).toBeNull();
   });
 
   it("does NOT reap a background run whose heartbeat lapsed past BACKGROUND_RUN_STALE_MS while in-flight work is within the bounded grace", async () => {
@@ -361,6 +369,33 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
 
     expect(reaped).toBe(true);
     expect((await getRunById(runId))?.status).toBe("errored");
+  });
+
+  it("DOES reap a FRESH in-flight marker whose producer stopped heartbeating past IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    await claimBackgroundRun(runId);
+    // The corpse latch: the marker is set on tool_start and only cleared on
+    // tool_done, so a worker that dies mid-tool leaves it set and — before this
+    // guard — inherited the full 14.5-minute grace despite writing nothing at
+    // all. 23 prod rows across five apps sat that grace out.
+    await setRunInFlightMarker(runId, true);
+    setStaleLiveness(
+      runId,
+      Date.now() - (IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS + 5_000),
+    );
+    expect(readInFlightSince(runId)).toBeGreaterThan(
+      Date.now() - IN_FLIGHT_RUN_STALE_GRACE_MS,
+    );
+
+    const reaped = await reapIfStale(runId);
+
+    expect(reaped).toBe(true);
+    const row = await getRunById(runId);
+    expect(row?.status).toBe("errored");
+    expect(row?.errorCode).toBe("stale_run");
   });
 
   it("surfaces hasInFlightWork via getRunByThread's inFlightSince for the /runs/active wire signal", async () => {

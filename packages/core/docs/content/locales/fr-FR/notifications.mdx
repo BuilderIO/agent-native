@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 Chaque fonction est limitée au propriétaire : aucune lecture ni écriture entre utilisateurs.
@@ -363,7 +363,7 @@ Les automatisations peuvent enchaîner cela – par ex. _"si une notification 
 ## Comment ça marche {#internals}
 
 - **Portée du propriétaire** — chaque ligne a une colonne `owner` ; chaque requête est filtrée dessus ; chaque itinéraire utilise l'e-mail de la session authentifiée. Les utilisateurs ne voient jamais les notifications des autres.
-- **Intégration de sondage** — chaque mutation appelle `recordChange()` afin que les modèles utilisant [`useDbSync`](/docs/client) s'invalident automatiquement sans aucun câblage supplémentaire.
+- **Intégration de sondage** — chaque mutation appelle `recordChange()` afin que les modèles utilisant [`useDbSync`](/docs/client-data#usedbsync) s'invalident automatiquement sans aucun câblage supplémentaire.
 - **Distribution au mieux** : les erreurs de canal sont détectées et enregistrées ; un canal défaillant ne bloque pas les autres ni l'écriture dans la boîte de réception.
 - **Fire-and-forget** — `notify()` revient une fois l'écriture de la boîte de réception terminée ; les canaux personnalisés s'exécutent en arrière-plan.
 
@@ -371,4 +371,4 @@ Les automatisations peuvent enchaîner cela – par ex. _"si une notification 
 
 - [**Automations**](/docs/automations) — l'appelant le plus courant de `notify()`
 - [**Security**](/docs/security) — la substitution `${keys.NAME}` qui alimente le canal webhook
-- [**Server plugins**](/docs/server) — où les canaux personnalisés sont enregistrés au démarrage
+- [**Server plugins**](/docs/server-overview) — où les canaux personnalisés sont enregistrés au démarrage

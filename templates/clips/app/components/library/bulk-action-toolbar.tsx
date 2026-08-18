@@ -1,5 +1,11 @@
-import { useT } from "@agent-native/core/client";
-import { IconArchive, IconFolder, IconTrash, IconX } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconArchive,
+  IconFolder,
+  IconFolderPlus,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,22 +27,28 @@ export interface BulkMoveTarget {
 
 interface BulkActionToolbarProps {
   count: number;
+  allSelected?: boolean;
+  onSelectAll?: () => void;
   onArchive?: () => void;
   onMove?: (folderId: string | null) => void;
   onTrash?: () => void;
   onClear?: () => void;
   moveTargets?: BulkMoveTarget[];
   isPending?: boolean;
+  onCreateFolder?: () => void;
 }
 
 export function BulkActionToolbar({
   count,
+  allSelected = false,
+  onSelectAll,
   onArchive,
   onMove,
   onTrash,
   onClear,
   moveTargets = [],
   isPending = false,
+  onCreateFolder,
 }: BulkActionToolbarProps) {
   const t = useT();
   if (count === 0) return null;
@@ -45,18 +57,30 @@ export function BulkActionToolbar({
   return (
     <div
       className={cn(
-        "sticky bottom-4 mx-auto z-30 flex items-center gap-1 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg",
-        "w-fit",
+        "flex w-fit max-w-full items-center gap-1 rounded-xl bg-foreground px-3 py-2 text-background shadow-2xl ring-1 ring-black/10 dark:ring-white/10",
       )}
     >
-      <span className="pe-2 text-xs font-medium text-foreground">
+      <span className="pe-2 text-xs font-medium">
         {t("clipsFinalRaw.selectedCount", { count })}
       </span>
-      <div className="h-4 w-px bg-border" />
+      {onSelectAll && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-background hover:bg-background/15 hover:text-background"
+          onClick={onSelectAll}
+          disabled={isPending}
+        >
+          {allSelected
+            ? t("clipsFinalRaw.deselectAll")
+            : t("clipsFinalRaw.selectAll")}
+        </Button>
+      )}
+      <div className="h-4 w-px bg-background/20" />
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5"
+        className="h-8 gap-1.5 text-background hover:bg-background/15 hover:text-background"
         onClick={onArchive}
         disabled={isPending}
       >
@@ -68,7 +92,7 @@ export function BulkActionToolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5"
+              className="h-8 gap-1.5 text-background hover:bg-background/15 hover:text-background"
               disabled={isPending}
             >
               <IconFolder className="h-3.5 w-3.5" /> {t("clipsFinalRaw.move")}
@@ -78,6 +102,16 @@ export function BulkActionToolbar({
             <DropdownMenuLabel>
               {t("clipsFinalRaw.moveSelected", { count })}
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={isPending}
+              onSelect={() => {
+                setTimeout(() => onCreateFolder?.(), 0);
+              }}
+            >
+              <IconFolderPlus className="h-4 w-4 me-2" />
+              {t("navigation.newFolder")}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             {moveTargets.map((target, index) => (
               <DropdownMenuItem
@@ -104,17 +138,17 @@ export function BulkActionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 text-destructive hover:text-destructive"
+        className="h-8 gap-1.5 text-red-400 hover:bg-background/15 hover:text-red-400"
         onClick={onTrash}
         disabled={isPending}
       >
         <IconTrash className="h-3.5 w-3.5" /> {t("navigation.trash")}
       </Button>
-      <div className="h-4 w-px bg-border mx-1" />
+      <div className="mx-1 h-4 w-px bg-background/20" />
       <button
         type="button"
         onClick={onClear}
-        className="rounded p-1 text-muted-foreground hover:bg-accent"
+        className="rounded p-1 text-background/70 hover:bg-background/15 hover:text-background"
         aria-label={t("clipsFinalRaw.clearSelection")}
       >
         <IconX className="h-3.5 w-3.5" />

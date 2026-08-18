@@ -13,7 +13,7 @@ export interface BuilderIndexResult {
   builderConnectUrl?: string;
 }
 
-export const MAX_BUILDER_INDEX_UPLOAD_BYTES = 200 * 1024 * 1024;
+export const MAX_BUILDER_INDEX_UPLOAD_BYTES = 512 * 1024 * 1024;
 
 export function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;

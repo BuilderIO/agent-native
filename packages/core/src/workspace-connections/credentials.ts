@@ -10,6 +10,10 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import {
+  credentialKeyMatches,
+  lookupKeysForRef,
+} from "./credential-key-aliases.js";
+import {
   listWorkspaceConnectionsForApp,
   markWorkspaceConnectionUsed,
   resolveWorkspaceConnectionForApp,
@@ -110,62 +114,16 @@ type CredentialReadHit = {
   backend: WorkspaceConnectionCredentialBackend;
 };
 
-const PROVIDER_CREDENTIAL_KEY_ALIASES: Record<
-  string,
-  Record<string, string[]>
-> = {
-  hubspot: {
-    HUBSPOT_ACCESS_TOKEN: ["HUBSPOT_PRIVATE_APP_TOKEN"],
-    HUBSPOT_PRIVATE_APP_TOKEN: ["HUBSPOT_ACCESS_TOKEN"],
-  },
-};
-
 function normalizeRequired(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${label} is required.`);
   return normalized;
 }
 
-function normalizeCredentialKey(key: string): string {
-  return key.trim().toUpperCase();
-}
-
 function uniqueStrings(values: string[]): string[] {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter(Boolean)),
   );
-}
-
-function credentialKeyAliases(provider: string, key: string): string[] {
-  const aliases =
-    PROVIDER_CREDENTIAL_KEY_ALIASES[provider.trim().toLowerCase()]?.[
-      normalizeCredentialKey(key)
-    ] ?? [];
-  return uniqueStrings([key, ...aliases]);
-}
-
-function credentialKeyMatches(
-  provider: string,
-  requestedKey: string,
-  refKey: string,
-): boolean {
-  const requested = new Set(
-    credentialKeyAliases(provider, requestedKey).map(normalizeCredentialKey),
-  );
-  return requested.has(normalizeCredentialKey(refKey));
-}
-
-function lookupKeysForRef(
-  provider: string,
-  requestedKey: string,
-  refKey: string,
-): string[] {
-  return uniqueStrings([
-    refKey,
-    ...credentialKeyAliases(provider, refKey),
-    requestedKey,
-    ...credentialKeyAliases(provider, requestedKey),
-  ]);
 }
 
 function publicCredentialRef(

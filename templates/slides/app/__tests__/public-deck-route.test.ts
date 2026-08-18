@@ -127,15 +127,18 @@ describe("public deck route", () => {
     });
   });
 
-  it("routes a restricted (non-public) deck to the guarded editor for client-side access resolution", async () => {
-    resultQueue.current = [deckRows("private")];
+  it.each(["private", "org"] as const)(
+    "routes a %s deck to the guarded editor for client-side access resolution",
+    async (visibility) => {
+      resultQueue.current = [deckRows(visibility)];
 
-    const result = unwrapLoaderData(await loader(requestFor()));
+      const result = unwrapLoaderData(await loader(requestFor()));
 
-    if (result.deck !== null) throw new Error("expected a restricted deck");
-    expect(result.error).toBe("restricted");
-    expect(result.restricted).toEqual({ id: "deck-1", basePath: "" });
-  });
+      if (result.deck !== null) throw new Error("expected a restricted deck");
+      expect(result.error).toBe("restricted");
+      expect(result.restricted).toEqual({ id: "deck-1", basePath: "" });
+    },
+  );
 
   it("marks tokenized deck pages private and no-store", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });

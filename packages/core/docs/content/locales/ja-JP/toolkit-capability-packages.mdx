@@ -1,0 +1,21 @@
+---
+title: "Capability パッケージ"
+description: "ドメイン機能とそのマニフェスト駆動ライフサイクルを、Toolkit に取り込まずに管理します。"
+---
+
+# Capability パッケージ
+
+Toolkit は横断的な製品基盤を提供し、Capability パッケージは限定されたドメイン、actions、skills、ライフサイクル情報を提供します。Scheduling と Creative Context は Toolkit キットではなく、独立した Capability パッケージです。
+
+`@agent-native/scheduling` は汎用マニフェストのパイロットに参加しています。拡張点と所有は各パッケージのローカルドキュメントとマニフェストを参照してください。
+
+- [Scheduling パッケージドキュメント](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context パッケージドキュメント](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+検査、dry run、eject の規則は [Package Lifecycle](/docs/package-lifecycle) を参照してください。

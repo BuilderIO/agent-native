@@ -145,6 +145,46 @@ describe("buildResilientNeonPool", () => {
     expect(result.rows).toEqual([{ id: 42 }]);
   });
 
+  it("retries Drizzle query-config SELECTs on connection errors", async () => {
+    const { buildResilientNeonPool } = await import("./create-get-db.js");
+
+    let callCount = 0;
+    const pool = {
+      connect: vi.fn(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            query: vi.fn(async () => {
+              const err: any = new Error("ECONNRESET");
+              err.code = "ECONNRESET";
+              throw err;
+            }),
+            release: vi.fn(),
+          };
+        }
+        return {
+          query: vi.fn(async () => ({ rows: [{ id: 42 }], rowCount: 1 })),
+          release: vi.fn(),
+        };
+      }),
+      query: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+
+    const resilient = buildResilientNeonPool(pool as any);
+    const result = await resilient.query(
+      {
+        text: "SELECT id FROM users WHERE id = $1",
+        rowMode: "array",
+      } as any,
+      [42],
+    );
+
+    expect(pool.connect).toHaveBeenCalledTimes(2);
+    expect(result.rows).toEqual([{ id: 42 }]);
+  });
+
   it("write (INSERT) is NOT retried on a post-send connection error", async () => {
     const { buildResilientNeonPool } = await import("./create-get-db.js");
 
@@ -245,6 +285,33 @@ describe("buildResilientNeonPool", () => {
     expect(releasesMock).toHaveBeenCalledTimes(1);
     // Called with no error argument on clean release (undefined = return slot to pool)
     expect(releasesMock).toHaveBeenCalledWith(undefined);
+  });
+
+  it("arms Neon idle transaction cleanup when Drizzle starts a transaction", async () => {
+    const { buildResilientNeonPool } = await import("./create-get-db.js");
+
+    const client = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      query: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+
+    const resilient = buildResilientNeonPool(pool as any);
+    const transactionClient = await resilient.connect();
+
+    await transactionClient.query({ text: "begin", rowMode: "array" }, []);
+    await transactionClient.query("SELECT 1");
+
+    expect(client.query).toHaveBeenNthCalledWith(
+      1,
+      "begin; SET LOCAL idle_in_transaction_session_timeout = 30000",
+    );
+    expect(client.query).toHaveBeenNthCalledWith(2, "SELECT 1");
   });
 });
 

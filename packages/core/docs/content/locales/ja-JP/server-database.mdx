@@ -1,0 +1,435 @@
+---
+title: "データベース"
+description: "ポータブルな SQL データベースをエージェント ネイティブ アプリに接続する: スキーマ ヘルパー、マイグレーション、ホスト型データベースの選択肢。"
+---
+
+# データベース
+
+すべてのエージェント ネイティブ アプリは、その状態を SQL に保存します。UI とエージェントはどちらも、同じ [Drizzle ORM](https://orm.drizzle.team) クライアントを使って、同じ actions を通じて同じテーブルを読み書きします。ライブ同期は SSE とポーリングのフォールバックを使うため、手動で更新しなくても変更がもう一方の画面に表示されます。
+
+<Diagram id="doc-block-9mtx2f" title="データがどのようにデータベースへ流れるか" summary="UI とエージェントはどちらも、同じ Actions 層を通じてデータベースに到達します。両方の呼び出し元が同じ getDb() クライアントと同じ SQL テーブルを使用します。それぞれに専用のバックエンドは存在しません。">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">ブラウザ / UI</div>
+    <div class="diagram-node">エージェント ループ</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Actions</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL データベース<br /><small class="diagram-muted"
+      >DATABASE_URL から方言を決定</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## ホスティングの選択肢 {#hosting}
+
+アプリは `DATABASE_URL` からどのバックエンドを使うかを検出します。この変数が未設定の場合は、ローカルの SQLite ファイルにフォールバックするため、セットアップなしで開始できます。
+
+### デフォルト: SQLite ファイル {#default-sqlite}
+
+`DATABASE_URL` が設定されていない場合、アプリは `data/app.db` に SQLite データベースを作成します。構成は不要です。開発サーバーを起動すると、初回実行時にファイルが作成されます。
+
+これはローカル開発専用です。コンテナー、サーバーレス関数、プレビュー環境は再起動のたびにファイルシステムをリセットすることがあるため、ローカルの SQLite ファイルは消えてしまう可能性があります。デプロイする前に、`DATABASE_URL` を永続的なホスト型データベースに設定してください。
+
+### ローカルの Postgres: PGlite {#local-pglite}
+
+Docker やホスト型データベースなしで Postgres 方言に対してローカル開発を行うには、オプションの PGlite パッケージをインストールして `DATABASE_URL` を設定します。
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+[PGlite](https://pglite.dev/) はプロセス内で動作する WASM 版の Postgres データベースです。SQLite デフォルトと同じくらい簡単なセットアップを保ちながら、デプロイ前に Postgres 固有のスキーマ問題を見つけられるようにします。SQLite と同様、これはローカル専用のストレージです。本番環境や共有環境では使用しないでください。
+
+### 本番データベース {#production}
+
+`.env` ファイルまたはデプロイプロバイダーの環境で `DATABASE_URL` を設定し、ホスト型データベースに接続します。
+
+```bash
+# Neon の Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase の Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# 通常の Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL)。DATABASE_AUTH_TOKEN も必要です。
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+フレームワークは URL のプレフィックスから方言を自動検出し、それに応じて Drizzle を構成します。
+
+### Builder.io 管理データベース {#builder-managed}
+
+_計画中 (まだ利用できません):_ Builder.io に接続すると、アプリは接続文字列を必要とせず、自動的にプロビジョニングされたマネージド データベースを使用できるようになります。
+
+## データベースのセットアップ {#setup}
+
+データベースを使用するアプリには、次の 3 つのファイルが必要です。
+
+- `server/db/schema.ts`: テーブル定義
+- `server/db/index.ts`: 型付き DB クライアントのシングルトン
+- `server/plugins/db.ts`: ローカル起動用のアプリ固有マイグレーション
+
+### 1. スキーマを定義する {#schema}
+
+スキーマ ヘルパーは `@agent-native/core/db/schema` からインポートしてください。`drizzle-orm/sqlite-core` や `drizzle-orm/pg-core` から直接インポートすることは絶対にしないでください。フレームワークのヘルパーは、サポートされているすべてのバックエンドで動作する方言に依存しない定義を生成します。
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| ヘルパー  | 目的                                                                                |
+| --------- | ----------------------------------------------------------------------------------- |
+| `table`   | テーブルを定義します。`pgTable` または `sqliteTable` に委譲します                   |
+| `text`    | テキスト列。`{ enum: [...] }` をサポートします                                      |
+| `integer` | 整数列。`{ mode: "boolean" }` は Postgres のブール値にマップされます                |
+| `real`    | 浮動小数点列。SQLite では `real`、Postgres では `double precision` にマップされます |
+| `now`     | `.default(now())` 用の、方言に依存しない現在のタイムスタンプ                        |
+
+<DataModel
+  id="doc-block-3hbven"
+  title="tasks テーブル"
+  summary={
+    "フレームワーク ヘルパーを使って一度だけ定義されます。方言は実行時に DATABASE_URL から選択されます。"
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+ユーザーごとのデータを保存するテーブルには `owner_email` 列を含める必要があり、これによってフレームワークは認証済みユーザーに行をフィルタリングできます。他のユーザーや組織との共有もサポートするテーブルは、単なる `owner_email` の代わりに `...ownableColumns()` を展開してください。これにより `owner_email`、`org_id`、`visibility` が一度の呼び出しで追加されます。詳細は下記の[ユーザーへのデータのスコープ設定](#scoping)を参照してください。
+
+### 2. DB クライアントを作成する {#db-client}
+
+各アプリは `createGetDb(schema)` を呼び出すことで、遅延評価されるシングルトンの Drizzle クライアントを作成します。正規の置き場所は `server/db/index.ts` です。
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`createGetDb` は、初回呼び出し時にデータベース接続を開き、以降の呼び出しでは同じ型付き Drizzle インスタンスを返す `getDb()` 関数を返します。実行時に `DATABASE_URL` を読み取り、どのバックエンドと方言を使用するかを決定します。
+
+`getDb` は actions とルートの中で、このテンプレート ローカルのパスからインポートしてください。`@agent-native/core` から直接インポートしないでください。コアのエクスポートは型なしですが、ローカルのエクスポートはあなたのスキーマの型を保持しています。
+
+### 3. マイグレーションを書く {#migrations}
+
+ローカル開発では、スキーマの変更を `server/plugins/db.ts` の Nitro プラグイン
+で適用できます。本番またはサーバーレス環境では、最初のリクエストではなく
+リリースまたはデプロイ手順でマイグレーションを実行してください。
+`@agent-native/core/db` の `runMigrations` を使用します。
+
+<AnnotatedCode
+  id="doc-block-7qwlpz"
+  title="起動時マイグレーション プラグイン"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "アプリごとのバージョン表",
+      note: "各アプリは、適用済みのバージョンを別のテーブルで独自に追跡します。同じデータベースを共有するフレームワークのマイグレーションや他のアプリと衝突しないよう、アプリ固有の名前を使用してください。",
+    },
+    {
+      lines: "7",
+      label: "初期テーブルの作成",
+      note: "`CREATE TABLE IF NOT EXISTS` は、再起動のたびに実行しても安全です。完全なテーブル定義はバージョン 1 に入れてください。",
+    },
+    {
+      lines: "17",
+      label: "追加的な列の追加",
+      note: "`ADD COLUMN IF NOT EXISTS` は、初期作成後に列を追加する安全な方法です。列を削除したり名前を変更したりしないでください。",
+    },
+    {
+      lines: "22-25",
+      label: "方言ゲート",
+      note: "方言をキーとするオブジェクトを渡すことで、バックエンドごとに異なる SQL を実行できます。変更が不要な方言には、何もしない `SELECT 1` を使ってください。",
+    },
+  ]}
+/>
+
+`runMigrations` は保留中の各エントリを順番に一度実行し、適用済みとして
+記録して、以降の実行ではスキップします。新しいエントリには安定した
+`name` を付けてください。名前付きマイグレーションはバージョン番号とは
+独立して追跡されます。
+
+<Callout tone="warning">
+  Chatテンプレートには、リリース手順でマイグレーションを実行する `pnpm
+  migrate:production` が用意されています。
+</Callout>
+
+<Callout tone="risk">
+  本番データベースに対して `drizzle-kit push`
+  を実行しないでください。テンプレートのスキーマはアプリ固有のドメイン
+  テーブルのみを定義しており、中央のフレームワーク テーブル (`user`、`session`、
+  `application_state` など) は含まれていません。本番環境に対して `drizzle-kit
+  push` を実行すると、Drizzle はこれらのテーブルを未知のものとして検出し、
+  削除しようとするため、即座にデータ損失が発生します。
+</Callout>
+
+各アプリのルートにある `drizzle.config.ts` は、ローカル開発でのスキーマ検査のために drizzle-kit を構成します。
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+スキーマを検査するには `pnpm db:generate` を、ローカル データベースに対してのみ `pnpm db:push` を使用してください。
+
+### 4. actions の中でクエリする {#querying}
+
+actions から `getDb()` を呼び出して、型付きの Drizzle クライアントを取得します。読み取りと書き込みには、Drizzle のクエリ ビルダーと `drizzle-orm` のポータブルなオペレーターを使用します。
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## ユーザーへのデータのスコープ設定 {#scoping}
+
+ユーザー向けテーブルに対するすべての読み取りと書き込みは、認証済みユーザーにスコープされている必要があります。フレームワークは、データがプライベートか共有可能かに応じて 2 つのパターンを提供します。
+
+**プライベート データ:** 1 人のユーザーに属するテーブルです。スキーマに `ownerEmail: text("owner_email").notNull()` を追加し、すべてのクエリに `eq(table.ownerEmail, userEmail)` を含めます。
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**共有リソース:** 他のユーザーや組織と共有できるテーブルです。スキーマでは、素の `owner_email` の代わりに `...ownableColumns()` を展開してください。これにより `owner_email`、`org_id`、`visibility` が一度の呼び出しで追加され、`createSharesTable` で対になる shares テーブルが作成されます。
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+そのうえで、一覧クエリでは手動の `eq` チェックの代わりに `@agent-native/core/sharing` の `accessFilter` を使用します。
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+`accessFilter` は、呼び出し元が所有する行、所属組織と共有されている行、明示的に本人に共有されている行を許可するクエリを構築します。他のユーザーの行を公開することはありません。
+
+完全なモデルについては、[セキュリティ — データのスコープ設定](/docs/security#data-scoping) と [共有](/docs/sharing#building) を参照してください。
+
+## SQL によるバックエンド同期 {#sync}
+
+Agent Native はファイルシステム ウォッチャーや常駐のインメモリ状態には依存しません。action がデータベースに書き込むと、同期バージョンがインクリメントされます。クライアントの `useDbSync()` フックは `/_agent-native/poll` をポーリングし、より高いバージョンを検知すると React Query のキャッシュを無効化します。
+
+これはデータベースが調整のポイントであるため、サーバーレスやマルチインスタンスのデプロイでも機能します。actions の外部でカスタムのミューテーションを書く場合は、フレームワークのヘルパーを使うか、開いている UI が更新されるように適切な同期無効化を発行してください。
+
+<Diagram id="doc-block-qhkdv8" title="SQL によるバックエンド同期ループ" summary="ウォッチャーも常駐状態もありません。書き込みが SQL 内のバージョンを増やし、すべてのクライアントがそのバージョンをポーリングして再取得します。">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / ヘルパー<br /><small class="diagram-muted">データを変更する</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL データベース</strong
+    ><small class="diagram-muted">同期バージョンが増加する</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >/_agent-native/poll をポーリング</small
+      >
+    </div>
+    <div class="diagram-pill ok">キャッシュを無効化 &rarr; UI が更新される</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="ポーリング エンドポイント" method="GET" path="/_agent-native/poll" summary="ソースごとの現在のデータベース同期バージョンを返し、クライアントが変更を検知できるようにします。" auth="セッション Cookie (リクエスト スコープの ID)" responses={[
+  {
+    "status": "200",
+    "description": "ソースをキーとする現在の同期バージョン。"
+  }
+]}>
+
+`useDbSync()` は一定間隔でこれを呼び出し、SSE が利用できない場合のフォールバックとしても使用します。返されたバージョンがクライアントの最後に見たバージョンより高い場合、該当する React Query のキャッシュが無効化されて再取得されます。
+
+</Endpoint>
+
+## 生の SQL {#raw-sql}
+
+Drizzle のクエリ ビルダーでは表現できない高度なクエリ、ヘルスチェック、1 回限りのメンテナンスには、`@agent-native/core/db` の `getDbExec` を使用してください。
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+`getDbExec` は、Postgres 向けに `?` パラメータを `$1`、`$2` などに自動変換します。方言によって分岐するには `isPostgres()` を、現在のバックエンドに応じた正しい整数型を返すには `intType()` を使用してください。通常の読み取りと書き込みには Drizzle のクエリ ビルダーを優先してください。生の SQL は型安全性をバイパスし、保守が難しくなります。
+
+## 環境変数 {#environment-variables}
+
+| 変数                  | 目的                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | 永続的な SQL 接続文字列 (未設定 = ローカル SQLite。`pglite:./data/pglite` = ローカル Postgres のオプトイン) |
+| `DATABASE_AUTH_TOKEN` | Turso/libSQL など、別のトークンを必要とするプロバイダー用の認証トークン                                     |
+
+## 次は何ですか {#whats-next}
+
+- [**セキュリティ — データのスコープ設定**](/docs/security#data-scoping): `owner_email` とアクセス ヘルパーが読み取りと書き込みをどのようにスコープするか
+- [**共有**](/docs/sharing#building): `ownableColumns()` と共有リソースの可視性モデル
+- [**プラグイン**](/docs/server-plugins): マイグレーションが実行される起動プラグインのライフサイクル
+- [**Actions**](/docs/actions-overview): actions が `getDb()` を呼び出してデータを読み書きするサーフェス
+- [**デプロイ**](/docs/deployment#persistent-database): デプロイ先ごとに永続的なデータベースを接続する方法
+- [**リアルタイム同期**](/docs/key-concepts#polling-sync): `useDbSync()` とクライアント側の完全な同期モデル

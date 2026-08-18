@@ -166,6 +166,7 @@ export default defineAction({
       isDefault,
       ownerEmail,
       orgId,
+      visibility: orgId ? "org" : "private",
       createdAt: now,
       updatedAt: now,
     });
