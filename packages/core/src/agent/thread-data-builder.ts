@@ -913,13 +913,14 @@ function assistantReplayContent(
         ? (part.args as Record<string, unknown>)
         : {};
     assistant.push({ type: "tool-call", id, name, input });
-    if (part.result === undefined) continue;
+    const result =
+      part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
     results.push({
       type: "tool-result",
       toolCallId: id,
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
-      content: replayedToolResultContent(part.result),
+      content: replayedToolResultContent(result),
       ...(part.isError === true ? { isError: true } : {}),
     });
   }
