@@ -40,15 +40,27 @@ export function isDispatchWorkspaceAppId(appId: string): boolean {
 }
 
 /**
- * The workspace SSO action only accepts the exact first-party app identities
- * registered by Dispatch. Mounted workspace apps use the regular granted-app
- * session flow until they receive an explicit identity registration.
+ * The workspace SSO action only accepts an exact first-party app identity and
+ * its canonical origin. Checking the id alone is unsafe because a mounted
+ * workspace app can reuse a first-party id while pointing at a different URL.
  */
-export function isWorkspaceSsoAppId(appId: string): boolean {
-  return Object.prototype.hasOwnProperty.call(
-    CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
-    appId.trim().toLowerCase(),
-  );
+export function isWorkspaceSsoApp(
+  app: WorkspaceAppHrefSource & { id: string },
+): boolean {
+  const canonicalOrigin =
+    CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
+      app.id
+        .trim()
+        .toLowerCase() as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
+    ];
+  const rawUrl = app.url?.trim();
+  if (!canonicalOrigin || !rawUrl) return false;
+  try {
+    return new URL(rawUrl).origin === canonicalOrigin;
+    // coercion-ok: malformed app metadata is not eligible for workspace SSO.
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -53,6 +53,7 @@ describe("WorkspaceAppCard", () => {
                 id: "analytics",
                 name: "Analytics",
                 path: "/analytics",
+                url: "https://analytics.agent-native.com",
                 description: "Explore product and growth performance.",
                 status: "ready",
               }}

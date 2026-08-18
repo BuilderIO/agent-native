@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import {
   isPathMountedWorkspaceApp,
-  isWorkspaceSsoAppId,
+  isWorkspaceSsoApp,
   workspaceAppHref,
   workspaceAppDirectHref,
   workspaceAppRoute,
@@ -80,7 +80,7 @@ export function WorkspaceAppCard({
   const href = workspaceAppHref(app);
   const directHref =
     app.status !== "pending" &&
-    !isWorkspaceSsoAppId(app.id) &&
+    !isWorkspaceSsoApp(app) &&
     isPathMountedWorkspaceApp(app)
       ? workspaceAppDirectHref(app, "/")
       : null;

@@ -5,7 +5,7 @@ import {
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
   isWorkspaceAppVisibleInDefaultLaunchers,
-  isWorkspaceSsoAppId,
+  isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
@@ -34,9 +34,28 @@ describe("workspace app routes", () => {
     expect(isDispatchWorkspaceAppId("dispatch-tools")).toBe(false);
   });
 
-  it("limits workspace SSO to canonical first-party app ids", () => {
-    expect(isWorkspaceSsoAppId(" Mail ")).toBe(true);
-    expect(isWorkspaceSsoAppId("feedback-leaderboard")).toBe(false);
+  it("requires canonical metadata before enabling workspace SSO", () => {
+    expect(
+      isWorkspaceSsoApp({
+        id: " Mail ",
+        path: "/",
+        url: "https://mail.agent-native.com",
+      }),
+    ).toBe(true);
+    expect(
+      isWorkspaceSsoApp({
+        id: "mail",
+        path: "/mail",
+        url: "https://agent-workspace.builder.io/mail",
+      }),
+    ).toBe(false);
+    expect(
+      isWorkspaceSsoApp({
+        id: "feedback-leaderboard",
+        path: "/feedback-leaderboard",
+        url: "https://agent-workspace.builder.io/feedback-leaderboard",
+      }),
+    ).toBe(false);
   });
 
   it("identifies mounted apps and resolves their direct workspace href", () => {

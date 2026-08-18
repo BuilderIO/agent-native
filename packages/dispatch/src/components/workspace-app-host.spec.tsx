@@ -243,7 +243,14 @@ describe("WorkspaceAppKeepAlive", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            url: "https://mail.agent-native.com",
+          }}
+        />,
       );
       await Promise.resolve();
       await Promise.resolve();
@@ -251,10 +258,36 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      url: "https://mail.agent-native.com",
       chrome: "minimal",
     });
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("uses the granted-app session when a mounted app reuses a canonical id", async () => {
+    clientState.workspaceSsoEnabled = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Internal Mail",
+            path: "/mail",
+            url: "https://agent-workspace.builder.io/mail",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      url: "https://agent-workspace.builder.io/mail",
+      chrome: "minimal",
+    });
+    expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
   });
 
   it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
@@ -380,7 +413,14 @@ describe("WorkspaceAppKeepAlive", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            url: "https://mail.agent-native.com",
+          }}
+        />,
       );
       await Promise.resolve();
       await Promise.resolve();

@@ -108,7 +108,7 @@ import {
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
   isWorkspaceAppVisibleInDefaultLaunchers,
-  isWorkspaceSsoAppId,
+  isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
@@ -1461,7 +1461,7 @@ export function Layout({
       );
       const directHref =
         registration &&
-        !isWorkspaceSsoAppId(registration.id) &&
+        !isWorkspaceSsoApp(registration) &&
         isPathMountedWorkspaceApp(registration)
           ? workspaceAppDirectHref(registration, "/")
           : null;

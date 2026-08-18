@@ -31,7 +31,7 @@ import { Link } from "react-router";
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
   mergeChatFirstWorkspaceApps,
-  isWorkspaceSsoAppId,
+  isWorkspaceSsoApp,
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
@@ -288,7 +288,7 @@ export function WorkspaceAppFrame({
     if (isDirectFallback) setEmbedError(null);
   }, [isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
-  const useWorkspaceSso = workspaceSsoEnabled && isWorkspaceSsoAppId(app.id);
+  const useWorkspaceSso = workspaceSsoEnabled && isWorkspaceSsoApp(app);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
