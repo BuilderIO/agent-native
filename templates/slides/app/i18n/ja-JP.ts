@@ -447,6 +447,12 @@ const messages = {
     pasteStyle: "スタイルを貼り付け",
     copy: "コピー",
     paste: "貼り付け",
+    insertRowAbove: "上に行を挿入",
+    insertRowBelow: "下に行を挿入",
+    deleteRow: "行を削除",
+    insertColumnLeft: "左に列を挿入",
+    insertColumnRight: "右に列を挿入",
+    deleteColumn: "列を削除",
   },
   animations: {
     appear: "出现",
