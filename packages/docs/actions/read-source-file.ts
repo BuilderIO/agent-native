@@ -22,9 +22,10 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true },
   run: async ({ path, startLine, endLine }) => {
-    const index = await readPublicJsonAsset<
-      Array<{ path: string; content: string }>
-    >("source-index.json");
+    const index =
+      await readPublicJsonAsset<Array<{ path: string; content: string }>>(
+        "source-index.json",
+      );
     if (!index) {
       return "Source index not available. The source-index.json may not have been generated yet.";
     }

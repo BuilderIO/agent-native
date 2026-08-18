@@ -8,7 +8,13 @@ import searchSource from "./search-source";
 
 describe("docs actions", () => {
   it("marks documentation reads and searches as read-only", () => {
-    const actions = [listDocs, readDoc, readSourceFile, searchDocs, searchSource];
+    const actions = [
+      listDocs,
+      readDoc,
+      readSourceFile,
+      searchDocs,
+      searchSource,
+    ];
 
     expect(actions.map((action) => action.readOnly)).toEqual([
       true,

@@ -24,14 +24,14 @@ function publicAssetUrl(filename: string): string | undefined {
 
   const configuredBasePath =
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
-  const basePath = configuredBasePath
-    .trim()
-    .replace(/^\/+|\/+$/g, "");
+  const basePath = configuredBasePath.trim().replace(/^\/+|\/+$/g, "");
   const pathname = `/${basePath ? `${basePath}/` : ""}${filename}`;
   return new URL(pathname, origin).toString();
 }
 
-async function loadPublicJsonAsset<T>(filename: string): Promise<T | undefined> {
+async function loadPublicJsonAsset<T>(
+  filename: string,
+): Promise<T | undefined> {
   for (const filePath of localAssetPaths(filename)) {
     try {
       return JSON.parse(await readFile(filePath, "utf-8")) as T;
@@ -54,7 +54,9 @@ async function loadPublicJsonAsset<T>(filename: string): Promise<T | undefined> 
   }
 }
 
-export function readPublicJsonAsset<T>(filename: string): Promise<T | undefined> {
+export function readPublicJsonAsset<T>(
+  filename: string,
+): Promise<T | undefined> {
   const cached = cachedAssets.get(filename);
   if (cached) return cached as Promise<T | undefined>;
 

@@ -6,11 +6,11 @@ import {
 type DocSourceLoader = () => Promise<string>;
 
 const docSourceLoaders = {
-  ...import.meta.glob("../core/docs/content/*.md", {
+  ...import.meta.glob("../../core/docs/content/*.md", {
     query: "?raw",
     import: "default",
   }),
-  ...import.meta.glob("../core/docs/content/*.mdx", {
+  ...import.meta.glob("../../core/docs/content/*.mdx", {
     query: "?raw",
     import: "default",
   }),
@@ -45,9 +45,7 @@ export function listDocSourceFiles(): string[] {
   return docSources.map((source) => source.filename);
 }
 
-export async function readDocSource(
-  slug: string,
-): Promise<string | undefined> {
+export async function readDocSource(slug: string): Promise<string | undefined> {
   const source = docSourcesBySlug.get(slug);
   return source ? source.load() : undefined;
 }
