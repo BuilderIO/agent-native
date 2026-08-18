@@ -50,6 +50,45 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
+      # The `if:` above only checks who *opened* the PR. `synchronize` also
+      # fires if anyone else pushes a new commit to the same (unprotected)
+      # changeset-release/main branch while the PR is open — the author
+      # check alone would then admin-bypass required checks for that
+      # commit. Re-verify the actual head commit is bot-authored right
+      # before merging, so a later untrusted push can't ride the bypass.
+      - name: Verify head commit is bot-authored
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          author=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.author.login // ""')
+          committer=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.committer.login // ""')
+          if [ "$author" != "builder-io-integration[bot]" ] || [ "$committer" != "builder-io-integration[bot]" ]; then
+            echo "::error::Head commit $HEAD_SHA is not bot-authored (author=$author, committer=$committer) — refusing admin-merge." >&2
+            exit 1
+          fi
+
+      - name: Verify release-only diff
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md)
+                ;;
+              *)
+                echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$files"
+
       - name: Force-merge with admin bypass
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

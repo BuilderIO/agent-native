@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isAgentNativeDeploymentEnvironment } from "../config.js";
+
 function firstNonEmpty(
   ...values: Array<string | undefined>
 ): string | undefined {
@@ -24,8 +26,15 @@ function firstNonEmpty(
 export function resolveDeployEnvironment(): string {
   const explicit = firstNonEmpty(
     process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
-  );
-  if (explicit) return explicit;
+  )?.toLowerCase();
+  if (explicit) {
+    if (!isAgentNativeDeploymentEnvironment(explicit)) {
+      throw new Error(
+        'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+      );
+    }
+    return explicit;
+  }
 
   const context = firstNonEmpty(
     process.env.CONTEXT,

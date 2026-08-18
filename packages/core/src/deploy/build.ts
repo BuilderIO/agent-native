@@ -1149,9 +1149,27 @@ function isTruthyRuntimeValue(value) {
   );
 }
 
+function normalizeExplicitDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (!normalized) return;
+  if (
+    normalized !== "local" &&
+    normalized !== "beta" &&
+    normalized !== "production" &&
+    normalized !== "preview"
+  ) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  return normalized;
+}
+
 function resolveDeploymentEnvironment() {
   const env = globalThis.process?.env || {};
-  const explicit = firstNonEmpty(env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT);
+  const explicit = normalizeExplicitDeploymentEnvironment(
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+  );
   if (explicit) return explicit;
 
   const context = firstNonEmpty(
@@ -1202,11 +1220,14 @@ function getSentryClientConfigScript() {
       env.VITE_SENTRY_DSN,
       env.SENTRY_DSN,
     ) || (key && projectId && host ? "https://" + key + "@" + host + "/" + projectId : undefined);
-  if (!dsn) return null;
   const deploymentEnvironment = resolveDeploymentEnvironment();
   const config = {
-    sentryDsn: dsn,
-    sentryEnvironment: deploymentEnvironment,
+    ...(dsn
+      ? {
+          sentryDsn: dsn,
+          sentryEnvironment: deploymentEnvironment,
+        }
+      : {}),
     deploymentEnvironment,
   };
   return (

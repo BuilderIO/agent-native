@@ -30,9 +30,8 @@ describe("tracking registry", () => {
 
   it("attributes an event from an action ctx passed straight through", async () => {
     const events = captureEvents();
-    const previousDeploymentEnvironment =
-      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
-    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "test";
+    const previousNodeEnvironment = process.env.NODE_ENV;
+    process.env.NODE_ENV = "test";
 
     try {
       await runWithRequestContext(
@@ -50,11 +49,10 @@ describe("tracking registry", () => {
         },
       );
     } finally {
-      if (previousDeploymentEnvironment === undefined) {
-        delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+      if (previousNodeEnvironment === undefined) {
+        delete process.env.NODE_ENV;
       } else {
-        process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT =
-          previousDeploymentEnvironment;
+        process.env.NODE_ENV = previousNodeEnvironment;
       }
     }
 

@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: sync-framework-beta
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -29,13 +29,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git ls-remote --exit-code origin refs/heads/beta >/dev/null 2>&1; then
-            git fetch origin beta --depth=1
-            expected="$(git rev-parse refs/remotes/origin/beta)"
-            git push --force-with-lease="refs/heads/beta:${expected}" \
-              origin "HEAD:refs/heads/beta"
-          else
-            git push origin "HEAD:refs/heads/beta"
+          pushed=false
+          for attempt in 1 2 3 4 5; do
+            if git fetch origin beta --depth=1 >/dev/null 2>&1; then
+              expected="$(git rev-parse refs/remotes/origin/beta)"
+              if git push --force-with-lease="refs/heads/beta:${expected}" \
+                origin "HEAD:refs/heads/beta"; then
+                pushed=true
+                break
+              fi
+            elif git push origin "HEAD:refs/heads/beta"; then
+              pushed=true
+              break
+            fi
+
+            if [ "$attempt" -lt 5 ]; then
+              echo "Beta moved during attempt $attempt; refetching before retry."
+              sleep $((attempt * 2))
+            fi
+          done
+
+          if [ "$pushed" != true ]; then
+            echo "::error::Unable to mirror main to beta after five lease-safe attempts."
+            exit 1
           fi
 
           echo "Mirrored $(git rev-parse HEAD) to beta."

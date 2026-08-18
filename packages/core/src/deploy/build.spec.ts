@@ -970,6 +970,35 @@ export default (event) =>
     expect(html).toContain("https://public@example/4511270423822336");
   });
 
+  it("normalizes explicit deployment environment in generated browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " BETA ");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"beta"');
+    expect(html).toContain('"deploymentEnvironment":"beta"');
+  });
+
+  it("rejects unsupported explicit deployment environment in generated workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    expect(response.status).toBe(500);
+  });
+
   it("uses Netlify CONTEXT for generated preview browser telemetry", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
     vi.stubEnv("SENTRY_ENVIRONMENT", "production");
@@ -990,6 +1019,30 @@ export default (event) =>
 
     expect(html).toContain('"sentryEnvironment":"preview"');
     expect(html).toContain('"deploymentEnvironment":"preview"');
+  });
+
+  it("injects deployment attribution without browser Sentry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("SENTRY_CLIENT_DSN", "");
+    vi.stubEnv("SENTRY_DSN", "");
+    vi.stubEnv("VITE_SENTRY_DSN", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+    expect(html).not.toContain("sentryDsn");
   });
 
   it("keeps mounted SSR HEAD responses bodyless and leaves missing API paths as 404", async () => {

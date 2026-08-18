@@ -7,6 +7,20 @@ describe("resolveDeployEnvironment", () => {
     vi.unstubAllEnvs();
   });
 
+  it("normalizes an explicit deployment environment", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " BETA ");
+
+    expect(resolveDeployEnvironment()).toBe("beta");
+  });
+
+  it("rejects unsupported explicit deployment environments", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
+
+    expect(() => resolveDeployEnvironment()).toThrow(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  });
+
   it.each(["deploy-preview", "branch-deploy"])(
     "uses Netlify CONTEXT for a %s feature deployment",
     (context) => {
