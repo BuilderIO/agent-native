@@ -2163,6 +2163,15 @@ html.dark .shiki span {
   text-decoration: none;
 }
 
+.template-card-primary-button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
 /* Mobile docs nav dropdown */
 .mobile-docs-nav {
   position: sticky;

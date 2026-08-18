@@ -289,7 +289,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               location: "card",
             });
           }}
-          className="primary-button w-full text-xs"
+          className="primary-button template-card-primary-button w-full"
         >
           {t("common.tryIt")}
         </a>
