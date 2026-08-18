@@ -16,6 +16,8 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
+import { useLocalStorage } from "@/hooks/use-local-storage";
+
 import { documentQueryFilter } from "./use-documents";
 
 // The server signs a `redirect` query param into the OAuth `state` and the
@@ -115,14 +117,18 @@ export function documentSyncRefetchIntervalMs(
   return autoSync ? 2_000 : 30_000;
 }
 
-export function useDocumentSyncStatus(
-  documentId: string | null,
-  options?: { autoSync?: boolean },
-) {
+export function useDocumentSyncStatus(documentId: string | null) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
   const normalizedDocumentId = documentId?.trim() || null;
-  const autoSync = !!options?.autoSync;
+  // `autoSync` changes what the server does, so every observer of the shared
+  // query key has to agree on it. Read the same per-document toggle the
+  // toolbar writes instead of taking it per mount, where one component could
+  // suppress or enable another's auto-sync through the shared query function.
+  const [autoSync] = useLocalStorage(
+    `notion-auto-sync:${normalizedDocumentId ?? ""}`,
+    false,
+  );
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
       ? documentSyncStatusQueryKey(normalizedDocumentId)

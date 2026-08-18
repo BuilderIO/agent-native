@@ -597,9 +597,7 @@ function DocumentEditorBody({
   );
   // Polls Notion sync status to drive the conflict banner / sync bar and the
   // push-on-save path below (read via the query cache, not this return value).
-  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null, {
-    autoSync,
-  });
+  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null);
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");

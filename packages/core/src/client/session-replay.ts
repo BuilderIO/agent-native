@@ -1549,11 +1549,27 @@ const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
 // is released.
 const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
 
-function replayUploadSignal(): AbortSignal | undefined {
-  return typeof AbortSignal !== "undefined" &&
+function startReplayUploadTimeout(): {
+  signal: AbortSignal | undefined;
+  done: () => void;
+} {
+  if (
+    typeof AbortSignal !== "undefined" &&
     typeof AbortSignal.timeout === "function"
-    ? AbortSignal.timeout(REPLAY_UPLOAD_TIMEOUT_MS)
-    : undefined;
+  ) {
+    return {
+      signal: AbortSignal.timeout(REPLAY_UPLOAD_TIMEOUT_MS),
+      done: () => {},
+    };
+  }
+  // Engines without AbortSignal.timeout still need the bound, otherwise a hung
+  // upload holds the flush lock exactly as before on those browsers.
+  if (typeof AbortController === "undefined") {
+    return { signal: undefined, done: () => {} };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REPLAY_UPLOAD_TIMEOUT_MS);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
 }
 
 function isTransientReplayUploadClientError(status: number): boolean {
@@ -1568,13 +1584,19 @@ async function sendReplayUpload(
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
     if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
-    const response = await fetch(options.endpoint, {
-      method: "POST",
-      body,
-      keepalive: canUseKeepalive,
-      headers: { "Content-Type": "text/plain;charset=UTF-8" },
-      signal: replayUploadSignal(),
-    });
+    const timeout = startReplayUploadTimeout();
+    let response: Response;
+    try {
+      response = await fetch(options.endpoint, {
+        method: "POST",
+        body,
+        keepalive: canUseKeepalive,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        signal: timeout.signal,
+      });
+    } finally {
+      timeout.done();
+    }
     if (!response.ok) {
       throw new ReplayUploadHttpError(response.status);
     }
@@ -1584,16 +1606,22 @@ async function sendReplayUpload(
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
   if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
-  const response = await fetch(options.endpoint, {
-    method: "POST",
-    body: upload.body,
-    keepalive: canUseKeepalive,
-    headers: {
-      ...upload.headers,
-      "X-Agent-Native-Analytics-Key": options.publicKey,
-    },
-    signal: replayUploadSignal(),
-  });
+  const timeout = startReplayUploadTimeout();
+  let response: Response;
+  try {
+    response = await fetch(options.endpoint, {
+      method: "POST",
+      body: upload.body,
+      keepalive: canUseKeepalive,
+      headers: {
+        ...upload.headers,
+        "X-Agent-Native-Analytics-Key": options.publicKey,
+      },
+      signal: timeout.signal,
+    });
+  } finally {
+    timeout.done();
+  }
   if (!response.ok) {
     throw new ReplayUploadHttpError(response.status);
   }
