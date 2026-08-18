@@ -18809,6 +18809,69 @@ function DesignEditor() {
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
     activeLeftPanel === "code" ? searchParams.get("filename") : null;
+  // Both inspector mounts (desktop rail, mobile sheet) take an identical prop
+  // set; only `width` differs. One shared object keeps a prop added here from
+  // silently reaching just one of them.
+  const editPanelProps = {
+    selectedElement,
+    readOnly: !canEditDesign,
+    selectedElements: selectedInspectorElements,
+    selectedScreenGeometry,
+    canvasBackground,
+    onCanvasBackgroundChange: canEditDesign
+      ? handleCanvasBackgroundChange
+      : undefined,
+    onScreenGeometryChange: canEditDesign
+      ? handleScreenGeometryChange
+      : undefined,
+    pageStyles,
+    files: documentColorFiles,
+    activeTool,
+    onCreateScreenFromPreset: canEditDesign
+      ? handleCreateScreenFromPreset
+      : undefined,
+    zoom,
+    activeTab: activeInspectorTab,
+    onActiveTabChange: setActiveInspectorTab,
+    tweaks,
+    tweakValues: tweakSelections,
+    activeContent,
+    pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
+    activeFileUpdatedAt: activeFile?.updatedAt ?? null,
+    componentSwapPickerRequest,
+    onComponentPropApplied: handleComponentPropApplied,
+    onTweakChange: handleTweakChange,
+    onRequestTweaks: handleRequestTweaks,
+    onStyleChange: handleStyleChange,
+    onStylesChange: handleStylesChange,
+    motionKeyframeState,
+    onToggleMotionKeyframe: canEditDesign
+      ? handleToggleMotionKeyframe
+      : undefined,
+    breakpointContext,
+    onExport: handleInspectorExport,
+    onRenderExportPreview: handleRenderExportPreview,
+    exporting: pngExporting || svgExporting,
+    designId: id,
+    fileId: activeFile?.id,
+    componentNodeId: selectedComponentNodeId,
+    sourceCapabilities,
+    selectedElementAlreadyComponent,
+    onCreateComponent:
+      id && selectedElement && !selectedElementAlreadyComponent
+        ? handleCreateComponent
+        : undefined,
+    defaultComponentName,
+    inspectCode: inspectCodeData,
+    statesPanelProps,
+    reviewPanelProps: resolvedReviewPanelProps,
+    reviewCommentsPanelProps,
+    reviewCommentsCount: reviewOpenCount,
+    onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
+    onInteractionStateChange: handleInteractionStateChange,
+    onEditCode: handleShaderEditCode,
+  };
+
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
     // so flex-1 on the child doesn't resolve to the available height. h-full
@@ -20134,73 +20197,7 @@ function DesignEditor() {
             {rightSidebarActions}
             {mode === "edit" ? (
               <div className="min-h-0 flex-1">
-                <EditPanel
-                  selectedElement={selectedElement}
-                  readOnly={!canEditDesign}
-                  selectedElements={selectedInspectorElements}
-                  selectedScreenGeometry={selectedScreenGeometry}
-                  canvasBackground={canvasBackground}
-                  onCanvasBackgroundChange={
-                    canEditDesign ? handleCanvasBackgroundChange : undefined
-                  }
-                  onScreenGeometryChange={
-                    canEditDesign ? handleScreenGeometryChange : undefined
-                  }
-                  pageStyles={pageStyles}
-                  files={documentColorFiles}
-                  activeTool={activeTool}
-                  onCreateScreenFromPreset={
-                    canEditDesign ? handleCreateScreenFromPreset : undefined
-                  }
-                  zoom={zoom}
-                  width={rightSidebarWidth}
-                  activeTab={activeInspectorTab}
-                  onActiveTabChange={setActiveInspectorTab}
-                  tweaks={tweaks}
-                  tweakValues={tweakSelections}
-                  activeContent={activeContent}
-                  pendingInteractionStateStyles={
-                    pendingInspectorInteractionStateStyles
-                  }
-                  activeFileUpdatedAt={activeFile?.updatedAt ?? null}
-                  componentSwapPickerRequest={componentSwapPickerRequest}
-                  onComponentPropApplied={handleComponentPropApplied}
-                  onTweakChange={handleTweakChange}
-                  onRequestTweaks={handleRequestTweaks}
-                  onStyleChange={handleStyleChange}
-                  onStylesChange={handleStylesChange}
-                  motionKeyframeState={motionKeyframeState}
-                  onToggleMotionKeyframe={
-                    canEditDesign ? handleToggleMotionKeyframe : undefined
-                  }
-                  breakpointContext={breakpointContext}
-                  onExport={handleInspectorExport}
-                  onRenderExportPreview={handleRenderExportPreview}
-                  exporting={pngExporting || svgExporting}
-                  designId={id}
-                  fileId={activeFile?.id}
-                  componentNodeId={selectedComponentNodeId}
-                  sourceCapabilities={sourceCapabilities}
-                  selectedElementAlreadyComponent={
-                    selectedElementAlreadyComponent
-                  }
-                  onCreateComponent={
-                    id && selectedElement && !selectedElementAlreadyComponent
-                      ? handleCreateComponent
-                      : undefined
-                  }
-                  defaultComponentName={defaultComponentName}
-                  inspectCode={inspectCodeData}
-                  statesPanelProps={statesPanelProps}
-                  reviewPanelProps={resolvedReviewPanelProps}
-                  reviewCommentsPanelProps={reviewCommentsPanelProps}
-                  reviewCommentsCount={reviewOpenCount}
-                  onAlignSelection={
-                    canEditDesign ? handleAlignSelection : undefined
-                  }
-                  onInteractionStateChange={handleInteractionStateChange}
-                  onEditCode={handleShaderEditCode}
-                />
+                <EditPanel {...editPanelProps} width={rightSidebarWidth} />
               </div>
             ) : (
               <div className="min-h-0 flex-1" />
@@ -20234,73 +20231,7 @@ function DesignEditor() {
               <SheetTitle>{t("editPanel.properties")}</SheetTitle>
             </SheetHeader>
             <div className="h-full min-h-0 pt-8">
-              <EditPanel
-                selectedElement={selectedElement}
-                readOnly={!canEditDesign}
-                selectedElements={selectedInspectorElements}
-                selectedScreenGeometry={selectedScreenGeometry}
-                canvasBackground={canvasBackground}
-                onCanvasBackgroundChange={
-                  canEditDesign ? handleCanvasBackgroundChange : undefined
-                }
-                onScreenGeometryChange={
-                  canEditDesign ? handleScreenGeometryChange : undefined
-                }
-                pageStyles={pageStyles}
-                files={documentColorFiles}
-                activeTool={activeTool}
-                onCreateScreenFromPreset={
-                  canEditDesign ? handleCreateScreenFromPreset : undefined
-                }
-                zoom={zoom}
-                width={320}
-                activeTab={activeInspectorTab}
-                onActiveTabChange={setActiveInspectorTab}
-                tweaks={tweaks}
-                tweakValues={tweakSelections}
-                activeContent={activeContent}
-                pendingInteractionStateStyles={
-                  pendingInspectorInteractionStateStyles
-                }
-                activeFileUpdatedAt={activeFile?.updatedAt ?? null}
-                componentSwapPickerRequest={componentSwapPickerRequest}
-                onComponentPropApplied={handleComponentPropApplied}
-                onTweakChange={handleTweakChange}
-                onRequestTweaks={handleRequestTweaks}
-                onStyleChange={handleStyleChange}
-                onStylesChange={handleStylesChange}
-                motionKeyframeState={motionKeyframeState}
-                onToggleMotionKeyframe={
-                  canEditDesign ? handleToggleMotionKeyframe : undefined
-                }
-                breakpointContext={breakpointContext}
-                onExport={handleInspectorExport}
-                onRenderExportPreview={handleRenderExportPreview}
-                exporting={pngExporting || svgExporting}
-                designId={id}
-                fileId={activeFile?.id}
-                componentNodeId={selectedComponentNodeId}
-                sourceCapabilities={sourceCapabilities}
-                selectedElementAlreadyComponent={
-                  selectedElementAlreadyComponent
-                }
-                onCreateComponent={
-                  id && selectedElement && !selectedElementAlreadyComponent
-                    ? handleCreateComponent
-                    : undefined
-                }
-                defaultComponentName={defaultComponentName}
-                inspectCode={inspectCodeData}
-                statesPanelProps={statesPanelProps}
-                reviewPanelProps={resolvedReviewPanelProps}
-                reviewCommentsPanelProps={reviewCommentsPanelProps}
-                reviewCommentsCount={reviewOpenCount}
-                onAlignSelection={
-                  canEditDesign ? handleAlignSelection : undefined
-                }
-                onInteractionStateChange={handleInteractionStateChange}
-                onEditCode={handleShaderEditCode}
-              />
+              <EditPanel {...editPanelProps} width={320} />
             </div>
           </SheetContent>
         </Sheet>
