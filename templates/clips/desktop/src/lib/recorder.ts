@@ -84,6 +84,7 @@ import {
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
+  boundedCleanup,
   guardRecordingStart,
   RECORDING_START_TIMEOUT_MS,
   RecordingStartCancelledError,
@@ -2748,7 +2749,7 @@ async function tryStartRewindFullscreenRecording(
       },
       async countdown() {
         console.log("[rewind-latency] countdown shown after preparation");
-        await invoke("hide_preparing").catch(() => {});
+        await boundedCleanup(invoke("hide_preparing"));
         // Overlap whisper startup with the countdown so the capture boundary
         // never waits on it, but have both settled before activation.
         await Promise.all([
@@ -4090,7 +4091,7 @@ export async function startRecording(
       },
     });
   } catch (err) {
-    await invoke("hide_recording_chrome").catch(() => {});
+    await boundedCleanup(invoke("hide_recording_chrome"));
     const e = err as { name?: string; message?: string } | null;
     console.error(
       "[clips-recorder] startRecording threw:",
