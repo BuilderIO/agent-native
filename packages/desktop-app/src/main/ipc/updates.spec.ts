@@ -300,9 +300,13 @@ describe("desktop updates", () => {
   });
 
   it("keeps a downloaded update retryable after an asynchronous install error", async () => {
+    const prepareForUpdate = vi.fn(async () => undefined);
+    const restoreAfterUpdateFailure = vi.fn(async () => undefined);
     registerUpdatesIpc({
       refreshApplicationMenu: vi.fn(),
       focusMainWindow: vi.fn(),
+      prepareForUpdate,
+      restoreAfterUpdateFailure,
     });
     updaterState.handlers.get("update-downloaded")?.({
       version: "1.1.0",
@@ -312,10 +316,12 @@ describe("desktop updates", () => {
       IPC.UPDATE_INSTALL,
     );
     await installHandler?.();
+    expect(prepareForUpdate).toHaveBeenCalledOnce();
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(1);
 
-    updaterState.handlers.get("error")?.(new Error("installer failed"));
+    await updaterState.handlers.get("error")?.(new Error("installer failed"));
 
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledOnce();
     expect(getCurrentUpdateStatus()).toEqual({
       state: "downloaded",
       version: "1.1.0",
@@ -324,9 +330,13 @@ describe("desktop updates", () => {
     expect(isInstallingDownloadedUpdate()).toBe(false);
     await installHandler?.();
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+
+    await updaterState.handlers.get("error")?.(new Error("retry failed"));
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledTimes(2);
   });
 
   it("completes a deferred quit after helper preparation fails and restores retry state", async () => {
+    const restoreAfterUpdateFailure = vi.fn(async () => undefined);
     const prepareForUpdate = vi.fn(async () => {
       requestQuitAfterUpdatePreparation();
       throw new Error("helper close failed");
@@ -335,6 +345,7 @@ describe("desktop updates", () => {
       refreshApplicationMenu: vi.fn(),
       focusMainWindow: vi.fn(),
       prepareForUpdate,
+      restoreAfterUpdateFailure,
     });
     updaterState.handlers.get("update-downloaded")?.({
       version: "1.1.0",
@@ -353,6 +364,7 @@ describe("desktop updates", () => {
     expect(isInstallingDownloadedUpdate()).toBe(false);
     expect(electronState.app.quit).toHaveBeenCalledOnce();
     expect(updaterState.quitAndInstall).not.toHaveBeenCalled();
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledOnce();
   });
 
   it("keeps un-packaged development updates explicitly unsupported", async () => {

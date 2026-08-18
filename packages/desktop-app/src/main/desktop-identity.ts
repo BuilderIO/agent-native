@@ -521,6 +521,9 @@ export class DesktopIdentityBroker {
     // shell. App tabs must not turn a normal navigation into another remote
     // session check or strand the user behind a loading gate. Revalidate on a
     // bounded interval so external expiry or revocation is still observed.
+    // Sign-out is a ceremony boundary: do not let the signed-in fast path
+    // make a tab activation look healthy while session revocation is running.
+    if (this.signOutOperation) return;
     if (
       this.status === "signed-in" &&
       Date.now() - this.statusVerifiedAt <

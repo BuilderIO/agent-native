@@ -39,6 +39,15 @@ describe("desktop passive-access regressions", () => {
     expect(refreshStatus).toContain('this.status === "signed-in"');
     expect(refreshStatus).toContain("statusRevalidationIntervalMs");
     expect(identity).toContain("statusTimeoutMs");
+
+    const signOutGuard = refreshStatus.indexOf(
+      "if (this.signOutOperation) return;",
+    );
+    const signedInFastPath = refreshStatus.indexOf(
+      'this.status === "signed-in"',
+    );
+    expect(signOutGuard).toBeGreaterThanOrEqual(0);
+    expect(signedInFastPath).toBeGreaterThan(signOutGuard);
   });
 
   it("keeps remembered Content folder discovery metadata-only", () => {
@@ -273,6 +282,12 @@ describe("desktop passive-access regressions", () => {
       "await disposeMultiFrontierAppIntegration();",
     );
     expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
+    expect(main).toContain("restoreAfterUpdateFailure: async () => {");
+    expect(main).toContain("await initializeDesktopComputerMcpBridge();");
+    expect(main).toContain(
+      "initializeMultiFrontierAppIntegrationForRuntime();",
+    );
+    expect(main).toContain("multiFrontierDisposePromise = undefined;");
   });
 
   it("runs the quit guard before poisoning shutdown state", () => {

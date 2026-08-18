@@ -48,6 +48,8 @@ let notifiedUpdateVersion: string | null = null;
 let updateInstallInFlight = false;
 let updateQuitOwned = false;
 let quitRequestedDuringUpdatePreparation = false;
+let updateHelpersNeedRestore = false;
+let updateHelpersRestorePromise: Promise<void> | null = null;
 let installingUpdateForRetry: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -61,6 +63,7 @@ export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
   prepareForUpdate?: () => Promise<void>;
+  restoreAfterUpdateFailure?: () => Promise<void>;
 }
 
 export interface UpdateCheckOptions {
@@ -112,6 +115,26 @@ function completeDeferredQuitIfRequested(): void {
   }
 }
 
+async function restoreHelpersAfterFailedUpdate(): Promise<void> {
+  if (!updateHelpersNeedRestore) return;
+  updateHelpersNeedRestore = false;
+  const restore = getDeps().restoreAfterUpdateFailure;
+  if (!restore) return;
+  if (!updateHelpersRestorePromise) {
+    updateHelpersRestorePromise = restore()
+      .catch((error) => {
+        console.warn(
+          "[updates] failed to restore desktop helpers after update handoff:",
+          error instanceof Error ? error.message : error,
+        );
+      })
+      .finally(() => {
+        updateHelpersRestorePromise = null;
+      });
+  }
+  await updateHelpersRestorePromise;
+}
+
 export async function installDownloadedUpdate(): Promise<void> {
   if (
     !UPDATE_SUPPORT.supported ||
@@ -125,6 +148,10 @@ export async function installDownloadedUpdate(): Promise<void> {
     (currentUpdateStatus.state === "downloaded" ? currentUpdateStatus : null);
   quitRequestedDuringUpdatePreparation = false;
   updateInstallInFlight = true;
+  // Preparation can fail after one of the native helpers has already been
+  // detached. Mark restoration before entering that multi-step operation so
+  // both synchronous and asynchronous handoff failures recover the shell.
+  updateHelpersNeedRestore = true;
   try {
     // Native helpers can outlive the Electron window. Close them before
     // Squirrel checks whether the old app is still running.
@@ -140,6 +167,7 @@ export async function installDownloadedUpdate(): Promise<void> {
   } catch (err) {
     updateInstallInFlight = false;
     updateQuitOwned = false;
+    await restoreHelpersAfterFailedUpdate();
     const retryUpdate = installingUpdateForRetry;
     installingUpdateForRetry = null;
     if (retryUpdate) {
@@ -366,13 +394,14 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
       };
     });
 
-    autoUpdater.on("error", (err) => {
+    autoUpdater.on("error", async (err) => {
       const retryUpdate = updateInstallInFlight
         ? installingUpdateForRetry
         : null;
       updateInstallInFlight = false;
       updateQuitOwned = false;
       installingUpdateForRetry = null;
+      await restoreHelpersAfterFailedUpdate();
       if (retryUpdate) {
         pendingDownloadedUpdate = retryUpdate;
         console.warn(

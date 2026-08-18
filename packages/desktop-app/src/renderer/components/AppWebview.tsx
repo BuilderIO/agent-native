@@ -164,6 +164,11 @@ export function rememberDesktopIdentityStatus(
   rememberedDesktopIdentityStatusAt = observedAt;
 }
 
+export function invalidateRememberedDesktopIdentityStatus(): void {
+  rememberedDesktopIdentityStatus = null;
+  rememberedDesktopIdentityStatusAt = 0;
+}
+
 export function shouldReuseRememberedDesktopIdentitySession(
   status: DesktopIdentityStatus | null,
   nextStatus?: DesktopIdentityStatus,
@@ -496,9 +501,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const applyStatus = async (
         status: DesktopIdentityStatus,
         request: number,
+        fromRememberedSession = false,
       ) => {
         if (!active || request !== statusRequest) return;
-        rememberDesktopIdentityStatus(status);
+        if (!fromRememberedSession) rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
           setDesktopIdentitySessionReady(false);
@@ -513,6 +519,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             synchronized = null;
           }
           if (!active || request !== statusRequest) return;
+          if (fromRememberedSession && synchronized !== true) {
+            // A failed lazy sync can mean the broker is in the middle of
+            // sign-out while its public status is still signed-in. Do not
+            // keep reusing this renderer cache during that ceremony. Keep the
+            // current verified tab usable until the broker publishes its
+            // authoritative sign-out status or the next activation rechecks.
+            invalidateRememberedDesktopIdentityStatus();
+          }
           setDesktopIdentitySessionReady(true);
           setDesktopIdentityStatus(
             resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
@@ -552,7 +566,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           const status =
             nextStatus ??
             (reuseRememberedSession ? "signed-in" : await identity.getStatus());
-          await applyStatus(status, request);
+          await applyStatus(status, request, reuseRememberedSession);
         } catch {
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
@@ -565,7 +579,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               )
             ) {
               setDesktopIdentityEnabled(true);
-              await applyStatus("signed-in", request);
+              await applyStatus("signed-in", request, true);
               return;
             }
             setDesktopIdentityEnabled(false);

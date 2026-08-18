@@ -25,6 +25,7 @@ import {
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
   rememberDesktopIdentityStatus,
+  invalidateRememberedDesktopIdentityStatus,
   shouldReuseRememberedDesktopIdentitySession,
   default as AppWebview,
 } from "./AppWebview.js";
@@ -105,6 +106,10 @@ describe("Desktop identity activation", () => {
       return 0;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
+    Object.defineProperty(HTMLElement.prototype, "executeJavaScript", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -113,7 +118,7 @@ describe("Desktop identity activation", () => {
     act(() => root.unmount());
     container.remove();
     delete (window as unknown as { electronAPI?: unknown }).electronAPI;
-    rememberDesktopIdentityStatus("idle");
+    invalidateRememberedDesktopIdentityStatus();
   });
 
   it("keeps a remembered session gated until child synchronization completes", async () => {
@@ -188,6 +193,151 @@ describe("Desktop identity activation", () => {
     });
 
     expect(webviewSlot?.style.display).toBe("flex");
+  });
+
+  it("invalidates a remembered session when lazy sync is rejected", async () => {
+    let syncAttempts = 0;
+    const getStatus = vi.fn(async () => "signed-in" as const);
+    const ensureAppSession = vi.fn(async () => {
+      syncAttempts += 1;
+      return syncAttempts > 1;
+    });
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus,
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark",
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(getStatus).toHaveBeenCalledTimes(1));
+    expect(ensureAppSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not extend the remembered-session TTL on cached activation", async () => {
+    const now = vi.spyOn(Date, "now");
+    let currentTime = 1_000_000;
+    now.mockImplementation(() => currentTime);
+    try {
+      const getStatus = vi.fn(async () => "signed-in" as const);
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          identity: {
+            getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+            getStatus,
+            ensureAppSession: vi.fn(async () => true),
+            onStatusChange: vi.fn(() => () => {}),
+          },
+        },
+      });
+      rememberDesktopIdentityStatus("signed-in", currentTime);
+      root = createRoot(container);
+      const app = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod" as const,
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await vi.waitFor(() => expect(getStatus).not.toHaveBeenCalled());
+
+      currentTime += 5 * 60 * 1000 + 1;
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: false,
+            theme: "dark",
+          }),
+        );
+      });
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await vi.waitFor(() => expect(getStatus).toHaveBeenCalledTimes(1));
+    } finally {
+      now.mockRestore();
+    }
   });
 });
 
