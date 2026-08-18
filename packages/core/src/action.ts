@@ -1254,6 +1254,53 @@ function schemaToJsonSchema(
 }
 
 /**
+ * JSON Schema recognises exactly seven type names, and JavaScript's `typeof` is
+ * not one of the ways to spell them: `typeof null` is `"object"`, and `bigint`,
+ * `undefined`, `symbol`, and `function` have no JSON Schema equivalent at all.
+ * Emitting one of those as a `type` produces a schema the Builder gateway's
+ * request validator accepts — it only checks a tool's TOP-LEVEL
+ * `input_schema.type` — and the upstream provider then rejects, which comes back
+ * as the gateway's opaque "ERROR ID" 500 envelope rather than a typed 400. A
+ * nested field is therefore able to take down a whole turn with an error that
+ * names nothing, on every retry, because the malformed schema is resent verbatim.
+ *
+ * Return no `type` at all rather than an invented one: `enum` alone still pins
+ * the value, and an absent keyword is valid where a bogus one is not.
+ */
+/**
+ * Zod v4 stores a literal's value in `def.values` (an array — `z.literal` accepts
+ * a set of values), NOT in `def.value`. Reading the singular key returns
+ * `undefined` for every literal, which is how `typeof def.value` came to emit
+ * `{"type":"undefined"}`: a type keyword no JSON Schema dialect defines. A
+ * literal is most often a discriminated union's discriminator, so this was
+ * reached by ordinary action schemas, not an exotic corner.
+ *
+ * Keep reading the singular key as a fallback so a schema from a different
+ * standard-schema implementation still resolves.
+ */
+function literalValuesOfDef(def: any): unknown[] {
+  if (Array.isArray(def?.values)) return def.values;
+  if (def?.values !== undefined) return [def.values];
+  return [def?.value];
+}
+
+function jsonSchemaTypeOfLiteral(value: unknown): { type?: string } {
+  if (value === null) return { type: "null" };
+  switch (typeof value) {
+    case "string":
+      return { type: "string" };
+    case "number":
+      return { type: Number.isInteger(value) ? "integer" : "number" };
+    case "boolean":
+      return { type: "boolean" };
+    case "bigint":
+      return { type: "integer" };
+    default:
+      return {};
+  }
+}
+
+/**
  * Convert a Zod v4 internal def to JSON Schema.
  * Handles the common types used in action parameters.
  */
@@ -1321,7 +1368,18 @@ function zodDefToJsonSchema(def: any): any {
   }
 
   if (type === "literal") {
-    return { type: typeof def.value, enum: [def.value] };
+    const values = literalValuesOfDef(def);
+    const jsonTypes = [
+      ...new Set(
+        values.map((value: unknown) => jsonSchemaTypeOfLiteral(value).type),
+      ),
+    ];
+    return {
+      ...(jsonTypes.length === 1 && jsonTypes[0] !== undefined
+        ? { type: jsonTypes[0] }
+        : {}),
+      enum: values,
+    };
   }
 
   if (type === "array") {
@@ -1366,13 +1424,11 @@ function zodDefToJsonSchema(def: any): any {
         (o: any) => o?._zod?.def?.type === "literal",
       );
       if (allLiterals) {
-        const values = def.options.map((o: any) => o._zod.def.value);
+        const values = def.options.flatMap((o: any) =>
+          literalValuesOfDef(o._zod.def),
+        );
         const jsonTypeOf = (v: any) =>
-          typeof v === "number"
-            ? "number"
-            : typeof v === "boolean"
-              ? "boolean"
-              : "string";
+          jsonSchemaTypeOfLiteral(v).type ?? "string";
         const uniqueTypes = [...new Set(values.map(jsonTypeOf))];
         if (uniqueTypes.length === 1) {
           // Homogeneous literal union (e.g. all numbers) — derive the JSON

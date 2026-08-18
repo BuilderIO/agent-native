@@ -353,6 +353,94 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(params.properties.title.description).toBe("Form title");
   });
 
+  // JSON Schema has exactly seven type names and JavaScript's `typeof` is not a
+  // way to spell them. The Builder gateway validates only a tool's TOP-LEVEL
+  // `input_schema.type`, so an invented type on a NESTED field passes validation,
+  // reaches the provider, and comes back as the gateway's opaque "ERROR ID" 500
+  // envelope — on every retry, because the same malformed schema is resent.
+  it("never emits a non-JSON-Schema type for a literal", () => {
+    const legalTypes = new Set([
+      "string",
+      "number",
+      "integer",
+      "boolean",
+      "object",
+      "array",
+      "null",
+    ]);
+    const action = defineAction({
+      description: "literal types",
+      schema: z.object({
+        nothing: z.literal(null),
+        name: z.literal("fixed"),
+        count: z.literal(7),
+        ratio: z.literal(1.5),
+        flag: z.literal(true),
+        nested: z.object({ inner: z.literal(null) }),
+        items: z.array(z.literal(null)),
+      }),
+      run: async () => "ok",
+    });
+
+    // The fallback converter is what runs for a schema that exposes no
+    // standard-schema `jsonSchema` hook, so exercise that path explicitly rather
+    // than only Zod's own converter — the bug lived exclusively in the fallback.
+    const withoutJsonSchemaHook = <T>(schema: T): T => {
+      const standard = (schema as any)["~standard"];
+      (schema as any)["~standard"] = { ...standard, jsonSchema: undefined };
+      return schema;
+    };
+    const fallbackAction = defineAction({
+      description: "literal types via fallback converter",
+      schema: withoutJsonSchemaHook(
+        z.object({
+          kind: z.literal("weekly"),
+          nested: z.object({ inner: z.literal(3) }),
+          mode: z.union([z.literal("a"), z.literal("b")]),
+        }),
+      ),
+      run: async () => "ok",
+    });
+
+    const illegal: string[] = [];
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const record = node as Record<string, unknown>;
+      const type = record.type;
+      if (typeof type === "string" && !legalTypes.has(type)) illegal.push(type);
+      Object.values(record).forEach(walk);
+    };
+    walk(action.tool.parameters);
+    walk(fallbackAction.tool.parameters);
+
+    expect(illegal).toEqual([]);
+    const props = (action.tool.parameters as any).properties;
+    expect(props.nothing).toMatchObject({ type: "null" });
+    expect(props.name).toMatchObject({ type: "string" });
+    expect(props.flag).toMatchObject({ type: "boolean" });
+
+    // The fallback path must also carry the literal's VALUE. Reading the
+    // singular `def.value` returned undefined, which serialized to `[null]` and
+    // told the model the discriminator accepts null.
+    const fallbackProps = (fallbackAction.tool.parameters as any).properties;
+    expect(fallbackProps.kind).toMatchObject({
+      type: "string",
+      enum: ["weekly"],
+    });
+    expect(fallbackProps.nested.properties.inner).toMatchObject({
+      type: "integer",
+      enum: [3],
+    });
+    expect(fallbackProps.mode).toMatchObject({
+      type: "string",
+      enum: ["a", "b"],
+    });
+  });
+
   it("strips the $schema key so the Claude API (draft 2020-12) does not reject it", () => {
     const action = defineAction({
       description: "with schema key",

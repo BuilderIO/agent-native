@@ -3713,42 +3713,60 @@ describe("SSE event processor error classification", () => {
     });
   });
 
-  it("auto-continues the Builder gateway internal-error envelope", async () => {
+  // Measured across the analytics/clips/calendar production databases: 7 turns
+  // reached this code and 0 of 7 ever finished, over 97 runs — one turn burned
+  // 28 runs across 16 minutes on a single "Hey", with overlapping concurrent
+  // runs. The envelope is emitted for deterministic upstream rejections, so a
+  // fresh run resends the request that just failed. `providerRetryable: true`
+  // is present on the real production event and must NOT revive it here: the
+  // engine's in-request retry already covers the transient case.
+  it("does not re-dispatch a run for the Builder gateway internal-error envelope", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
     const message =
       "Sorry, we ran into an issue processing your request. " +
       "ERROR ID: bebaeb5da13441539790834b63ff955a";
-    const err = await readSSEStream(
+    const results = [];
+    for await (const result of readSSEStream(
       eventStream([
         {
           type: "error",
           error: message,
           errorCode: "builder_gateway_internal_error",
+          providerRetryable: true,
         },
       ]),
       [],
       { value: 0 },
       "tab-gateway-internal",
-    )
-      [Symbol.asyncIterator]()
-      .next()
-      .then(
-        () => undefined,
-        (caught) => caught,
-      );
+    )) {
+      results.push(result);
+    }
 
-    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
-    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
-      errorCode: "builder_gateway_internal_error",
-      recoverable: true,
+    const terminal = results.at(-1);
+    expect(terminal?.status).toMatchObject({
+      type: "incomplete",
+      reason: "error",
     });
+    const runError = terminal?.metadata?.custom?.runError as
+      | { errorCode?: string; message?: string; details?: string }
+      | undefined;
+    expect(runError?.errorCode).toBe("builder_gateway_internal_error");
     // The correlation id is the only part support can act on, so it stays —
     // just not as the whole sentence the user reads.
-    expect((err as AgentAutoContinueSignal).errorInfo?.details).toContain(
-      "bebaeb5da13441539790834b63ff955a",
-    );
-    expect((err as AgentAutoContinueSignal).errorInfo?.message).not.toContain(
-      "ERROR ID",
-    );
+    expect(runError?.details).toContain("bebaeb5da13441539790834b63ff955a");
+    expect(runError?.message).not.toContain("ERROR ID");
   });
 
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {

@@ -21,6 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../../agent/engine/error-detail.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
@@ -497,7 +498,19 @@ export function RunErrorRecoveryCard({
   // points at a button that isn't there.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
+  // Automatic re-dispatch of this one is futile — the same payload fails the
+  // same way, measured at 0 recoveries in 97 production runs — so it is not on
+  // the client's auto-recoverable list. A retry the USER chooses is a different
+  // decision: minutes have passed, the upstream may have recovered, and its own
+  // copy ends with "Retry in a moment". Without this the card is the dead end
+  // that copy points at.
+  const isDeliberateRetryGatewayFailure =
+    info.errorCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE;
+  const canRetry =
+    canRecover ||
+    isProviderAuthError ||
+    isUnblockableExternally ||
+    isDeliberateRetryGatewayFailure;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
