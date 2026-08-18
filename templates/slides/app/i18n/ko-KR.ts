@@ -519,6 +519,11 @@ const messages = {
     newSlide: "새 슬라이드",
     closeAddSlides: "닫기",
     describeThisSlide: "이 슬라이드를 설명하세요",
+    cut: "잘라내기",
+    copy: "복사",
+    paste: "붙여넣기",
+    skipSlide: "슬라이드 건너뛰기",
+    unskipSlide: "건너뛰기 취소",
   },
   presentation: {
     loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",

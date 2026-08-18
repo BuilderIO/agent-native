@@ -31,9 +31,32 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
-  const [index, setIndex] = useState(startIndex);
+  // `startIndex` is a raw index into the full (unfiltered) deck.slides array.
+  // Skipped slides are absent from safeSlides below, so translate it to the
+  // nearest visible slide's position within safeSlides — matching
+  // PresentationView, whose filtered currentIndex this view's `index` state
+  // otherwise mirrors via the BroadcastChannel.
+  const initialIndex = useMemo(() => {
+    const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
+    if (rawSlides.length === 0) return 0;
+    const clampedRaw = Math.max(0, Math.min(startIndex, rawSlides.length - 1));
+    for (let i = clampedRaw; i < rawSlides.length; i++) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    for (let i = clampedRaw - 1; i >= 0; i--) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    return 0;
+  }, [slides, startIndex]);
+  const [index, setIndex] = useState(initialIndex);
   const [elapsed, setElapsed] = useState(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const indexRef = useRef(index);
+  indexRef.current = index;
 
   useEffect(() => {
     const channel = openPresentChannel(deckId);
@@ -88,12 +111,71 @@ export default function PresenterView({
   }, [goNext, goPrev]);
 
   const safeSlides = useMemo(
-    () => (Array.isArray(slides) ? slides.filter(Boolean) : []),
+    () =>
+      Array.isArray(slides)
+        ? slides.filter(
+            (slide): slide is Slide => Boolean(slide) && !slide.skipped,
+          )
+        : [],
     [slides],
   );
+
+  // One atomic effect handles both cases so they can't race each other:
+  // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
+  //   from initialIndex. This route is reused across decks (see the
+  //   BroadcastChannel effect above, keyed on deckId).
+  // - Otherwise, a skip toggle or reorder changed safeSlides without a new
+  //   deep link. A length-only clamp would silently swap in a different
+  //   slide at the same index, so follow the previously-shown slide's id to
+  //   its new position, falling back to a raw clamp only when it's gone.
+  const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
+  const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
+  useEffect(() => {
+    const prevKey = prevDeepLinkKeyRef.current;
+    const isDeepLinkChange =
+      prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
+    prevDeepLinkKeyRef.current = { startIndex, deckId };
+
+    if (isDeepLinkChange) {
+      prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
+      setIndex(initialIndex);
+      return;
+    }
+
+    // Read the prior ids before overwriting the ref below — the lookup
+    // needs the slide order from before this update, not the one it's
+    // producing.
+    const activeId = prevSafeSlideIdsRef.current[indexRef.current];
+    const newIds = safeSlides.map((s) => s.id);
+    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    prevSafeSlideIdsRef.current = newIds;
+    setIndex(
+      followedIndex >= 0
+        ? followedIndex
+        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeSlides, startIndex, deckId]);
+
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
   const notes = current?.notes?.trim();
+
+  if (safeSlides.length === 0) {
+    return (
+      // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
+      <div className="fixed inset-0 flex items-center justify-center bg-[hsl(240,6%,6%)] text-white">
+        <button
+          type="button"
+          onClick={() => window.close()}
+          // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
+          className="cursor-pointer rounded-lg bg-white/10 px-4 py-3 text-sm hover:bg-white/20"
+        >
+          {t("presentation.noSlides")}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[hsl(240,6%,6%)] text-white">
