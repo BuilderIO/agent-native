@@ -97,6 +97,7 @@ export default defineAction({
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
+    "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
@@ -120,7 +121,10 @@ export default defineAction({
       ])
       .optional()
       .describe("Layout type hint"),
-    notes: z.string().optional().describe("Speaker notes for this slide"),
+    notes: z
+      .string()
+      .optional()
+      .describe("Optional presenter-only speaker notes; keep them out of HTML"),
     position: z
       .preprocess((value) => {
         if (typeof value !== "string") return value;
@@ -299,7 +303,7 @@ export default defineAction({
         creativeContextReuseLabels: slideReuseLabels,
       };
       if (layout) newSlide.layout = layout;
-      if (notes) newSlide.notes = notes;
+      if (notes !== undefined) newSlide.notes = notes;
 
       const insertIndex =
         typeof position === "number"

@@ -96,20 +96,26 @@ from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **Concrete repo-owned bug** - reproduce or establish it from source,
-   tests, logs, a stack trace, or a linked run. Add `👀` to the Slack thread
-   immediately after classification, before investigation or delegation. Fix
-   it and keep working until the smallest meaningful verification is green.
-2. **Missing reporter evidence** - after reading the full thread and linked
-   evidence, ask one specific question naming the exact reproduction, input, or
-   surface needed to choose and verify a safe fix. Add `👀` before asking. If
-   only internal test, deployment, or tooling verification is unavailable,
-   keep that blocker internal and do not ask the reporter for it.
-3. **Subjective UX or product suggestion** - do not turn a preference into a
+1. **React first for actionable feedback** - once an item is classified as a
+   concrete repo-owned bug or missing-reporter-evidence case, add `👀` to the
+   Slack parent immediately. This must be the first external action for that
+   item: do it before reading linked evidence, delegating, editing code, or
+   asking a clarification. Do not react to status-only, subjective,
+   duplicate, external, or non-repo-owned items. A duplicate reaction is safe
+   and should still be attempted when the marker is not visible in the thread.
+2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
+   it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
+   working until the smallest meaningful verification is green.
+3. **Missing reporter evidence** - after the `👀` marker and full-thread
+   review, ask one specific question naming the exact reproduction, input, or
+   surface needed to choose and verify a safe fix. If only internal test,
+   deployment, or tooling verification is unavailable, keep that blocker
+   internal and do not ask the reporter for it.
+4. **Subjective UX or product suggestion** - do not turn a preference into a
    code or prompt rule. Act only when the report identifies a concrete broken
    behavior, an existing product invariant, or repeated independent evidence;
    otherwise record it as deferred or informational.
-4. **Policy, bot-forward, status-only, duplicate, external, or non-repo-owned
+5. **Policy, bot-forward, status-only, duplicate, external, or non-repo-owned
    item** - do not react, reply, or edit code unless the user explicitly
    assigns a concrete repo action.
 
