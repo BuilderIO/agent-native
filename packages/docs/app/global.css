@@ -2146,9 +2146,15 @@ html.dark .shiki span {
 }
 
 .secondary-button {
-  border: 1px solid #5e5e5e;
-  background-color: #0a0a0a;
-  color: #faf9f5;
+  min-height: 32px;
+  border: 1px solid var(--docs-border);
+  background-color: transparent;
+  padding: 0 12px;
+  color: var(--fg-secondary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
 }
 
 .secondary-button:hover {

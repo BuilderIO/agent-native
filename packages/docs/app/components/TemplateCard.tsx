@@ -299,7 +299,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="secondary-button flex-1 whitespace-nowrap text-xs"
+              className="secondary-button flex-1 whitespace-nowrap"
             >
               {t("common.customizeIt")}
             </button>
@@ -348,7 +348,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         <TemplateDocsLink
           template={template}
           location="card"
-          className="secondary-button flex-1 whitespace-nowrap text-xs"
+          className="secondary-button flex-1 whitespace-nowrap"
         />
       </div>
     </div>
