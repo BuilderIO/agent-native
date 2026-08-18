@@ -32,7 +32,10 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = !!userEmail && existing.authorEmail === userEmail;
 
-    await assertAccess("recording", existing.recordingId, "commenter");
+    // Any signed-in viewer with access to the recording may delete their own
+    // comment, matching add-comment's top-level comment gate; a non-author
+    // still needs editor+ (checked below).
+    await assertAccess("recording", existing.recordingId, "viewer");
 
     if (!isAuthor) {
       try {

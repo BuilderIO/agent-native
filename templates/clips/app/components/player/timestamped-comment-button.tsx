@@ -45,6 +45,8 @@ interface TimestampedCommentBarProps {
   onClose: () => void;
   onAdded?: () => void;
   className?: string;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
 }
 
 /**
@@ -57,9 +59,13 @@ export function TimestampedCommentBar({
   onClose,
   onAdded,
   className,
+  draft: controlledDraft,
+  onDraftChange,
 }: TimestampedCommentBarProps) {
   const t = useT();
-  const [draft, setDraft] = useState("");
+  const [uncontrolledDraft, setUncontrolledDraft] = useState("");
+  const draft = controlledDraft ?? uncontrolledDraft;
+  const setDraft = onDraftChange ?? setUncontrolledDraft;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const addComment = useActionMutation("add-comment");

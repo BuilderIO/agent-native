@@ -452,6 +452,7 @@ export default function ShareRoute() {
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
+  const [commentDraft, setCommentDraft] = useState("");
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const { session, isLoading: sessionLoading } = useSession();
   const requestAccess = useActionMutation<
@@ -1308,6 +1309,8 @@ export default function ShareRoute() {
                     <TimestampedCommentBar
                       recordingId={recording.id}
                       atMs={commentAtMs}
+                      draft={commentDraft}
+                      onDraftChange={setCommentDraft}
                       onClose={() => setCommentOpen(false)}
                       onAdded={() => {
                         setPanel("comments");

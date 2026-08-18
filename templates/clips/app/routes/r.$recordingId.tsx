@@ -231,6 +231,7 @@ export default function RecordingPage() {
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
+  const [commentDraft, setCommentDraft] = useState("");
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const isCompactLayout = useIsCompactRecordingLayout();
   // Resolve the playback position for reactions/comments. Native <video> exposes
@@ -1647,6 +1648,8 @@ export default function RecordingPage() {
                         <TimestampedCommentBar
                           recordingId={recording.id}
                           atMs={commentAtMs}
+                          draft={commentDraft}
+                          onDraftChange={setCommentDraft}
                           onClose={() => setCommentOpen(false)}
                           onAdded={() => {
                             setPanel("comments");

@@ -38,7 +38,10 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    await assertAccess("recording", parent.recordingId, "commenter");
+    // Any signed-in viewer with access to the recording may reply, matching
+    // add-comment's top-level comment gate — there's no separate
+    // "commenter" tier to require.
+    await assertAccess("recording", parent.recordingId, "viewer");
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

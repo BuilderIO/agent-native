@@ -68,7 +68,7 @@ describe("add-comment access", () => {
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "recording",
       "recording-1",
-      "commenter",
+      "viewer",
     );
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
