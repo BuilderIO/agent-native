@@ -54,6 +54,31 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("does not mistake an app-local route for a sibling app's workspace mount", () => {
+    // Regression for the Builder connect popup opening
+    // "/settings/_agent-native/builder/connect" instead of
+    // "/dispatch/_agent-native/builder/connect" — the workspace gateway has
+    // no app mounted at "/settings" (it's a page inside the "dispatch" app),
+    // so that URL 404s into the gateway's app-picker page instead of
+    // reaching Builder's real sign-in/authorize screen.
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "dispatch", path: "/dispatch" },
+        { id: "chat", path: "/chat" },
+        { id: "signals", path: "/signals" },
+      ]),
+    );
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
+
+    expect(appBasePath()).toBe("/dispatch");
+    expect(agentNativePath("/_agent-native/builder/connect")).toBe(
+      "/dispatch/_agent-native/builder/connect",
+    );
+  });
+
   it("uses the live workspace route segment for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");

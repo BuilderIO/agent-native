@@ -56,7 +56,19 @@ function workspacePathBasePath(): string {
   if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
   const segment = window.location.pathname.split("/").find(Boolean);
   if (!segment || segment === "_agent-native" || segment === "api") return "";
-  return normalizeBasePath(segment);
+  const basePath = normalizeBasePath(segment);
+  // Guard against treating an app-local route (e.g. a client-rendered
+  // "/settings" page reached via stale client-side navigation) as if it
+  // were a sibling app's workspace mount — that built URLs like
+  // "/settings/_agent-native/builder/connect", which the workspace gateway
+  // 404s (no app is mounted at "/settings") into its app-picker page instead
+  // of the real target route. Only trust the segment when it matches a
+  // known mount from the deployed app manifest; when the manifest can't be
+  // read, fall back to the prior blind-trust behavior (e.g. the same build
+  // reused across sibling app ids without a manifest).
+  const mounts = workspaceAppMountPaths();
+  if (mounts && !mounts.has(basePath)) return "";
+  return basePath;
 }
 
 function externalEmbedTargetBasePath(): string {
