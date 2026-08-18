@@ -1,4 +1,5 @@
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
+import { NFM_COLORS } from "@shared/nfm";
 import {
   escapeHtml,
   indentMarkdown,
@@ -745,12 +746,19 @@ export const NotionSpanMark = Mark.create({
   renderHTML({ HTMLAttributes }) {
     const attrs = parseAttrsJson(HTMLAttributes.attrsJson as string);
     const style: string[] = [];
+    const classes: string[] = [];
 
-    if (HTMLAttributes.color) {
-      style.push(`color: ${HTMLAttributes.color}`);
+    if (
+      NFM_COLORS.has(HTMLAttributes.color) &&
+      !HTMLAttributes.color.endsWith("_bg")
+    ) {
+      classes.push(`notion-block-color--${HTMLAttributes.color}`);
     }
-    if (HTMLAttributes.bgColor) {
-      style.push(`background-color: ${HTMLAttributes.bgColor}`);
+    if (
+      NFM_COLORS.has(HTMLAttributes.bgColor) &&
+      HTMLAttributes.bgColor.endsWith("_bg")
+    ) {
+      classes.push(`notion-block-bg--${HTMLAttributes.bgColor.slice(0, -3)}`);
     }
     if (HTMLAttributes.underline === "true") {
       style.push("text-decoration: underline");
@@ -764,6 +772,7 @@ export const NotionSpanMark = Mark.create({
         bg_color: HTMLAttributes.bgColor || undefined,
         underline: HTMLAttributes.underline || undefined,
         href: HTMLAttributes.href || undefined,
+        class: classes.length ? classes.join(" ") : undefined,
         style: style.length ? style.join("; ") : undefined,
       }),
       0,

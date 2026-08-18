@@ -6,7 +6,12 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BubbleToolbar, shouldShowBubbleToolbar } from "./BubbleToolbar";
+import {
+  BubbleToolbar,
+  getSelectionNotionSpanAttribute,
+  shouldShowBubbleToolbar,
+} from "./BubbleToolbar";
+import { NotionSpanMark } from "./extensions/NotionExtensions";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -425,5 +430,116 @@ describe("BubbleToolbar", () => {
 
     expect(editor.getHTML()).toContain("<h3>Selected paragraph</h3>");
     expect(editor.getHTML()).not.toContain("<p>Selected paragraph</p>");
+  });
+
+  it("applies foreground and background colors without losing other marks", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content:
+        '<p><a href="https://www.builder.io/"><strong><span underline="true">Palette</span></strong></a> text</p>',
+    });
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const textRed = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.textColor: editor.color.red"]',
+    )!;
+    const backgroundYellow = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.backgroundColor: editor.color.yellow"]',
+    )!;
+    act(() => textRed.click());
+    act(() => backgroundYellow.click());
+
+    const selected = editor.state.doc.nodeAt(1)!;
+    expect(selected.marks.some((mark) => mark.type.name === "bold")).toBe(true);
+    expect(selected.marks.some((mark) => mark.type.name === "link")).toBe(true);
+    expect(
+      selected.marks.find((mark) => mark.type.name === "notionSpan")?.attrs,
+    ).toMatchObject({
+      color: "red",
+      bgColor: "yellow_bg",
+      underline: true,
+    });
+    expect(editor.getHTML()).toContain(
+      'class="notion-block-color--red notion-block-bg--yellow"',
+    );
+    expect(editor.state.selection).toMatchObject({ from: 1, to: 8 });
+  });
+
+  it("defaults one color attribute without clearing the other", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content:
+        '<p><span color="red" bg_color="yellow_bg" underline="true">Palette</span></p>',
+    });
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const defaultBackground = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.backgroundColor: editor.defaultColor"]',
+    )!;
+    act(() => defaultBackground.click());
+
+    expect(
+      editor.state.doc
+        .nodeAt(1)!
+        .marks.find((mark) => mark.type.name === "notionSpan")?.attrs,
+    ).toMatchObject({ color: "red", bgColor: null, underline: true });
+
+    const backgroundYellow = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.backgroundColor: editor.color.yellow"]',
+    )!;
+    const defaultForeground = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.textColor: editor.defaultColor"]',
+    )!;
+    act(() => backgroundYellow.click());
+    act(() => defaultForeground.click());
+
+    expect(
+      editor.state.doc
+        .nodeAt(1)!
+        .marks.find((mark) => mark.type.name === "notionSpan")?.attrs,
+    ).toMatchObject({ color: null, bgColor: "yellow_bg", underline: true });
+  });
+
+  it("reports a mixed color selection without claiming an active swatch", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content:
+        '<p><span color="red">Red</span><span color="blue">Blue</span></p>',
+    });
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    expect(getSelectionNotionSpanAttribute(editor, "color")).toBe("mixed");
+    expect(
+      toolbarElement
+        .querySelector(
+          'button[aria-label="editor.textColor: editor.color.red"]',
+        )
+        ?.getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(
+      toolbarElement
+        .querySelector(
+          'button[aria-label="editor.textColor: editor.color.blue"]',
+        )
+        ?.getAttribute("aria-checked"),
+    ).toBe("false");
   });
 });
