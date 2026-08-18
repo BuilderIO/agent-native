@@ -97,4 +97,3 @@ if (problems.length > 0) fail(problems);
 console.log(
   `guard-hooks-registered: OK (${registeredCommands.length} hook command(s) registered, ${hookScripts.length} hook script(s) on disk).`,
 );
-

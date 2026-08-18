@@ -177,4 +177,3 @@ function deny(reason) {
 function allow() {
   process.exit(0);
 }
-
