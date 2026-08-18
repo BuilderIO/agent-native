@@ -1422,6 +1422,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
+    leaveConfirmTitle: "나가서 이 녹화를 삭제하시겠습니까?",
+    leaveConfirmDescription:
+      "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
+    leaveAndDiscard: "나가서 삭제",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",
