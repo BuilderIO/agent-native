@@ -1363,7 +1363,9 @@ export function MultiTabAssistantChat({
           return;
         }
       }
-    } catch {}
+    } catch {
+      // coercion-ok: malformed persisted tab data is an absent tab list.
+    }
     setOpenTabIds([]);
   }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
 
