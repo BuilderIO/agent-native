@@ -115,6 +115,35 @@ describe("WorkspaceAppCard", () => {
     ).toBeNull();
   });
 
+  it("opens mounted workspace apps at their published URL", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "feedback-leaderboard",
+                name: "Feedback leaderboard",
+                path: "/feedback-leaderboard",
+                url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector(
+        'a[href="https://agent-workspace.builder.io/feedback-leaderboard/leaderboard"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Open Feedback leaderboard"]'),
+    ).toBeNull();
+  });
+
   it("keeps pinning in the app open menu", async () => {
     const onTogglePinned = vi.fn();
     await act(async () => {

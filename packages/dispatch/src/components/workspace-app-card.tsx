@@ -26,7 +26,10 @@ import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
+  isPathMountedWorkspaceApp,
+  isWorkspaceSsoAppId,
   workspaceAppHref,
+  workspaceAppDirectHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
@@ -75,6 +78,12 @@ export function WorkspaceAppCard({
 }) {
   const t = useT();
   const href = workspaceAppHref(app);
+  const directHref =
+    app.status !== "pending" &&
+    !isWorkspaceSsoAppId(app.id) &&
+    isPathMountedWorkspaceApp(app)
+      ? workspaceAppDirectHref(app, "/")
+      : null;
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";
   const pendingOpenLabel = t("dispatch.pages.openBuilderBranch", {
@@ -193,7 +202,8 @@ export function WorkspaceAppCard({
         <div className="flex shrink-0 items-center gap-2">
           <WorkspaceAppOpenActions
             app={app}
-            href={href}
+            href={directHref ?? href}
+            openDirectly={Boolean(directHref)}
             isPinned={isPinned}
             pinLabel={pinLabel}
             pendingOpenLabel={pendingOpenLabel}
@@ -285,6 +295,7 @@ export function WorkspaceAppCard({
 function WorkspaceAppOpenActions({
   app,
   href,
+  openDirectly,
   isPinned,
   pinLabel,
   pendingOpenLabel,
@@ -292,6 +303,7 @@ function WorkspaceAppOpenActions({
 }: {
   app: WorkspaceAppSummary;
   href: string | null;
+  openDirectly: boolean;
   isPinned: boolean;
   pinLabel: string;
   pendingOpenLabel: string;
@@ -328,9 +340,7 @@ function WorkspaceAppOpenActions({
       name={app.name}
       href={href}
       showNewTabOption
-      onOpen={() => {
-        navigate(appRoute);
-      }}
+      {...(openDirectly ? {} : { onOpen: () => navigate(appRoute) })}
       menuItems={
         onTogglePinned
           ? [

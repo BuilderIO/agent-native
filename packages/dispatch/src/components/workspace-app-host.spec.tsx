@@ -243,6 +243,32 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
   });
 
+  it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
+    clientState.workspaceSsoEnabled = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "feedback-leaderboard",
+            name: "Feedback leaderboard",
+            path: "/feedback-leaderboard",
+            url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "feedback-leaderboard",
+      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+      chrome: "minimal",
+    });
+    expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
+  });
+
   it("sends the parent theme on iframe load and when the parent changes", async () => {
     await act(async () => {
       root.render(

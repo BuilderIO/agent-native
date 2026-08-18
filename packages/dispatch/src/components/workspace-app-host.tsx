@@ -31,6 +31,7 @@ import { Link } from "react-router";
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
   mergeChatFirstWorkspaceApps,
+  isWorkspaceSsoAppId,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
@@ -281,6 +282,7 @@ export function WorkspaceAppFrame({
     if (isDirectFallback) setEmbedError(null);
   }, [isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
+  const useWorkspaceSso = workspaceSsoEnabled && isWorkspaceSsoAppId(app.id);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
@@ -317,7 +319,7 @@ export function WorkspaceAppFrame({
     setEmbedUrl(null);
     setEmbedError(null);
     setIsDirectFallback(false);
-    const createSession = workspaceSsoEnabled
+    const createSession = useWorkspaceSso
       ? createWorkspaceSsoEmbedSession
       : createEmbedSession;
     void createSession
@@ -328,7 +330,7 @@ export function WorkspaceAppFrame({
       .catch((cause: unknown) => {
         if (cancelled) return;
         const error = cause instanceof Error ? cause : new Error(String(cause));
-        if (workspaceSsoEnabled) {
+        if (useWorkspaceSso) {
           // An SSO-enabled pane must never fall back to the child app's
           // unauthenticated shell. Keep the parent-owned retry surface in
           // place so a transient exchange failure cannot expose another
@@ -359,7 +361,7 @@ export function WorkspaceAppFrame({
     embedInput,
     embedPath,
     embedAttempt,
-    workspaceSsoEnabled,
+    useWorkspaceSso,
   ]);
 
   useEffect(() => {

@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   isDefaultWorkspaceAppHiddenId,
   isDispatchWorkspaceAppId,
+  isPathMountedWorkspaceApp,
   isWorkspaceAppVisibleInDefaultLaunchers,
+  isWorkspaceSsoAppId,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
+  workspaceAppDirectHref,
   workspaceAppRoute,
 } from "./workspace-apps";
 
@@ -29,6 +32,29 @@ describe("workspace app routes", () => {
   it("identifies Dispatch regardless of casing or surrounding whitespace", () => {
     expect(isDispatchWorkspaceAppId(" Dispatch ")).toBe(true);
     expect(isDispatchWorkspaceAppId("dispatch-tools")).toBe(false);
+  });
+
+  it("limits workspace SSO to canonical first-party app ids", () => {
+    expect(isWorkspaceSsoAppId(" Mail ")).toBe(true);
+    expect(isWorkspaceSsoAppId("feedback-leaderboard")).toBe(false);
+  });
+
+  it("identifies mounted apps and resolves their direct workspace href", () => {
+    const app = {
+      path: "/feedback-leaderboard",
+      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+    };
+
+    expect(isPathMountedWorkspaceApp(app)).toBe(true);
+    expect(workspaceAppDirectHref(app, "/")).toBe(
+      "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+    );
+    expect(
+      isPathMountedWorkspaceApp({
+        path: "/",
+        url: "https://mail.agent-native.com",
+      }),
+    ).toBe(false);
   });
 
   it("hides the generic chat starter and Dispatch from default launchers", () => {

@@ -63,6 +63,32 @@ function getConnectionLabel(): string {
   return "SQL database";
 }
 
+function isWorkspaceRuntime(): boolean {
+  return (
+    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
+    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1" ||
+    typeof process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON === "string" ||
+    typeof process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON === "string"
+  );
+}
+
+function workspaceBasePathFromRequest(requestPath: string | undefined): string {
+  if (!isWorkspaceRuntime() || !requestPath) return "";
+  const pathname = requestPath.split(/[?#]/, 1)[0] || "/";
+  const firstSegment = pathname.split("/").find(Boolean);
+  if (
+    !firstSegment ||
+    firstSegment === "_agent-native" ||
+    firstSegment === "api" ||
+    firstSegment === "sign-in" ||
+    firstSegment === "login" ||
+    firstSegment === "signup"
+  ) {
+    return "";
+  }
+  return normalizeAppBasePath(`/${firstSegment}`);
+}
+
 function withAppBasePath(path: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   const basePath = normalizeAppBasePath(
@@ -1198,9 +1224,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   // for every visitor. A genuinely misconfigured server instead surfaces a
   // clear error at click time via the auth API.
   const renderGoogleButton = showGoogle || googleOnly;
-  const appBasePath = normalizeAppBasePath(
+  const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
+  const appBasePath =
+    configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
+  const workspaceRuntime = isWorkspaceRuntime();
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -2366,7 +2395,17 @@ ${signupLocalModeNoteHtml}
     if (configured) return configured;
     var marker = '/_agent-native';
     var idx = window.location.pathname.indexOf(marker);
-    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+    if (idx > 0) return window.location.pathname.slice(0, idx);
+    if (${JSON.stringify(workspaceRuntime)}) {
+      var segments = window.location.pathname.split('/');
+      for (var i = 0; i < segments.length; i++) {
+        var segment = segments[i];
+        if (segment && segment !== '_agent-native' && segment !== 'api' && segment !== 'sign-in' && segment !== 'login' && segment !== 'signup') {
+          return '/' + segment;
+        }
+      }
+    }
+    return '';
   }
     function __anPath(path) {
       return __anBasePath() + path;

@@ -38,6 +38,39 @@ export function isDispatchWorkspaceAppId(appId: string): boolean {
   return appId.trim().toLowerCase() === "dispatch";
 }
 
+/**
+ * The workspace SSO action only accepts the exact first-party app identities
+ * registered by Dispatch. Mounted workspace apps use the regular granted-app
+ * session flow until they receive an explicit identity registration.
+ */
+export function isWorkspaceSsoAppId(appId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+    appId.trim().toLowerCase(),
+  );
+}
+
+/**
+ * A mounted app URL leaves Dispatch's `/apps/:id` host route. Keep this check
+ * based on the published URL path so canonical first-party origins continue
+ * to use the inline pane while custom workspace apps open at their own mount.
+ */
+export function isPathMountedWorkspaceApp(
+  app: WorkspaceAppHrefSource,
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const pathname = new URL(rawUrl).pathname.replace(/\/+$/, "") || "/";
+      return pathname !== "/";
+    } catch {
+      // Fall through to the mounted path for relative manifest values.
+    }
+  }
+  const path = app.path?.trim().replace(/\/+$/, "") || "/";
+  return path !== "/";
+}
+
 export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
   const normalized = appId.trim().toLowerCase();
   return normalized === "chat" || isDispatchWorkspaceAppId(normalized);

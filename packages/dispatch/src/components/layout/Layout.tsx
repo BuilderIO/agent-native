@@ -106,9 +106,12 @@ import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import {
   isDispatchWorkspaceAppId,
+  isPathMountedWorkspaceApp,
   isWorkspaceAppVisibleInDefaultLaunchers,
+  isWorkspaceSsoAppId,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
+  workspaceAppDirectHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -1450,6 +1453,26 @@ export function Layout({
         })),
     [chatFirstAppRegistrations],
   );
+  const openChatFirstApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      if (isDispatchWorkspaceAppId(app.id)) return;
+      const registration = chatFirstAppRegistrations.find(
+        (candidate) => candidate.id.toLowerCase() === app.id.toLowerCase(),
+      );
+      const directHref =
+        registration &&
+        !isWorkspaceSsoAppId(registration.id) &&
+        isPathMountedWorkspaceApp(registration)
+          ? workspaceAppDirectHref(registration, "/")
+          : null;
+      if (directHref) {
+        window.location.assign(directHref);
+        return;
+      }
+      navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+    },
+    [chatFirstAppRegistrations, navigate],
+  );
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const [chatFirstPane, setChatFirstPane] =
     useState<DispatchChatFirstPane | null>(null);
@@ -2448,7 +2471,7 @@ export function Layout({
               onChatFirstAppOpen={(app) => {
                 if (isDispatchWorkspaceAppId(app.id)) return;
                 setSidebarCollapsed(true);
-                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+                openChatFirstApp(app);
               }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
@@ -2489,9 +2512,7 @@ export function Layout({
                     chatFirstSurfaceTabsStore.closeAll();
                     setChatFirstSurfacePanelOpen(false);
                   }}
-                  onChatFirstAppOpen={(app) =>
-                    navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
-                  }
+                  onChatFirstAppOpen={openChatFirstApp}
                   onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
                   onNavigate={() => setMobileOpen(false)}
                 />
