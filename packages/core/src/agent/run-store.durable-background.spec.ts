@@ -30,12 +30,16 @@ interface RunRow {
 
 let rows: RunRow[] = [];
 
-// Mirror the two constants used by `backgroundAwareStaleCutoffSql`. The SQL
+// Mirror the three constants used by `backgroundAwareStaleCutoffSql`. The SQL
 // inlines them as literals, so we evaluate the CASE in JS to decide reaping.
 const RUN_STALE_MS = 15_000;
 const BACKGROUND_RUN_STALE_MS = 90_000;
+const BACKGROUND_PROCESSING_RUN_STALE_MS = 45_000;
 
 function rowStaleWindow(row: RunRow): number {
+  if (row.dispatch_mode === "background-processing") {
+    return BACKGROUND_PROCESSING_RUN_STALE_MS;
+  }
   return row.dispatch_mode && row.dispatch_mode.startsWith("background")
     ? BACKGROUND_RUN_STALE_MS
     : RUN_STALE_MS;
@@ -167,14 +171,13 @@ const mockDb = {
       /UPDATE agent_runs SET status = 'errored'/i.test(sql) &&
       /WHERE id = \?/i.test(sql)
     ) {
-      const completedAt = args[0] as number;
-      const id = args[4] as string;
-      const lastBound = args[5] as number;
+      const id = args[3] as string;
+      const lastBound = args[4] as number;
       // Default path inlines the background-aware CASE and binds `now`; the
       // explicit-maxStaleMs path inlines a plain `?` and binds a pre-computed
       // cutoff. Distinguish by the SQL fragment, not the arg type.
       const usesBackgroundAwareWindow =
-        /CASE WHEN dispatch_mode LIKE 'background%'/i.test(sql);
+        /WHEN dispatch_mode LIKE 'background%'/i.test(sql);
       const row = rows.find((r) => r.id === id && r.status === "running");
       if (!row) return { rows: [], rowsAffected: 0 };
       const cutoff = usesBackgroundAwareWindow
@@ -182,10 +185,12 @@ const mockDb = {
         : lastBound; // already (now - maxStaleMs)
       if (liveness(row) < cutoff) {
         row.status = "errored";
-        row.completed_at = completedAt;
-        row.error_code = args[1] as string;
-        row.error_detail = args[2] as string;
-        row.terminal_reason = args[3] as string;
+        // `completed_at = COALESCE(completed_at, <livenessBasis>)` — the reaper
+        // records when the run DIED, not when it was noticed.
+        row.completed_at = row.completed_at ?? liveness(row);
+        row.error_code = args[0] as string;
+        row.error_detail = args[1] as string;
+        row.terminal_reason = args[2] as string;
         return { rows: [], rowsAffected: 1 };
       }
       return { rows: [], rowsAffected: 0 };
@@ -258,6 +263,7 @@ const {
   UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
   RUN_STALE_MS: STORE_RUN_STALE_MS,
   BACKGROUND_RUN_STALE_MS: STORE_BACKGROUND_RUN_STALE_MS,
+  BACKGROUND_PROCESSING_RUN_STALE_MS: STORE_BACKGROUND_PROCESSING_RUN_STALE_MS,
 } = await import("./run-store.js");
 
 describe("run-store durable background", () => {
@@ -266,9 +272,13 @@ describe("run-store durable background", () => {
     vi.clearAllMocks();
   });
 
-  it("exports the tight foreground + wide background stale windows", () => {
+  it("exports distinct stale windows for foreground, unclaimed, and claimed background runs", () => {
     expect(STORE_RUN_STALE_MS).toBe(15_000);
     expect(STORE_BACKGROUND_RUN_STALE_MS).toBe(90_000);
+    expect(STORE_BACKGROUND_PROCESSING_RUN_STALE_MS).toBe(45_000);
+    expect(STORE_BACKGROUND_PROCESSING_RUN_STALE_MS).toBeLessThan(
+      STORE_BACKGROUND_RUN_STALE_MS,
+    );
     expect(STORE_BACKGROUND_RUN_STALE_MS).toBeGreaterThan(STORE_RUN_STALE_MS);
   });
 
@@ -329,6 +339,20 @@ describe("run-store durable background", () => {
     const reaped = await reapIfStale("r-dead-bg");
     expect(reaped).toBe(true);
     expect(await getRunStatus("r-dead-bg")).toBe("errored");
+  });
+
+  it("reaps a claimed background worker after the shorter post-claim window", async () => {
+    const now = Date.now();
+    await insertRun("r-dead-claimed-bg", "t1", "turn", {
+      dispatchMode: "background",
+    });
+    expect(await claimBackgroundRun("r-dead-claimed-bg")).toBe(true);
+    const row = rows.find((r) => r.id === "r-dead-claimed-bg")!;
+    markProducerDead(row, now - 50_000);
+
+    const reaped = await reapIfStale("r-dead-claimed-bg");
+    expect(reaped).toBe(true);
+    expect(await getRunStatus("r-dead-claimed-bg")).toBe("errored");
   });
 
   it("stale reaper still reaps a foreground run past the tight 15s window", async () => {

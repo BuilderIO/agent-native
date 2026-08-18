@@ -247,7 +247,7 @@ pnpm dev
 
 Clips es una plantilla más grande con una grabadora nativa (incluye un complemento de escritorio para captura local). Se necesitan tres pasos de configuración antes de poder cargar las grabaciones:
 
-1. **Almacenamiento de video (obligatorio).** Conecte un backend de almacenamiento a través del asistente de incorporación. El camino más sencillo es Builder.io (gratis durante la versión beta, con un solo clic). Para almacenamiento autohospedado, configure `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` y, opcionalmente, `S3_REGION` y `S3_PUBLIC_BASE_URL`. Cloudflare R2 y DigitalOcean Spaces utilizan las mismas variables de entorno con el prefijo `R2_*`.
+1. **Almacenamiento de video (obligatorio).** Conecte un backend de almacenamiento a través del asistente de incorporación. El camino más sencillo es Builder.io (free tier includes video storage and AI credits, con un solo clic). Para almacenamiento autohospedado, configure `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` y, opcionalmente, `S3_REGION` y `S3_PUBLIC_BASE_URL`. Cloudflare R2 y DigitalOcean Spaces utilizan las mismas variables de entorno con el prefijo `R2_*`.
 2. **Google Calendar (opcional).** Para sincronizar las próximas reuniones, conecte una cuenta Google Calendar desde Configuración. La devolución de llamada OAuth URL en desarrollo es `http://localhost:8094/_agent-native/google/callback`. Configure un cliente Google OAuth en [Google Cloud Console](https://console.cloud.google.com/) con los Gmail y Google Calendar API habilitados.
 3. **Permisos de captura de pantalla.** En macOS, otorgue permiso de Grabación de pantalla al navegador (o a la aplicación complementaria de escritorio) en Configuración del sistema → Privacidad y seguridad → Grabación de pantalla. Las grabaciones del navegador pueden guardar la consola redactada y recuperar diagnósticos/XHR desde la página de la grabadora. Una vez que la lista de extensiones de Chrome esté disponible, habilite `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` para que los usuarios puedan elegir la extensión para los registros del navegador de pestaña activa o la aplicación de escritorio para obtener la ruta de captura nativa más fluida.
 4. **Vistas previas de Slack (opcional).** Cree una aplicación Slack con `links:read`, `links:write` y `links.embed:write`; suscríbete a `link_shared`; agregue su dominio compartido de Clips en **App Unfurl Domains**; establezca la Solicitud URL en `https://your-clips.example.com/api/slack/unfurl`; y agregue la redirección OAuth URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` y `SLACK_SIGNING_SECRET` y luego conecte espacios de trabajo desde Configuración de clips.
@@ -269,7 +269,7 @@ aplicación de bandeja en su implementación.
 
 2. **Configurar el estado de producción.** Establecer un `DATABASE_URL` persistente, el normal
    variables de autenticación/secretos de producción de [Deployment](/docs/deployment) y un
-   proveedor de almacenamiento de vídeo. Builder.io Connect es la ruta de almacenamiento más sencilla; para
+   proveedor de almacenamiento de vídeo. Builder.io Connect (free tier includes video storage and AI credits) es la ruta de almacenamiento más sencilla; para
    almacenamiento autohospedado, utilice variables `S3_*` o `R2_*` para un sistema compatible con S3
    cubo.
 
@@ -300,7 +300,7 @@ aplicación de bandeja en su implementación.
    Listado de extensiones diferentes.
 
 6. **Conecta integraciones opcionales.** Google Calendar impulsa la pestaña Reuniones,
-   `GEMINI_API_KEY` o Builder.io Connect potencian la limpieza de transcripciones y títulos
+   `GEMINI_API_KEY` o Builder.io Connect (free tier includes AI credits) potencian la limpieza de transcripciones y títulos
    `GROQ_API_KEY` puede proporcionar respaldo de voz a texto, y Slack OAuth
    La conexión en Configuración permite el despliegue jugable de Slack.
 

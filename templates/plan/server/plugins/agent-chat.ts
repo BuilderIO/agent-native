@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
+import { PLAN_FRAMEWORK_TOOLS } from "../lib/plan-framework-tools.js";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
 const PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -130,8 +131,13 @@ const planAgentChatOptions = {
   initialToolNames: INITIAL_TOOL_NAMES,
   anonymousOwner: resolvePlanAnonymousOwner,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  connectorCatalog: PLAN_CONNECTOR_CATALOG,
-  disableMcp: true,
+  frameworkTools: PLAN_FRAMEWORK_TOOLS,
+  mcp: {
+    // Plan mounts MCP from a dedicated early plugin (`00-mcp.ts`) so its
+    // external connector does not wait on chat plugin initialization.
+    enabled: false,
+    connectorCatalog: PLAN_CONNECTOR_CATALOG,
+  },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
 };

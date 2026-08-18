@@ -1,0 +1,15 @@
+{
+  "type": "widget",
+  "name": "AgentNativeWidgets",
+  "displayName": "Agent Native Capture",
+  "bundleIdentifier": ".widgets",
+  "deploymentTarget": "17.0",
+  "frameworks": ["ActivityKit", "AppIntents", "SwiftUI", "WidgetKit"],
+  "entitlements": {
+    "com.apple.security.application-groups": ["group.com.agentnative.mobile"]
+  },
+  "colors": {
+    "$accent": "#C7F36B",
+    "$widgetBackground": "#18181B"
+  }
+}

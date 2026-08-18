@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  resolveGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import pLimit from "p-limit";
@@ -28,13 +33,47 @@ const presetReferenceFillSchema = z.object({
   assetIds: z.array(z.string().min(1)).min(1).max(4),
 });
 
+const imageBatchAgentInputSchema = z.object({
+  libraryId: z
+    .string()
+    .min(1)
+    .describe("Brand kit/library ID to use for every generated image."),
+  collectionId: z.string().optional(),
+  presetId: z.string().optional(),
+  presetReferenceFills: z.array(presetReferenceFillSchema).max(6).optional(),
+  sessionId: z.string().optional(),
+  slots: z
+    .array(
+      z.object({
+        slotId: z.string(),
+        prompt: z.string().min(1),
+        embeddedText: z.string().optional(),
+        textPlacement: z.string().optional(),
+        aspectRatio: z.enum(ASPECT_RATIOS).optional(),
+        imageSize: z.enum(IMAGE_SIZES).optional(),
+        categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
+        referenceAssetIds: z.array(z.string()).optional(),
+        sourceAssetId: z.string().optional(),
+        subjectAssetId: z.string().optional(),
+        intent: z.enum(GENERATION_INTENTS).optional(),
+        styleStrength: z.enum(STYLE_STRENGTHS).optional(),
+      }),
+    )
+    .min(1)
+    .max(12),
+  model: z.enum(IMAGE_MODELS).optional(),
+  tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
+  includeLogo: z.boolean().optional(),
+  groundingMode: z.enum(["auto", "off", "google-search"]).optional(),
+});
+
 export default defineAction({
   description:
     "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z
       .string()
-      .optional()
+      .min(1)
       .describe(
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
@@ -117,7 +156,20 @@ export default defineAction({
       .describe(
         "Set by A2A callers (e.g. 'slides', 'design') so audit logs can filter by app.",
       ),
+    creativeContextRequestId: z
+      .string()
+      .optional()
+      .describe(
+        "Internal immutable creative-context request ID supplied by the Assets picker.",
+      ),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this batch only without changing the saved preference.",
+      ),
   }),
+  agentInputSchema: imageBatchAgentInputSchema,
   parallelSafe: true,
   timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
   run: async ({ slots, ...inputBase }, context?: ActionRunContext) => {
@@ -134,6 +186,42 @@ export default defineAction({
     await assertAccess("asset-library", base.libraryId, "editor");
     if (base.sessionId) {
       await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
+    }
+    const creativeContextRequestId =
+      base.creativeContextRequestId ?? (base.sessionId ? undefined : nanoid());
+    if (!base.creativeContextRequestId && creativeContextRequestId) {
+      const creativeContext = await resolveGenerationCreativeContext({
+        query: slots.map((slot) => slot.prompt).join("\n"),
+        role: "assets",
+        contextModeOverride: base.contextModeOverride,
+      });
+      const reuseLabels =
+        creativeContext.reuseLabels as CreativeContextReuseLabel[];
+      await recordGenerationCreativeContext({
+        appId: "assets",
+        artifactType: "generation-request",
+        artifactId: creativeContextRequestId,
+        contextMode: creativeContext.contextMode,
+        contextPackId: creativeContext.contextPackId,
+        reuseLabels,
+        elementProvenance: reuseLabels.length
+          ? reuseLabels.map((label) => ({
+              elementId: creativeContextRequestId,
+              influence: label.influence ?? ("reference-conditioned" as const),
+              ...(label.itemId ? { itemId: label.itemId } : {}),
+              ...(label.itemVersionId
+                ? { itemVersionId: label.itemVersionId }
+                : {}),
+              label: label.label,
+            }))
+          : [
+              {
+                elementId: creativeContextRequestId,
+                influence: "generated",
+                label: "Image batch request",
+              },
+            ],
+      });
     }
     const variantBatchId = nanoid();
     await Promise.all(
@@ -185,6 +273,8 @@ export default defineAction({
               subjectAssetId: slot.subjectAssetId,
               source: base.source,
               callerAppId: base.callerAppId,
+              creativeContextRequestId,
+              contextModeOverride: base.contextModeOverride,
               activateSessionAsset: false,
             },
             context,

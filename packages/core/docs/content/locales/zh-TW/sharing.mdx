@@ -80,6 +80,7 @@ description: "框架內建了熟悉且一致的共享方式。使用者建立的
 當您與特定使用者或組織共用時，您可以選取一個角色：
 
 - **檢視者** — 唯讀。
+- **評論者** — 可以檢視並新增評論，但無法編輯資源或管理共用。
 - **編輯器** — 讀取 + 寫入。
 - **管理員** — 讀取+寫入+管理共用（可以新增/刪除其他人）。
 
@@ -122,8 +123,7 @@ description: "框架內建了熟悉且一致的共享方式。使用者建立的
 共用按鈕是一次匯入：
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -245,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "觀眾|編輯|行政",
+          note: "觀眾|評論者|編輯|行政",
         },
         {
           name: "created_by",

@@ -66,7 +66,17 @@ const viewSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z
-    .enum(["table", "board", "list", "gallery", "calendar", "timeline", "form"])
+    .enum([
+      "table",
+      "board",
+      "list",
+      "gallery",
+      "calendar",
+      "timeline",
+      "form",
+      "sidebar",
+    ])
+    .transform((type) => (type === "sidebar" ? "table" : type))
     .default("table"),
   sorts: z.array(sortSchema).default([]),
   filters: z.array(filterSchema).default([]),
@@ -126,6 +136,6 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(databaseId);
+    return getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 });
   },
 });

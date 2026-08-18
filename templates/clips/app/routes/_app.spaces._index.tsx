@@ -1,4 +1,5 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -29,10 +30,11 @@ function Skeleton() {
 export default function SpacesIndexRoute() {
   const t = useT();
   const [createOpen, setCreateOpen] = useState(false);
+  const { canManageOrg } = useOrgRole();
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
-  const { data, isLoading } = useSpaces(currentOrganizationId);
+  const { data, isLoading, refetch } = useSpaces(currentOrganizationId);
 
   const spaces: SpaceCardData[] = (data?.spaces ?? []).map((s: any) => ({
     id: s.id,
@@ -53,15 +55,17 @@ export default function SpacesIndexRoute() {
             {t("navigation.spaces")}
           </h1>
         </div>
-        <div className="ml-auto">
-          <Button
-            size="sm"
-            className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => setCreateOpen(true)}
-          >
-            <IconPlus className="h-4 w-4" /> {t("createSpaceDialog.newSpace")}
-          </Button>
-        </div>
+        {canManageOrg && (
+          <div className="ml-auto">
+            <Button
+              size="sm"
+              className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => setCreateOpen(true)}
+            >
+              <IconPlus className="h-4 w-4" /> {t("createSpaceDialog.newSpace")}
+            </Button>
+          </div>
+        )}
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-5">
@@ -76,7 +80,11 @@ export default function SpacesIndexRoute() {
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (
-              <SpaceCard key={s.id} space={s} />
+              <SpaceCard
+                key={s.id}
+                space={s}
+                onMutationSuccess={() => refetch?.()}
+              />
             ))}
           </div>
         )}

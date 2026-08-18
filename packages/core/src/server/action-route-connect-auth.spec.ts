@@ -23,6 +23,11 @@ vi.mock("./framework-request-handler.js", () => ({
   getH3App: (app: any) => app,
 }));
 vi.mock("./action-change.js", () => ({
+  actionCallIsReadOnly: (
+    entry: { readOnly?: boolean },
+    _params: unknown,
+    fallback: boolean,
+  ) => entry.readOnly ?? fallback,
   notifyActionChange: vi.fn(),
 }));
 

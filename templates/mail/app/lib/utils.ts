@@ -1,4 +1,4 @@
-export { cn } from "@agent-native/core/client";
+export { cn } from "@agent-native/toolkit/utils";
 import {
   decodeCommonHtmlEntities,
   escapeHtml,
@@ -194,5 +194,5 @@ export function formatShortcut(key: string): string {
       if (lower === "space") return "Space";
       return token.length === 1 ? token.toUpperCase() : token;
     })
-    .join("+");
+    .join(" ");
 }

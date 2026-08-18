@@ -1,11 +1,12 @@
-import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import {
-  getAppUrl,
-  FRAME_PORT,
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_MESSAGE,
+} from "@agent-native/core/client/hooks";
+import {
+  DESKTOP_DEFAULT_APPS,
   getTemplate,
-  getDesktopTemplateGatewayAppUrl,
-  getTemplateGatewayUrl,
-  isDefaultDesktopTemplateDevTarget,
+  type AppDefinition,
+  type AppConfig,
 } from "@shared/app-registry";
 import {
   IconRefresh,
@@ -20,6 +21,7 @@ import {
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useCallback,
   useRef,
   useEffect,
   useState,
@@ -27,8 +29,13 @@ import {
 } from "react";
 
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
+import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
+import DesktopIdentityGate from "./DesktopIdentityGate.js";
+import { shouldReloadActiveWebview } from "./webview-refresh.js";
 
 const IS_DEV = window.location.protocol !== "file:";
+export const APP_WEBVIEW_PREFERENCES =
+  "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
 
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
@@ -37,12 +44,115 @@ type WebviewLoadFailedEvent = Event & {
   isMainFrame?: boolean;
 };
 type WebviewConsoleMessageEvent = Event & { message?: string };
+type WebviewIpcMessageEvent = Event & {
+  channel?: string;
+  args?: unknown[];
+};
+
+export type GuestChatCommandEvent =
+  | "agent-panel:toggle"
+  | "agent-panel:open"
+  | "agent-panel:close";
+
+export function resolveGuestChatCommand(
+  command: unknown,
+): GuestChatCommandEvent | null {
+  if (command === "toggle") return "agent-panel:toggle";
+  if (command === "open") return "agent-panel:open";
+  if (command === "close") return "agent-panel:close";
+  return null;
+}
+
+export type AppWebviewAuthState =
+  | "unknown"
+  | "authenticated"
+  | "unauthenticated";
+
+export function resolveAppWebviewAuthState(
+  rawUrl: string | undefined,
+): AppWebviewAuthState {
+  if (!rawUrl) return "unknown";
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "unknown";
+    }
+    const lastSegment = parsed.pathname
+      .split("/")
+      .filter(Boolean)
+      .at(-1)
+      ?.toLowerCase();
+    if (
+      lastSegment === "sign-in" ||
+      lastSegment === "login" ||
+      lastSegment === "signup"
+    ) {
+      return "unauthenticated";
+    }
+    return "authenticated";
+  } catch {
+    return "unknown";
+  }
+}
+
+export function isDesktopIdentityGateEligible(
+  app: Pick<AppDefinition, "id">,
+  appConfig?: Pick<AppConfig, "isBuiltIn" | "mode" | "url" | "workspaceSso">,
+  sourceUrl?: string,
+): boolean {
+  if (sourceUrl?.trim() || appConfig?.mode === "dev") return false;
+
+  const canonical = DESKTOP_DEFAULT_APPS.find(
+    (candidate) => candidate.id === app.id,
+  );
+  const productionOrigin = (url: string | undefined): string | null => {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "https:" ? parsed.origin : null;
+      // coercion-ok: an invalid app URL is an ineligible SSO origin.
+    } catch {
+      return null;
+    }
+  };
+
+  // A built-in id must retain its canonical production origin. Otherwise a
+  // local or edited URL could inherit first-party SSO trust in the renderer.
+  if (canonical && appConfig?.isBuiltIn === true) {
+    if (productionOrigin(appConfig.url) !== productionOrigin(canonical.url)) {
+      return false;
+    }
+  }
+
+  if (appConfig?.workspaceSso === true) {
+    return productionOrigin(appConfig.url) !== null;
+  }
+  if (appConfig && appConfig.isBuiltIn !== true) return false;
+  return canonical !== undefined;
+}
+
+export function shouldSuppressDesktopSignInPrompt(
+  app: Pick<AppDefinition, "id">,
+  appConfig: Pick<
+    AppConfig,
+    "id" | "isBuiltIn" | "mode" | "url" | "workspaceSso"
+  >,
+  identityAvailable: boolean,
+): boolean {
+  return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
+}
 
 interface AppWebviewProps {
   app: AppDefinition;
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Resolved shell theme to apply inside the guest document. */
+  theme: RendererTheme;
+  /** Only same-origin app surfaces should inherit the shell theme. */
+  syncTheme?: boolean;
+  /** Explicit browser target for the chat-first with-chrome surface. */
+  sourceUrl?: string;
   /** Changes when the same URL should be opened again. */
   urlOpenNonce?: number;
   /** Safe app-relative path to load inside this app's origin. */
@@ -51,10 +161,14 @@ interface AppWebviewProps {
   urlOpenSoft?: boolean;
   /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
+  /** Optional explicit Electron partition for preview or other isolated flows. */
+  partitionKey?: string;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
   /** Emits the guest page's document title so the shell tab can stay current. */
   onTitleChange?: (title: string) => void;
+  /** Emits the guest page's coarse session state for host-owned UI. */
+  onAuthStateChange?: (state: AppWebviewAuthState) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -66,6 +180,7 @@ export interface AppWebviewHandle {
   stopFindInPage(
     action?: "clearSelection" | "keepSelection" | "activateSelection",
   ): void;
+  focus(): void;
   getUrl(): string | undefined;
   goBack(): void;
   goForward(): void;
@@ -77,30 +192,20 @@ export interface AppWebviewHandle {
  * Determine the URL to load for this app.
  *
  * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
- * Dev mode: honor an explicit lazy gateway override or devUrl/port override;
- * otherwise first-party templates fall back to the local dev frame.
+ * Dev mode: load the app's local dev URL directly. The Electron shell owns
+ * chat now, so installed apps no longer need the local dev frame as a wrapper.
  */
-function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
+export function resolveAppWebviewUrl(
+  app: AppDefinition,
+  appConfig?: AppConfig,
+): string {
   if (appConfig?.mode === "dev") {
-    const template = getTemplate(appConfig.id);
-    if (template) {
-      const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)
-        ? (appConfig.devUrl?.trim() ??
-          (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : ""))
-        : "";
-
-      // First-party templates must load through the frame so the Chat | CLI |
-      // Workspace panel lives outside the hot-reloaded app iframe. Custom
-      // template targets still use the frame as the top-level page; the frame
-      // loads the custom URL inside its app iframe.
-      return getFramedAppUrl(app, customTemplateDevUrl);
-    }
-
-    // Non-template dev URLs can still load directly.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
-    if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
+    if (appConfig.devPort || app.devPort) {
+      return `http://localhost:${appConfig.devPort || app.devPort}`;
+    }
     if (appConfig.url) return appConfig.url;
-    return getAppUrl(app);
+    return "about:blank";
   }
 
   // Production mode (default): use the production URL
@@ -113,41 +218,9 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
     return template.prodUrl;
   }
 
-  // Fallback for custom apps with no production URL.
-  return getAppUrl(app);
-}
-
-function getFramedAppUrl(app: AppDefinition, devUrl?: string): string {
-  const frameUrl = new URL(getAppUrl(app));
-  const trimmedDevUrl = devUrl?.trim();
-  if (trimmedDevUrl) frameUrl.searchParams.set("devUrl", trimmedDevUrl);
-  return frameUrl.toString();
-}
-
-function rendererEnvValue(name: string): string | undefined {
-  const viteEnv = (
-    typeof import.meta !== "undefined"
-      ? (
-          import.meta as unknown as {
-            env?: Record<string, string | undefined>;
-          }
-        ).env
-      : undefined
-  )?.[name];
-  if (viteEnv) return viteEnv;
-  const globalProcess = (
-    globalThis as unknown as {
-      process?: { env?: Record<string, string | undefined> };
-    }
-  ).process;
-  return globalProcess?.env?.[name];
-}
-
-function templateGatewayOverridesDevUrls(): boolean {
-  const value =
-    rendererEnvValue("VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY") ||
-    rendererEnvValue("AGENT_NATIVE_USE_TEMPLATE_GATEWAY");
-  return value === "1" || value === "true";
+  // Keep incomplete custom entries on a stable blank document instead of
+  // silently routing them through the retired local dev frame.
+  return "about:blank";
 }
 
 function withUrlParams(
@@ -216,6 +289,18 @@ function canSoftOpenWebview(
   }
 }
 
+export function resolveAppWebviewPartition(input: {
+  appId: string;
+  sourceUrl?: string;
+  partitionKey?: string;
+}): string {
+  const explicitPartition = input.partitionKey?.trim();
+  if (explicitPartition) return explicitPartition;
+  return input.sourceUrl?.trim()
+    ? "persist:chat-first-browser"
+    : `persist:app-${input.appId}`;
+}
+
 function buildSoftOpenScript(path: string): string {
   return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
 }
@@ -233,18 +318,38 @@ function buildGuestLifecycleScript(
   })()`;
 }
 
+export function buildGuestAppChatSidebarStateScript(open: boolean): string {
+  const encodedEventName = JSON.stringify(APP_CHAT_SIDEBAR_STATE_EVENT);
+  const encodedMessage = JSON.stringify({
+    type: APP_CHAT_SIDEBAR_STATE_MESSAGE,
+    data: { open, hosted: true },
+  });
+  return `(() => {
+    const message = ${encodedMessage};
+    window.dispatchEvent(new CustomEvent(${encodedEventName}, { detail: message.data }));
+    for (const iframe of document.querySelectorAll("iframe")) {
+      iframe.contentWindow?.postMessage(message, "*");
+    }
+  })()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
       app,
       appConfig,
       isActive,
+      theme,
+      syncTheme = true,
+      sourceUrl,
       urlOpenNonce,
       urlPath,
       urlOpenSoft,
       urlParams,
+      partitionKey,
       refreshKey = 0,
       onTitleChange,
+      onAuthStateChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -254,25 +359,154 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const url = withUrlParams(
-      withUrlPath(resolveUrl(app, appConfig), urlPath),
-      {
-        ...(appConfig?.mode === "dev" && appConfig.localPath
-          ? { _agentNativeDesktopCode: "1" }
-          : {}),
-        ...urlParams,
-      },
+    const loadFailureRef = useRef(false);
+    const url = sourceUrl?.trim()
+      ? withUrlParams(sourceUrl.trim(), urlParams)
+      : withUrlParams(
+          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+          {
+            ...(appConfig?.mode === "dev" && appConfig.localPath
+              ? { _agentNativeDesktopCode: "1" }
+              : {}),
+            ...urlParams,
+          },
+        );
+    const isDevMode = !sourceUrl && appConfig?.mode === "dev";
+    const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
+      app,
+      appConfig,
+      sourceUrl,
     );
-    const isDevMode = appConfig?.mode === "dev";
+    const [desktopIdentityStatus, setDesktopIdentityStatus] = useState<
+      DesktopIdentityStatus | "checking"
+    >("idle");
+    const [desktopIdentityEnabled, setDesktopIdentityEnabled] = useState<
+      boolean | null
+    >(() => (desktopIdentityGateEligible && isActive ? null : false));
+    const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
+      useState(() => !desktopIdentityGateEligible || !isActive);
+    const desktopIdentityGateActive =
+      desktopIdentityGateEligible &&
+      isActive &&
+      desktopIdentityEnabled === true;
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
+    const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const perAppChatOpenRef = useRef(false);
+
+    const applyGuestTheme = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!syncTheme || !wv || app.placeholder) return;
+      try {
+        void wv
+          .executeJavaScript(buildGuestThemeScript(theme), false)
+          .catch(() => {});
+        // coercion-ok: Theme sync is best-effort until the imperatively-created webview is attached.
+      } catch {
+        // The imperatively-created webview can exist before Chromium attaches it.
+      }
+    }, [app.placeholder, syncTheme, theme]);
+
+    const syncGuestAppChatSidebar = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!wv || app.placeholder) return;
+      try {
+        void wv
+          .executeJavaScript(
+            buildGuestAppChatSidebarStateScript(perAppChatOpenRef.current),
+            false,
+          )
+          .catch(() => {});
+        // coercion-ok: Guest chrome sync is best-effort until Chromium attaches the webview.
+      } catch {
+        // The imperatively-created webview can exist before Chromium attaches it.
+      }
+    }, [app.placeholder]);
 
     useEffect(() => {
       onTitleChangeRef.current = onTitleChange;
     }, [onTitleChange]);
+
+    useEffect(() => {
+      onAuthStateChangeRef.current = onAuthStateChange;
+    }, [onAuthStateChange]);
+
+    useEffect(() => {
+      const identity = window.electronAPI?.identity;
+      if (!identity || !desktopIdentityGateEligible || !isActive) {
+        setDesktopIdentityEnabled(false);
+        setDesktopIdentityStatus("idle");
+        setDesktopIdentitySessionReady(true);
+        return;
+      }
+      let active = true;
+      let statusRequest = 0;
+      setDesktopIdentityEnabled(null);
+      setDesktopIdentitySessionReady(false);
+
+      const applyStatus = async (status: DesktopIdentityStatus) => {
+        const request = ++statusRequest;
+        if (!active) return;
+        setDesktopIdentityStatus(status);
+        if (status === "signed-in") {
+          setDesktopIdentitySessionReady(false);
+          let synchronized: boolean | null;
+          try {
+            synchronized = await identity.ensureAppSession(app.id);
+          } catch (error) {
+            console.warn("[desktop-identity] lazy app synchronization failed", {
+              appId: app.id,
+              reason: error instanceof Error ? error.message : "unknown error",
+            });
+            synchronized = null;
+          }
+          if (!active || request !== statusRequest) return;
+          setDesktopIdentitySessionReady(synchronized === true);
+          if (synchronized !== true) setDesktopIdentityStatus("failed");
+          return;
+        }
+        setDesktopIdentitySessionReady(status !== "signing-in");
+      };
+
+      const applySettingAndStatus = async (
+        nextStatus?: DesktopIdentityStatus,
+      ) => {
+        try {
+          const settings = await identity.getSettings();
+          if (!active) return;
+          if (!settings.ssoEnabled) {
+            setDesktopIdentityEnabled(false);
+            setDesktopIdentityStatus("idle");
+            setDesktopIdentitySessionReady(true);
+            return;
+          }
+          setDesktopIdentityEnabled(true);
+          setDesktopIdentityStatus("checking");
+          setDesktopIdentitySessionReady(false);
+          await applyStatus(nextStatus ?? (await identity.getStatus()));
+        } catch {
+          // An older or unavailable preload must fail closed to the legacy
+          // app-owned login surface rather than strand the WebView behind SSO.
+          if (active) {
+            setDesktopIdentityEnabled(false);
+            setDesktopIdentityStatus("idle");
+            setDesktopIdentitySessionReady(true);
+          }
+        }
+      };
+
+      void Promise.resolve().then(() => applySettingAndStatus());
+      const unsubscribe = identity.onStatusChange((status) => {
+        void applySettingAndStatus(status);
+      });
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    }, [app.id, desktopIdentityGateEligible, isActive]);
 
     useImperativeHandle(
       ref,
@@ -284,6 +518,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         },
         stopFindInPage(action = "clearSelection") {
           webviewRef.current?.stopFindInPage(action);
+        },
+        focus() {
+          webviewRef.current?.focus();
         },
         getUrl() {
           const wv = webviewRef.current;
@@ -374,6 +611,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const recoverOutdatedOptimizeDep = () => {
         if (!IS_DEV || optimizeDepRecoveryRef.current) return;
         optimizeDepRecoveryRef.current = true;
+        loadFailureRef.current = false;
         setError(false);
         setTimeout(() => {
           try {
@@ -408,8 +646,27 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         }, 200);
         titleTimers.add(timer);
       };
+      const emitAuthState = () => {
+        if (disposed) return;
+        let currentUrl: string | undefined;
+        try {
+          currentUrl = wv.getURL() || wv.src;
+        } catch {
+          currentUrl = wv.src;
+        }
+        onAuthStateChangeRef.current?.(
+          resolveAppWebviewAuthState(currentUrl || undefined),
+        );
+      };
+
+      onAuthStateChangeRef.current?.("unknown");
 
       const onReady = () => {
+        // Chromium can emit dom-ready for its internal error document after
+        // did-fail-load. That event is not a successful app load.
+        if (loadFailureRef.current) return;
+        applyGuestTheme();
+        syncGuestAppChatSidebar();
         if (app.id === "content") {
           void wv
             .executeJavaScript(buildContentDirectoryPickerBridgeScript(), false)
@@ -421,6 +678,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
         emitCurrentTitleSoon();
+        emitAuthState();
       };
       const onTitleUpdated = (e: Event) => {
         const title = String(
@@ -428,7 +686,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         ).trim();
         emitCurrentTitle(title);
       };
-      const onNavigation = () => emitCurrentTitleSoon();
+      const onNavigation = () => {
+        applyGuestTheme();
+        syncGuestAppChatSidebar();
+        emitCurrentTitleSoon();
+        emitAuthState();
+      };
       const onFailed = (e: Event) => {
         const details = e as WebviewLoadFailedEvent;
         const errorCode = details.errorCode;
@@ -444,6 +707,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           recoverOutdatedOptimizeDep();
           return;
         }
+        loadFailureRef.current = true;
         setError(true);
         setIsLoading(false);
       };
@@ -452,6 +716,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (message.includes("Outdated Optimize Dep")) {
           recoverOutdatedOptimizeDep();
         }
+      };
+      const onIpcMessage = (event: Event) => {
+        const details = event as WebviewIpcMessageEvent;
+        if (details.channel !== "agent-native:chat-command") return;
+        const eventName = resolveGuestChatCommand(details.args?.[0]);
+        if (eventName) window.dispatchEvent(new Event(eventName));
       };
 
       const onEnterFullscreen = () => setIsFullscreen(true);
@@ -464,6 +734,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       wv.addEventListener("did-stop-loading", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
+      wv.addEventListener("ipc-message", onIpcMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
       wv.addEventListener("leave-html-full-screen", onLeaveFullscreen);
 
@@ -477,23 +748,89 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         wv.removeEventListener("did-stop-loading", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
+        wv.removeEventListener("ipc-message", onIpcMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
         wv.removeEventListener("leave-html-full-screen", onLeaveFullscreen);
       };
-    }, [app.placeholder, isActive, app.id]);
+    }, [
+      app.id,
+      app.placeholder,
+      isActive,
+      applyGuestTheme,
+      syncGuestAppChatSidebar,
+    ]);
+
+    useEffect(() => {
+      applyGuestTheme();
+    }, [applyGuestTheme]);
+
+    useEffect(() => {
+      const handleChatState = (event: Event) => {
+        const open = (event as CustomEvent<{ open?: unknown }>).detail?.open;
+        if (typeof open !== "boolean") return;
+        perAppChatOpenRef.current = open;
+        syncGuestAppChatSidebar();
+      };
+
+      window.addEventListener(APP_CHAT_SIDEBAR_STATE_EVENT, handleChatState);
+      perAppChatOpenRef.current =
+        document.querySelector(
+          '[data-agent-sidebar-per-app-chat="true"][data-agent-sidebar-state="open"]',
+        ) !== null;
+      syncGuestAppChatSidebar();
+
+      return () =>
+        window.removeEventListener(
+          APP_CHAT_SIDEBAR_STATE_EVENT,
+          handleChatState,
+        );
+    }, [syncGuestAppChatSidebar]);
+
+    useEffect(() => {
+      syncGuestAppChatSidebar();
+    }, [isActive, syncGuestAppChatSidebar, url]);
+
+    useEffect(() => {
+      if (!isActive || app.placeholder) return;
+      const wv = webviewRef.current;
+      if (!wv) return;
+      let currentUrl: string | undefined;
+      try {
+        currentUrl = wv.getURL() || wv.src;
+      } catch {
+        currentUrl = wv.src;
+      }
+      onAuthStateChangeRef.current?.(
+        resolveAppWebviewAuthState(currentUrl || undefined),
+      );
+    }, [app.placeholder, isActive, url]);
 
     // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);
     useEffect(() => {
-      if (refreshKey > 0 && refreshKey !== prevRefreshKey.current) {
-        prevRefreshKey.current = refreshKey;
-        const wv = webviewRef.current;
-        if (wv && isActive && !app.placeholder) {
-          try {
-            wv.reloadIgnoringCache();
-          } catch {
-            wv.reload();
-          }
+      const previousRefreshKey = prevRefreshKey.current;
+      if (
+        !shouldReloadActiveWebview({
+          previousRefreshKey,
+          refreshKey,
+          isActive,
+          isPlaceholder: app.placeholder ?? false,
+        })
+      ) {
+        return;
+      }
+
+      // Keep a refresh pending while this webview is hidden. The shell sends
+      // one shared key to all mounted apps, so an inactive app must consume it
+      // only when it can actually apply the reload.
+      prevRefreshKey.current = refreshKey;
+
+      const wv = webviewRef.current;
+      if (wv) {
+        try {
+          wv.reloadIgnoringCache();
+        } catch {
+          wv.reload();
         }
       }
     }, [refreshKey, isActive, app.placeholder]);
@@ -512,6 +849,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
+      loadFailureRef.current = false;
       setError(false);
 
       if (
@@ -549,6 +887,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const slowT = setTimeout(() => setSlowLoad(true), 2500);
       const failT = setTimeout(() => {
         if (isLoading) {
+          loadFailureRef.current = true;
           setError(true);
           setIsLoading(false);
         }
@@ -565,16 +904,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
         if (wv) {
-          // Try focusing immediately, then retry — the webview needs a
-          // moment after becoming visible (visibility: hidden → visible)
-          // and the sidebar click may have stolen focus.
-          wv.focus();
-          const t1 = setTimeout(() => wv.focus(), 80);
-          const t2 = setTimeout(() => wv.focus(), 250);
-          return () => {
-            clearTimeout(t1);
-            clearTimeout(t2);
-          };
+          // Focus once after the slot becomes visible. Repeated focus calls
+          // trigger focus-aware data refreshes in embedded apps.
+          const frame = requestAnimationFrame(() => {
+            if (document.activeElement !== wv) wv.focus();
+          });
+          return () => cancelAnimationFrame(frame);
         }
       }
     }, [isActive, app.placeholder, error]);
@@ -619,6 +954,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [app.id, app.placeholder, isActive, url]);
 
     function handleRetry() {
+      loadFailureRef.current = false;
       setError(false);
       setIsLoading(true);
       setSlowLoad(false);
@@ -650,13 +986,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     return (
       <div
         className={`webview-slot${isActive ? " webview-slot--active" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
-        onClick={() => {
-          // Re-focus the webview when clicking the content area so
-          // keyboard shortcuts (Tab, etc.) route into the app.
-          if (isActive && !app.placeholder && !error) {
-            webviewRef.current?.focus();
-          }
-        }}
       >
         {app.placeholder && <PlaceholderScreen app={app} />}
 
@@ -687,32 +1016,68 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               ) as ElectronWebviewElement;
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
-              if (
-                (app.id === "plan" ||
-                  app.id === "content" ||
-                  app.id === "design") &&
-                window.electronAPI?.webviewPreloadPath
-              ) {
-                wv.setAttribute(
-                  "preload",
-                  window.electronAPI.webviewPreloadPath,
-                );
+              const preloadPath =
+                app.id === "plan" || app.id === "content" || app.id === "design"
+                  ? window.electronAPI?.webviewPreloadPath ||
+                    window.electronAPI?.webviewChatPreloadPath
+                  : window.electronAPI?.webviewChatPreloadPath;
+              if (preloadPath) {
+                wv.setAttribute("preload", preloadPath);
               }
+              wv.setAttribute("webpreferences", APP_WEBVIEW_PREFERENCES);
               wv.setAttribute(
-                "webpreferences",
-                "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=false",
+                "partition",
+                resolveAppWebviewPartition({
+                  appId: app.id,
+                  sourceUrl,
+                  partitionKey,
+                }),
               );
-              wv.setAttribute("partition", `persist:app-${app.id}`);
               wv.setAttribute("src", url);
               container.appendChild(wv);
               webviewRef.current = wv;
             }}
             style={{
               flex: "1 1 auto",
-              display: "flex",
+              display:
+                error ||
+                (desktopIdentityGateActive && !desktopIdentitySessionReady)
+                  ? "none"
+                  : "flex",
               flexDirection: "column",
-              ...(error ? { visibility: "hidden" as const } : {}),
             }}
+          />
+        )}
+
+        {isActive &&
+          desktopIdentityGateActive &&
+          !desktopIdentitySessionReady &&
+          (desktopIdentityStatus === "idle" ||
+            desktopIdentityStatus === "signed-in") && (
+            <LoadingScreen app={app} slow={false} isDev={isDevMode} />
+          )}
+
+        {desktopIdentityGateActive && (
+          <DesktopIdentityGate
+            appName={app.name}
+            status={desktopIdentityStatus}
+            onSignIn={() =>
+              window.electronAPI?.identity?.signIn() ?? Promise.resolve(false)
+            }
+            onAuthenticate={(request) =>
+              window.electronAPI?.identity?.authenticate(request) ??
+              Promise.resolve({
+                ok: false,
+                error: "The desktop identity surface is unavailable.",
+              })
+            }
+            onMagicLink={(request) =>
+              window.electronAPI?.identity?.requestMagicLink(request) ??
+              Promise.resolve({
+                ok: false,
+                error: "The desktop identity surface is unavailable.",
+              })
+            }
           />
         )}
       </div>
@@ -745,11 +1110,6 @@ function LoadingScreen({
 }
 
 type PortStatus = "checking" | "up" | "down";
-
-function usePortCheck(port: number | undefined, enabled: boolean): PortStatus {
-  const url = port ? `http://localhost:${port}` : undefined;
-  return useUrlCheck(url, enabled);
-}
 
 function useUrlCheck(url: string | undefined, enabled: boolean): PortStatus {
   const [status, setStatus] = useState<PortStatus>("checking");
@@ -824,18 +1184,7 @@ function ErrorScreen({
   const [copied, setCopied] = useState(false);
   const devCommand = appConfig?.devCommand?.trim();
   const devPort = appConfig?.devPort ?? app.devPort;
-  const gatewayUrl = getTemplateGatewayUrl();
-  const gatewayAppUrl =
-    isDev &&
-    (gatewayUrl ||
-      templateGatewayOverridesDevUrls() ||
-      (appConfig && isDefaultDesktopTemplateDevTarget(appConfig)))
-      ? getDesktopTemplateGatewayAppUrl(app.id)
-      : null;
-  const devStatusUrl =
-    gatewayAppUrl ?? (devPort ? `http://localhost:${devPort}` : undefined);
-  const devServerStatus = useUrlCheck(devStatusUrl, isDev);
-  const frameStatus = usePortCheck(FRAME_PORT, isDev);
+  const devServerStatus = useUrlCheck(isDev ? url : undefined, isDev);
 
   async function copyCommand(cmd: string) {
     try {
@@ -871,13 +1220,7 @@ function ErrorScreen({
           <ul className="error-checklist">
             <li className={`error-checklist-item--${devServerStatus}`}>
               <StatusIcon status={devServerStatus} />
-              {gatewayAppUrl
-                ? `${app.name} via template gateway`
-                : `${app.name} dev server${devPort ? ` (port ${devPort})` : ""}`}
-            </li>
-            <li className={`error-checklist-item--${frameStatus}`}>
-              <StatusIcon status={frameStatus} />
-              Frame (port {FRAME_PORT})
+              {`${app.name} dev server${devPort ? ` (port ${devPort})` : ""}`}
             </li>
           </ul>
           {devCommand && (

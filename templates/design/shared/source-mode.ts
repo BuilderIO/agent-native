@@ -57,10 +57,92 @@ export const DESIGN_SOURCE_TYPES = ["inline", "localhost", "fusion"] as const;
  * read (same-origin policy), and inline screens may not carry these attrs.
  */
 export interface ElementProvenance {
+  /** Runtime/compiler family that exposed this location. */
+  framework?: ElementProvenanceFramework;
   sourceFile?: string;
   line?: number;
   column?: number;
   component?: string;
+  /**
+   * Where the nearest enclosing component was instantiated (`<Card …>` in the
+   * parent), as opposed to the element's own authoring site above. All
+   * `.map()`-produced siblings share one owner site, so `ownerKey` — their
+   * React key — is the only source-derived signal that separates them.
+   */
+  ownerSourceFile?: string;
+  ownerLine?: number;
+  ownerColumn?: number;
+  ownerComponentName?: string;
+  ownerKey?: string;
+  /**
+   * Which tier produced `line`/`column`. Absent means the tier was never
+   * reported, which is NOT the same as authored — see
+   * `sourcePositionPrecision`.
+   */
+  method?: ElementProvenanceMethod;
+  /**
+   * Which tier produced `ownerLine`/`ownerColumn`. Separate from `method`
+   * because the two tiers routinely differ: a source plugin stamps an
+   * authored `data-attribute` position on the element while the owner site is
+   * only reachable through a React 19 owner stack (transformed).
+   */
+  ownerMethod?: ElementProvenanceMethod;
+  /**
+   * Set when the element resolved to NO location, so callers can tell "this
+   * app never exposes source locations" from "the runtime has not reported
+   * yet". Never set alongside a resolved `sourceFile`.
+   */
+  unavailableReason?: ElementProvenanceUnavailableReason;
+}
+
+export type ElementProvenanceUnavailableReason =
+  | "not-framework"
+  | "not-react" // legacy bridge payload
+  | "no-debug-info";
+
+/** Which tier produced a provenance position. */
+export type ElementProvenanceMethod =
+  | "data-attribute" // build-time transform's data-source-*/data-loc attributes
+  | "debug-source" // React <=18 structured `_debugSource` fiber field
+  | "debug-stack" // React 19 `_debugStack` owner stack
+  | "vue-inspector" // Vue dev compiler's `__v_inspector` vnode prop
+  | "svelte-meta"; // Svelte dev compiler's `__svelte_meta.loc`
+
+export type ElementProvenanceFramework =
+  | "html"
+  | "react"
+  | "vue"
+  | "svelte"
+  | "angular"
+  | "lwc";
+
+export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
+  "data-attribute",
+  "debug-source",
+  "debug-stack",
+  "vue-inspector",
+  "svelte-meta",
+];
+
+export type SourcePositionPrecision = "authored" | "transformed" | "unknown";
+
+/**
+ * React 19 deleted `_debugSource`, and its `jsxDEV` drops the authored
+ * `__source` argument the dev transform still emits, so the only surviving
+ * position is a `_debugStack` frame — a position in the file the dev server
+ * SERVES. Under any transforming dev server that is the transformed line, not
+ * the authored one: measured on the React 19.2 + Vite 8 target, `<h1>`
+ * authored at line 13 reports as line 26.
+ *
+ * So a `debug-stack` position must never be presented as the authored JSX
+ * line, and deterministic writers must not seek to it. `unknown` (no tier
+ * reported) is deliberately not folded into `authored`.
+ */
+export function sourcePositionPrecision(
+  method: ElementProvenanceMethod | undefined,
+): SourcePositionPrecision {
+  if (method === "debug-stack") return "transformed";
+  return method ? "authored" : "unknown";
 }
 
 export function parseDataLocProvenance(
@@ -336,6 +418,16 @@ export function isDesignSourceType(value: unknown): value is DesignSourceType {
     typeof value === "string" &&
     (DESIGN_SOURCE_TYPES as readonly string[]).includes(value)
   );
+}
+
+/**
+ * Screens whose content is a URL into a running app. Their markup lives in the
+ * app's source, so every edit is a handoff, never a design-file write — the
+ * distinction the editor keeps having to make, and keeps making per-call-site.
+ */
+export function isRunningAppSourceType(value: unknown): boolean {
+  const sourceType = normalizeDesignSourceType(value);
+  return sourceType === "localhost" || sourceType === "fusion";
 }
 
 export function normalizeDesignSourceType(

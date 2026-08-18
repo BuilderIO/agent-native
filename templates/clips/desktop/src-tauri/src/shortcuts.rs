@@ -1,12 +1,12 @@
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-use crate::clips::{remember_voice_target, toggle_popover};
+use crate::clips::{force_show_popover, remember_voice_target, toggle_popover};
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{
@@ -26,6 +26,41 @@ fn numpad_enter_shortcut() -> Shortcut {
     Shortcut::new(None, Code::NumpadEnter)
 }
 
+fn countdown_return_shortcuts() -> Vec<Shortcut> {
+    // Windows maps both keys to VK_RETURN, so registering both always fails.
+    #[cfg(target_os = "windows")]
+    {
+        vec![enter_shortcut()]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec![enter_shortcut(), numpad_enter_shortcut()]
+    }
+}
+
+fn countdown_shortcuts() -> Vec<Shortcut> {
+    let mut shortcuts = vec![escape_shortcut()];
+    shortcuts.extend(countdown_return_shortcuts());
+    shortcuts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn countdown_return_shortcuts_match_platform_registration() {
+        let shortcuts = countdown_return_shortcuts();
+        assert!(shortcuts.contains(&enter_shortcut()));
+
+        #[cfg(target_os = "windows")]
+        assert!(!shortcuts.contains(&numpad_enter_shortcut()));
+
+        #[cfg(not(target_os = "windows"))]
+        assert!(shortcuts.contains(&numpad_enter_shortcut()));
+    }
+}
+
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_RECORD_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
@@ -33,6 +68,8 @@ static FN_TAP_ENABLED: AtomicBool = AtomicBool::new(false);
 static FN_TAP_INSTALL_STARTED: AtomicBool = AtomicBool::new(false);
 static POPOVER_DISMISS_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
+static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
+static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 // P1: tracks whether Escape is currently registered *for dictation-cancel*
 // specifically (independent of POPOVER_DISMISS_SHORTCUT_ACTIVE, which tracks
 // the popover's own reason to want Escape registered). Escape should stay
@@ -324,54 +361,130 @@ fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     });
 }
 
-pub fn install_countdown_shortcut_handler(app: &tauri::App) {
-    let handle = app.handle().clone();
-    app.listen("clips:countdown-shortcuts-active", move |event| {
-        let payload = event.payload().to_string();
-        let handle = handle.clone();
-        let active: bool = serde_json::from_str(&payload).unwrap_or(false);
-        set_countdown_shortcuts_active(handle, active);
-    });
+/// Register the countdown shortcuts before its window becomes visible.
+///
+/// The event-driven synchronizer above intentionally hops off Carbon's hotkey
+/// callback stack, but that also means it cannot be used for the initial
+/// activation: a fast Return at the visible `3` can otherwise beat the worker
+/// thread and leave the recorder waiting for the full timer. The countdown
+/// command awaits this worker before showing the window, preserving the
+/// non-reentrant teardown path while making the first visible frame actionable.
+pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = COUNTDOWN_SHORTCUTS_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let generation = COUNTDOWN_SHORTCUTS_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        COUNTDOWN_SHORTCUTS_ACTIVE.store(true, Ordering::SeqCst);
+        let gs = app.global_shortcut();
+        let mut newly_registered = Vec::new();
+        for shortcut in countdown_shortcuts() {
+            if !gs.is_registered(shortcut) {
+                if let Err(error) = gs.register(shortcut) {
+                    for registered in newly_registered {
+                        let _ = gs.unregister(registered);
+                    }
+                    COUNTDOWN_SHORTCUTS_ACTIVE.store(false, Ordering::SeqCst);
+                    return Err(format!("failed to register countdown shortcut: {error}"));
+                }
+                newly_registered.push(shortcut);
+            }
+        }
+        Ok::<u64, String>(generation)
+    })
+    .await
+    .map_err(|error| format!("countdown shortcut worker stopped unexpectedly: {error}"))?
 }
 
-fn set_countdown_shortcuts_active(app: AppHandle, active: bool) {
-    COUNTDOWN_SHORTCUTS_ACTIVE.store(active, Ordering::SeqCst);
-    thread::spawn(move || {
-        let gs = app.global_shortcut();
-        let escape = escape_shortcut();
-        let enter = enter_shortcut();
-        let numpad_enter = numpad_enter_shortcut();
-        if active {
-            for shortcut in [escape, enter, numpad_enter] {
-                if !gs.is_registered(shortcut) {
-                    if let Err(err) = gs.register(shortcut) {
-                        eprintln!("[clips-tray] failed to register countdown shortcut: {err}");
-                    }
-                }
-            }
+/// Tear down only the countdown generation that the caller prepared. A late
+/// cleanup from an older overlay must not unregister Return beneath the next
+/// visible countdown.
+pub(crate) async fn finish_countdown_shortcuts(
+    app: AppHandle,
+    generation: u64,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = COUNTDOWN_SHORTCUTS_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if COUNTDOWN_SHORTCUTS_GENERATION.load(Ordering::SeqCst) != generation {
             return;
         }
-
-        for shortcut in [enter, numpad_enter] {
+        COUNTDOWN_SHORTCUTS_ACTIVE.store(false, Ordering::SeqCst);
+        let gs = app.global_shortcut();
+        for shortcut in countdown_return_shortcuts() {
             if gs.is_registered(shortcut) {
                 let _ = gs.unregister(shortcut);
             }
         }
+        let escape = escape_shortcut();
         if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && gs.is_registered(escape)
         {
             let _ = gs.unregister(escape);
         }
-    });
+    })
+    .await
+    .map_err(|error| format!("countdown shortcut cleanup worker stopped unexpectedly: {error}"))
 }
 
+/// Observe key-down events only while Clips itself is the active application.
+/// AppKit local monitors need no Input Monitoring permission and never receive
+/// keystrokes destined for another app. The active-generation gate keeps this
+/// listener inert outside the three-second countdown.
+#[cfg(target_os = "macos")]
+pub fn install_countdown_local_key_monitor(app: &tauri::App) {
+    use std::ptr::NonNull;
+
+    use block2::RcBlock;
+    use objc2_app_kit::{NSEvent, NSEventMask};
+
+    let app = app.handle().clone();
+    let handler = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+        if COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst) {
+            let key_code = unsafe { event.as_ref().keyCode() };
+            let countdown_event = match key_code {
+                36 | 76 => Some("clips:countdown-done"),
+                53 => Some("clips:countdown-cancel"),
+                _ => None,
+            };
+            if let Some(countdown_event) = countdown_event {
+                let app = app.clone();
+                thread::spawn(move || finish_countdown_from_shortcut(&app, countdown_event));
+            }
+        }
+        event.as_ptr()
+    });
+    let monitor = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &handler)
+    };
+    if monitor.is_none() {
+        eprintln!("[clips-tray] failed to install app-local countdown key monitor");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_countdown_local_key_monitor(_app: &tauri::App) {}
+
 fn finish_countdown_from_shortcut(app: &AppHandle, event: &'static str) {
-    let _ = app.emit(event, ());
+    dlog!("[clips-tray] countdown shortcut accepted: {event}");
+    let cause = if event == "clips:countdown-cancel" {
+        "escape"
+    } else {
+        "return"
+    };
+    let _ = app.emit(event, serde_json::json!({ "cause": cause }));
     if let Some(window) = app.get_webview_window("countdown") {
         let _ = window.close();
     }
-    set_countdown_shortcuts_active(app.clone(), false);
+    let app = app.clone();
+    let generation = COUNTDOWN_SHORTCUTS_GENERATION.load(Ordering::SeqCst);
+    tauri::async_runtime::spawn(async move {
+        let _ = finish_countdown_shortcuts(app, generation).await;
+    });
 }
 
 /// Build the global shortcut plugin with its handler. Called from `run()` to
@@ -411,7 +524,11 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                 finish_countdown_from_shortcut(app, event);
                 return;
             }
-            set_countdown_shortcuts_active(app.clone(), false);
+            let app = app.clone();
+            let generation = COUNTDOWN_SHORTCUTS_GENERATION.load(Ordering::SeqCst);
+            tauri::async_runtime::spawn(async move {
+                let _ = finish_countdown_shortcuts(app, generation).await;
+            });
         }
         if is_escape {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
@@ -509,12 +626,11 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             return;
         }
         if is_cmd || is_ctrl || is_custom_popover {
-            // Loom-style: if a recording is already active, the
-            // global shortcut stops it rather than re-opening the
-            // popover. Keeps parity with the tray-icon click
-            // behaviour in `on_tray_icon_event`.
+            // The dedicated record shortcut remains the fast start/stop
+            // gesture. The separate Open Clips shortcut follows the app-icon
+            // behavior: it opens the popover and never stops capture.
             if is_recording_active(app) && !is_meeting_active(app) {
-                let _ = app.emit("clips:recorder-stop", ());
+                force_show_popover(app);
             } else {
                 toggle_popover(app);
             }

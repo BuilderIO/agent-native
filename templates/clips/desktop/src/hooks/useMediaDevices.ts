@@ -13,7 +13,7 @@ import {
   isPseudoMediaDeviceId,
   isSelectableAudioInputDevice,
   normalizedMediaDeviceId,
-} from "../lib/media-device-selection";
+} from "../../../shared/media-device-selection";
 import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,

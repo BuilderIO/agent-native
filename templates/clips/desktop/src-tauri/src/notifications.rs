@@ -6,8 +6,14 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
+use std::time::Duration;
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 use crate::dlog;
 use crate::util::{
@@ -16,16 +22,23 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-// Window is wider than the 440px card so the card's drop shadow (~32px each
-// side) renders inside the transparent window instead of being clipped. The
-// right margin is pulled in to keep the card near the top-right corner.
+// Window is wider than the 440px card so its close control and menu stay inside
+// the transparent window. The right margin is pulled in to keep the card near
+// the top-right corner.
 const NOTIFICATION_W_LOGICAL: u32 = 504;
 const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
 const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 0;
+const DISMISSAL_TOMBSTONE_SECS: i64 = 30 * 60;
 
 #[derive(Default)]
-pub struct MeetingNotificationState(pub Mutex<Option<Value>>);
+pub struct MeetingNotificationState(Mutex<MeetingNotificationStateInner>);
+
+#[derive(Default)]
+struct MeetingNotificationStateInner {
+    pending: Option<Value>,
+    dismissed_until: HashMap<String, i64>,
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +67,75 @@ fn notification_rect(app: &AppHandle) -> (u32, u32, i32, i32) {
     (w, h, x, top.max(0))
 }
 
+static MEETING_NOTIF_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
+
+/// True when the global cursor sits inside the notification window's frame.
+/// Mirrors `cursor_inside_pill_frame` in `recording_indicator.rs`: cursor and
+/// frame both come from Tauri (physical px, desktop top-left origin), so the
+/// test is a plain point-in-rect with no AppKit hop.
+fn cursor_inside_notification_frame(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        return false;
+    };
+    c.x >= p.x as f64
+        && c.x <= (p.x + s.width as i32) as f64
+        && c.y >= p.y as f64
+        && c.y <= (p.y + s.height as i32) as f64
+}
+
+/// Poll the cursor against the notification frame and emit
+/// `meetings:notification-hover` on transitions. The window never becomes key
+/// (`show_without_activation` uses `orderFrontRegardless`, not
+/// `makeKeyAndOrderFront:`), so CSS `:hover`/`onMouseEnter` only fires once
+/// the user's first click makes it key — this poll is the fallback that
+/// reveals the close button on real hover before that click, same pattern as
+/// `start_pill_hover_tracking`. Idempotent — a second call is a no-op while a
+/// loop is already running.
+fn start_meeting_notification_hover_tracking(app: &AppHandle) {
+    if MEETING_NOTIF_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev = false;
+        while MEETING_NOTIF_HOVER_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
+                break;
+            };
+            // The window is reused across notifications (hidden/shown from
+            // the frontend, never destroyed), so this loop runs for the rest
+            // of the app session. Skip the cursor/frame queries entirely
+            // while hidden — no notification is on screen to hover — and
+            // back off to a slower idle tick until it's shown again.
+            if !win.is_visible().unwrap_or(false) {
+                if prev {
+                    prev = false;
+                    let _ = win.emit(
+                        "meetings:notification-hover",
+                        serde_json::json!({ "hovered": false }),
+                    );
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+            let inside = cursor_inside_notification_frame(&win);
+            if inside != prev {
+                prev = inside;
+                let _ = win.emit(
+                    "meetings:notification-hover",
+                    serde_json::json!({ "hovered": inside }),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+        MEETING_NOTIF_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
 pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let (w, h, x, y) = notification_rect(app);
     if let Some(existing) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) {
@@ -61,6 +143,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        start_meeting_notification_hover_tracking(&app);
         return Ok(());
     }
 
@@ -97,25 +180,121 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     // own recording chrome is still excluded elsewhere so it won't leak.)
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    start_meeting_notification_hover_tracking(&app);
     Ok(())
-}
-
-fn store_pending_meeting_notification(app: &AppHandle, payload: &Value) {
-    if let Some(state) = app.try_state::<MeetingNotificationState>() {
-        if let Ok(mut pending) = state.0.lock() {
-            *pending = Some(payload.clone());
-        }
-    }
 }
 
 #[tauri::command]
 pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>, String> {
     let state = app.state::<MeetingNotificationState>();
-    let mut pending = state
+    let mut state = state
         .0
         .lock()
         .map_err(|_| "meeting notification state lock poisoned".to_string())?;
-    Ok(pending.take())
+    let now = chrono::Utc::now().timestamp();
+    state.dismissed_until.retain(|_, until| *until > now);
+    if state.pending.as_ref().is_some_and(|payload| {
+        state
+            .dismissed_until
+            .contains_key(&notification_key(payload))
+    }) {
+        state.pending = None;
+    }
+    Ok(state.pending.take())
+}
+
+fn notification_key(payload: &Value) -> String {
+    format!(
+        "{}|{}|{}",
+        payload
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("calendar"),
+        payload
+            .get("meetingId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        payload
+            .get("scheduledStart")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+}
+
+fn notification_key_from_parts(
+    notification_type: &str,
+    meeting_id: &str,
+    scheduled_start: Option<&str>,
+) -> String {
+    format!(
+        "{}|{}|{}",
+        notification_type,
+        meeting_id,
+        scheduled_start.unwrap_or_default()
+    )
+}
+
+fn clear_pending_notification(pending: &mut Option<Value>, meeting_id: &str) -> bool {
+    let matches = pending
+        .as_ref()
+        .and_then(|payload| payload.get("meetingId"))
+        .and_then(Value::as_str)
+        == Some(meeting_id);
+    if matches {
+        *pending = None;
+    }
+    matches
+}
+
+#[tauri::command]
+pub fn dismiss_meeting_notification(
+    app: AppHandle,
+    meeting_id: String,
+    notification_type: String,
+    join_url: Option<String>,
+    platform: Option<String>,
+    scheduled_start: Option<String>,
+    scheduled_end: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<MeetingNotificationState>();
+    let mut state = state
+        .0
+        .lock()
+        .map_err(|_| "meeting notification state lock poisoned".to_string())?;
+    let now = chrono::Utc::now().timestamp();
+    state.dismissed_until.retain(|_, until| *until > now);
+    state.dismissed_until.insert(
+        notification_key_from_parts(&notification_type, &meeting_id, scheduled_start.as_deref()),
+        now + DISMISSAL_TOMBSTONE_SECS,
+    );
+    clear_pending_notification(&mut state.pending, &meeting_id);
+    drop(state);
+
+    let suppression_platform = platform.as_deref().or_else(|| {
+        join_url.as_deref().and_then(|url| {
+            let url = url.to_ascii_lowercase();
+            if url.contains("zoom") {
+                Some("zoom")
+            } else if url.contains("teams.microsoft") || url.contains("teams") {
+                Some("teams")
+            } else {
+                None
+            }
+        })
+    });
+    if let Some(platform) = suppression_platform {
+        crate::adhoc_meetings_watcher::refresh_dismissal_suppression(&app, platform)?;
+    }
+
+    dlog!(
+        "[clips-tray] meeting notification dismissed type={} id={} platform={:?} start={:?} end={:?}",
+        notification_type,
+        meeting_id,
+        platform,
+        scheduled_start,
+        scheduled_end
+    );
+    Ok(())
 }
 
 fn format_time_range_subtitle(
@@ -192,14 +371,41 @@ pub async fn notify_meeting_starting(
         "type": kind,
         "title": title,
         "subtitle": body,
-        "meetingId": meeting_id,
+        "meetingId": meeting_id.clone(),
         "joinUrl": join_url,
         "platform": platform,
         "scheduledStart": scheduled_start,
         "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),
     });
-    store_pending_meeting_notification(&app, &payload);
+    let state = app.state::<MeetingNotificationState>();
+    let should_show = {
+        let mut state = state
+            .0
+            .lock()
+            .map_err(|_| "meeting notification state lock poisoned".to_string())?;
+        let now = chrono::Utc::now().timestamp();
+        state.dismissed_until.retain(|_, until| *until > now);
+        if state
+            .dismissed_until
+            .get(&notification_key(&payload))
+            .copied()
+            .unwrap_or_default()
+            > now
+        {
+            false
+        } else {
+            state.pending = Some(payload.clone());
+            true
+        }
+    };
+    if !should_show {
+        dlog!(
+            "[clips-tray] skipped dismissed meeting notification id={}",
+            meeting_id
+        );
+        return Ok(());
+    }
     let _ = app.emit("meetings:show-notification", payload.clone());
 
     // Ensure the overlay window exists / is visible for cold starts.
@@ -208,4 +414,38 @@ pub async fn notify_meeting_starting(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clears_only_the_matching_pending_notification() {
+        let mut pending = Some(serde_json::json!({
+            "meetingId": "meeting-1",
+            "type": "adhoc"
+        }));
+
+        assert!(!clear_pending_notification(&mut pending, "meeting-2"));
+        assert!(pending.is_some());
+        assert!(clear_pending_notification(&mut pending, "meeting-1"));
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn dismissal_key_changes_when_a_meeting_is_rescheduled() {
+        let first = serde_json::json!({
+            "type": "calendar",
+            "meetingId": "meeting-1",
+            "scheduledStart": "2026-07-23T17:00:00Z"
+        });
+        let moved = serde_json::json!({
+            "type": "calendar",
+            "meetingId": "meeting-1",
+            "scheduledStart": "2026-07-23T18:00:00Z"
+        });
+
+        assert_ne!(notification_key(&first), notification_key(&moved));
+    }
 }

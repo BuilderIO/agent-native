@@ -8,10 +8,21 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
+const registerEventMock = vi.hoisted(() => vi.fn());
+const resolveUserSchedulingTimezoneMock = vi.hoisted(() => vi.fn());
+const deleteAutomationRunsMock = vi.hoisted(() => vi.fn());
+const listRemoteDevicesForOwnerMock = vi.hoisted(() => vi.fn());
+const getRemoteExecutionCapabilitiesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
+  organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceList: resourceListAllOwnersMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
   resourceDelete: resourceDeleteMock,
@@ -26,8 +37,22 @@ vi.mock("./dispatcher.js", async (importOriginal) => {
 });
 
 vi.mock("../event-bus/index.js", () => ({
+  registerEvent: registerEventMock,
   listEvents: vi.fn(() => []),
   emit: emitMock,
+}));
+
+vi.mock("../localization/user-timezone.js", () => ({
+  resolveUserSchedulingTimezone: resolveUserSchedulingTimezoneMock,
+}));
+
+vi.mock("../jobs/run-history.js", () => ({
+  deleteAutomationRuns: deleteAutomationRunsMock,
+}));
+
+vi.mock("../integrations/remote-devices-store.js", () => ({
+  listRemoteDevicesForOwner: listRemoteDevicesForOwnerMock,
+  getRemoteExecutionCapabilities: getRemoteExecutionCapabilitiesMock,
 }));
 
 describe("manage-automations tool", () => {
@@ -40,14 +65,30 @@ describe("manage-automations tool", () => {
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(undefined);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
+    resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
+    deleteAutomationRunsMock.mockResolvedValue(undefined);
+    listRemoteDevicesForOwnerMock.mockResolvedValue([]);
+    getRemoteExecutionCapabilitiesMock.mockReturnValue(null);
   });
 
   function tool() {
     return createAutomationToolEntries(() => owner)["manage-automations"];
   }
 
-  it("lists only the current user's and shared automations", async () => {
-    resourceListAllOwnersMock.mockResolvedValue([
+  it("allows only list operations in Plan mode", () => {
+    const entry = tool();
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list-events" })).toBe("read");
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "define" })).toBe("write");
+    expect(effect({ action: "fire-test" })).toBe("write");
+  });
+
+  it("lists only the selected personal scope", async () => {
+    const resources = [
       {
         id: "owned",
         owner,
@@ -93,13 +134,52 @@ domain: qa
 
 Other body`,
       },
-    ]);
+    ];
+    resourceListAllOwnersMock.mockResolvedValue(
+      resources.filter((resource) => resource.owner === owner),
+    );
+    resourceGetByPathMock.mockImplementation(
+      async (_owner: string, path: string) =>
+        resources.find((resource) => resource.path === path) ?? null,
+    );
 
     const result = await tool().run({ action: "list" });
 
     expect(result).toContain("owned");
-    expect(result).toContain("shared");
+    expect(result).not.toContain("shared");
     expect(result).not.toContain("other");
+  });
+
+  it("lists paired execution hosts without exposing device credentials", async () => {
+    listRemoteDevicesForOwnerMock.mockResolvedValue([
+      {
+        id: "remote-device-laptop",
+        label: "Always-on laptop",
+        platform: "darwin",
+        hostName: "laptop.local",
+        status: "active",
+        lastSeenAt: Date.now(),
+        deviceTokenHash: "secret-hash",
+      },
+    ]);
+    getRemoteExecutionCapabilitiesMock.mockReturnValue({
+      backend: "desktop",
+      workloads: ["code-agent", "scheduled-code"],
+      engines: ["codex-cli", "claude-cli"],
+      acceptsScheduledWork: true,
+      persistence: "local-files",
+    });
+
+    const result = await tool().run({ action: "list-hosts" });
+    expect(result).toContain("remote-device-laptop");
+    expect(result).toContain("scheduled-code");
+    expect(result).not.toContain("secret-hash");
+    expect(listRemoteDevicesForOwnerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: owner,
+        status: "active",
+      }),
+    );
   });
 
   it("creates, updates, and deletes automations under the current user", async () => {
@@ -155,7 +235,16 @@ Record the QA signal.`,
       id: "resource-1",
       owner,
       path: "jobs/qa-alert.md",
-      content: "",
+      content: `---
+schedule: ""
+enabled: false
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Updated body.`,
     });
 
     await tool().run({ action: "delete", name: "qa-alert" });
@@ -209,6 +298,126 @@ Record the QA signal.`,
     );
   });
 
+  it("persists an explicit execution host for scheduled automations", async () => {
+    await tool().run({
+      action: "define",
+      name: "qa-hosted-job",
+      trigger_type: "schedule",
+      schedule: "0 9 * * 1-5",
+      execution_host_id: "remote-device-laptop",
+      execution_engine: "claude-cli",
+      execution_cwd: "/Users/alice/Projects/qa",
+      body: "Run the QA checks.",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-hosted-job.md",
+      expect.stringContaining('executionHostId: "remote-device-laptop"'),
+    );
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-hosted-job.md",
+      expect.stringContaining('executionEngine: "claude-cli"'),
+    );
+  });
+
+  it("validates trigger-specific fields before defining an automation", async () => {
+    await expect(
+      tool().run({
+        action: "define",
+        name: "missing-event",
+        trigger_type: "event",
+        body: "Record the signal.",
+      }),
+    ).resolves.toContain("event is required");
+
+    await expect(
+      tool().run({
+        action: "define",
+        name: "invalid-schedule",
+        trigger_type: "schedule",
+        schedule: "tomorrow",
+        body: "Record the signal.",
+      }),
+    ).resolves.toContain("invalid cron expression");
+
+    await expect(
+      tool().run({
+        action: "define",
+        name: "missing-body",
+        trigger_type: "schedule",
+        schedule: "0 9 * * *",
+      }),
+    ).resolves.toContain("body is required");
+
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("seeds the next run for scheduled automations", async () => {
+    await tool().run({
+      action: "define",
+      name: "daily-digest",
+      trigger_type: "schedule",
+      schedule: "0 9 * * *",
+      body: "Summarize the inbox.",
+    });
+
+    const content = resourcePutMock.mock.calls[0]?.[2] as string;
+    expect(content).toContain("triggerType: schedule");
+    expect(content).toMatch(/nextRun: "/);
+  });
+
+  it("leaves legacy scheduled jobs on the compatibility tool", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "legacy-job",
+      owner,
+      path: "jobs/daily-digest.md",
+      content: `---
+schedule: "0 9 * * *"
+enabled: true
+createdBy: ${owner}
+model: custom-model
+mcpTools: ["mcp__mail__list_messages"]
+deliveryPlatform: slack
+deliveryDestination: C123
+---
+
+Summarize the inbox.`,
+    });
+
+    const result = await tool().run({
+      action: "update",
+      name: "daily-digest",
+      enabled: "false",
+    });
+
+    expect(result).toContain("legacy scheduled job");
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes event subscriptions after deletion", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-alert.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+---
+
+Record the signal.`,
+    });
+
+    await tool().run({ action: "delete", name: "qa-alert" });
+
+    expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
+    expect(refreshEventSubscriptionsMock).toHaveBeenCalledOnce();
+  });
+
   it("scopes fire-test events to the current user", async () => {
     await tool().run({
       action: "fire-test",
@@ -220,5 +429,15 @@ Record the QA signal.`,
       { data: { subject: "qa" } },
       { owner },
     );
+  });
+
+  it("does not allow an automation to recursively queue another automation", async () => {
+    const result = await tool().run(
+      { action: "run-now", name: "another-automation" },
+      { caller: "automation" },
+    );
+
+    expect(result).toBe("Error: an automation cannot run another automation.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
   });
 });

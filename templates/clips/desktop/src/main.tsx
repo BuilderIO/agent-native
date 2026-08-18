@@ -10,6 +10,8 @@ import { Finalizing } from "./overlays/finalizing";
 import { FlowBar } from "./overlays/flow-bar";
 import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
+import { MonitorPicker } from "./overlays/monitor-picker";
+import { Preparing } from "./overlays/preparing";
 import { RecordingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import { RegionRecordBorder } from "./overlays/region-record-border";
@@ -42,6 +44,8 @@ function pickRoute(route: string): React.ReactElement {
       return <Bubble />;
     case "finalizing":
       return <Finalizing />;
+    case "preparing":
+      return <Preparing />;
     case "meeting-notif":
       return <MeetingNotification />;
     case "meeting-nub":
@@ -58,6 +62,8 @@ function pickRoute(route: string): React.ReactElement {
       return <RegionGuideEditor mode="capture" />;
     case "region-record-border":
       return <RegionRecordBorder />;
+    case "monitor-picker":
+      return <MonitorPicker />;
     default:
       return <App />;
   }

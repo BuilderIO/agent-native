@@ -76,5 +76,5 @@ client. Reconnect re-authenticates WITHOUT reinstalling and finds the entry by
 URL regardless of connector name. Never reinstall from scratch just to fix auth.
 Continue once the connector is available.
 
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+Hosted default: connect \`https://plan.agent-native.com/mcp\`. Do
 not put shared secrets in skill files.`;

@@ -80,6 +80,7 @@ La visibilité grossière réside dans la ressource elle-même ; les subvention
 Lorsque vous partagez avec un utilisateur ou une organisation spécifique, vous choisissez un rôle :
 
 - **Viewer** – lecture seule.
+- **Commentateur** – lecture et ajout de commentaires, sans pouvoir modifier la ressource ni gérer les partages.
 - **Éditeur** — lecture + écriture.
 - **Admin** — lire + écrire + gérer les partages (peut ajouter/supprimer d'autres personnes).
 
@@ -122,8 +123,7 @@ Chaque ressource partageable reçoit un bouton de partage dans son en-tête. Cli
 Le bouton de partage est une importation unique :
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -245,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "spectateur | éditeur | administrateur",
+          note: "spectateur | commentateur | éditeur | administrateur",
         },
         {
           name: "created_by",

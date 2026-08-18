@@ -11,8 +11,12 @@ import {
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
-import { BOARD_TEXT_AUTO_COLOR_MARKER } from "./cross-screen-text-color";
+import {
+  BOARD_TEXT_AUTO_COLOR_MARKER,
+  destinationBackgroundIsLightForNode,
+} from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
+import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
 export function nextDuplicatedFilename(
@@ -62,6 +66,9 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
+  // Blank screen = free canvas: <body> is the positioned root and drawn shapes
+  // are absolute children (x,y in the HTML). A centering grid / <main> wrapper
+  // trapped shapes at center and got auto-layout-converted on drop.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -77,17 +84,9 @@ export function blankScreenHtml(title: string): string {
       color: var(--color-text, #111827);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 48px;
-    }
   </style>
 </head>
-<body>
-  <main data-agent-native-layer-name="${safeTitleAttribute}">
-  </main>
+<body data-agent-native-layer-name="${safeTitleAttribute}">
 </body>
 </html>`;
 }
@@ -187,12 +186,92 @@ export function polygonPointsForHtmlShape(
  * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
  * remove this attribute so the text is never "helpfully" overridden again.
  */
+
+/** Inline absolute rect, or null when the element is not absolutely placed. */
+function absoluteRect(
+  element: Element,
+): { x: number; y: number; w: number; h: number } | null {
+  const style = (element as HTMLElement).style;
+  if (style.position !== "absolute") return null;
+  const read = (value: string) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const x = read(style.left);
+  const y = read(style.top);
+  const w = read(style.width);
+  const h = read(style.height);
+  if (x === null || y === null || w === null || h === null) return null;
+  // Inline left/top are relative to the nearest positioned ancestor, so a
+  // nested frame must add its own offsets or it matches the wrong origin.
+  let originX = 0;
+  let originY = 0;
+  for (
+    let ancestor = element.parentElement;
+    ancestor && ancestor.tagName.toLowerCase() !== "body";
+    ancestor = ancestor.parentElement
+  ) {
+    const position = ancestor.style.position;
+    if (
+      position !== "absolute" &&
+      position !== "relative" &&
+      position !== "fixed"
+    ) {
+      continue;
+    }
+    originX += read(ancestor.style.left) ?? 0;
+    originY += read(ancestor.style.top) ?? 0;
+  }
+  return { x: originX + x, y: originY + y, w, h };
+}
+
+/**
+ * Figma's frame is the container primitive and a rectangle is not, so only
+ * `data-an-primitive="frame"` adopts. Bounds come from inline geometry
+ * because this document is parsed, never laid out.
+ */
+function deepestFrameContaining(
+  root: Element,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): { element: Element; x: number; y: number } | null {
+  const contained = Array.from(
+    root.querySelectorAll('[data-an-primitive="frame"]'),
+  )
+    .map((element) => ({ element, rect: absoluteRect(element) }))
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        element: Element;
+        rect: { x: number; y: number; w: number; h: number };
+      } =>
+        candidate.rect !== null &&
+        x >= candidate.rect.x &&
+        y >= candidate.rect.y &&
+        x + w <= candidate.rect.x + candidate.rect.w &&
+        y + h <= candidate.rect.y + candidate.rect.h,
+    )
+    .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
+  const best = contained[0];
+  return best
+    ? { element: best.element, x: best.rect.x, y: best.rect.y }
+    : null;
+}
+
 export function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
   options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
+  // A live/localhost screen stores its route URL here, not a document.
+  // Appending to it parses the URL as body text and returns a whole HTML file,
+  // which the caller then persists OVER the URL — the screen stops being live
+  // and the route is gone. There is no correct append for this shape.
+  if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
@@ -207,6 +286,10 @@ export function appendCanvasPrimitiveToHtml(
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
+    // Resolved once so every primitive kind nests identically, and so text can
+    // pick a fill that is legible against its actual container.
+    const host = deepestFrameContaining(doc.body, left, top, width, height);
+    const hostOrBody: Element = host?.element ?? doc.body;
 
     if (
       primitive.kind === "path" ||
@@ -326,7 +409,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(path);
-      doc.body.appendChild(svg);
+      hostOrBody.appendChild(svg);
       return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     }
 
@@ -369,7 +452,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(polygon);
-      doc.body.appendChild(svg);
+      hostOrBody.appendChild(svg);
       return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     }
 
@@ -427,16 +510,17 @@ export function appendCanvasPrimitiveToHtml(
         // not centered — match that instead of centering the text block.
         element.style.alignItems = "flex-start";
       }
-      // Board (dark infinite-canvas) text needs an explicit default fill —
-      // "currentColor" inherits the unstyled document's black body text,
-      // invisible on the dark canvas background. The board surface is
-      // always dark regardless of the editor chrome theme, so this keys off
-      // the target surface only (see defaultCanvasTextColor). Screens keep
-      // "currentColor" so text dropped into an existing (often light)
-      // screen still inherits its surrounding styles/theme as before.
+      // "currentColor" inherits the unstyled document's black body text, so
+      // it is invisible on any dark surface — the always-dark board, and
+      // equally a screen whose own background is dark. Light screens keep
+      // "currentColor" so text still inherits their theme.
+      // Measure the frame the text actually lands in: a dark frame on a light
+      // page would otherwise keep currentColor and render invisible.
+      const autoTextNeedsLightFill =
+        options?.isBoardTarget === true ||
+        !destinationBackgroundIsLightForNode(hostOrBody);
       const resolvedTextColor =
-        primitive.fill ??
-        defaultCanvasTextColor(options?.isBoardTarget === true);
+        primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;
       // Stamp the auto-color marker whenever the color came from the
       // default (no explicit primitive.fill) rather than a user-chosen
@@ -476,8 +560,35 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    doc.body.appendChild(element);
+    if (host) {
+      element.style.left = `${left - host.x}px`;
+      element.style.top = `${top - host.y}px`;
+    }
+    hostOrBody.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract one newly-created primitive from a temporary document as markup the
+ * live iframe bridge can insert. URL-backed screens keep their route URL in the
+ * Design file, so their creation path must serialize a node without ever
+ * rewriting that file content.
+ */
+export function extractCanvasPrimitiveHtml(
+  content: string,
+  nodeId: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    return (
+      doc.querySelector(`[data-agent-native-node-id="${safeNodeId}"]`)
+        ?.outerHTML ?? null
+    );
   } catch {
     return null;
   }

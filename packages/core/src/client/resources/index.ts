@@ -1,5 +1,43 @@
-export { ResourcesPanel } from "./ResourcesPanel.js";
+export { ResourcesPanel, type ResourcesPanelProps } from "./ResourcesPanel.js";
 export { ResourceTree, type ResourceTreeProps } from "./ResourceTree.js";
 export { ResourceEditor, type ResourceEditorProps } from "./ResourceEditor.js";
+export { useUploadResource } from "../uploads/use-upload-resource.js";
 export * from "./use-resources.js";
 export * from "./use-builtin-capabilities.js";
+export {
+  DEFAULT_MCP_INTEGRATIONS,
+  filterMcpIntegrations,
+  findMcpIntegrationForText,
+  getDefaultMcpIntegrations,
+  isCustomMcpIntegrationEnabled,
+  isMcpIntegrationCatalogAvailable,
+  mergeDefaultMcpIntegrations,
+  type DefaultMcpIntegration,
+} from "./mcp-integration-catalog.js";
+export {
+  McpIntegrationDialog,
+  type McpIntegrationDialogProps,
+} from "./McpIntegrationDialog.js";
+export { McpIntegrationLogo } from "./McpIntegrationLogo.js";
+export {
+  McpConnectionSuggestion,
+  type McpConnectionSuggestionProps,
+  type McpConnectionSuggestionVariant,
+} from "./McpConnectionSuggestion.js";
+export {
+  McpServersApiProvider,
+  useMcpServersApi,
+  useMcpServers,
+  useCreateMcpServer,
+  useDeleteMcpServer,
+  useReconnectMcpServer,
+  testMcpServerUrl,
+  formatMcpServersLoadError,
+  type CreateMcpServerArgs,
+  type McpServer,
+  type McpServerScope,
+  type McpServersApi,
+  type McpServersList,
+  type ReconnectMcpServerArgs,
+  type TestMcpUrlResult,
+} from "./use-mcp-servers.js";

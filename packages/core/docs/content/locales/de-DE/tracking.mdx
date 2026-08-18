@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ Mehrere Anbieter können gleichzeitig aktiv sein. Jede Veranstaltung geht an all
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 Lösen Sie ein Analyseereignis aus. Fans an alle registrierten Anbieter.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` ist entweder das `ctx` einer Action, direkt durchgereicht, oder ein Meta-Objekt `{ userId, anonymousId, sessionId }` für Aufrufer ohne `ctx`.
+
+Die Browser-Session muss der Aufrufer nicht selbst mitgeben: Sie stammt aus dem umgebenden Request-Kontext (`RequestContext.browserSessionId`, gesetzt aus dem Header `X-Agent-Native-Session-Id`, den Action-Client, Chat und das Browser-`track()` senden). Dieselbe Sitzung wird dadurch korreliert, egal ob die Oberfläche oder der Agent das Ereignis ausgelöst hat. Jeder Anbieter bildet sie auf sein eigenes Session-Feld ab: `$session_id` bei PostHog, wodurch das Ereignis mit dem Session Replay verknüpft wird; eine `session_id`-Eigenschaft bei Mixpanel und Amplitude; ein `sessionId` auf oberster Ebene bei Webhooks und Agent Native Analytics. Für Aufrufer ohne Browser (Cron, CLI, MCP, A2A) fehlt sie, und ein `sessionId` im Meta-Objekt überschreibt sie.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ Identifizieren Sie einen Benutzer anhand von Merkmalen. Weiterleitung an Anbiete
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Benötigen Sie ein benutzerdefiniertes Backend, die Anbieterregistrierung API oder die Batch-/Singleton-Interna? Siehe [Advanced: custom providers & internals](#advanced) am Ende.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx direkt durchreichen: Das Ereignis wird ctx.userEmail zugeordnet und
+    // der Browser-Session zugeordnet, aus der der Aufruf kam.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -176,8 +182,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +201,7 @@ Dies unterscheidet sich von der internen Browser-Telemetrie des Frameworks (`tra
 Agent-Native-Apps können sich für erstklassiges browserseitiges Session Replay entscheiden, ohne ein zweites Analytics-SDK hinzuzufügen. Rufen Sie `configureTracking()` einmal im Browser-Root auf und übergeben Sie den öffentlichen Analytics-Schlüssel sowie den Collector-Endpunkt:
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -237,6 +241,8 @@ Die Datenschutz-Standardeinstellungen sind bewusst konservativ, aber für die Wi
 - Sensible Bereiche werden mit Selektoren wie `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private` sowie kreditkarten-/passwort-/sozialversicherungsnummerähnlichen Feldern blockiert.
 - URLs werden mit demselben `scrubUrl()`-Helfer bereinigt, der auch von der Browser-Analyse verwendet wird.
 - Die Replay-Aufzeichnung ist ausschließlich webbasiert und opt-in; native Desktop-Bildschirme werden nicht aufgezeichnet.
+
+Framework-eigene iframes, einschließlich Erweiterungen und gerenderten E-Mail-Inhalten, werden in der Replay-Aufzeichnung erfasst. Innerhalb aufgezeichneter Frames gelten dieselben Maskierungs- und Blockierungsselektoren. Ein fremdes Cross-Origin-iframe bleibt undurchsichtig, sofern sein eigenes Dokument nicht einen kompatiblen rrweb-Recorder mit aktivierter Cross-Origin-iframe-Aufzeichnung ausführt; die Ursprungsgrenzen des Browsers können von der übergeordneten Seite nicht umgangen werden.
 
 Während der Aufzeichnung erfasst Session Replay außerdem die Browser-Konsolenausgabe (`log`, `info`, `warn`, `error`, `debug`, sowie die Fenster-Ereignisse `error` / `unhandledrejection`) und Netzwerkanfrage-Metadaten (`fetch` und XHR) als getaggte rrweb-Custom-Events, damit Agenten und der Replay-Viewer von Nutzern gemeldete Probleme debuggen können. Die Erfassung ist standardmäßig aktiviert, wenn Replay aktiviert ist; passen Sie sie mit den Optionen `sessionReplay.console` und `sessionReplay.network` an oder deaktivieren Sie sie, wobei jede Option entweder einen booleschen Wert oder ein Optionsobjekt akzeptiert (`{ maxEvents?: number }`, wobei `network` zusätzlich `captureErrorBodies` und `maxErrorBodyLength` akzeptiert). Request-Bodies und -Header sowie Response-Header werden nie erfasst; Response-Bodies werden nur als begrenzter, redigierter Ausschnitt für 5xx-Antworten (Serverfehler) erfasst (`captureErrorBodies`, Standard true, begrenzt auf `maxErrorBodyLength` Zeichen, Standard 2048) — bei Antworten außerhalb des 5xx-Bereichs sowie bei Netzwerkfehlern wird nie ein Body mitgeführt. URLs werden bereinigt, Nachrichten werden gekürzt, der eigene Ingest-/Tracking-Traffic des Recorders wird ausgeschlossen, und sitzungsbezogene Budgets (1000 Konsolen- / 2000 Netzwerkereignisse) fügen bei Überschreitung einen Kürzungshinweis hinzu.
 
@@ -351,6 +357,6 @@ Das Framework verfolgt auch `builder connect clicked` von Connect Builder-CTAs u
 
 ## Was kommt als nächstes?
 
-- [**Actions**](/docs/actions) – woher die meisten Tracking-Aufrufe kommen
-- [**Server Plugins**](/docs/server#server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
+- [**Actions**](/docs/actions-overview) – woher die meisten Tracking-Aufrufe kommen
+- [**Server Plugins**](/docs/server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
 - [**Sicherheit – Geheimnisverwaltung**](/docs/security#secrets) – API-Schlüssel für Tracking-Anbieter verwalten

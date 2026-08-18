@@ -1,4 +1,5 @@
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
@@ -8,8 +9,22 @@ export interface ZoomAuthStatus {
   accounts: Array<{ id: string; email?: string; displayName?: string }>;
 }
 
+// Bounds every zoom fetch so a hung request can't leave the status poll's
+// `inFlight` guard stuck forever.
+const FETCH_ABORT_MS = 10_000;
+
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(input, init);
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), FETCH_ABORT_MS);
+  let res: Response;
+  try {
+    res = await fetch(input, {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+    });
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (!res.ok) {
     let message = `${input} -> ${res.status}`;
     try {
@@ -123,8 +138,15 @@ export function useConnectZoom() {
       queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
 
       const startedAt = Date.now();
-      const pollId = window.setInterval(() => {
-        queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
+      let inFlight = false;
+      const pollId = window.setInterval(async () => {
+        if (document.hidden || inFlight) return;
+        inFlight = true;
+        try {
+          await queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
+        } finally {
+          inFlight = false;
+        }
         if (Date.now() - startedAt > 120_000) {
           window.clearInterval(pollId);
         }

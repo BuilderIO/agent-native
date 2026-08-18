@@ -5,7 +5,7 @@ description: "Verzweigung, CODEOWNERS, PR-Überprüfung und wie Dispatch die Lau
 
 # Workspace Governance
 
-> **Welches Workspace-Dokument?** Auf dieser Seite geht es um **Governance** – wer überprüft, genehmigt und besitzt was für viele Apps in einem Repo. Was ein Arbeitsbereich ist (die Anpassungsebene), erfahren Sie unter [Workspace](/docs/workspace); Informationen zur Bereitstellungsform (ein Monorepo, viele Apps) finden Sie unter [Multi-App Workspaces](/docs/multi-app-workspace).
+> **Welches Workspace-Dokument?** Auf dieser Seite geht es um **Governance** – wer überprüft, genehmigt und besitzt was für viele Apps in einem Repo. Informationen zur Anpassungsebene des Agenten (Agent-Ressourcen: `AGENTS.md`, Speicher, skills, benutzerdefinierte Agenten) finden Sie unter [Agent-Ressourcen](/docs/agent-resources); Informationen zur Bereitstellungsform (ein Monorepo, viele Apps) finden Sie unter [Multi-App Workspaces](/docs/multi-app-workspace).
 
 Dieser Leitfaden behandelt die betriebliche Seite der Ausführung eines agentennativen Arbeitsbereichs – wie man verzweigt, wer was überprüft, wie man Codebesitz einrichtet und wie die Dispatch-Steuerungsebene in Ihr Governance-Modell passt.
 
@@ -87,7 +87,7 @@ Halten Sie Zweige kurzlebig. Langlebige Zweige weichen von den Hauptzweigen ab u
 
 ### Nicht-Entwickler-Branche
 
-Nicht jeder, der Änderungen vornehmen muss, ist mit Git vertraut. [Builder.io](https://www.builder.io) unterstützt ein visuelles Verzweigungsmodell, das Git-Zweigen unter der Haube zuordnet – nützlich für Inhalts- und Textänderungen, Layoutanpassungen, Designiterationen und A/B-Tests ohne Entwicklungsumgebung.
+Nicht jeder, der Änderungen vornehmen muss, ist mit Git vertraut. [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=workspace_management) unterstützt ein visuelles Verzweigungsmodell, das Git-Zweigen unter der Haube zuordnet – nützlich für Inhalts- und Textänderungen, Layoutanpassungen, Designiterationen und A/B-Tests ohne Entwicklungsumgebung.
 
 ## Code-Eigentum
 
@@ -207,7 +207,7 @@ Die [Dispatch](/docs/dispatch)-App ist die Laufzeitsteuerungsebene des Arbeitsbe
 
 Dispatch verwaltet: Tresorgeheimnisse, wiederverwendbare Arbeitsbereichsverbindungen, Arbeitsbereichsressourcen (skills, Anweisungen, Agentenprofile, MCP-Server), Genehmigungen und Prüfprotokolle. Informationen zur Konfiguration öffentlicher App-Routen (`workspaceApp.audience` / `publicPaths` / `protectedPaths`) finden Sie unter [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
 
-Informationen zum Ressourcenmodell und zu den kanonischen Pfaden finden Sie unter [Workspace — Global resources](/docs/workspace#global-resources).
+Informationen zum Ressourcenmodell und zu den kanonischen Pfaden finden Sie unter [Agent-Ressourcen — Global resources](/docs/agent-resources#global-resources).
 
 ## Setup-Checkliste
 
@@ -228,7 +228,7 @@ Für einen neuen Arbeitsbereich nach dem Ausführen von `npx @agent-native/core@
 - [ ] Dann registrieren Sie wiederverwendbare Workspace-Verbindungen für freigegebene Anbieterkonten
       Gewähren Sie Apps wie Brain, Analytics, Mail oder Dispatch nur bei Bedarf
       dieses Konto
-- [ ] Fügen Sie über die Seite „Ressourcen“ arbeitsbereichsweite skills-, Leitplanken-Anweisungen und Marken-/Firmenreferenzressourcen hinzu. Die vollständige Ressourcenmodelltabelle und das empfohlene Starterpaket finden Sie unter [Workspace](/docs/workspace#global-resources).
+- [ ] Fügen Sie über die Seite „Ressourcen“ arbeitsbereichsweite skills-, Leitplanken-Anweisungen und Marken-/Firmenreferenzressourcen hinzu. Die vollständige Ressourcenmodelltabelle und das empfohlene Starterpaket finden Sie unter [Agent-Ressourcen](/docs/agent-resources#global-resources).
 - [ ] Konfigurieren Sie die Genehmigungsrichtlinie und die E-Mails der Genehmiger
 - [ ] Richten Sie SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) für Administratorbenachrichtigungen ein
 - [ ] Verbinden Sie Slack oder Telegram für Workspace-Messaging

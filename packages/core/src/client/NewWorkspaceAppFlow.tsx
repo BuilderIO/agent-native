@@ -1,4 +1,5 @@
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconBook,
   IconCheck,
@@ -8,11 +9,13 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { docsUrl } from "../shared/docs-url.js";
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { isInBuilderFrame } from "./builder-frame.js";
-import { PromptComposer } from "./composer/PromptComposer.js";
+import { PromptComposer } from "./composer/index.js";
+import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { useDevMode } from "./use-dev-mode.js";
 
 export interface VaultSecretOption {
@@ -72,6 +75,19 @@ function defaultDispatchBasePath(sourceApp?: string): string | null {
   return "/dispatch";
 }
 
+const ERROR_FAILURE_REASONS = new Set([
+  "builder-error",
+  "builder-not-connected",
+  "credential-store-unavailable",
+]);
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
+
+function isErrorFailureReason(reason: string | null): boolean {
+  return !!reason && ERROR_FAILURE_REASONS.has(reason);
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
   const res = await fetch(url, init);
   const data = await res.json().catch(() => null);
@@ -115,6 +131,7 @@ function buildNewWorkspaceAppPrompt(input: {
     `Generate a concise one-sentence app description from the user prompt before coding; save it in apps/${input.appId}/package.json "description" so Dispatch and A2A can describe the app.`,
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
+    `Workspace credential rule: use the Dispatch workspace vault and the app's scoped secret or workspace-connection resolver for provider credentials. Framework apps should use resolveSecret from @agent-native/core/server; existing builder-workspace apps should use their resolveConnectorSecret helper. Do not ask a non-admin builder to add keys to local project settings or .env, and do not copy vault values into app code. If a needed key is not available, request it through Dispatch's vault workflow or surface the provider connection setup path.`,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,
@@ -162,6 +179,8 @@ export function NewWorkspaceAppFlow({
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+  const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isDevMode } = useDevMode();
 
@@ -169,6 +188,19 @@ export function NewWorkspaceAppFlow({
     dispatchBasePath === undefined
       ? defaultDispatchBasePath(sourceApp)
       : dispatchBasePath;
+
+  // Enabled only while the connect CTA is on screen. Left always-on, the hook
+  // would poll Builder status on every mount and fire onConnected on its first
+  // status read for anyone already connected.
+  const connectFlow = useBuilderConnectFlow({
+    enabled: failureReason === "builder-not-connected",
+    trackingSource: "new_workspace_app_flow",
+    trackingFlow: "create_app",
+    onConnected: () => {
+      setFailureReason(null);
+      setStatusMessage("Builder connected. Press Create app to try again.");
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -264,16 +296,24 @@ export function NewWorkspaceAppFlow({
       selectedResources,
       vaultAccessMode,
     });
+    setLastSubmittedPrompt(prompt);
     setIsSubmitting(true);
     setStatusMessage(null);
     setBranchUrl(null);
+    setFailureReason(null);
 
     try {
       if (isInBuilderFrame()) {
         sendToAgentChat({ message, submit: true, type: "code" });
         setStatusMessage("Sent to Builder chat.");
       } else if (isDevMode) {
-        sendToAgentChat({ message, submit: true, type: "code", newTab: true });
+        sendToAgentChat({
+          message,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
         setStatusMessage("Sent to the local agent.");
       } else {
         const result = await fetchJson(
@@ -292,15 +332,28 @@ export function NewWorkspaceAppFlow({
         if (result?.mode === "builder") {
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
+        } else if (result?.mode === "local-agent") {
+          sendToAgentChat({
+            message: result.prompt ?? message,
+            submit: true,
+            type: "code",
+            newTab: true,
+            reuseEmptyTab: true,
+          });
+          setStatusMessage("Sent to the local agent.");
         } else {
           setStatusMessage(
             result?.message ||
               "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
           );
+          setFailureReason(
+            result?.mode === "builder-unavailable" ? result.reason : null,
+          );
         }
       }
     } catch (err: any) {
       setStatusMessage(err?.message || "Could not start the new app flow.");
+      setFailureReason(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -338,17 +391,62 @@ export function NewWorkspaceAppFlow({
           />
 
           {statusMessage ? (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-              {statusMessage}
-              {branchUrl ? (
-                <a
-                  href={branchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ms-2 inline-flex items-center gap-1 font-medium text-foreground underline"
+            <div
+              className={`flex flex-col gap-2 rounded-md border px-3 py-2 text-sm ${
+                isErrorFailureReason(failureReason)
+                  ? "border-destructive/40 bg-destructive/10 text-destructive"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {isErrorFailureReason(failureReason) ? (
+                  <IconAlertTriangle className="h-4 w-4 shrink-0" />
+                ) : null}
+                <span>{statusMessage}</span>
+                {branchUrl ? (
+                  <a
+                    href={branchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-foreground underline"
+                  >
+                    Open branch <IconArrowUpRight className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+              {failureReason === "builder-not-connected" ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => connectFlow.start()}
+                    disabled={connectFlow.connecting}
+                    className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {connectFlow.connecting
+                      ? "Connecting..."
+                      : "Connect Builder"}
+                  </button>
+                  <a
+                    href={LOCAL_APP_DOCS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-create-app-local-link
+                    className="inline-flex items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2"
+                  >
+                    Create locally <IconArrowUpRight className="h-3 w-3" />
+                  </a>
+                </div>
+              ) : null}
+              {failureReason === "credential-store-unavailable" ||
+              failureReason === "builder-error" ? (
+                <button
+                  type="button"
+                  onClick={() => submit(lastSubmittedPrompt)}
+                  disabled={isSubmitting}
+                  className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Open branch <IconArrowUpRight className="h-3 w-3" />
-                </a>
+                  Try again
+                </button>
               ) : null}
             </div>
           ) : null}

@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Buscar formularios",
     appearance: "Apariencia",
     toggleTheme: "Cambiar tema",
+    openAgent: "Abrir agente",
   },
   header: {
     settings: "Ajustes",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Preguntar a Forms",
     allForms: "Todos los formularios",
     team: "Equipo",
+    agent: "Agente",
   },
   settings: {
     title: "Ajustes",
@@ -32,10 +34,10 @@ const messages = {
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    agentTitle: "Ajustes del agente",
+    agentTitle: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    openAgentSettings: "Abrir ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Gestionar agente",
   },
   agent: {
     emptyState: "Preguntame cualquier cosa sobre tus formularios",
@@ -86,6 +88,16 @@ const messages = {
     addOption: "Agregar opción",
     min: "mín.",
     max: "máx.",
+    conditionalVisibility: "Visibilidad condicional",
+    conditionalVisibilityDescription:
+      "Muestra este campo solo cuando coincida una respuesta anterior.",
+    conditionField: "Respuesta anterior",
+    conditionOperator: "Condición",
+    conditionEquals: "es",
+    conditionNotEquals: "no es",
+    conditionContains: "contiene",
+    conditionValue: "Respuesta",
+    conditionValuePlaceholder: "Escribe una respuesta...",
     fieldTypes: {
       text: "Texto corto",
       email: "Correo electrónico",
@@ -143,6 +155,7 @@ const messages = {
     integrationsTab: "Integraciones",
     settingsSaved: "Ajustes guardados",
     integrationsSaved: "Integraciones guardadas",
+    saveFailed: "No se pudieron guardar los cambios",
     formTitlePlaceholder: "Título del formulario",
     addDescriptionPlaceholder: "Añadir una descripción...",
     dragToReorder: "Arrastra para reordenar",
@@ -195,6 +208,9 @@ const messages = {
       anonymousResponses: "Respuestas anónimas",
       anonymousResponsesDescription:
         "No conservar direcciones IP, identidad del remitente ni metadatos de origen.",
+      emailNewResponses: "Enviarme un correo por respuestas nuevas",
+      emailNewResponsesDescription:
+        "Envía una notificación al correo de la cuenta propietaria del formulario cada vez que alguien responde.",
       saveSettings: "Guardar ajustes",
     },
     integrations: {
@@ -211,7 +227,7 @@ const messages = {
       googleSheetsBlurb:
         "Copia cada respuesta en una hoja de cálculo que tu equipo puede compartir.",
       googleSheetsHelp:
-        "Implementa una app web de Apps Script que reciba datos POST",
+        "Usa una URL /exec de Apps Script desplegada que lea JSON de e.postData.contents y añada la fila.",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -263,6 +279,8 @@ const messages = {
     duplicated: "Formulario duplicado",
     duplicateFailed: "No se pudo duplicar el formulario",
     movedToArchive: "Formulario movido al archivo",
+    movingToArchive: "Moviendo el formulario al archivo…",
+    archiveFailed: "No se pudo mover el formulario al archivo",
     restored: "Formulario restaurado",
     permanentlyDeleted: "Formulario eliminado permanentemente",
     bulkPermanentlyDeleted:

@@ -141,7 +141,7 @@ The CTA should appear only at the moment of need:
 
 ### Make-It-Real Flow
 
-1. Connect Builder, using the existing `connect-builder` card/tooling.
+1. Connect Builder (free tier available), using the existing `connect-builder` card/tooling.
 2. Generate or migrate the inline design into a real React app.
 3. Preserve the original inline design as a version/snapshot.
 4. Use `fusion` as the hosted source descriptor for Builder-backed work.
@@ -942,7 +942,7 @@ Verify the agent can:
 
 When real-app support lands:
 
-- connect Builder or localhost
+- connect Builder (free tier available) or localhost
 - index a React component
 - select instance on canvas
 - show props and source

@@ -1,0 +1,359 @@
+---
+title: "Mail: Developer Guide"
+description: "Actions, data model, routes, and customization points for the Mail template — everything you need to customize or extend the agent-native Gmail client."
+---
+
+# Developer Guide
+
+This page is for anyone customizing the [Mail](/docs/template-mail) template or extending it: the action inventory, data model, route map, and the places to start when you want to change how Mail works.
+
+## Quick start
+
+Create a new workspace with the Mail template:
+
+```bash
+npx @agent-native/core@latest create my-mail --standalone --template mail
+```
+
+See [Getting Started](/docs/getting-started) for the rest of the local setup (`cd`, `pnpm install`, `pnpm dev`).
+
+To connect Gmail in dev, you need a Google OAuth client:
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create a project.
+2. Enable the **Gmail API** under APIs & Services → Library.
+3. Create OAuth 2.0 credentials (type: Web application). Add `http://localhost:8085/_agent-native/google/callback` as an authorized redirect URI.
+4. Copy the Client ID and Client Secret into the Settings page of the running app, then click **Connect Google account**.
+
+Tokens are stored in the framework `oauth_tokens` SQL table and refresh automatically. You can connect multiple Gmail accounts once the first is set up.
+
+## Action inventory
+
+Every operation is a TypeScript file in `templates/mail/actions/`, auto-mounted at `POST /_agent-native/actions/:name`. Actions marked **UI-only** are still real actions — the frontend calls them through `useActionQuery`/`useActionMutation` — but are declared `agentTool: false`, so the agent cannot call them as a tool.
+
+**Reads & triage**
+
+- `list-emails` / `search-emails` — query mail by view or Gmail search syntax
+- `get-email` / `get-thread` — full body/metadata for a message or thread
+- `find-contact` — resolve a name/partial address to a real email from Google Contacts + interaction history
+- `view-screen` — what the user is currently looking at (navigation, email list, open thread, draft queue)
+- `view-composer` — list all open compose drafts
+- `refresh-list` — make the UI refetch after a mutation
+
+**Message state**
+
+- `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email`
+- `mark-read` (bulk `scope: "all-unread"` cleanup) / `mark-thread-read`
+- `bulk-archive` — date-based archive, local demo mailbox only
+- `export-emails` — export a view as JSON, local demo mailbox only
+
+**Drafting & sending**
+
+- `manage-draft` — create/update/delete a `compose-{id}` draft
+- `send-email` — real Gmail send; `needsApproval: true`
+- `create-attachment-upload` — short-lived owner-bound upload URL for a local attachment
+- `manage-snippets` — saved reply snippets for the compose slash menu
+- `get-mail-settings` / `update-mail-settings` — signature and writing style
+- `import-gmail-signature` — convert the user's Gmail HTML signature to Markdown
+- `get-mail-preferences` / `update-mail-preferences` — UI-only, the broader preferences object (appearance, reading, tracking, drafting) backing Settings
+
+**Scheduling**
+
+- `send-scheduled-email-now` / `cancel-scheduled-email` — agent-callable
+- `create-scheduled-job` / `list-scheduled-jobs` / `update-scheduled-job` — UI-only, back the Scheduled view and snooze/send-later flow
+
+**Draft queue**
+
+- `list-org-members` — resolve valid `ownerEmail` values
+- `queue-email-draft` — create a queued draft for a member to review; returns `reviewUrl`
+- `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts`
+
+**Automations & Gmail filters**
+
+- `manage-automations` / `trigger-automations` — agent-facing natural-language triage rules
+- `create-automation` / `list-automations` / `update-automation` / `delete-automation` — UI-only, back the Settings automations list (same `automation_rules` table)
+- `get-automation-settings` / `update-automation-settings` — UI-only, the engine/model used to evaluate rules
+- `manage-gmail-filters` — native Gmail filters (list/create/replace/delete); Gmail has no update endpoint, so `replace` creates a new filter and deletes the old one
+
+**CRM & contacts**
+
+- `get-hubspot-contact` — the only first-class CRM action; Gong, Pylon, and Apollo are read-only UI sidebar panels only
+- `get-integration-statuses` — UI-only, which optional sidebar integrations are configured (no credential values)
+
+**Tracking**
+
+- `get-tracking` — open/click stats for a sent message by Gmail message ID
+
+**Aliases (UI-only)**
+
+- `create-alias` / `list-aliases` / `update-alias` / `delete-alias` — all `agentTool: false`; manage aliases from Settings
+
+**Navigation & calendar**
+
+- `navigate` — move the UI to a view, thread, settings section, queued draft, or compose draft
+- `respond-calendar-invite` — accept/decline/tentative a Google Calendar invite from Mail
+
+**Provider API escalation**
+
+- `provider-api-catalog` / `provider-api-docs` / `provider-api-request` — raw Gmail, Google Calendar, and HubSpot API calls (`MAIL_PROVIDER_API_IDS` resolves to exactly these three providers)
+- `list-staged-datasets` / `query-staged-dataset` / `delete-staged-dataset` — manage and query large `stageAs` scan results
+
+## Data model
+
+Email itself lives in Gmail (or the local `getSetting("local-emails")` fallback when no account is connected) — Mail's own SQL tables hold what Gmail doesn't: scheduling, contact ranking, automation rules, tracking, snippets, and the queue.
+
+<DataModel
+  id="doc-block-mail8"
+  title="Mail SQL tables"
+  summary={
+    "Email itself lives in Gmail. Mail's own SQL tables hold scheduled jobs, contact interaction frequency, automation rules, send-tracking events, snippets, and the queued-draft workflow. OAuth tokens are a framework table."
+  }
+  entities={[
+    {
+      id: "scheduled_jobs",
+      name: "scheduled_jobs",
+      note: "Snoozes and scheduled sends",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "type", type: "enum", note: "snooze | send_later" },
+        { name: "ownerEmail", type: "string" },
+        { name: "emailId", type: "string", nullable: true },
+        { name: "threadId", type: "string", nullable: true },
+        { name: "accountEmail", type: "string", nullable: true },
+        { name: "payload", type: "json" },
+        { name: "runAt", type: "datetime", note: "epoch ms to run at" },
+        {
+          name: "status",
+          type: "enum",
+          note: "pending | processing | done | cancelled",
+        },
+      ],
+    },
+    {
+      id: "contact_frequency",
+      name: "contact_frequency",
+      note: "Interaction-frequency ranking behind find-contact",
+      fields: [
+        { name: "id", type: "id", pk: true, note: "ownerEmail:contactEmail" },
+        { name: "ownerEmail", type: "string" },
+        { name: "contactEmail", type: "string" },
+        { name: "contactName", type: "string" },
+        { name: "sendCount", type: "integer" },
+        { name: "receiveCount", type: "integer" },
+        { name: "lastContactedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "automation_rules",
+      name: "automation_rules",
+      note: "Natural-language triage rules",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "domain", type: "string", note: '"mail" | "calendar"' },
+        { name: "name", type: "string" },
+        { name: "condition", type: "string", note: "natural language" },
+        { name: "actions", type: "json", note: "AutomationAction[]" },
+        { name: "enabled", type: "boolean" },
+      ],
+    },
+    {
+      id: "queued_email_drafts",
+      name: "queued_email_drafts",
+      note: "Teammate/Slack-requested drafts awaiting owner review",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "orgId", type: "string" },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "org member who reviews/sends",
+        },
+        { name: "requesterEmail", type: "string" },
+        { name: "toRecipients", type: "string" },
+        { name: "subject", type: "string" },
+        { name: "body", type: "markdown" },
+        { name: "source", type: "enum", note: "agent | slack | ui | api" },
+        {
+          name: "status",
+          type: "enum",
+          note: "queued | in_review | sent | dismissed",
+        },
+        { name: "sentMessageId", type: "string", nullable: true },
+      ],
+    },
+    {
+      id: "email_tracking",
+      name: "email_tracking",
+      note: "Open-pixel events for sent messages",
+      fields: [
+        { name: "pixelToken", type: "string", pk: true },
+        { name: "messageId", type: "string" },
+        { name: "ownerEmail", type: "string" },
+        { name: "opensCount", type: "integer" },
+        { name: "firstOpenedAt", type: "datetime", nullable: true },
+        { name: "lastOpenedAt", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "email_link_tracking",
+      name: "email_link_tracking",
+      note: "Link-click events for sent messages",
+      fields: [
+        { name: "clickToken", type: "string", pk: true },
+        { name: "pixelToken", type: "string", fk: "email_tracking.pixelToken" },
+        { name: "url", type: "string" },
+        { name: "clicksCount", type: "integer" },
+      ],
+    },
+    {
+      id: "snippets",
+      name: "snippets",
+      note: "Saved reply snippets for the compose slash menu",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "name", type: "string" },
+        { name: "body", type: "string" },
+      ],
+    },
+    {
+      id: "mail_inventory_cursors",
+      name: "mail_inventory_cursors",
+      note: "Short-lived continuation state for MCP inventory reads (metadata only, no bodies or credentials)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "queryFingerprint", type: "string" },
+        { name: "state", type: "json" },
+        { name: "expiresAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "Framework table — one row per connected Google account",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "provider", type: "string", note: '"google"' },
+        { name: "accountEmail", type: "string" },
+        { name: "accessToken", type: "string" },
+        { name: "refreshToken", type: "string" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "email_tracking",
+      to: "email_link_tracking",
+      kind: "1-n",
+      label: "click events",
+    },
+  ]}
+/>
+
+Settings and ephemeral state live outside these tables: `getSetting("local-emails")` (fallback mailbox), `getSetting("labels")`, `getUserSetting(email, "mail-settings")` (signature, writing style, tracking preferences), `getUserSetting(email, "aliases")`, and the `application_state` table (`navigation`, `navigate`, `compose-{id}`, `refresh-signal`).
+
+Emails flowing through the API have the shape `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
+
+<FileTree
+  id="doc-block-mail9"
+  title="Mail template layout"
+  entries={[
+    {
+      path: "actions/",
+      note: "defineAction operations — the single source of truth",
+    },
+    { path: "app/routes/", note: "React Router file routes" },
+    { path: "app/components/email/", note: "Inbox, thread, and compose UI" },
+    { path: "app/components/layout/", note: "App shell and navigation" },
+    {
+      path: "app/pages/SettingsPage.tsx",
+      note: "Aliases, automations, tracking, Slack intake",
+    },
+    {
+      path: "app/pages/DraftQueuePage.tsx",
+      note: "Queue list and detail view",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle schema for Mail's own tables",
+    },
+    {
+      path: "server/lib/",
+      note: "Gmail/Calendar/HubSpot clients, jobs, queued-drafts",
+    },
+    { path: ".agents/skills/", note: "Agent guidance for each Mail subsystem" },
+  ]}
+/>
+
+<AnnotatedCode
+  id="doc-block-mail10"
+  title="A short action: star-email.ts"
+  filename="templates/mail/actions/star-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Star or unstar one or more emails.",\n  schema: z.object({\n    id: z.string().optional().describe("Email ID(s), comma-separated"),\n    unstar: z.coerce.boolean().optional(),\n    accountEmail: z.string().optional(),\n  }),\n  run: async (args) => {\n    const ids = args.id?.split(",").map((s) => s.trim()).filter(Boolean);\n    if (!ids || ids.length === 0) throw new Error("--id is required");\n    const isStarred = args.unstar !== true;\n\n    // Bulk path: one Gmail batchModify call per account instead of\n    // one modify call per message when Gmail is connected.\n    if (ids.length > 1 && (await isConnected(ownerEmail))) {\n      const { succeeded, failed } = await gmailBatchModifyByAccount(...);\n      // ...\n    } else {\n      for (const id of ids) {\n        await toggleStar({ id, ownerEmail, isStarred, accountEmail });\n      }\n    }\n\n    await writeAppState("refresh-signal", { ts: Date.now() });\n    return `${isStarred ? "Starred" : "Unstarred"} ${succeeded}/${ids.length} email(s)`;\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "1-6",
+      label: "One file, three surfaces",
+      note: "This file is simultaneously an agent tool, a CLI command (`pnpm action star-email`), and a typed frontend hook (`useActionMutation`).",
+    },
+    {
+      lines: "10-13",
+      label: "Bulk vs. one-by-one",
+      note: "Multiple ids against a connected Gmail account batch into one API call per account instead of one call per message — the same pattern archive-email and mark-read use.",
+    },
+    {
+      lines: "18",
+      label: "Refresh after mutating",
+      note: "Mail mutations write refresh-signal so the UI refetches; actions that already signal internally (mark-thread-read, move-email) skip this.",
+    },
+  ]}
+/>
+
+## Routes reference
+
+- `/_index.tsx` — redirects to the default inbox view
+- `/$view.tsx` — a list view (`inbox`, `starred`, `sent`, `drafts`, `scheduled`, `archive`, `trash`, etc.)
+- `/$view.$threadId.tsx` — a list view with a specific thread open
+- `/email` — the embedded thread preview used in agent chat
+- `/agent` — a full-page Agent tab (`AgentTabsPage`)
+- `/draft-queue` and `/draft-queue/:id` — the draft queue list and detail view
+- `/settings` — account connections, tracking, automations, aliases, Slack intake
+- `/team` — redirects to `/settings?section=team`
+- `/extensions` — installed extension widgets (redirects to `/settings/extensions` when no extension id is given)
+
+## Customizing it
+
+Mail is yours to change. Everything important lives in a handful of places — start there.
+
+**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes an agent tool, a CLI command (`pnpm action <name>`), and a typed frontend hook surface through `useActionQuery` / `useActionMutation`. Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-automations.ts` for one with multiple sub-actions. See the [actions](/docs/actions-overview) docs for the full pattern.
+
+**Changing the UI.** Routes are in `templates/mail/app/routes/` and components in `templates/mail/app/components/email/` and `templates/mail/app/components/layout/`. The app uses shadcn/ui primitives from `app/components/ui/` and Tabler Icons — stick to those.
+
+**Changing how the agent behaves.** Agent guidance lives in `templates/mail/AGENTS.md` and the skills in `templates/mail/.agents/skills/` (`inbox-reads-and-triage`, `email-drafts`, `draft-queue`, `contacts-and-crm`, `mail-backends`, `inbox-automations`, `provider-api-scans`, and others). Agent behavior is changed by editing markdown — not code.
+
+**Changing data or settings.** Mail's own schema is in `templates/mail/server/db/schema.ts`. Settings reads and writes go through `readSetting`/`writeSetting` (or the per-user `getUserSetting`/`putUserSetting`) from `@agent-native/core/settings`. Application state (navigation, drafts, one-shot commands) uses `readAppState`/`writeAppState` from `@agent-native/core/application-state`.
+
+**Adding a new automation action type.** Extend the action schema in `templates/mail/actions/manage-automations.ts` and the executor in `templates/mail/actions/trigger-automations.ts`.
+
+**Adding a sidebar CRM integration.** Follow the pattern in `server/handlers/gong.ts`, `pylon.ts`, or `apollo.ts` for a read-only sidebar panel, or register a new provider in `MAIL_PROVIDER_API_IDS` (`server/lib/provider-api.ts`) to make it reachable through `provider-api-request` as well.
+
+**Changing keyboard shortcuts.** Keybind handlers live in `templates/mail/app/components/email/` — search for `useHotkeys` or `addEventListener("keydown"` to find where each key is wired.
+
+Make these changes in the repository's development workflow. The embedded app
+agent can edit source when its frame is intentionally granted workspace and
+write tooling; otherwise it operates the resulting app through its actions and
+data surface. See [Key Concepts](/docs/key-concepts#agent-modifies-code).
+
+## What's next
+
+- [**Mail overview**](/docs/template-mail) — the app summary
+- [**Inbox, Search & Automations**](/docs/template-mail-inbox) — the user-facing triage and automation flows
+- [**Drafting, Scheduling & the Draft Queue**](/docs/template-mail-drafts-and-queue) — the user-facing drafting flow
+- [**Talking to the Agent**](/docs/template-mail-agent) — prompts and the provider-API escalation path
+- [**Actions**](/docs/actions-overview) — the action system this page's inventory is built on
+- [**Extensions**](/docs/extensions) — building a widget for Mail's contact-sidebar slot
+- [**Automations**](/docs/automations) — the event-triggered engine mail's auto-triage rules build on

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BinaryDocumentAttachmentAdapter,
   isTextLikeFile,
+  serializeAttachmentContentPart,
 } from "./attachment-adapters.js";
 
 describe("BinaryDocumentAttachmentAdapter", () => {
@@ -20,7 +21,7 @@ describe("BinaryDocumentAttachmentAdapter", () => {
     });
 
     await expect(adapter.add({ file })).rejects.toThrow(
-      '"large.pdf" is 4.0 MB — PDFs are capped at 4 MB',
+      '"large.pdf" is 4.0 MB - documents are capped at 4 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
     );
   });
 });
@@ -32,5 +33,23 @@ describe("isTextLikeFile", () => {
         new File(["<svg />"], "logo.svg", { type: "image/svg+xml" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("serializeAttachmentContentPart", () => {
+  it("keeps hosted file URLs when a persisted thread is re-queued", () => {
+    expect(
+      serializeAttachmentContentPart({
+        type: "file",
+        url: "https://cdn.example.com/report.pdf",
+        mimeType: "application/pdf",
+        filename: "report.pdf",
+      }),
+    ).toEqual({
+      type: "file",
+      url: "https://cdn.example.com/report.pdf",
+      mimeType: "application/pdf",
+      filename: "report.pdf",
+    });
   });
 });

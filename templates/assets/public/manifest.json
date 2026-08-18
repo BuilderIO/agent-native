@@ -3,7 +3,6 @@
   "short_name": "Assets",
   "description": "Digital asset libraries for uploaded and generated images and videos",
   "start_url": "/",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#111111",
   "icons": [

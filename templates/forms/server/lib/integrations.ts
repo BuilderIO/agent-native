@@ -1,7 +1,8 @@
 import {
-  isBlockedToolUrl,
-  ssrfSafeToolFetch,
-} from "@agent-native/core/tools/url-safety";
+  deliverJsonWebhook,
+  escapeSlackMrkdwn,
+  isWebhookUrlAllowed,
+} from "@agent-native/core/integrations";
 
 import { publicSubmitterEmail } from "../../shared/submitter-email.js";
 import type {
@@ -27,7 +28,7 @@ export function assertIntegrationUrlsAllowed(settings: FormSettings): void {
   const list = settings.integrations ?? [];
   for (const integration of list) {
     if (!integration.url) continue;
-    if (isBlockedToolUrl(integration.url)) {
+    if (!isWebhookUrlAllowed(integration.url)) {
       throw new Error(
         `Integration "${integration.name || integration.type}" URL is not allowed (private/internal/non-http(s) URL).`,
       );
@@ -104,10 +105,7 @@ function pageLabelFromUrl(pageUrl: string): string {
   }
   if (label.length > 80) label = `${label.slice(0, 79)}…`;
   // Escape Slack mrkdwn link-text control characters.
-  return label
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return escapeSlackMrkdwn(label);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +118,14 @@ function formatFields(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
+  const usedLabels = new Set<string>();
   for (const field of fields) {
     if (data[field.id] !== undefined) {
-      out[field.label] = data[field.id];
+      const label = field.label.trim() || field.id;
+      let key = label;
+      if (usedLabels.has(key)) key = `${label} (${field.id})`;
+      usedLabels.add(key);
+      out[key] = data[field.id];
     }
   }
   return out;
@@ -162,7 +165,7 @@ export function buildSlackPayload(submission: SubmissionPayload) {
     .map((f) => {
       const val = submission.data[f.id];
       const display = Array.isArray(val) ? val.join(", ") : String(val);
-      return `*${f.label}:* ${display}`;
+      return `*${escapeSlackMrkdwn(f.label)}:* ${escapeSlackMrkdwn(display)}`;
     });
 
   const tsContext = `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`;
@@ -260,9 +263,13 @@ function buildDiscordPayload(submission: SubmissionPayload) {
 }
 
 /** Google Sheets (Apps Script web app) — flat key/value pairs */
-function buildGoogleSheetsPayload(submission: SubmissionPayload) {
+export function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   return {
+    event: "form_submission",
+    eventVersion: 1,
+    formId: submission.formId,
     formTitle: submission.formTitle,
+    responseId: submission.responseId,
     submittedAt: submission.submittedAt,
     submitterEmail: publicSubmitterEmail(submission.submitterEmail) ?? "",
     chatSessionIds: (submission.chatSessionIds ?? []).join(", "),
@@ -319,7 +326,7 @@ export async function fireIntegrations(
       // config. Anonymous submissions then trigger a server-side POST. Block
       // private IPs, cloud-metadata endpoints, and non-http(s) schemes
       // before the fetch fires.
-      if (isBlockedToolUrl(integration.url)) {
+      if (!isWebhookUrlAllowed(integration.url)) {
         console.warn(
           `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
         );
@@ -331,19 +338,22 @@ export async function fireIntegrations(
       const payload = buildPayload(submission);
 
       try {
-        const res = await ssrfSafeToolFetch(
-          integration.url,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(10_000),
-          },
-          { maxRedirects: 3 },
-        );
-        if (!res.ok) {
+        const result = await deliverJsonWebhook({
+          url: integration.url,
+          payload,
+        });
+        if (!result.ok) {
+          if (result.blocked) {
+            console.warn(
+              `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
+            );
+            return;
+          }
           console.warn(
-            `[integrations] ${integration.type} "${integration.name}" returned ${res.status}`,
+            result.status
+              ? `[integrations] ${integration.type} "${integration.name}" returned ${result.status}`
+              : `[integrations] ${integration.type} "${integration.name}" failed:`,
+            result.error,
           );
         }
       } catch (err) {

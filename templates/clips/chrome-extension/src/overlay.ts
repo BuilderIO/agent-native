@@ -1,4 +1,6 @@
 import "./overlay.css";
+import { SCREEN_CAPTURE_FRAME_RATE } from "@shared/recording-capture";
+
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("overlay");
@@ -31,8 +33,12 @@ function isDeviceUnavailableError(error: unknown): boolean {
 
 function cameraConstraint(deviceId: string): MediaTrackConstraints {
   const video: MediaTrackConstraints = {
-    width: { ideal: 640 },
-    height: { ideal: 640 },
+    width: { ideal: 480 },
+    height: { ideal: 480 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
   };
   if (deviceId) video.deviceId = { exact: deviceId };
   else video.facingMode = "user";
@@ -71,6 +77,17 @@ function postToolbarSize(height: number): void {
   try {
     window.parent.postMessage(
       { source: "clips-overlay", kind: "resize", part: "toolbar", height },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
+
+function postToolbarDragStart(): void {
+  try {
+    window.parent.postMessage(
+      { source: "clips-overlay", kind: "toolbar-drag-start", part: "toolbar" },
       "*",
     );
   } catch {
@@ -400,6 +417,22 @@ function initCountdown(): void {
 function initToolbar(): void {
   const pill = document.createElement("div");
   pill.className = "toolbar-v";
+  pill.style.cursor = "grab";
+
+  // The content script owns iframe geometry, so ask it to capture the pointer
+  // page-wide when the user drags the toolbar outside its current bounds.
+  pill.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    pill.style.cursor = "grabbing";
+    postToolbarDragStart();
+    const restore = (): void => {
+      pill.style.cursor = "grab";
+      window.removeEventListener("pointerup", restore);
+    };
+    window.addEventListener("pointerup", restore);
+  });
 
   const makeBtn = (
     cls: string,

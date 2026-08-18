@@ -4,15 +4,17 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  extractTemplateFonts,
   redactTemplateDesignData,
   remapTemplateFileIds,
+  templateFileDimensions,
 } from "../server/lib/design-template-data.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
@@ -31,7 +33,7 @@ export default defineAction({
     "Create an editable design from a reusable template. The action copies the template files, exact dimensions, defaults, and locked layers. " +
     "When a prompt is supplied, refine the copied files with get-design-snapshot and edit-design; do not replace the template with generate-design.",
   schema: z.object({
-    templateId: z.string().min(1).describe("Template or starter template ID"),
+    templateId: z.string().min(1).describe("Saved or built-in template ID"),
     title: z.string().trim().min(1).max(120).optional(),
     prompt: z
       .string()
@@ -124,14 +126,20 @@ export default defineAction({
     let linkedDesignSystemId =
       designSystemId === undefined ? templateDesignSystemId : designSystemId;
     if (linkedDesignSystemId) {
-      try {
-        await assertAccess("design-system", linkedDesignSystemId, "viewer");
-      } catch {
-        if (designSystemId !== undefined)
+      const designSystemAccess = await resolveAccess(
+        "design-system",
+        linkedDesignSystemId,
+      );
+      if (!designSystemAccess) {
+        if (designSystemId !== undefined) {
           throw new Error("Design system not found");
+        }
         linkedDesignSystemId = null;
       }
     }
+    const designSystemOverridden =
+      designSystemId !== undefined && designSystemId !== templateDesignSystemId;
+    const adaptationPending = Boolean(prompt);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
@@ -143,12 +151,32 @@ export default defineAction({
       redactTemplateDesignData(templateData),
       fileIdMap,
     );
+    // The copied screens are edited in place, so the design's own files stop
+    // being evidence of what the template looked like after the first
+    // refinement. Capturing the small facts here — which template file backs
+    // each screen, its exact frame, and the declared fonts — is what lets
+    // every later turn restate them without re-reading the template.
     data.templateSource = {
       templateId,
       title: templateTitle,
       category: templateCategory,
       templateUpdatedAt,
       instantiatedAt: now,
+      templateDesignSystemId,
+      appliedDesignSystemId: linkedDesignSystemId,
+      designSystemOverridden,
+      files: files.map((file) => {
+        const designFileId = fileIdMap.get(file.id)!;
+        const { width, height } = templateFileDimensions(data, designFileId);
+        return {
+          designFileId,
+          templateFileId: file.id,
+          filename: file.filename,
+          width,
+          height,
+        };
+      }),
+      fonts: extractTemplateFonts(files.map((file) => file.content).join("\n")),
     };
     if (prompt) data.templatePrompt = prompt;
 
@@ -190,6 +218,8 @@ export default defineAction({
       title: title ?? templateTitle,
       templateId,
       templateTitle,
+      designSystemId: linkedDesignSystemId,
+      designSystemOverridden,
       fileCount: files.length,
       lockedLayerCount: countLockedLayersAcrossFiles(persistedFiles),
       templateBaselineFiles: persistedFiles.map((file) => ({
@@ -197,7 +227,8 @@ export default defineAction({
         contentHash: sourceContentHash(file.content),
       })),
       promptPending: Boolean(prompt),
-      nextRequiredAction: prompt
+      adaptationPending,
+      nextRequiredAction: adaptationPending
         ? "Call get-design-snapshot, then refine unlocked content with edit-design. Do not call generate-design."
         : null,
     };

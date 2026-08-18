@@ -38,12 +38,36 @@ export const dashboards = table("dashboards", {
   /** Hidden dashboards are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
+  folderId: text("folder_id"),
   /** Last authenticated user who changed dashboard metadata/config, if tracked. */
   updatedBy: text("updated_by"),
   ...ownableColumns(),
 });
 
+/**
+ * Persistent per-name rows serialize concurrent create/rename checks. The row
+ * is deliberately independent of dashboard visibility: callers acquire the
+ * same lock before applying their access-scoped collision check.
+ */
+export const dashboardNameLocks = table("dashboard_name_locks", {
+  nameKey: text("name_key").primaryKey(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const dashboardShares = createSharesTable("dashboard_shares");
+
+export const dashboardFolders = table("dashboard_folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  scope: text("scope", { enum: ["personal", "shared"] }).notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const dashboardFolderShares = createSharesTable(
+  "dashboard_folder_shares",
+);
 
 /**
  * Bounded dashboard history. Each row snapshots the previous dashboard config
@@ -66,6 +90,10 @@ export const dashboardRevisions = table(
     dashboardCreatedIdx: index("dashboard_revisions_dashboard_created_idx").on(
       t.dashboardId,
       t.createdAt,
+    ),
+    orgDashboardIdx: index("dashboard_revisions_org_dashboard_idx").on(
+      t.orgId,
+      t.dashboardId,
     ),
   }),
 );
@@ -109,6 +137,11 @@ export const dashboardReportSubscriptions = table(
       enum: ["success", "error", "running"],
     }),
     lastError: text("last_error"),
+    lastCaptureAt: text("last_capture_at"),
+    lastCaptureMode: text("last_capture_mode", {
+      enum: ["full", "partial", "none"],
+    }),
+    lastCaptureError: text("last_capture_error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -185,6 +218,18 @@ export const bigqueryCache = table("bigquery_cache", {
 });
 
 /**
+ * First-party dashboard panel result cache — see
+ * server/lib/first-party-analytics-cache.ts.
+ */
+export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {
+  key: text("key").primaryKey(),
+  sql: text("sql").notNull(),
+  result: text("result").notNull(),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+
+/**
  * Public write keys for the first-party analytics ingestion endpoint.
  * The key is intentionally public/write-only: it can create events for the
  * owning user/org but grants no read or admin access.
@@ -236,6 +281,82 @@ export const analyticsEvents = table("analytics_events", {
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
 });
+
+/**
+ * Compact daily event counts. The tenant key is non-null so the natural key
+ * remains unique for both organization-scoped and personal analytics keys.
+ */
+export const analyticsEventDailyRollups = table(
+  "analytics_event_daily_rollups",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    template: text("template").notNull().default(""),
+    eventCount: integer("event_count").notNull().default(0),
+  },
+);
+
+/** One row per identifiable visitor and normalized event day. */
+export const analyticsUserDays = table("analytics_user_days", {
+  id: text("id").primaryKey(),
+  tenantKey: text("tenant_key").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  eventDate: text("event_date").notNull(),
+  userKey: text("user_key").notNull(),
+});
+
+/** Atomic per-tenant event reservations used to cap future Postgres growth. */
+export const analyticsEventVolumeUsage = table(
+  "analytics_event_volume_usage",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    windowStart: text("window_start").notNull(),
+    eventCount: integer("event_count").notNull().default(0),
+    eventLimit: integer("event_limit").notNull(),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    tenantWindowUnique: uniqueIndex(
+      "analytics_event_volume_usage_tenant_window_idx",
+    ).on(t.tenantKey, t.windowStart),
+    updatedAtIdx: index("analytics_event_volume_usage_updated_at_idx").on(
+      t.updatedAt,
+    ),
+  }),
+);
+
+/**
+ * Compact pressure signals for first-party queries that are already slow or
+ * failing. Successful fast queries never write here, so the diagnostic path
+ * cannot become another hot-path event log.
+ */
+export const analyticsQueryPressureDaily = table(
+  "analytics_query_pressure_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    /** UTC day bucket; lastSeenAt carries the timestamp for trailing-window reads. */
+    eventDate: text("event_date").notNull(),
+    queryClass: text("query_class").notNull(),
+    slowQueryCount: integer("slow_query_count").notNull().default(0),
+    timeoutCount: integer("timeout_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    totalDurationMs: integer("total_duration_ms").notNull().default(0),
+    maxDurationMs: integer("max_duration_ms").notNull().default(0),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+);
 
 /**
  * Generic alert rules over first-party analytics events. Rules are owned by a

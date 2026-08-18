@@ -1,10 +1,15 @@
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import {
   and,
   asc,
   eq,
   inArray,
   isNull,
+  or,
   sql,
   type InferSelectModel,
 } from "drizzle-orm";
@@ -21,6 +26,7 @@ import type {
   ContentDatabaseOpenPagesIn,
   DocumentProperty,
 } from "../shared/api.js";
+import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
@@ -42,6 +48,7 @@ import {
   type DocumentPropertyValue,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -49,6 +56,17 @@ import {
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
+type ContentDatabaseSummaryRow = Pick<
+  ContentDatabaseRow,
+  | "id"
+  | "documentId"
+  | "title"
+  | "systemRole"
+  | "viewConfigJson"
+  | "createdAt"
+  | "updatedAt"
+> &
+  Partial<Pick<ContentDatabaseRow, "spaceId" | "naturalKeyPropertyId">>;
 type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
@@ -128,7 +146,31 @@ export async function getDatabaseMembershipForDocument(
 
 export async function resolvePropertyDatabaseForDocument(
   document: DocumentRow,
+  databaseId?: string,
+  role: "viewer" | "editor" | "admin" = "viewer",
 ): Promise<ContentDatabaseRow | null> {
+  if (databaseId) {
+    const database = await getDatabaseById(databaseId);
+    if (!database) throw new Error(`Database "${databaseId}" not found`);
+    await assertAccess("document", database.documentId, role);
+    if (database.documentId === document.id) return database;
+
+    const db = getDb();
+    const [membership] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, databaseId),
+          eq(schema.contentDatabaseItems.documentId, document.id),
+        ),
+      );
+    if (!membership) {
+      throw new Error("Document is not part of this database.");
+    }
+    return database;
+  }
+
   const ownedDatabase = await getDatabaseForDocument(document.id);
   if (ownedDatabase) return ownedDatabase;
   const membership = await getDatabaseMembershipForDocument(document.id);
@@ -151,11 +193,18 @@ export async function getDatabaseById(
   return database ?? null;
 }
 
-export function serializeDatabase(database: ContentDatabaseRow) {
+export function serializeDatabase(
+  database: ContentDatabaseSummaryRow,
+  description = "",
+) {
   return {
     id: database.id,
     documentId: database.documentId,
+    spaceId: database.spaceId,
     title: database.title,
+    systemRole: database.systemRole,
+    naturalKeyPropertyId: database.naturalKeyPropertyId,
+    description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,
     updatedAt: database.updatedAt,
@@ -180,8 +229,10 @@ export function serializeDatabaseViewConfig(
   return JSON.stringify(normalizeDatabaseViewConfig(value));
 }
 
-function defaultDatabaseViewConfig(): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView();
+export function defaultDatabaseViewConfig(
+  type: ContentDatabaseView["type"] = "table",
+): ContentDatabaseViewConfig {
+  const view = defaultDatabaseView({}, type);
   return {
     activeViewId: view.id,
     views: [view],
@@ -255,7 +306,7 @@ function defaultDatabaseView(
                 : type === "form"
                   ? "Form"
                   : "Table",
-    type,
+    type: type === "sidebar" ? "table" : type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -279,6 +330,7 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
   if (!value || typeof value !== "object") return null;
   const view = value as Partial<ContentDatabaseView>;
   if (typeof view.id !== "string" || !view.id.trim()) return null;
+  const retiredSidebar = view.type === "sidebar";
   const type =
     view.type === "board" ||
     view.type === "list" ||
@@ -292,7 +344,9 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     id: view.id,
     name:
       typeof view.name === "string" && view.name.trim()
-        ? view.name.trim()
+        ? retiredSidebar && view.name.trim() === "Sidebar"
+          ? "Table"
+          : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
@@ -446,14 +500,58 @@ function normalizeStringList(value: unknown) {
     : [];
 }
 
-export async function listPropertiesForDocument(document: DocumentRow) {
-  const database = await resolvePropertyDatabaseForDocument(document);
+export async function listPropertiesForDocument(
+  document: DocumentRow,
+  databaseId?: string,
+) {
+  const database = await resolvePropertyDatabaseForDocument(
+    document,
+    databaseId,
+  );
   if (!database) return [];
   // Read path: PURE read. Seeding the primary Blocks field happens at create
   // time and via the one-time startup repair (repairUnseededBlocksFields) —
   // never here. A viewer opening a shared/legacy row must not trigger writes on
   // another owner's database.
   return listPropertiesForDatabase(database.id, document);
+}
+
+export async function listPropertiesForAllDocumentDatabases(
+  document: DocumentRow,
+) {
+  const db = getDb();
+  const memberships = await db
+    .select({ databaseId: schema.contentDatabaseItems.databaseId })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.documentId, document.id));
+  const membershipIds = memberships.map((membership) => membership.databaseId);
+  const databases = await db
+    .select({
+      id: schema.contentDatabases.id,
+      documentId: schema.contentDatabases.documentId,
+    })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        isNull(schema.contentDatabases.deletedAt),
+        membershipIds.length > 0
+          ? or(
+              eq(schema.contentDatabases.documentId, document.id),
+              inArray(schema.contentDatabases.id, membershipIds),
+            )
+          : eq(schema.contentDatabases.documentId, document.id),
+      ),
+    )
+    .orderBy(asc(schema.contentDatabases.id));
+
+  const properties = [];
+  for (const database of databases) {
+    if (!(await resolveAccess("document", database.documentId))) continue;
+    properties.push(
+      ...(await listPropertiesForDatabase(database.id, document)),
+    );
+  }
+  return properties;
 }
 
 export async function listPropertiesForDatabase(
@@ -490,37 +588,71 @@ export async function listPropertiesForDatabase(
     ? await blockFieldContentsForDocument(valueDocument.id)
     : new Map<string, string>();
 
+  const blocksFieldIdentityById = valueDocument
+    ? await readBlocksFieldIdentities({
+        db,
+        fields: definitions.flatMap((definition) => {
+          const type = definition.type as DocumentPropertyType;
+          if (!isBlocksPropertyType(type)) return [];
+          const options = parsePropertyOptions(definition.optionsJson);
+          return [
+            {
+              documentId: valueDocument.id,
+              propertyId: definition.id,
+              markdown: resolveBlocksFieldValue({
+                options,
+                documentBody: valueDocument.content,
+                blockFieldContent: blockContentByPropertyId.get(definition.id),
+              }),
+            },
+          ];
+        }),
+      })
+    : new Map();
+
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
     const storedValue = valueByPropertyId.get(definition.id);
     const options = parsePropertyOptions(definition.optionsJson);
+    const value =
+      valueDocument && isComputedPropertyType(type) && type !== "formula"
+        ? computedPropertyValue(type, valueDocument, {
+            databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
+          })
+        : valueDocument && isBlocksPropertyType(type)
+          ? // Each Blocks field reads from exactly one place: the primary from
+            // the document body, additional fields from their own store.
+            resolveBlocksFieldValue({
+              options,
+              documentBody: valueDocument.content,
+              blockFieldContent: blockContentByPropertyId.get(definition.id),
+            })
+          : parsePropertyValue(storedValue?.valueJson);
     return {
       definition: {
         id: definition.id,
         databaseId: definition.databaseId,
+        systemRole: definition.systemRole as
+          | import("../shared/api.js").DocumentPropertySystemRole
+          | null,
         name: definition.name,
         type,
+        description: definition.description,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,
         createdAt: definition.createdAt,
         updatedAt: definition.updatedAt,
       },
-      value:
-        valueDocument && isComputedPropertyType(type) && type !== "formula"
-          ? computedPropertyValue(type, valueDocument, {
-              databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
-            })
-          : valueDocument && isBlocksPropertyType(type)
-            ? // Each Blocks field reads from exactly one place: the primary from
-              // the document body, additional fields from their own store.
-              resolveBlocksFieldValue({
-                options,
-                documentBody: valueDocument.content,
-                blockFieldContent: blockContentByPropertyId.get(definition.id),
-              })
-            : parsePropertyValue(storedValue?.valueJson),
-      editable: !isComputedPropertyType(type),
+      value,
+      editable: !definition.systemRole && !isComputedPropertyType(type),
+      ...(valueDocument && isBlocksPropertyType(type)
+        ? {
+            blocksField: blocksFieldIdentityById.get(
+              blocksFieldId(valueDocument.id, definition.id),
+            ),
+          }
+        : {}),
     };
   });
 
@@ -566,8 +698,12 @@ function serializePropertyDefinition(
   return {
     id: definition.id,
     databaseId: definition.databaseId,
+    systemRole: definition.systemRole as
+      | import("../shared/api.js").DocumentPropertySystemRole
+      | null,
     name: definition.name,
     type,
+    description: definition.description,
     visibility: normalizePropertyVisibility(definition.visibility),
     options: parsePropertyOptions(definition.optionsJson),
     position: definition.position,
@@ -666,30 +802,64 @@ export async function listPropertiesForDatabaseDocuments(
     }
   }
 
+  const blocksFieldIdentityById = await readBlocksFieldIdentities({
+    db,
+    fields: valueDocuments.flatMap((document) =>
+      definitions.flatMap((definition) => {
+        const type = definition.type as DocumentPropertyType;
+        if (!isBlocksPropertyType(type)) return [];
+        const options = parsePropertyOptions(definition.optionsJson);
+        return [
+          {
+            documentId: document.id,
+            propertyId: definition.id,
+            markdown: resolveBlocksFieldValue({
+              options,
+              documentBody: document.content,
+              blockFieldContent: blockContentByDocumentAndProperty.get(
+                propertyValueKey(document.id, definition.id),
+              ),
+            }),
+          },
+        ];
+      }),
+    ),
+  });
+
   for (const document of valueDocuments) {
     const properties = definitions.map((definition) => {
       const propertyDefinition = serializePropertyDefinition(definition);
       const storedValue = valueByDocumentAndProperty.get(
         propertyValueKey(document.id, definition.id),
       );
+      const value =
+        isComputedPropertyType(propertyDefinition.type) &&
+        propertyDefinition.type !== "formula"
+          ? computedPropertyValue(propertyDefinition.type, document, {
+              databaseRowNumber: rowNumberByDocumentId.get(document.id),
+            })
+          : isBlocksPropertyType(propertyDefinition.type)
+            ? resolveBlocksFieldValue({
+                options: propertyDefinition.options,
+                documentBody: document.content,
+                blockFieldContent: blockContentByDocumentAndProperty.get(
+                  propertyValueKey(document.id, definition.id),
+                ),
+              })
+            : parsePropertyValue(storedValue?.valueJson);
       return {
         definition: propertyDefinition,
-        value:
-          isComputedPropertyType(propertyDefinition.type) &&
-          propertyDefinition.type !== "formula"
-            ? computedPropertyValue(propertyDefinition.type, document, {
-                databaseRowNumber: rowNumberByDocumentId.get(document.id),
-              })
-            : isBlocksPropertyType(propertyDefinition.type)
-              ? resolveBlocksFieldValue({
-                  options: propertyDefinition.options,
-                  documentBody: document.content,
-                  blockFieldContent: blockContentByDocumentAndProperty.get(
-                    propertyValueKey(document.id, definition.id),
-                  ),
-                })
-              : parsePropertyValue(storedValue?.valueJson),
-        editable: !isComputedPropertyType(propertyDefinition.type),
+        value,
+        editable:
+          !definition.systemRole &&
+          !isComputedPropertyType(propertyDefinition.type),
+        ...(isBlocksPropertyType(propertyDefinition.type)
+          ? {
+              blocksField: blocksFieldIdentityById.get(
+                blocksFieldId(document.id, definition.id),
+              ),
+            }
+          : {}),
       };
     });
 

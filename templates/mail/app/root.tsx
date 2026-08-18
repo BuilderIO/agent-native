@@ -1,19 +1,22 @@
-import { useDbSync } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath, appApiPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import {
   DEFAULT_LOCALE,
-  ErrorReportActions,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
-  appPath,
-  appApiPath,
-  createAgentNativeQueryClient,
   getLocaleInitScript,
-  getThemeInitScript,
   normalizeLocaleCode,
   type LocaleCode,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -231,7 +234,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#3B82F6" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta

@@ -1,5 +1,5 @@
-import { useActionQuery } from "@agent-native/core/client";
-import type { Booking } from "@shared/api";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import type { Booking, BookingHost } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
@@ -17,16 +17,26 @@ export function useBookings() {
   return useActionQuery<Booking[]>("list-bookings");
 }
 
+export type BookingAvailabilityPreview = {
+  slug: string;
+  durations: number[];
+  hosts: BookingHost[];
+};
+
 export function useAvailableSlots(
   date: string,
   duration: number,
   slug?: string,
+  draft?: BookingAvailabilityPreview,
 ) {
+  const draftParam = draft ? JSON.stringify(draft) : undefined;
+
   return useQuery<{ start: string; end: string }[]>({
-    queryKey: ["available-slots", date, duration, slug],
+    queryKey: ["available-slots", date, duration, slug, draftParam],
     queryFn: async () => {
       const params = new URLSearchParams({ date, duration: String(duration) });
       if (slug) params.set("slug", slug);
+      if (draftParam) params.set("draft", draftParam);
       const res = await fetch(
         appApiPath(`/api/bookings/available-slots?${params}`),
       );

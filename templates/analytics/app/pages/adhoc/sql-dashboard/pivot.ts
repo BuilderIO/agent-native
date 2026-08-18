@@ -17,6 +17,7 @@ export interface PivotResult {
 
 const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAILY_GAP_FILL_DAYS = 800;
+const DAY_MS = 86_400_000;
 
 function dayToUtcMs(day: string): number | null {
   if (!ISO_DAY_RE.test(day)) return null;
@@ -54,7 +55,7 @@ function fillMissingDailyRows(
   const endMs = dayToUtcMs(last);
   if (startMs == null || endMs == null || endMs < startMs) return rows;
 
-  const dayCount = Math.floor((endMs - startMs) / 86_400_000) + 1;
+  const dayCount = Math.floor((endMs - startMs) / DAY_MS) + 1;
   if (dayCount > MAX_DAILY_GAP_FILL_DAYS) return rows;
 
   const byDay = new Map<string, Record<string, unknown>>();
@@ -66,7 +67,7 @@ function fillMissingDailyRows(
   }
 
   const filled: Record<string, unknown>[] = [];
-  for (let ms = startMs; ms <= endMs; ms += 86_400_000) {
+  for (let ms = startMs; ms <= endMs; ms += DAY_MS) {
     const day = utcMsToDay(ms);
     filled.push(
       fillMissingSeries(byDay.get(day) ?? { [xKey]: day }, seriesKeys),
@@ -78,6 +79,7 @@ function fillMissingDailyRows(
 export function pivotRows(
   rows: Record<string, unknown>[],
   config: PivotConfig,
+  options?: { fillDateGaps?: boolean },
 ): PivotResult {
   const { xKey, seriesKey, valueKey } = config;
   const byX = new Map<string, Record<string, unknown>>();
@@ -116,7 +118,10 @@ export function pivotRows(
   }
 
   return {
-    rows: fillMissingDailyRows(orderedRows, xKey, seriesKeys),
+    rows:
+      options?.fillDateGaps === false
+        ? orderedRows
+        : fillMissingDailyRows(orderedRows, xKey, seriesKeys),
     seriesKeys,
   };
 }

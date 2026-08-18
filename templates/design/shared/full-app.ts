@@ -13,24 +13,39 @@
  * a design as app-backed.
  */
 
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
+
 /**
- * Master switch for full app building in the Design app.
- *
- * Deliberately a plain code boolean for now: flip to `true` to expose the
- * "Full app" creation option and enable the fusion app actions. Builder
+ * Runtime rollout for full app building in the Design app. Builder
  * credentials plus a branch project id (DISPATCH_BUILDER_PROJECT_ID /
- * BUILDER_BRANCH_PROJECT_ID / BUILDER_PROJECT_ID) are still required at
- * runtime — without them the actions return the standard connect CTA.
+ * BUILDER_BRANCH_PROJECT_ID / BUILDER_PROJECT_ID) remain separate setup
+ * requirements; without them the actions return the standard connect CTA.
  */
-export const FULL_APP_BUILDING_ENABLED = false;
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Builder Fusion-backed applications.",
+});
 
 export type DesignFusionAppStatus = "building" | "ready" | "error";
+
+/**
+ * How the linkage was established. `builder-host` (opened from builder.io's
+ * embedded Design tab) never provisions or deploys the container — Builder owns
+ * it, and Builder's chat session drives it. Absent means `design-app`.
+ */
+export type DesignFusionAppSource = "design-app" | "builder-host";
 
 export interface DesignFusionApp {
   /** Builder project id the app branch lives in. */
   projectId: string;
   /** Branch backing this design (one branch per design). */
   branchName: string;
+  source?: DesignFusionAppSource;
+  /** Builder organization owning the project. Set for `builder-host` designs. */
+  builderOrgId?: string;
+  /** Builder content id the tab was opened from, when there is one. */
+  contentId?: string;
   /** Builder visual-editor URL for the branch (progress/debugging). */
   editorUrl?: string;
   /** Container dev-server URL once the container is ready; iframe-able. */
@@ -91,10 +106,17 @@ export function readFusionApp(data: unknown): DesignFusionApp | null {
     app.status === "ready" || app.status === "error" ? app.status : "building";
   const str = (value: unknown): string | undefined =>
     typeof value === "string" && value ? value : undefined;
+  const source: DesignFusionAppSource | undefined =
+    app.source === "builder-host" || app.source === "design-app"
+      ? app.source
+      : undefined;
   return {
     projectId,
     branchName,
     status,
+    source,
+    builderOrgId: str(app.builderOrgId),
+    contentId: str(app.contentId),
     editorUrl: str(app.editorUrl),
     previewUrl: str(app.previewUrl),
     statusMessage: str(app.statusMessage),

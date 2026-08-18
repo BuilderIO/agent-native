@@ -356,7 +356,7 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
       );
     }
     throw new Error(
-      `No media transcription provider is available. Connect Builder.io in Settings -> File uploads or configure GROQ_API_KEY. ${groqError}`,
+      `No media transcription provider is available. Connect Builder.io (free tier available) in Settings -> File uploads or configure GROQ_API_KEY. ${groqError}`,
     );
   }
 }

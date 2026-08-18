@@ -1,4 +1,4 @@
-import { ObservabilityDashboard } from "@agent-native/core/client";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 
 import { messagesByLocale } from "@/i18n-data";
 

@@ -3,6 +3,8 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentActionSurface,
+  type AgentActionSurfaceDetails,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopFinalResponseGuardResult,

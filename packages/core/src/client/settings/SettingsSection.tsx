@@ -48,16 +48,18 @@ interface SettingsSectionProps {
   badge?: string;
   required?: boolean;
   connected?: boolean;
+  /** Let a child-owned card surface fill the section without a second wrapper. */
+  flat?: boolean;
+  /** Render the page content as a row inside a parent SettingsGroup. */
+  grouped?: boolean;
   open?: boolean;
   onToggle?: () => void;
   children: ReactNode;
 }
 
 /**
- * Collapsible settings section. Renders as a compact row in the agent sidebar
- * and as a polished, shadcn-style card on the full settings page (so the
- * framework tabs match app-owned General/Team cards). The visual surface is
- * read from `SettingsSurfaceContext`.
+ * Settings sections stay compact and collapsible in the agent sidebar, while
+ * the full settings page uses Codex-style headings and always-visible rows.
  */
 export function SettingsSection(props: SettingsSectionProps) {
   const surface = useSettingsSurface();
@@ -162,73 +164,53 @@ function SettingsSectionBody({
 
 function PageSettingsSection({
   id,
-  icon,
   title,
   subtitle,
   badge,
   required,
   connected,
-  open = false,
-  onToggle,
+  flat,
+  grouped,
   children,
 }: SettingsSectionProps) {
   return (
-    <div
-      id={id}
-      className={cn(
-        "scroll-mt-16 overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-colors",
-        open ? "border-border" : "border-border/60",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-start justify-between gap-4 px-5 py-4 text-start transition-colors hover:bg-muted/40 sm:px-6 sm:py-5"
-      >
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground [&>svg]:size-[18px]">
-            {icon}
-          </span>
-          <span className="flex min-w-0 flex-col gap-1.5">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-base font-semibold leading-none tracking-tight text-foreground">
-                {title}
-              </span>
-              {connected && <ConnectedDot size="md" />}
+    <section id={id} className="scroll-mt-16">
+      {!grouped && (
+        <div className="mb-2.5 flex items-baseline justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+              {connected && <ConnectedDot size="sm" />}
               {required && !connected && (
-                <StatusBadge label="Required" tone="required" size="md" />
+                <StatusBadge label="Required" tone="required" size="sm" />
               )}
-              {badge && <StatusBadge label={badge} tone="muted" size="md" />}
-            </span>
+              {badge && <StatusBadge label={badge} tone="muted" size="sm" />}
+            </div>
             {subtitle && (
-              <span className="text-sm leading-snug text-muted-foreground">
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 {subtitle}
-              </span>
+              </p>
             )}
-          </span>
+          </div>
         </div>
-        <IconChevronDown
-          size={18}
-          className={cn(
-            "mt-1 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-      <SettingsSectionBody open={open}>
+      )}
+      <div
+        data-agent-native-settings-page=""
+        className={cn(
+          !flat &&
+            !grouped &&
+            "overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground",
+        )}
+      >
         <div
-          // `data-agent-native-settings-page` lets the shared stylesheet nudge
-          // the smallest fixed type (authored dense for the compact sidebar) up
-          // to a comfortable, consistent size on the full settings page so every
-          // framework section body reads like the shadcn cards around it.
-          data-agent-native-settings-page=""
-          className="border-t border-border/60 px-5 pb-5 pt-5 sm:px-6 sm:pb-6"
+          className={cn(
+            !flat && !grouped && "divide-y divide-border/60 px-5 py-1 sm:px-6",
+          )}
         >
           {children}
         </div>
-      </SettingsSectionBody>
-    </div>
+      </div>
+    </section>
   );
 }
 

@@ -3,9 +3,26 @@ import { z } from "zod";
 
 import {
   defineAction,
+  ActionContractError,
+  isActionContractError,
   AgentActionStopError,
   isAgentActionStopError,
 } from "./action.js";
+
+describe("ActionContractError", () => {
+  it("carries only explicitly safe structured contract details", () => {
+    const error = new ActionContractError("Stale schema", {
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      statusCode: 409,
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+  });
+});
 
 // Uses the legacy `parameters` mode so we don't need to pull in zod as a test
 // dep — the readOnly inference logic is independent of the schema path.
@@ -18,6 +35,27 @@ describe("defineAction", () => {
       run: async () => ({ ok: true }),
     });
     expect(action.readOnly).toBe(true);
+  });
+
+  it("carries the grounding declaration through to the entry", () => {
+    const action = defineAction({
+      description: "query a provider",
+      parameters: { q: { type: "string" } },
+      http: false,
+      grounding: true,
+      run: async () => "ok",
+    });
+    expect(action.grounding).toBe(true);
+  });
+
+  it("leaves grounding undefined when the action does not declare it", () => {
+    const action = defineAction({
+      description: "list saved config",
+      parameters: { id: { type: "string" } },
+      http: { method: "GET" },
+      run: async () => "ok",
+    });
+    expect(action.grounding).toBeUndefined();
   });
 
   it("leaves readOnly undefined for default POST actions", () => {
@@ -81,6 +119,50 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(action.parallelSafe).toBe(true);
+  });
+
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const action = defineAction({
+      description: "volatile polling read",
+      parameters: { id: { type: "string" } },
+      readOnly: true,
+      dedupe: false,
+      run: async () => "ok",
+    });
+    expect(action.dedupe).toBe(false);
+  });
+
+  it("preserves a typed Plan-mode effect policy", () => {
+    const classify = (args: { operation?: string }): "read" | "write" =>
+      args.operation === "list" ? "read" : "write";
+    const action = defineAction({
+      description: "Manage records",
+      parameters: {
+        operation: {
+          type: "string",
+          enum: ["list", "create"],
+        },
+        persist: { type: "string" },
+      },
+      planMode: {
+        effect: classify,
+        allowedValues: { operation: ["list"] },
+        allowedProperties: ["operation"],
+        requiredProperties: ["operation"],
+        omittedProperties: ["persist"],
+        description: "Only listing is available.",
+      },
+      run: async () => "ok",
+    });
+
+    expect(action.planMode).toEqual({
+      effect: classify,
+      allowedValues: { operation: ["list"] },
+      allowedProperties: ["operation"],
+      requiredProperties: ["operation"],
+      omittedProperties: ["persist"],
+      description: "Only listing is available.",
+    });
   });
 
   it("preserves per-tool timeout and result limits", () => {
@@ -305,6 +387,93 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect("propertyNames" in params.properties.cfg).toBe(false);
     // …but the identically-named key inside the default *data* survives.
     expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
+  });
+
+  // OpenAI answers a `oneOf` anywhere in a function schema with
+  // "Invalid schema for function 'x': ... 'oneOf' is not permitted" and 400s
+  // the whole request before a token streams. Zod emits `oneOf` for every
+  // discriminated union, so this was 178k errors across 786 users over seven
+  // weeks from one action.
+  it("rewrites oneOf to anyOf so OpenAI does not reject the function schema", () => {
+    const action = defineAction({
+      description: "with a discriminated union",
+      schema: z.object({
+        operations: z.array(
+          z.discriminatedUnion("op", [
+            z.object({ op: z.literal("add"), panelId: z.string() }),
+            z.object({
+              op: z.literal("remove"),
+              panelIds: z.array(z.string()),
+            }),
+          ]),
+        ),
+      }),
+      run: async () => "ok",
+    });
+    const json = JSON.stringify(action.tool.parameters);
+    expect(json).not.toContain('"oneOf"');
+    expect(json).toContain('"anyOf"');
+  });
+
+  it("keeps every branch when rewriting a nested union", () => {
+    const action = defineAction({
+      description: "nested union",
+      schema: z.object({
+        outer: z.object({
+          inner: z.discriminatedUnion("kind", [
+            z.object({ kind: z.literal("a"), a: z.string() }),
+            z.object({ kind: z.literal("b"), b: z.string() }),
+            z.object({ kind: z.literal("c"), c: z.string() }),
+          ]),
+        }),
+      }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    const inner = params.properties.outer.properties.inner;
+    expect(inner.oneOf).toBeUndefined();
+    expect(inner.anyOf).toHaveLength(3);
+  });
+
+  // OpenAI rejects a schema position with no `type` — "schema must have a
+  // 'type' key" — and 400s the whole request, exactly like `oneOf` did. This
+  // surfaced only after the oneOf fix let the validator reach the next layer.
+  it("gives z.unknown() a typed value union so OpenAI accepts it", () => {
+    const action = defineAction({
+      description: "typeless field",
+      schema: z.object({ value: z.unknown() }),
+      run: async () => "ok",
+    });
+    const value = (action.tool.parameters as any).properties.value;
+    expect(Array.isArray(value.anyOf)).toBe(true);
+    expect(value.anyOf.map((b: any) => b.type)).toContain("string");
+    expect(value.anyOf.map((b: any) => b.type)).toContain("object");
+  });
+
+  it("types the value schema inside a record so nothing is left bare", () => {
+    const action = defineAction({
+      description: "record of unknown",
+      schema: z.object({ patch: z.record(z.string(), z.unknown()) }),
+      run: async () => "ok",
+    });
+    const patch = (action.tool.parameters as any).properties.patch;
+    expect(patch.type).toBe("object");
+    const extra = patch.additionalProperties;
+    if (extra && typeof extra === "object") {
+      expect(Array.isArray(extra.anyOf)).toBe(true);
+    }
+  });
+
+  // An enum carries its own shape; adding a value union would widen it.
+  it("leaves an enum-only schema alone", () => {
+    const action = defineAction({
+      description: "enum field",
+      schema: z.object({ mode: z.enum(["a", "b"]) }),
+      run: async () => "ok",
+    });
+    const mode = (action.tool.parameters as any).properties.mode;
+    expect(mode.enum).toEqual(["a", "b"]);
+    expect(mode.anyOf).toBeUndefined();
   });
 
   it("stores the original schema on the entry for downstream re-validation", () => {
@@ -647,6 +816,92 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ id: "x" });
     expect(out).toEqual({ count: 5 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// authorize — pre-run gate wrapped around `run`, so it covers every caller.
+// ---------------------------------------------------------------------------
+describe("defineAction — authorize", () => {
+  it("runs the gate before the body and passes args + ctx through", async () => {
+    const authorize = vi.fn();
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize,
+      run,
+    });
+
+    await action.run({ id: "a1" }, { caller: "http", userEmail: "a@b.c" });
+
+    expect(authorize).toHaveBeenCalledWith(
+      { id: "a1" },
+      expect.objectContaining({ caller: "http", userEmail: "a@b.c" }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies with 403 when the gate returns false, without running the body", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize: () => false,
+      run,
+    });
+
+    await expect(action.run({ id: "a1" }, { caller: "tool" })).rejects.toThrow(
+      /Not authorized/,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("propagates the gate's own error so a specific denial keeps its message", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const denial = Object.assign(new Error("Requires coach role coach-admin"), {
+      statusCode: 403,
+    });
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize: () => {
+        throw denial;
+      },
+      run,
+    });
+
+    await expect(action.run({ id: "a1" }, { caller: "mcp" })).rejects.toBe(
+      denial,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows when the gate returns nothing — the permissive default is explicit", async () => {
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize: () => undefined,
+      run: async () => ({ ok: true }),
+    });
+    expect(await action.run({ id: "a1" }, { caller: "cli" })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("gates input-invalid calls too — validation still runs first", async () => {
+    const authorize = vi.fn();
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize,
+      run: async () => ({ ok: true }),
+    });
+
+    await expect(
+      action.run({ id: 42 } as never, { caller: "http" }),
+    ).rejects.toThrow(/Invalid action parameters/);
+    expect(authorize).not.toHaveBeenCalled();
   });
 });
 

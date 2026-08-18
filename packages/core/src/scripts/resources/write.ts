@@ -10,12 +10,16 @@
 import {
   canWriteLocalWorkspaceResourcePath,
   resourcePut,
-  SHARED_OWNER,
+  sharedResourceOwner,
   WORKSPACE_OWNER,
   type ResourceCreatedBy,
   type ResourceVisibility,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
@@ -128,11 +132,11 @@ Options:
   );
   let owner: string;
   if (scope === "shared") {
-    owner = SHARED_OWNER;
+    owner = sharedResourceOwner(getRequestOrgId());
   } else if (scope === "workspace") {
     owner = WORKSPACE_OWNER;
   } else {
-    const personalOwner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+    const personalOwner = getRequestUserEmail() ?? getAmbientUserEmail();
     if (!personalOwner) {
       fail(
         "resource-write --scope=personal requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
