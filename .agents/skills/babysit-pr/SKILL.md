@@ -174,18 +174,15 @@ of waiting for this section's remote-CI and soak requirements.
 
 When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
 
-1. **No local uncommitted owned changes** — dirty paths must be explicitly
-   peer-owned, named in the report, and excluded from the PR
-2. **No unpushed owned commits** — `git log --oneline origin/<branch>..HEAD`
-   must contain no commits created by this agent
+1. **No local uncommitted changes** except the documented routine exclusions
+2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be
+   empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
 4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
-The 10-minute soak timer **resets to zero** whenever this agent pushes
-anything, CI fails, a new review comment arrives, merge conflicts appear, or
-owned local changes are found and committed. Peer edits left uncommitted do not
-become a reason to publish them.
+The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI
+fails, a new review comment arrives, or merge conflicts appear.
 
 Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> --squash --admin`.
 
