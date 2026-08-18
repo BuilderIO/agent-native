@@ -70,7 +70,7 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-design-app suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta

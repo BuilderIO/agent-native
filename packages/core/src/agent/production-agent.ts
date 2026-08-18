@@ -17,6 +17,7 @@ import {
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
+  stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -3501,19 +3502,42 @@ function extractToolSearchResultNamesFromMessages(
   return names;
 }
 
+/**
+ * Every tool the model is offered passes through here -- `defineAction`
+ * schemas, the hand-written ones in extensions/mcp/context tools, and whatever
+ * a third-party MCP server advertises. `defineAction` sanitizes at
+ * construction; nothing else did, so `extension-data-set` shipped a `data`
+ * property carrying a description and no `type`, and OpenAI 400'd the whole
+ * request -- every tool in the payload, not just that one. Sanitizing here is
+ * what makes that unrepresentable rather than a thing each definition site has
+ * to remember.
+ *
+ * Cloned first: the hand-written schemas are module constants, so rewriting in
+ * place would mutate shared state on first use.
+ */
 function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
   if (schema.type !== "object") return null;
+  type ToolParams = NonNullable<ActionTool["parameters"]>;
+  let cloned: ToolParams;
+  try {
+    cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
+  } catch {
+    // A schema that will not round-trip cannot be safely rewritten, and
+    // shipping it unsanitized is how this class of 400 reaches the provider.
+    return null;
+  }
+  const safe = stripUnsupportedSchemaKeywords(cloned);
   return {
-    ...schema,
+    ...safe,
     type: "object",
     properties:
-      schema.properties && typeof schema.properties === "object"
-        ? schema.properties
+      safe.properties && typeof safe.properties === "object"
+        ? safe.properties
         : {},
-    required: Array.isArray(schema.required) ? schema.required : [],
+    required: Array.isArray(safe.required) ? safe.required : [],
   };
 }
 
