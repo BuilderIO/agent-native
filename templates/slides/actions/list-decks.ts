@@ -77,11 +77,21 @@ export default defineAction({
           title: schema.decks.title,
           updatedAt: schema.decks.updatedAt,
           visibility: schema.decks.visibility,
+          ownerEmail: schema.decks.ownerEmail,
         })
         .from(schema.decks)
         .where(where)
         .orderBy(desc(schema.decks.updatedAt));
-      return { count: rows.length, decks: rows };
+      return {
+        count: rows.length,
+        decks: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          updatedAt: row.updatedAt,
+          visibility: row.visibility,
+          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+        })),
+      };
     }
 
     const rows = await db

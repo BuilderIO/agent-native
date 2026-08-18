@@ -1597,6 +1597,28 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} />;
   }
 
+  // Client-sliced inbox tabs can have no matches on the first page even when
+  // later inbox pages contain matching threads. Keep the sentinel mounted so
+  // the infinite query can continue before showing an empty state.
+  if (threads.length === 0 && hasNextPage) {
+    return (
+      <div className="flex h-full flex-col" ref={containerRef}>
+        <div className="flex flex-1 items-center justify-center" />
+        <div
+          ref={sentinelRef}
+          className="flex items-center justify-center py-3"
+        >
+          {isFetchingNextPage && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner className="size-3 text-muted-foreground" />
+              {t("mail.empty.loadingMore")}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Empty state
   if (threads.length === 0) {
     if (searchQuery) {

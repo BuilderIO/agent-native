@@ -33,16 +33,65 @@ production template deploy or package publish fails, retrigger the failed job
 when the existing code already contains the fix; otherwise make the necessary
 code/config fix and ship that follow-up until production is live.
 
+## Latest-feedback handoff
+
+When `/review-latest-feedback` has run before `/ship`, its sweep is a required
+ship input. Carry the sweep's start cursor, grouped reports, evidence links, and
+disposition table into the PR or ship recap. Every actionable item must have an
+owning source seam and focused verification, with one explicit disposition:
+fixed, awaiting reporter clarification, already owned or duplicate, deferred or
+informational, external or non-repo-owned, or unavailable/unverified.
+
+Do not ship a feedback fix that is only a wording-specific rule or that lacks
+the evidence needed to identify its owner. Re-run or refresh the feedback sweep
+when the branch changes after triage or when new comments, Slack replies,
+GitHub review comments, or Sentry findings arrive. Treat an unavailable
+connector as unavailable - never as “nothing matched” - and preserve that gap
+in the recap.
+
+The ship report and PR description must keep source-tested, built, published or
+deployed, and observed-live claims separate. A green test or PR does not prove
+that a feedback fix is live; verify the affected production surface after merge.
+Before merging, `/babysit-pr` must re-check that every actionable feedback or
+review item has a fix or a concise reply and that no new evidence has been left
+without a disposition.
+
+## Worktree and base setup
+
+A detached HEAD is a valid shipping context. Codex and platform-managed
+worktrees may intentionally start detached, and `/ship` authorizes creating a
+shipping branch in that worktree before committing or pushing. Do not stop or
+ask for confirmation just because `git branch --show-current` is empty.
+
+If this worktree is detached:
+
+1. Inspect `git worktree list --porcelain` and existing `changes-*` refs.
+2. Create an unused `changes-N` branch (N at least 50) at the current HEAD in
+   this worktree. Never attach or switch a branch checked out by another
+   worktree, use `main`, overwrite an existing ref, or move another worktree.
+3. Continue the normal ship flow on that new branch.
+
+Before committing or pushing, fetch `origin/main` and check that the shipping
+base is current. If the worktree is behind, reapply the logical local changes
+onto current `origin/main`; do not ship a stale snapshot that can revert work
+landed since this worktree was created. Never reset, rebase, stash, or
+force-push to accomplish this.
+
 ## Steps
 
-1. **Stay on the current branch**: never create, switch, rebase, reset, or stash
-   before opening the PR. This repo uses shared/platform-managed branches; ship
-   the branch you are already on.
+1. **Stay in the current worktree and branch**: if already on a named branch,
+   never create, switch, rebase, reset, or stash before opening the PR. If the
+   worktree is detached, follow the Worktree and base setup section and create
+   the shipping branch before opening the PR. This repo uses
+   shared/platform-managed worktrees; ship the branch belonging to this
+   worktree.
 
 2. **Check local changes**: run `git status --short` and `git diff --stat` to
    understand all modified/untracked files. Multiple agents may have added work;
    include all non-gitignored local files in shipment instead of stashing,
-   skipping, or reverting them.
+   skipping, or reverting them. Then run `git fetch origin main --quiet` and
+   `git rev-list --count HEAD..origin/main`; a non-zero result requires
+   reapplying the logical work onto current `origin/main` before pushing.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Run `pnpm run prep` when it is practical. If prep is slow,

@@ -86,7 +86,13 @@ describe("list-decks", () => {
       title: "title_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      ownerEmail: "owner_email_col",
     });
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      createdByMe: true,
+    });
+    expect(result.decks[0]).not.toHaveProperty("ownerEmail");
     expect(result.count).toBe(1);
   });
 
