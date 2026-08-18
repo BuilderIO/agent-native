@@ -35,6 +35,58 @@ type RelatedFeedbackItem = {
   title: string;
 };
 
+const startedTriageRunStatuses = new Set([
+  "submitted",
+  "acknowledged",
+  "running",
+  "completed",
+  "timed_out",
+  "reconciliation_required",
+]);
+
+export function hasFeedbackCluster(metadata: Record<string, unknown>): boolean {
+  return (
+    (typeof metadata.feedbackClusterRepresentativeId === "string" &&
+      metadata.feedbackClusterRepresentativeId.trim().length > 0) ||
+    (Array.isArray(metadata.feedbackClusterItemIds) &&
+      metadata.feedbackClusterItemIds.length > 0)
+  );
+}
+
+export function isStartedTriageRunStatus(status: string): boolean {
+  return startedTriageRunStatuses.has(status);
+}
+
+export function relatedDispatchConflictReason(
+  item: Pick<RelatedFeedbackItem, "id">,
+  metadata: Record<string, unknown>,
+  runStatuses: readonly string[],
+): string | null {
+  if (hasFeedbackCluster(metadata)) {
+    return `Related Factory item ${item.id} already belongs to a feedback cluster.`;
+  }
+  if (runStatuses.some(isStartedTriageRunStatus)) {
+    return `Related Factory item ${item.id} already has a started Builder run.`;
+  }
+  return null;
+}
+
+export function ownerOwnedAreaValuesForItem(
+  item: Pick<RelatedFeedbackItem, "title"> & {
+    summary: string | null;
+    repository: string | null;
+  },
+  metadata: Record<string, unknown>,
+): Array<string | undefined> {
+  return [
+    item.title,
+    item.summary ?? undefined,
+    item.repository ?? undefined,
+    typeof metadata.productArea === "string" ? metadata.productArea : undefined,
+    typeof metadata.path === "string" ? metadata.path : undefined,
+  ];
+}
+
 export function replyTextForItem(
   item: {
     id: string;
@@ -213,6 +265,34 @@ export default defineAction({
         "Grouped Slack feedback is missing a channel or thread identity.",
       );
     }
+    const relatedMetadata = new Map(
+      relatedItems.map((related) => [
+        related.id,
+        parseTriageMetadata(related.metadataJson),
+      ]),
+    );
+    const relatedRunRows =
+      relatedIds.length > 0
+        ? await db
+            .select({ itemId: triageRuns.itemId, status: triageRuns.status })
+            .from(triageRuns)
+            .where(
+              and(
+                eq(triageRuns.orgId, orgId),
+                inArray(triageRuns.itemId, relatedIds),
+              ),
+            )
+        : [];
+    for (const related of relatedItems) {
+      const conflictReason = relatedDispatchConflictReason(
+        related,
+        relatedMetadata.get(related.id) ?? {},
+        relatedRunRows
+          .filter((run) => run.itemId === related.id)
+          .map((run) => run.status),
+      );
+      if (conflictReason) throw new Error(conflictReason);
+    }
     const ownerOwnedArea = detectOwnerOwnedArea([
       item.title,
       item.summary,
@@ -225,11 +305,12 @@ export default defineAction({
     const relatedOwnerOwnedArea =
       relatedItems
         .map((related) =>
-          detectOwnerOwnedArea([
-            related.title,
-            related.summary,
-            related.repository,
-          ]),
+          detectOwnerOwnedArea(
+            ownerOwnedAreaValuesForItem(
+              related,
+              relatedMetadata.get(related.id) ?? {},
+            ),
+          ),
         )
         .find(Boolean) ?? null;
     const ownerManagedArea = ownerOwnedArea ?? relatedOwnerOwnedArea ?? null;

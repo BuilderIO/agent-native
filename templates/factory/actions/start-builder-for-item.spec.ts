@@ -30,7 +30,13 @@ vi.mock("../server/triage/slack-client.js", () => ({
   createSlackReader: vi.fn(),
 }));
 
-import { replyTextForItem } from "./start-builder-for-item.js";
+import {
+  hasFeedbackCluster,
+  isStartedTriageRunStatus,
+  ownerOwnedAreaValuesForItem,
+  relatedDispatchConflictReason,
+  replyTextForItem,
+} from "./start-builder-for-item.js";
 
 describe("start-builder-for-item Slack handoff", () => {
   it("uses the Builder.io tag, asks for /address-feedback, and carries repeat links", () => {
@@ -50,5 +56,36 @@ describe("start-builder-for-item Slack handoff", () => {
     expect(text).toContain("item-repeat");
     expect(text).toContain("https://slack.example/repeat");
     expect(text).not.toContain("@builderio please");
+  });
+
+  it("blocks related items that are already clustered or started", () => {
+    expect(
+      relatedDispatchConflictReason(
+        { id: "item-clustered" },
+        { feedbackClusterItemIds: ["item-clustered", "item-primary"] },
+        [],
+      ),
+    ).toContain("already belongs to a feedback cluster");
+    expect(
+      relatedDispatchConflictReason({ id: "item-started" }, {}, ["completed"]),
+    ).toContain("already has a started Builder run");
+    expect(isStartedTriageRunStatus("failed")).toBe(false);
+    expect(isStartedTriageRunStatus("reconciliation_required")).toBe(true);
+    expect(hasFeedbackCluster({})).toBe(false);
+  });
+
+  it("includes related item metadata in owner-area detection inputs", () => {
+    expect(
+      ownerOwnedAreaValuesForItem(
+        {
+          title: "Export issue",
+          summary: "The export fails",
+          repository: "BuilderIO/agent-native",
+        },
+        { productArea: "content", path: "apps/content/routes/index.tsx" },
+      ),
+    ).toEqual(
+      expect.arrayContaining(["content", "apps/content/routes/index.tsx"]),
+    );
   });
 });
