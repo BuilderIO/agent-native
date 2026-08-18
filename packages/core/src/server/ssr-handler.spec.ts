@@ -838,6 +838,7 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain("data-agent-native-sentry-config");
     expect(html).toContain("https://public@example/4511270423822336");
     expect(html).toContain('"sentryEnvironment":"production"');
+    expect(html).toContain('"deploymentEnvironment":"production"');
   });
 
   it("prefixes mounted SSR redirects", async () => {

@@ -51,7 +51,11 @@ describe("tracking registry", () => {
       name: "project_created",
       userId: "alice@example.com",
       sessionId: "session-1",
-      properties: { template: "blank", client_platform: "electron" },
+      properties: {
+        template: "blank",
+        deployment_environment: "test",
+        client_platform: "electron",
+      },
     });
   });
 

@@ -20,11 +20,34 @@ function firstNonEmpty(
   return undefined;
 }
 
-/** The deploy environment name, e.g. `production`, `deploy-preview`. */
+/** The deploy environment name, e.g. `production`, `beta`, or `preview`. */
 export function resolveDeployEnvironment(): string {
+  const explicit = firstNonEmpty(
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+    process.env.SENTRY_ENVIRONMENT,
+  );
+  if (explicit) return explicit;
+
+  const context = process.env.NETLIFY_CONTEXT?.trim().toLowerCase();
+  const branch = process.env.BRANCH?.trim().toLowerCase();
+  if (branch === "beta") return "beta";
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (context === "branch-deploy" && branch === "main") return "beta";
+  if (
+    context === "deploy-preview" ||
+    branch?.startsWith("deploy-preview") ||
+    process.env.VERCEL_ENV?.trim().toLowerCase() === "preview"
+  ) {
+    return "preview";
+  }
+
   return (
     firstNonEmpty(
-      process.env.SENTRY_ENVIRONMENT,
       process.env.NETLIFY_CONTEXT,
       process.env.VERCEL_ENV,
       process.env.NODE_ENV,

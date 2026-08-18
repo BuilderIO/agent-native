@@ -659,10 +659,17 @@ export function inferAgentNativeDeploymentEnvironment(
   env: Record<string, string | undefined>,
   mode?: string,
 ): AgentNativeDeploymentEnvironment | undefined {
+  const explicit =
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase();
+  if (isAgentNativeDeploymentEnvironment(explicit)) return explicit;
+
   const context = env.CONTEXT?.trim().toLowerCase();
   const branch = env.BRANCH?.trim().toLowerCase();
 
-  if (branch === "production" || context === "production") {
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
     return "production";
   }
   if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {

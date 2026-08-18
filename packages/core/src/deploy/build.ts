@@ -1172,6 +1172,15 @@ function getSentryClientConfigScript() {
     sentryDsn: dsn,
     sentryEnvironment:
       firstNonEmpty(
+        env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+        env.SENTRY_ENVIRONMENT,
+        env.NETLIFY_CONTEXT,
+        env.VERCEL_ENV,
+        env.NODE_ENV,
+      ) || "production",
+    deploymentEnvironment:
+      firstNonEmpty(
+        env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
         env.SENTRY_ENVIRONMENT,
         env.NETLIFY_CONTEXT,
         env.VERCEL_ENV,

@@ -15,6 +15,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -74,6 +75,7 @@ declare global {
       workspaceRuntime?: boolean;
       sentryDsn?: string;
       sentryEnvironment?: string;
+      deploymentEnvironment?: string;
       /**
        * Public PostHog project key + host. Publishable and identical for every
        * visitor, so it ships inside the CDN-cached SSR shell alongside the
@@ -941,6 +943,19 @@ function getClientSentryDsn(): string | undefined {
   );
 }
 
+function resolveClientDeploymentEnvironment(): string {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  return (
+    window.__AGENT_NATIVE_CONFIG__?.deploymentEnvironment ||
+    injectedAgentNativeConfig().deployment?.environment ||
+    env.VITE_AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT ||
+    env.VITE_SENTRY_ENVIRONMENT ||
+    window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
+    env.MODE ||
+    "production"
+  );
+}
+
 function captureWithSentry(
   module: typeof Sentry,
   error: unknown,
@@ -982,11 +997,12 @@ function ensureSentry(loadWithoutDsn = false): void {
       }
       module.init({
         dsn,
-        environment:
-          window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
-          (import.meta.env as Record<string, string | undefined>)?.MODE ||
-          "production",
+        environment: resolveClientDeploymentEnvironment(),
         beforeSend(event) {
+          event.tags = {
+            ...event.tags,
+            deployment_environment: resolveClientDeploymentEnvironment(),
+          };
           if (shouldDropBrowserSentryNoise(event)) {
             return null;
           }
@@ -1018,6 +1034,10 @@ function ensureSentry(loadWithoutDsn = false): void {
         },
       });
       module.setTag("runtime", "browser");
+      module.setTag(
+        "deployment_environment",
+        resolveClientDeploymentEnvironment(),
+      );
       _sentryInitialized = true;
       // Flush any user/tag that was set before init.
       if (_pendingSentryUser !== undefined) {
@@ -1503,9 +1523,7 @@ function maybeInstallErrorCapture(
     send: sendExceptionEvent,
     getSessionContext: errorCaptureSessionContext,
     emitReplayEvent: emitExceptionToReplay,
-    environment:
-      options.environment ||
-      (import.meta.env as Record<string, string | undefined>)?.MODE,
+    environment: options.environment || resolveClientDeploymentEnvironment(),
     ...(options.release ? { release: options.release } : {}),
     ...(options.captureGlobalErrors !== undefined
       ? { captureGlobalErrors: options.captureGlobalErrors }
@@ -1785,6 +1803,7 @@ function resolveProps(
   }
   const llmProps = llmConnectionTrackingProperties(_llmConnectionStatus);
   const enriched = { ...withTemplate };
+  enriched.deployment_environment = resolveClientDeploymentEnvironment();
   for (const [key, value] of Object.entries(llmProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }

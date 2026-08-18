@@ -14,7 +14,7 @@ description: "Nitro プリセット (Node.js、Vercel、Netlify、Cloudflare、A
 - **アプリを作成する場合:** [Getting Started](/docs/getting-started) から始め、アプリを永続的な環境に置くときにここへ戻ります。
 - **アプリを運用する場合:** まずローカル Docker パスを試します。小さなサーバーで使う Node.js、Postgres、認証、環境変数の構成を同じ形で確認できます。
 
-ローカル スタックは意図的にサンプル認証シークレットとローカル Postgres ボリュームを使用します。`localhost` 用であり、インターネットに公開するためのものではありません。完全な Compose ファイルとコピー可能な手順は [英語のクイックスタート](https://www.agent-native.com/docs/deployment#self-host-quickstart) を参照してください。
+ローカル スタックは意図的にサンプル認証シークレットとローカル Postgres ボリュームを使用します。`localhost` 用であり、インターネットに公開するためのものではありません。完全な Compose ファイルとコピー可能な手順は [英語のクイックスタート](https://www.agent-native.com/docs/deployment#self-host-quickstart) を参照してください。このクイックスタートでは PostgreSQL 18 のボリューム構成を使用します。PostgreSQL 17 以前で作成したボリュームを再利用しないでください。イメージやマウントパスを変更する前に、既存データをバックアップして移行してください。
 
 ### 1. アプリを作成する
 

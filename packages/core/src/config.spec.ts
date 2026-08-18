@@ -95,6 +95,14 @@ describe("agent-native app config", () => {
   });
 
   it.each([
+    [
+      {
+        AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "beta",
+        BRANCH: "beta",
+        CONTEXT: "production",
+      },
+      "beta",
+    ],
     [{ BRANCH: "beta", CONTEXT: "branch-deploy" }, "beta"],
     [{ BRANCH: "main", CONTEXT: "branch-deploy" }, "beta"],
     [{ BRANCH: "beta", CONTEXT: "production" }, "production"],

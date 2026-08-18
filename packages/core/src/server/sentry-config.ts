@@ -57,6 +57,7 @@ export function getSentryClientConfigScript(): string | null {
   const config = {
     sentryDsn: dsn,
     sentryEnvironment: resolveSentryEnvironment(),
+    deploymentEnvironment: resolveDeployEnvironment(),
   };
 
   return [

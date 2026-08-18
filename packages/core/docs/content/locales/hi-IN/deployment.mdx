@@ -14,7 +14,7 @@ description: "Nitro प्रीसेट के साथ किसी भी �
 - **ऐप बना रहे हैं?** [Getting Started](/docs/getting-started) से शुरू करें और ऐप को स्थायी जगह पर रखने के समय यहां लौटें।
 - **ऐप चला रहे हैं?** पहले स्थानीय Docker रास्ता आज़माएं। इससे छोटे सर्वर पर उपयोग होने वाला Node.js, Postgres, authentication और environment variables का वही आकार जांचा जाता है।
 
-स्थानीय stack जानबूझकर उदाहरण authentication secret और स्थानीय Postgres volume का उपयोग करता है। यह `localhost` के लिए है, इंटरनेट पर प्रकाशित करने के लिए नहीं। पूरी Compose फ़ाइल और copy करने योग्य steps के लिए [English quickstart](https://www.agent-native.com/docs/deployment#self-host-quickstart) देखें।
+स्थानीय stack जानबूझकर उदाहरण authentication secret और स्थानीय Postgres volume का उपयोग करता है। यह `localhost` के लिए है, इंटरनेट पर प्रकाशित करने के लिए नहीं। पूरी Compose फ़ाइल और copy करने योग्य steps के लिए [English quickstart](https://www.agent-native.com/docs/deployment#self-host-quickstart) देखें। यह quickstart PostgreSQL 18 के volume layout का उपयोग करता है। PostgreSQL 17 या उससे पुराने संस्करण से बनाए गए volume को दोबारा उपयोग न करें। image या mount path बदलने से पहले मौजूदा डेटा का backup लेकर migration करें।
 
 ### 1. ऐप बनाएं
 
