@@ -7286,6 +7286,21 @@ export function backgroundNoProgressTerminalEvent(
   };
 }
 
+export function installBackgroundNoProgressTerminalEvent(
+  run: ActiveRun,
+  repeat: BackgroundNoProgressRepeat,
+): boolean {
+  const terminalEvent = backgroundNoProgressTerminalEvent(run, repeat);
+  const lastRunEvent = run.events.at(-1);
+  if (!terminalEvent || lastRunEvent?.event.type !== "error") return false;
+  run.events = [
+    ...run.events.slice(0, -1),
+    { ...lastRunEvent, event: terminalEvent },
+  ];
+  run.continuationTerminalEvent = terminalEvent;
+  return true;
+}
+
 /**
  * Whether this run should self-fire the next server-driven continuation chunk
  * instead of depending on the client to re-POST `auto_continue`. True for
@@ -9865,6 +9880,15 @@ export function createProductionAgentHandler(
                   : "run ended in errored state",
               ).catch(() => {});
             }
+            const noProgressRepeat = noProgressRepeatForRun(run);
+            if (noProgressRepeat.tripped) {
+              // Install the replacement before the thread writer runs. The
+              // writer builds durable thread_data from events, so changing
+              // only continuationTerminalEvent afterwards leaves the original
+              // recoverable error persisted and eligible for another retry.
+              installBackgroundNoProgressTerminalEvent(run, noProgressRepeat);
+            }
+
             // Persist the (partial) assistant turn to thread_data FIRST — the
             // server-driven continuation below rebuilds from it, so it must be
             // committed before we re-fire.
@@ -9896,21 +9920,8 @@ export function createProductionAgentHandler(
             // succeeded — a dispatch fast-fail degrades to the inline
             // foreground fallback, which is not a worker and rides the
             // connected client's auto_continue instead.)
-            const noProgressRepeat = noProgressRepeatForRun(run);
             if (noProgressRepeat.tripped) {
-              // The two recovery layers on this path multiply and cannot see
-              // each other: the engine retried this exact request 3x before
-              // emitting the error, and the error is itself a continuation
-              // boundary, so an unfixable failure buys 4 gateway attempts and
-              // then dispatches a fresh run to buy 4 more. Replace the chain
-              // with one non-recoverable terminal error carrying the original
-              // code and gateway reference.
-              const terminalEvent = backgroundNoProgressTerminalEvent(
-                run,
-                noProgressRepeat,
-              );
-              if (terminalEvent) {
-                run.continuationTerminalEvent = terminalEvent;
+              if (run.continuationTerminalEvent?.type === "error") {
                 console.error(
                   `[agent-chat] stopping background chain: ${noProgressRepeat.errorCode} ` +
                     `failed ${noProgressRepeat.count}x with no progress`,

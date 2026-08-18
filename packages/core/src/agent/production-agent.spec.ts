@@ -47,6 +47,7 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   backgroundNoProgressTerminalEvent,
+  installBackgroundNoProgressTerminalEvent,
   resolveBackgroundNoProgressRepeat,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
@@ -11618,6 +11619,23 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     expect(terminal?.recoverable).toBe(false);
     expect(terminal?.error).toContain("ERROR ID: 0f3c9ab21d7e");
     expect(terminal?.error).toContain("2 times in a row");
+  });
+
+  it("replaces the persisted recoverable error before completion callbacks run", () => {
+    const run = makeRun([gatewayFailure()], "errored");
+    const repeat = resolveBackgroundNoProgressRepeat({
+      run,
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+
+    expect(installBackgroundNoProgressTerminalEvent(run, repeat)).toBe(true);
+    expect(run.events.at(-1)?.event).toMatchObject({
+      type: "error",
+      errorCode: "builder_gateway_internal_error",
+      recoverable: false,
+    });
+    expect(run.events.at(-1)?.event).toEqual(run.continuationTerminalEvent);
   });
 
   it("leaves a soft-timeout boundary to the run-manager's own backstop", () => {
