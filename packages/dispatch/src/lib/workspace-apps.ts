@@ -2,7 +2,10 @@ import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first
 import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 
-import { CANONICAL_WORKSPACE_SSO_APP_ORIGINS } from "../shared/workspace-sso";
+import {
+  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+  isWorkspaceSsoAppUrl,
+} from "../shared/workspace-sso";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -28,35 +31,68 @@ export interface WorkspaceAppSummary {
   agentName?: string | null;
   agentSkillsCount?: number | null;
   archived?: boolean;
+  workspaceSso?: boolean;
 }
 
 interface WorkspaceAppHrefSource {
   path?: string | null;
   url?: string | null;
+  workspaceSso?: boolean;
 }
 
 export function isDispatchWorkspaceAppId(appId: string): boolean {
   return appId.trim().toLowerCase() === "dispatch";
 }
 
+function clientRuntimeEnvironment(): "production" | "development" {
+  const importMetaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | boolean | undefined> };
+    }
+  ).process?.env;
+  const env = { ...processEnv, ...importMetaEnv };
+  if (
+    env.PROD === true ||
+    env.MODE === "production" ||
+    env.NODE_ENV === "production"
+  ) {
+    return "production";
+  }
+  if (
+    env.DEV === true ||
+    env.MODE === "development" ||
+    env.MODE === "test" ||
+    env.NODE_ENV === "development" ||
+    env.NODE_ENV === "test"
+  ) {
+    return "development";
+  }
+  return "production";
+}
+
 /**
- * The workspace SSO action only accepts an exact first-party app identity and
- * its canonical origin. Checking the id alone is unsafe because a mounted
- * workspace app can reuse a first-party id while pointing at a different URL.
+ * The workspace SSO action only accepts an exact registered app identity and
+ * origin. The catalog's boolean is a server-derived projection for custom
+ * registrations; the URL check keeps malformed metadata out of the action.
  */
 export function isWorkspaceSsoApp(
   app: WorkspaceAppHrefSource & { id: string },
 ): boolean {
-  const canonicalOrigin =
-    CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
-      app.id
-        .trim()
-        .toLowerCase() as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
-    ];
   const rawUrl = app.url?.trim();
-  if (!canonicalOrigin || !rawUrl) return false;
+  if (!rawUrl) return false;
   try {
-    return new URL(rawUrl).origin === canonicalOrigin;
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    if (app.workspaceSso === true) return true;
+    return isWorkspaceSsoAppUrl(
+      { id: app.id, url: rawUrl },
+      { nodeEnv: clientRuntimeEnvironment() },
+    );
     // coercion-ok: malformed app metadata is not eligible for workspace SSO.
   } catch {
     return false;

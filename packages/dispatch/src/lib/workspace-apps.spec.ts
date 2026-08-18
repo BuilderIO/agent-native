@@ -58,6 +58,35 @@ describe("workspace app routes", () => {
     ).toBe(false);
   });
 
+  it("accepts the server eligibility projection for registered custom apps", () => {
+    expect(
+      isWorkspaceSsoApp({
+        id: "workspace-reports",
+        path: "/workspace-reports",
+        url: "https://reports.example.com/workspace-reports",
+        workspaceSso: true,
+      }),
+    ).toBe(true);
+    expect(
+      isWorkspaceSsoApp({
+        id: "workspace-reports",
+        path: "/workspace-reports",
+        url: "javascript:alert(1)",
+        workspaceSso: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps canonical loopback apps eligible outside production", () => {
+    expect(
+      isWorkspaceSsoApp({
+        id: "mail",
+        path: "/mail",
+        url: "http://localhost:8084",
+      }),
+    ).toBe(true);
+  });
+
   it("identifies mounted apps and resolves their direct workspace href", () => {
     const app = {
       path: "/feedback-leaderboard",
