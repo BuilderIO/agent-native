@@ -561,14 +561,18 @@ function ApprovalAffordance({
 }: {
   toolName: string;
   toolCallId?: string;
-  approval: { approvalKey: string; dismissed?: boolean };
+  approval: { approvalKey: string; dismissed?: boolean; askId?: string };
 }) {
   const t = useT();
   const ctx = React.useContext(ApprovalContext);
   const [localResolution, setLocalResolution] =
     useState<ApprovalResolution | null>(null);
   const retainedResolution =
-    ctx?.getApprovalResolution?.(approval.approvalKey, toolCallId) ?? null;
+    ctx?.getApprovalResolution?.(
+      approval.approvalKey,
+      toolCallId,
+      approval.askId,
+    ) ?? null;
   const resolution =
     retainedResolution ??
     localResolution ??
