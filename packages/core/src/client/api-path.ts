@@ -1,3 +1,4 @@
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
 
 const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
@@ -45,9 +46,17 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
 
 function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
+  const projected =
+    typeof window !== "undefined" &&
+    (
+      window as Window & {
+        __AGENT_NATIVE_CONFIG__?: { workspaceRuntime?: unknown };
+      }
+    ).__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
-    env?.VITE_AGENT_NATIVE_WORKSPACE === "1" ||
-    env?.AGENT_NATIVE_WORKSPACE === "1" ||
+    projected ||
+    isTruthyRuntimeValue(env?.VITE_AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(env?.AGENT_NATIVE_WORKSPACE) ||
     typeof env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON === "string"
   );
 }
@@ -91,7 +100,7 @@ export function appBasePath(): string {
   if (externalEmbed) return externalEmbed;
   const configured = configuredBasePath();
   const derived = pathDerivedBasePath();
-  if (!configured) return derived;
+  if (!configured) return derived || workspacePathBasePath();
   if (typeof window === "undefined") return configured;
 
   const pathname = window.location.pathname;

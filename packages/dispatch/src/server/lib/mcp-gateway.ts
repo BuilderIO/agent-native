@@ -25,9 +25,8 @@ import {
 } from "@agent-native/core/server/agent-discovery";
 
 import {
-  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
   DISPATCH_WORKSPACE_SSO_FLAG,
-  parseWorkspaceSsoAppRegistrations,
+  isWorkspaceSsoAppUrl,
 } from "../../shared/workspace-sso.js";
 import {
   listWorkspaceApps,
@@ -465,17 +464,6 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   }
 }
 
-function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const hostname = new URL(origin).hostname;
-    return ["localhost", "127.0.0.1", "::1"].includes(hostname);
-  } catch {
-    // coercion-ok: only a previously validated app origin reaches this helper;
-    // malformed values are ineligible for the loopback development exception.
-    return false;
-  }
-}
-
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
@@ -643,44 +631,13 @@ export async function resolveGrantedDispatchMcpApp(
   return match;
 }
 
-function workspaceSsoOriginForApp(appId: string): string | null {
-  const canonical =
-    CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
-      appId as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
-    ];
-  if (canonical) return canonical;
-  const custom = parseWorkspaceSsoAppRegistrations(
-    process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
-  ).find((registration) => registration.appId === appId);
-  return custom?.origin ?? null;
-}
-
-function isWorkspaceSsoCanonicalApp(app: DispatchMcpAccessibleApp): boolean {
-  const origin = safeAppOrigin(app);
-  if (!origin) return false;
-  const registeredOrigin = workspaceSsoOriginForApp(app.id);
-  if (origin === registeredOrigin) return true;
-  // The built-in discovery table intentionally points at local dev ports when
-  // running outside production. Keep local development usable without ever
-  // weakening the production exact-origin check.
-  return process.env.NODE_ENV !== "production" && isLoopbackOrigin(origin)
-    ? Object.prototype.hasOwnProperty.call(
-        CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
-        app.id,
-      )
-    : false;
-}
-
 async function isEligibleWorkspaceSsoApp(
   candidate: DispatchMcpAccessibleApp,
 ): Promise<boolean> {
-  const origin = safeAppOrigin(candidate);
-  if (!origin) return false;
-  if (isWorkspaceSsoCanonicalApp(candidate)) return true;
-
-  const customOrigin = workspaceSsoOriginForApp(candidate.id);
-  if (customOrigin === origin) return true;
-  return false;
+  return isWorkspaceSsoAppUrl(candidate, {
+    nodeEnv: process.env.NODE_ENV,
+    registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+  });
 }
 
 async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {

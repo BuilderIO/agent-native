@@ -396,6 +396,9 @@ const messages = {
     aiNotes: "notas de IA",
     summary: "Resumen",
     actionItems: "Elementos de acción",
+    addActionItem: "Añadir elemento de acción",
+    removeActionItem: "Eliminar elemento de acción",
+    actionItemPlaceholder: "¿Qué hay que hacer?",
     working: "Laboral…",
     noActionItems:
       "Aún no hay elementos de acción. Aparecen aquí después de generar notas a partir de una transcripción.",
@@ -1150,6 +1153,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "La transcripción en vivo aparecerá aquí cuando empiecen las notas.",
     me: "Yo",
     them: "Ellos",
+    unknownSpeaker: "Hablante",
     searchTranscript: "Buscar en la transcripción",
     searchPlaceholder: "Buscar en la transcripción…",
     searchMatchCount: "{{current}} de {{total}}",

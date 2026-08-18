@@ -6,6 +6,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "alice@example.com",
+}));
+
 vi.mock("../server/db/index.js", () => ({}));
 
 import action from "./get-deck";
@@ -17,6 +21,7 @@ beforeEach(() => {
       id: "deck-1",
       title: "Quarterly Review",
       visibility: "private",
+      ownerEmail: "Alice@Example.com",
       designSystemId: null,
       createdAt: "2026-05-01T00:00:00.000Z",
       updatedAt: "2026-05-02T00:00:00.000Z",
@@ -61,6 +66,7 @@ describe("get-deck", () => {
       zeroBasedIndex: 1,
       id: "slide-b",
     });
+    expect(result.createdByMe).toBe(true);
     expect(result.slides[0]).not.toHaveProperty("index");
   });
 

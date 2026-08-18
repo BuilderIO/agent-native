@@ -954,6 +954,7 @@ mod macos {
             "thank you very much",
             "thanks for watching",
             "thank you for watching",
+            "ご視聴ありがとうございました",
             "please subscribe",
         ];
         if HALLUCINATIONS.contains(&normalized.as_str()) {
@@ -1407,9 +1408,9 @@ mod macos {
         use std::time::{Duration, Instant};
 
         use super::{
-            buffer_start_after_drain, partial_inference_due, partial_inference_timestamp,
-            resample_to_16k, should_use_combined_sck_capture, split_mic_capture_options,
-            utterance_finalize_due, IncrementalResample, SessionOwner,
+            buffer_start_after_drain, clean_transcript, partial_inference_due,
+            partial_inference_timestamp, resample_to_16k, should_use_combined_sck_capture,
+            split_mic_capture_options, utterance_finalize_due, IncrementalResample, SessionOwner,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
@@ -1564,6 +1565,15 @@ mod macos {
                     voice_processing: MicVoiceProcessingMode::Enabled,
                     reuse_voice_processing_engine: false,
                 }
+            );
+        }
+
+        #[test]
+        fn filters_multilingual_caption_hallucinations() {
+            assert_eq!(clean_transcript("ご視聴ありがとうございました"), None);
+            assert_eq!(
+                clean_transcript("Thanks for the update"),
+                Some("Thanks for the update".to_string())
             );
         }
     }

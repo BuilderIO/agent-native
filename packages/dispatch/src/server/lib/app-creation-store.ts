@@ -17,6 +17,7 @@ import {
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 
+import { isWorkspaceSsoAppUrl } from "../../shared/workspace-sso.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import {
   currentOrgId,
@@ -103,6 +104,8 @@ export interface WorkspaceAppSummary {
   agentName?: string | null;
   agentSkillsCount?: number | null;
   archived?: boolean;
+  /** Safe server-side eligibility projection for the workspace SSO action. */
+  workspaceSso?: boolean;
 }
 
 export interface ListWorkspaceAppsOptions {
@@ -1326,9 +1329,14 @@ async function applyArchivedAndPending(
       app,
       metadataSettings,
     );
-    return archivedSet.has(app.id)
-      ? { ...withMetadata, archived: true }
-      : withMetadata;
+    return {
+      ...withMetadata,
+      workspaceSso: isWorkspaceSsoAppUrl(withMetadata, {
+        nodeEnv: process.env.NODE_ENV,
+        registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+      }),
+      ...(archivedSet.has(app.id) ? { archived: true } : {}),
+    };
   });
   return options.includeArchived
     ? filterAppsByAudience(annotated, options.audience)

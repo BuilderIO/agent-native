@@ -62,6 +62,11 @@ import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { cn } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
+import {
+  observeNextPage,
+  retryNextPage as runPaginationRetry,
+  shouldShowPaginationRetry,
+} from "./infinite-pagination";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -83,6 +88,7 @@ interface EmailListProps {
   hasNextPage?: boolean;
   fetchNextPage?: () => Promise<unknown>;
   isFetchingNextPage?: boolean;
+  isFetchNextPageError?: boolean;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedIds: Set<string>;
@@ -366,6 +372,7 @@ export function EmailList({
   hasNextPage: hasNextPageProp,
   fetchNextPage: fetchNextPageProp,
   isFetchingNextPage: isFetchingNextPageProp,
+  isFetchNextPageError: isFetchNextPageErrorProp,
   focusedId,
   setFocusedId,
   selectedIds,
@@ -397,6 +404,7 @@ export function EmailList({
     hasNextPage: fetchedEmailsHasNextPage,
     fetchNextPage: fetchFetchedNextPage,
     isFetchingNextPage: fetchedEmailsFetchingNextPage,
+    isFetchNextPageError: fetchedEmailsFetchNextPageError,
   } = useEmails(view, searchQuery, labelParam ?? undefined, {
     enabled: emailsProp === undefined,
   });
@@ -410,6 +418,13 @@ export function EmailList({
   const fetchNextPage = fetchNextPageProp ?? fetchFetchedNextPage;
   const isFetchingNextPage =
     isFetchingNextPageProp ?? fetchedEmailsFetchingNextPage;
+  const isFetchNextPageError =
+    isFetchNextPageErrorProp ?? fetchedEmailsFetchNextPageError;
+  const paginationRetryInFlightRef = useRef(false);
+  const retryNextPage = useCallback(
+    () => runPaginationRetry(fetchNextPage, paginationRetryInFlightRef),
+    [fetchNextPage],
+  );
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
@@ -1127,31 +1142,20 @@ export function EmailList({
   }, [focusedIndex, rowVirtualizer]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport.
-  // isFetchingNextPage is read via ref (not a dep) because re-observe fires
-  // the callback synchronously with the current intersection state; if the
-  // sentinel is still visible after a fetch, a reconnecting observer would
-  // immediately fire again and we'd loop (visible to the user as "Loading
-  // more..." flashing every ~second while tab is idle).
+  // Re-arm the observer when a fetch completes so a still-visible sentinel can
+  // walk through consecutive pages with no client-side filtered matches.
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const isFetchingNextPageRef = useRef(isFetchingNextPage);
-  isFetchingNextPageRef.current = isFetchingNextPage;
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasNextPage) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isFetchingNextPageRef.current) {
-          void fetchNextPage().catch(() => {
-            // React Query owns the visible error state; avoid a global
-            // unhandledrejection for transient list-page fetch failures.
-          });
-        }
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasNextPage, fetchNextPage]);
+    if (!el) return;
+    return observeNextPage({
+      element: el,
+      hasNextPage: Boolean(hasNextPage),
+      isFetchingNextPage: Boolean(isFetchingNextPage),
+      isFetchNextPageError: Boolean(isFetchNextPageError),
+      fetchNextPage,
+    });
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
   // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
@@ -1597,6 +1601,41 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} />;
   }
 
+  // Client-sliced inbox tabs can have no matches on the first page even when
+  // later inbox pages contain matching threads. Keep the sentinel mounted so
+  // the infinite query can continue before showing an empty state.
+  if (threads.length === 0 && hasNextPage) {
+    return (
+      <div className="flex h-full flex-col" ref={containerRef}>
+        <div className="flex flex-1 items-center justify-center" />
+        <div
+          ref={sentinelRef}
+          className="flex items-center justify-center py-3"
+        >
+          {isFetchingNextPage && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner className="size-3 text-muted-foreground" />
+              {t("mail.empty.loadingMore")}
+            </div>
+          )}
+          {shouldShowPaginationRetry({
+            hasNextPage: Boolean(hasNextPage),
+            isFetchingNextPage: Boolean(isFetchingNextPage),
+            isFetchNextPageError: Boolean(isFetchNextPageError),
+          }) && (
+            <button
+              type="button"
+              onClick={() => void retryNextPage()}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+            >
+              {t("mail.error.tryAgain")}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Empty state
   if (threads.length === 0) {
     if (searchQuery) {
@@ -1736,6 +1775,19 @@ export function EmailList({
                 <Spinner className="size-3 text-muted-foreground" />
                 {t("mail.empty.loadingMore")}
               </div>
+            )}
+            {shouldShowPaginationRetry({
+              hasNextPage: Boolean(hasNextPage),
+              isFetchingNextPage: Boolean(isFetchingNextPage),
+              isFetchNextPageError: Boolean(isFetchNextPageError),
+            }) && (
+              <button
+                type="button"
+                onClick={() => void retryNextPage()}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+              >
+                {t("mail.error.tryAgain")}
+              </button>
             )}
           </div>
         )}

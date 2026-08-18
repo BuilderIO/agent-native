@@ -4,11 +4,19 @@ import {
   buildRuntimeConfigPrompt,
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
+  isTruthyRuntimeValue,
   parseRuntimeConfigReport,
   runtimeConfigRequirementsFromSearchParams,
 } from "./runtime-config.js";
 
 describe("runtime configuration diagnostics", () => {
+  it("parses typed runtime flag spellings consistently", () => {
+    expect(isTruthyRuntimeValue("true")).toBe(true);
+    expect(isTruthyRuntimeValue("on")).toBe(true);
+    expect(isTruthyRuntimeValue(false)).toBe(false);
+    expect(isTruthyRuntimeValue("off")).toBe(false);
+  });
+
   it("accepts the framework defaults when production deploy values exist", () => {
     const report = getRuntimeConfigReport(
       {
