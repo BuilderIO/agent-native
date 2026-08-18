@@ -77,6 +77,15 @@ owning source seam and focused verification, with one explicit disposition:
 fixed, awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
+For every item carried as `awaiting reporter clarification`, re-read the full
+Slack parent and all replies immediately before shipping. Rebuild the known-
+evidence / missing-evidence ledger from the current thread, including newer
+reporter replies and attachments. If the thread already contains the requested
+URL, error, screenshot, repro, run ID, or other evidence, do not repeat the
+question - route the item back through `/review-latest-feedback`, use the
+evidence, and refresh the fix or disposition before merge. A ship handoff is
+not complete while an answered clarification is still sitting as pending.
+
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
 when the branch changes after triage or when new comments, Slack replies,

@@ -25,6 +25,11 @@ status.
 - Read `address-feedback`, `concurrent-agents`, and `verifying-changes` first.
 - Read the linked Slack parent and every reply. If a message points to a Clips
   link, transcript, video, screenshot, file, or newer follow-up, inspect it too.
+- Before asking for clarification, build a known-evidence / missing-evidence
+  ledger from the entire current thread and its linked artifacts. Record the
+  app or surface, URL, repro, exact error, screenshots or files, run or request
+  IDs, and answers already given. Never request a value that is already in the
+  parent, a reply, an attachment, or the linked run.
 - If the report includes a run ID, use that ID first to inspect the persisted
   run, events, tool cards, and linked app state. Do not ask for the prompt or
   last tool card until the run ID and available observability paths have been
@@ -60,7 +65,9 @@ Every actionable thread must end in exactly one external state: **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. If a reply
 does not say the fix is complete and when it should be live, or ask what is
-needed to fix it, do not post it.
+needed to fix it, do not post it. These are ledger states, not mandatory
+headings: keep the reporter-facing wording natural instead of opening with the
+robotic phrase “Clarification needed”.
 
 **Clarification needed** is an open state, not a finished one. Asking the
 question creates a standing obligation to come back for the answer: the thread
@@ -68,6 +75,13 @@ now looks owned to any cursor that scans for unhandled reports, so nothing will
 resurface it on its own. `review-latest-feedback` owns that re-check and runs
 it before it scans for new messages; when this workflow runs on its own, re-read
 every thread it previously asked in and act on the replies first.
+
+Treat a clarification reply as new evidence, not as a fresh blank report.
+Re-read the whole thread after the reply, update the ledger, and try the fix
+before posting another question. If the reply answers the earlier question,
+do not repeat it. If it only answers part of it, ask only for the one remaining
+missing value. A `Clarification needed` reply is invalid when the requested
+information is already present anywhere in the thread or linked evidence.
 
 ## Workflow
 
@@ -100,6 +114,9 @@ every thread it previously asked in and act on the replies first.
    - **Clarification needed** - ask one concrete, plain-language question that
      unblocks the next investigation, only when reporter or product input is
      missing from the available run, app, Slack, and linked-file evidence.
+     Re-read the full thread immediately before posting and verify the exact
+     requested detail is absent; do not ask again for evidence already supplied
+     in the parent, a reply, a file, or a linked run.
    Apply a reply gate before every external post: a reply must either say the
    fix is complete and give its expected live timing, or ask the one essential
    missing question. Never post a blocked/unresolved status without a question
@@ -121,7 +138,8 @@ every thread it previously asked in and act on the replies first.
 6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the
-   reply landed.
+   reply landed. If a reporter replies after the post, re-read the entire
+   thread again before deciding whether to fix, close, or ask anything else.
 7. If the user says earlier replies were too technical, harsh, or incomplete,
    search for every reply authored in this sweep and edit the bad replies in
    place. Do not fix only the newest example or leave the other addressed
@@ -131,13 +149,20 @@ every thread it previously asked in and act on the replies first.
 
 Write as Steve, not as a formal support bot:
 
-- Use lowercase, short conversational paragraphs, and direct wording.
+- Use lowercase, short conversational paragraphs, and clear, conversational
+  wording. Keep the tone casual and collaborative - warm without being corny,
+  and specific without sounding terse or demanding.
 - Every feedback reply starts by thanking the reporter. Use the natural short
   form `ty for the feedback -` (or `thanks for the feedback -`) before the
   status. Do not open with `agreed`, `valid request`, `ah`, or a diagnosis.
-- Use lowercase, a short conversational paragraph, and direct wording. Natural
-  phrases such as `ah`, `yeah`, and `good find` can follow the thank-you when
-  they fit; do not force them into every reply. Prefer ` - ` over em dashes.
+- Use lowercase and a short conversational paragraph. Natural phrases such as
+  `ah`, `yeah`, and `good find` can follow the thank-you when they fit; do not
+  force them into every reply. Prefer ` - ` over em dashes.
+- Thank the reporter by name when it is available, for example, “thanks
+  Alexander -”. Ask for help rather than issuing a demand: prefer “if you can
+  share ...” or “a deck URL or request ID would help us dig into this” over
+  “send ...” or “provide ...”. Avoid canned enthusiasm, scolding, and robotic
+  labels such as “Clarification needed” in the reporter-facing prose.
 - The audience is product/design/feedback reporters, not developers. Never
   post technical explanations such as shared paths, transports, sessions,
   repro levels, payloads, schemas, CORS, auth domains, action names, or
@@ -160,6 +185,11 @@ Write as Steve, not as a formal support bot:
   prompt, run ID, session, or file already present or available through those
   sources, and never write “not fixed yet” without a real question that
   unblocks the fix.
+- When a request ID would help, make the path easy and optional: “at the end of
+  the chat, hit the three dots and share the request ID if that option is
+  available.” Pair it with the useful surface link when one exists, such as a
+  deck URL; do not ask for a prompt or run ID when the source fix is already
+  established.
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Check that skipped subjective/product/policy items still
@@ -171,7 +201,8 @@ A useful reply shape is:
 ty for the feedback - [short plain-language status].
 
   [if fixed: this should be live after the final ship later today.]
-  [if clarification is needed: the exact missing detail required to fix it.]
+  [if clarification is needed: a casual request for the one detail that would
+  help investigate, such as a deck URL and/or request ID.]
 ```
 
 Keep it to one short paragraph whenever possible. Omit the release sentence

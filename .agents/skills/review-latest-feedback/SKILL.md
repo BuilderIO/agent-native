@@ -52,15 +52,34 @@ clearly the same symptom into that cluster instead of reopening a new thread for
 each duplicate. Continue to older messages only after the cluster is recorded
 and every grouped report has an auditable disposition.
 
+## Full-thread evidence gate
+
+Before asking a reporter for anything, re-read the complete parent thread to
+the end, including every reply, reaction, attachment, linked artifact, and
+newer follow-up. Paginate until there are no more replies. Build a small
+evidence ledger for the thread with the values already known - surface or app,
+URL, account or session, repro steps, exact error, screenshot or file, run or
+request ID, and the answer to each earlier question - and a separate list of
+what is still missing. Treat an attachment or an earlier reply as evidence to
+inspect, not as a reason to ask for the same thing again.
+
+The clarification question must be derived from that missing-evidence list.
+Never ask for a URL, screenshot, error, run ID, or repro detail that is already
+in the parent or a reply. If the reporter supplies it later, re-read the whole
+thread before doing anything else, remove that field from the missing list,
+and try the fix from the new evidence before asking another question. If the
+answer only partially fills the gap, ask only for the one remaining field.
+
 ## Answered clarifications come first
 
 A clarification question is a pending state, not a disposition. Before scanning
 for new messages, re-read every thread this workflow asked a question in that
 has not since been fixed or otherwise dispositioned, oldest question first.
 
-- **The reporter replied** - that thread is the run's first work item. It
-  re-enters triage as a concrete bug carrying the new evidence, ahead of
-  anything newer in the channel: someone answered and is waiting on a fix.
+- **The reporter replied** - re-read the complete thread and rebuild its
+  evidence ledger first. That thread is the run's first work item. It re-enters
+  triage as a concrete bug carrying the new evidence, ahead of anything newer
+  in the channel: someone answered and is waiting on a fix.
 - **No reply yet** - leave it pending and record it in the recap with the date
   the question was asked, so an unanswered question stays visible instead of
   ageing out of the cursor.
@@ -157,14 +176,21 @@ failure modes, surfaces, or owners.
 6. This skill is authorized to react to actionable Slack threads and post one
    concise in-thread update for each actionable item it handles. Post only
    after the fix or clarification is ready. A fix reply says only that it is
-   fixed and when it should be live; a clarification reply asks one concrete
-   question about missing reporter or product input. Keep implementation and
+   fixed and when it should be live; a clarification reply asks one concrete,
+   casual question about missing reporter or product input. Thank the reporter
+   by name when available and ask for the smallest useful evidence - such as a
+   deck URL and/or request ID - as help to investigate rather than as a terse
+   demand. Keep implementation and
    verification evidence in the internal recap, not the reporter-facing reply.
    If the fix is complete but internal verification is unavailable, do not post
    yet. Leave only the `👀` investigation marker; because that marker never
    counts as handled, the next run will re-read the thread before scanning newer
    feedback.
-   Do not post vague progress, technical internals, or a diagnosis that leaves
+   Before posting **Clarification needed**, run the full-thread evidence gate
+   again against the latest thread body. Confirm that the requested field is
+   absent from the parent, every reply, and every linked artifact; if it is
+   present, use it and keep investigating instead of asking again. Do not post
+   vague progress, technical internals, or a diagnosis that leaves
    a safely fixable bug undone. Re-read every thread after posting. A fix reply
    authored by this skill's own identity is a handled marker on the next run;
    a clarification reply is not. A clarification reply marks the thread
