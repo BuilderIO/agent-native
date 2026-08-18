@@ -115,4 +115,19 @@ describe("navigateToWorkspaceApp", () => {
 
     expect(navigateToWorkspaceApp("/mail")).toBe(false);
   });
+
+  it("rejects non-http navigation targets", () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    expect(navigateToWorkspaceApp("javascript:alert(1)")).toBe(false);
+    expect(topWindow.location.href).toBe("");
+  });
 });

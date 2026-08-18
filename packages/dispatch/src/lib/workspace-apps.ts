@@ -168,10 +168,13 @@ export function navigateToWorkspaceApp(href: string): boolean {
   if (typeof window === "undefined") return false;
 
   try {
-    const url = new URL(href, window.location.href).href;
+    const targetUrl = new URL(href, window.location.href);
+    if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
+      return false;
+    }
     const targetWindow =
       shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
-    targetWindow.location.href = url;
+    targetWindow.location.href = targetUrl.href;
     return true;
   } catch {
     // coercion-ok: a blocked top-window assignment is an expected fallback signal.
