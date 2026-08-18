@@ -274,6 +274,11 @@ class RemoteCodeAgentConnector {
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       }));
+      if (result.ok === false) {
+        this.output.write(
+          `Remote command ${command.id} failed: ${typeof result.error === "string" ? result.error : "Unknown connector error."}\n`,
+        );
+      }
       await this.postCommandResult(command, result);
     }
   }
@@ -476,7 +481,9 @@ class RemoteCodeAgentConnector {
           commandId: command.id,
           deviceId: this.config.deviceId,
           relayUrl: this.relayUrl,
-          ...(portalWorkspace ? { remoteRunId: run.id } : {}),
+          ...(portalWorkspace && requestedRunId
+            ? { remoteRunId: requestedRunId }
+            : {}),
         },
         ...(portalWorkspace
           ? {
