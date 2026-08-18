@@ -70,6 +70,18 @@ owning source seam and focused verification, with one explicit disposition:
 fixed, awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
+When deciding whether an awaiting clarification is already answered, treat the
+requested URL, error, screenshot, repro, run ID, or other evidence as present
+only when it is readable in the parent, a reply, or an accessible linked
+artifact. Keep a linked artifact that is present but inaccessible because of
+permissions, expiry, connector gaps, or another read failure separate from
+evidence that is absent. If that artifact is required to identify or verify
+the change, route the item back through the feedback workflow for a targeted
+request for access or a fresh/replacement link; do not suppress that request or
+ask again for contents already known to be in the inaccessible artifact. If the
+available evidence is enough without it, continue and record the limitation as
+unavailable/unverified in the ship ledger.
+
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
 when the branch changes after triage or when new comments, Slack replies,
