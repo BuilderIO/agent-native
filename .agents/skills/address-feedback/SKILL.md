@@ -78,25 +78,32 @@ The default posture is judgment plus action: fix clear, verified bugs you agree 
    - For UI fixes, verify in a browser when feasible and inspect the actual screen.
    - If you cannot run a useful verification, say why.
 
-## Report Format
+## User-Facing Reply
 
-Keep the final report short:
+Keep the outward reply to a status update, not an implementation report. The
+technical investigation, reproduction details, test results, file names, and
+internal reasoning stay internal unless the user explicitly asks for them.
+
+For every actionable item, say only:
+
+- **Fixed** or **Not fixed yet**.
+- When it is expected to be live. If the current ship is expected to finish
+  that day, use "Expected live by EOD." If timing is not confirmed, say
+  "Timing not confirmed yet." Do not invent a release date.
+
+Use this format:
 
 ```md
-## Bugs Fixed
-- [feedback item] - [what changed, file:line]
-
-## Bugs Flagged But Not Fixed
-- [feedback item] - [why]
-
-## UX Suggestions
-- [feedback item] -> [proposed change]
-
-## Skipped
-- [feedback item] - [reason]
+## Feedback Status
+- [plain-language item] - Fixed. Expected live by EOD.
+- [plain-language item] - Not fixed yet. Timing not confirmed yet.
 ```
 
-Only include sections that have content. The user can read the diff; do not write a second feedback document.
+Do not include implementation details, technical explanations, file paths,
+line numbers, test counts, PR numbers, worktree names, stack traces, or
+internal labels in the user-facing reply. Do not add separate sections for
+bugs, UX suggestions, skipped items, or technical evidence. Keep each item to
+one short sentence.
 
 ## Avoid
 
@@ -105,6 +112,7 @@ Only include sections that have content. The user can read the diff; do not writ
 - Do not implement UX changes that make an important screen busier without explicit user approval.
 - Do not claim a UI change is done without browser verification when a local app can be run.
 - Do not invent Sentry matches, affected users, or reproduction steps.
+- Do not expose the technical details used to verify or implement the work unless the user asks for them.
 
 ## Related Skills
 
