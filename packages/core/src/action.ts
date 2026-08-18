@@ -1169,8 +1169,8 @@ const SUBSCHEMA_MAP_KEYS = [
 ] as const;
 
 /**
- * Remove JSON Schema keywords that some providers' function-calling schema
- * validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * Remove or rewrite JSON Schema keywords that some providers' function-calling
+ * schema validators reject. OpenAI (and Gemini via the Builder gateway) reject
  * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
  * `400 invalid_function_parameters` error, causing the model turn to produce no
  * content (surfacing as an empty assistant response). Anthropic ignores the
@@ -1178,12 +1178,67 @@ const SUBSCHEMA_MAP_KEYS = [
  * portable. `propertyNames` only constrained object *keys*; the value/shape of
  * the object is unaffected by its removal.
  *
+ * OpenAI rejects `oneOf` the same way — "Invalid schema for function 'x': …
+ * 'oneOf' is not permitted" — while accepting `anyOf`. Zod v4's `toJSONSchema`
+ * emits `oneOf` for every `z.discriminatedUnion`, so any action with one was
+ * 400'd for the whole request before a token streamed, and the gateway folded
+ * that 400 into a generic 500. Measured: 178k events / 786 users over seven
+ * weeks from a single action. For a discriminated union the two keywords accept
+ * the same documents, and the tool-input validator already handles both
+ * (see `narrowUnionBranchErrors`), so the rewrite is behaviour-preserving.
+ *
  * Only descends through actual subschema positions (properties, items, union
  * branches, definitions, etc.) — never through value-bearing keywords like
  * `default`, `const`, `enum`, or `examples`, whose objects may legitimately
  * contain a `propertyNames` data key that must be preserved.
  */
-function stripUnsupportedSchemaKeywords<T>(node: T): T {
+/**
+ * A schema position with no `type` — what Zod emits for `z.unknown()` /
+ * `z.any()` — is rejected by OpenAI with "schema must have a 'type' key",
+ * 400ing the whole request exactly like `oneOf` did. There are 137 such sites
+ * across the templates, so this has to be answered at the boundary rather than
+ * by retyping every action.
+ *
+ * Expressed as a union of concrete JSON types because that shape is already
+ * proven against the live validator: `setFilterDefault.value`, a
+ * `z.union([string, number, boolean, null])` sitting in the same tool schema,
+ * was never flagged while the typeless sibling next to it was. `true` for
+ * `additionalProperties` is a boolean, not a subschema, so it needs no type of
+ * its own; array items get one bounded level rather than recursing forever.
+ */
+const JSON_VALUE_BRANCHES: ReadonlyArray<Record<string, unknown>> = [
+  { type: "string" },
+  { type: "number" },
+  { type: "boolean" },
+  { type: "null" },
+  { type: "object", additionalProperties: true },
+  {
+    type: "array",
+    items: {
+      anyOf: [
+        { type: "string" },
+        { type: "number" },
+        { type: "boolean" },
+        { type: "null" },
+        { type: "object", additionalProperties: true },
+      ],
+    },
+  },
+];
+
+/** Keywords that make a `type`-less schema meaningful on their own. */
+const TYPE_SUBSTITUTE_KEYS = [
+  "type",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "enum",
+  "const",
+  "$ref",
+  "not",
+] as const;
+
+export function stripUnsupportedSchemaKeywords<T>(node: T): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
 
@@ -1211,6 +1266,19 @@ function stripUnsupportedSchemaKeywords<T>(node: T): T {
         stripUnsupportedSchemaKeywords(sub);
       }
     }
+  }
+  // After descending, so nested unions are rewritten too. Merged rather than
+  // overwritten on the pathological case where a schema carries both: dropping
+  // either arm would silently narrow what the tool accepts.
+  if (Array.isArray(obj.oneOf)) {
+    const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
+    obj.anyOf = [...existing, ...obj.oneOf];
+    delete obj.oneOf;
+  }
+  // Last, so a node that only became typed above (oneOf -> anyOf) is not also
+  // given a redundant value union.
+  if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {
+    obj.anyOf = JSON_VALUE_BRANCHES.map((branch) => ({ ...branch }));
   }
   return node;
 }

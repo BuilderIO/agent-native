@@ -17,6 +17,7 @@ import {
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
+  stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -1420,6 +1421,15 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I ran out of time before finishing this step. " +
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
+/**
+ * Text attachments have been capped since forever; binary ones never were, so
+ * a large PDF or screenshot went to the provider as unbounded inline base64.
+ * OpenAI rejects the whole request over 1,048,576 chars in one `file_url`
+ * ("string too long", measured at 4,149,128), which kills the turn — the cap is
+ * on the encoded string, so that is what this counts rather than decoded bytes.
+ * Held under the limit to leave room for the `data:<mediaType>;base64,` prefix.
+ */
+const MAX_INLINE_ATTACHMENT_BASE64_CHARS = 1_000_000;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
@@ -1801,6 +1811,21 @@ export function buildUserContentWithAttachments(opts: {
         continue;
       }
       const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      if (
+        match &&
+        isSupportedImageMediaType(match[1]) &&
+        match[2].length > MAX_INLINE_ATTACHMENT_BASE64_CHARS
+      ) {
+        // The upload already happened and `uploadedUrl` is the whole point of
+        // it. Inlining the bytes anyway is what made the request unsendable.
+        const label = att.name ? `"${att.name}"` : "An image";
+        textAttachments.push(
+          uploadedUrl
+            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline for vision analysis, so use the URL for embedding/reference.]`
+            : `[${label} was too large to send inline for vision analysis and no upload URL is available. Ask the user to attach a smaller image.]`,
+        );
+        continue;
+      }
       if (match && isSupportedImageMediaType(match[1])) {
         userContent.push({
           type: "image",
@@ -1837,6 +1862,15 @@ export function buildUserContentWithAttachments(opts: {
 
     const filePart = dataUrlToFilePart(att);
     if (filePart) {
+      if (filePart.data.length > MAX_INLINE_ATTACHMENT_BASE64_CHARS) {
+        const label = att.name ? `"${att.name}"` : "A file";
+        textAttachments.push(
+          uploadedUrl
+            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline, so read it from the URL if its contents are needed.]`
+            : `[${label} was too large to send inline and no upload URL is available. Ask the user for a smaller file.]`,
+        );
+        continue;
+      }
       userContent.push(filePart);
       continue;
     }
@@ -3468,19 +3502,42 @@ function extractToolSearchResultNamesFromMessages(
   return names;
 }
 
+/**
+ * Every tool the model is offered passes through here -- `defineAction`
+ * schemas, the hand-written ones in extensions/mcp/context tools, and whatever
+ * a third-party MCP server advertises. `defineAction` sanitizes at
+ * construction; nothing else did, so `extension-data-set` shipped a `data`
+ * property carrying a description and no `type`, and OpenAI 400'd the whole
+ * request -- every tool in the payload, not just that one. Sanitizing here is
+ * what makes that unrepresentable rather than a thing each definition site has
+ * to remember.
+ *
+ * Cloned first: the hand-written schemas are module constants, so rewriting in
+ * place would mutate shared state on first use.
+ */
 function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
   if (schema.type !== "object") return null;
+  type ToolParams = NonNullable<ActionTool["parameters"]>;
+  let cloned: ToolParams;
+  try {
+    cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
+  } catch {
+    // A schema that will not round-trip cannot be safely rewritten, and
+    // shipping it unsanitized is how this class of 400 reaches the provider.
+    return null;
+  }
+  const safe = stripUnsupportedSchemaKeywords(cloned);
   return {
-    ...schema,
+    ...safe,
     type: "object",
     properties:
-      schema.properties && typeof schema.properties === "object"
-        ? schema.properties
+      safe.properties && typeof safe.properties === "object"
+        ? safe.properties
         : {},
-    required: Array.isArray(schema.required) ? schema.required : [],
+    required: Array.isArray(safe.required) ? safe.required : [],
   };
 }
 
@@ -9460,6 +9517,11 @@ export function createProductionAgentHandler(
           await import("./thread-data-builder.js");
         const priorThreadData = (await getThread(effectiveThreadId))
           ?.threadData;
+        // `threadDataToEngineMessages` takes one argument and flattens tool
+        // calls to text by design. The second argument never existed anywhere
+        // in the repo, so this failed `tsc` and broke every production build
+        // between 16:29 and now -- it reached main only because admin merges
+        // do not wait for the typecheck that would have caught it.
         const resumed = threadDataToEngineMessages(priorThreadData);
         if (resumed.length > 0) {
           const actionPreparationTool =

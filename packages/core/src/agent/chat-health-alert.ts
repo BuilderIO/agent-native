@@ -111,10 +111,19 @@ export async function checkChatHealthAndAlert(
     return { status: "healthy", turns: counts.turns, badRate };
   }
 
-  const stored = await getSetting(LAST_ALERT_SETTING_KEY).catch(() => null);
-  const lastPagedAt = Number(
-    (stored as Record<string, unknown> | null)?.at ?? 0,
-  );
+  // A cooldown stamp we could not READ is not a cooldown that is absent:
+  // treating it as absent pages on every sweep for as long as settings stay
+  // unreadable, which is exactly the spam the cooldown exists to prevent.
+  let stored: Record<string, unknown> | null;
+  try {
+    stored = (await getSetting(LAST_ALERT_SETTING_KEY)) as Record<
+      string,
+      unknown
+    > | null;
+  } catch (error) {
+    return { status: "check-failed", reason: String(error) };
+  }
+  const lastPagedAt = Number(stored?.at ?? 0);
   if (Number.isFinite(lastPagedAt) && now - lastPagedAt < COOLDOWN_MS) {
     return {
       status: "cooldown",

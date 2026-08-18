@@ -199,11 +199,47 @@ function currentRouterPath(location: Location): string {
   return `${location.pathname}${location.search}${location.hash}`;
 }
 
-function stringifyForWriteDedup(value: unknown): string {
+function shallowEqualNavigationState(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+
+  for (const key of leftKeys) {
+    if (
+      !Object.prototype.hasOwnProperty.call(right, key) ||
+      !Object.is(
+        (left as Record<string, unknown>)[key],
+        (right as Record<string, unknown>)[key],
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function stringifyForWriteDedup(value: unknown): string | symbol {
   try {
-    return JSON.stringify(value);
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string"
+      ? serialized
+      : Symbol("unserializable navigation state");
   } catch {
-    return "";
+    // Do not turn a serialization failure into a reusable string key. A
+    // distinct token lets a changed unserializable state reach the write path
+    // and surface its real error instead of being silently deduplicated.
+    return Symbol("unserializable navigation state");
   }
 }
 
@@ -255,10 +291,14 @@ export function useSemanticNavigationState<
     [options.commandQueryKey],
   );
   const navigationState = options.state ?? null;
-  const navigationWriteDedup = stringifyForWriteDedup({
-    keys: navigationKeys,
-    state: navigationState,
-  });
+  const navigationWriteDedup = useMemo(
+    () =>
+      stringifyForWriteDedup({
+        keys: navigationKeys,
+        state: navigationState,
+      }),
+    [navigationKeys, navigationState],
+  );
 
   const getCommandDedupKeyRef = useRef(options.getCommandDedupKey);
   const onCommandRef = useRef(options.onCommand);
@@ -267,7 +307,7 @@ export function useSemanticNavigationState<
   onCommandRef.current = options.onCommand;
   onErrorRef.current = options.onError;
 
-  const lastNavigationWriteRef = useRef<string | null>(null);
+  const lastNavigationWriteRef = useRef<string | symbol | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -415,7 +455,25 @@ export function useAgentRouteState<
     () => routeLocationFromReactRouter(location),
     [location],
   );
-  const navigationState = options.getNavigationState(routeLocation) ?? null;
+  // Callers may include app-local state in this callback in addition to the
+  // router location. Derive on every render so those values are not frozen at
+  // the last route change, then retain the previous object when its shallow
+  // values are unchanged. This keeps the write-dedup serialization off the
+  // unrelated-render path without hiding captured state updates.
+  const derivedNavigationState =
+    options.getNavigationState(routeLocation) ?? null;
+  const navigationStateRef = useRef<NavigationState | null>(
+    derivedNavigationState,
+  );
+  if (
+    !shallowEqualNavigationState(
+      navigationStateRef.current,
+      derivedNavigationState,
+    )
+  ) {
+    navigationStateRef.current = derivedNavigationState;
+  }
+  const navigationState = navigationStateRef.current;
 
   return useSemanticNavigationState<NavigationState, NavigateCommand>({
     state: navigationState,

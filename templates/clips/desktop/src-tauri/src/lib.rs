@@ -52,7 +52,7 @@ use state::{
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
-    set_capture_excluded,
+    restart_bundle_path, schedule_restart_after_exit, set_capture_excluded,
 };
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
@@ -248,6 +248,8 @@ pub fn run() {
             // persistent log file (production debugging)
             logfile::frontend_log,
             logfile::open_logs,
+            restart_bundle_path,
+            schedule_restart_after_exit,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())

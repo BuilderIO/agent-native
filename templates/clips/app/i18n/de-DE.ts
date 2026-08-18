@@ -1459,6 +1459,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
+    leaveConfirmTitle: "Diese Aufnahme verlassen und verwerfen?",
+    leaveConfirmDescription:
+      "Deine laufende Aufnahme wurde noch nicht vollständig gespeichert. Wenn du diese Seite jetzt verlässt, wird sie verworfen.",
+    leaveAndDiscard: "Verlassen und verwerfen",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",

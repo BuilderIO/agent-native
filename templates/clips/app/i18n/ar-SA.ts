@@ -1431,6 +1431,10 @@ const messages = {
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
+    leaveConfirmTitle: "مغادرة هذه الصفحة وحذف التسجيل؟",
+    leaveConfirmDescription:
+      "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
+    leaveAndDiscard: "مغادرة وحذف",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",

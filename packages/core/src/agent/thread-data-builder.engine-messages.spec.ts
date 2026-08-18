@@ -155,6 +155,228 @@ describe("threadDataToEngineMessages", () => {
   });
 });
 
+/**
+ * A resumed run rebuilt from thread_data as prose alone tells the model what it
+ * SAID but not what it DID: every tool call and every result is gone, so the
+ * next chunk re-runs work already committed and cannot see its output. The
+ * calls and results are in thread_data the whole time — this asserts a resume
+ * actually replays them.
+ */
+describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
+  const repoWithTools = {
+    messages: [
+      {
+        message: {
+          id: "u1",
+          role: "user",
+          content: [{ type: "text", text: "Fix the rate filter." }],
+        },
+      },
+      {
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_1",
+              toolName: "get-extension",
+              args: { id: "ext-1" },
+              result: '{"visibility":"private"}',
+            },
+            { type: "text", text: "The rate filter excludes zero rates." },
+            {
+              type: "tool-call",
+              toolCallId: "call_2",
+              toolName: "update-extension",
+              args: { id: "ext-1", visibility: "public" },
+              result: "updated",
+              isError: false,
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  it("replays tool calls and their results as paired engine parts", () => {
+    const messages = threadDataToEngineMessages(repoWithTools, {
+      includeToolCalls: true,
+    });
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+
+    const assistant = messages[1];
+    expect(assistant.content.map((p) => p.type)).toEqual([
+      "text",
+      "tool-call",
+      "tool-call",
+    ]);
+    expect(assistant.content[1]).toMatchObject({
+      type: "tool-call",
+      id: "call_1",
+      name: "get-extension",
+      input: { id: "ext-1" },
+    });
+
+    const results = messages[2];
+    expect(results.content).toHaveLength(2);
+    expect(results.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call_1",
+      toolName: "get-extension",
+      content: '{"visibility":"private"}',
+    });
+    // Every replayed result carries the input string the Builder gateway
+    // requires on tool_result blocks.
+    expect(results.content[0]).toMatchObject({
+      toolInput: '{"id":"ext-1"}',
+    });
+    expect(results.content[1]).toMatchObject({ toolCallId: "call_2" });
+  });
+
+  it("still flattens to prose when the caller does not ask for tools", () => {
+    const messages = threadDataToEngineMessages(repoWithTools);
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(messages[1].content).toEqual([
+      { type: "text", text: "The rate filter excludes zero rates." },
+    ]);
+  });
+
+  it("never replays raw tool results for an integration turn", () => {
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Raw model response." },
+              {
+                type: "tool-call",
+                toolCallId: "call_1",
+                toolName: "submit-content-database-form",
+                args: { id: "request_123" },
+                result: '{"secret":"must not be replayed"}',
+              },
+            ],
+            metadata: {
+              integrationDelivery: {
+                platform: "slack",
+                status: "delivered",
+                text: "What Slack participants saw.",
+              },
+            },
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+    const delivered = JSON.stringify(messages);
+    expect(delivered).toContain("What Slack participants saw");
+    expect(delivered).not.toContain("must not be replayed");
+    expect(delivered).not.toContain("tool-result");
+  });
+
+  it("bounds an oversized replayed result instead of silently dropping it", () => {
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call_1",
+                toolName: "db-query",
+                args: {},
+                result: "x".repeat(40_000),
+              },
+            ],
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+    const result = messages[1].content[0];
+    if (result.type !== "tool-result") throw new Error("expected tool-result");
+    expect(result.content.length).toBeLessThan(20_000);
+    expect(result.content).toContain("truncated after");
+    expect(result.content).toContain("28,000 omitted");
+  });
+
+  it("spends the tool-payload budget on the newest turns and says so on the rest", () => {
+    // Each turn's result alone is a third of the total budget, so only the
+    // newest few can keep their tool detail.
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      message: {
+        id: `a${i}`,
+        role: "assistant",
+        content: [
+          { type: "text", text: `turn ${i} conclusion` },
+          {
+            type: "tool-call",
+            toolCallId: `call_${i}`,
+            toolName: "db-query",
+            args: {},
+            result: "y".repeat(11_000),
+          },
+        ],
+      },
+    }));
+    const messages = threadDataToEngineMessages(
+      { messages: turns },
+      { includeToolCalls: true },
+    );
+
+    const serialized = JSON.stringify(messages);
+    // Every turn's prose survives — that is the invariant the budget may not break.
+    for (let i = 0; i < 8; i++) {
+      expect(serialized).toContain(`turn ${i} conclusion`);
+    }
+    // The newest turn keeps its evidence; the oldest does not, and is not
+    // allowed to read like a turn that never called a tool.
+    expect(serialized).toContain("call_7");
+    expect(serialized).not.toContain("call_0");
+    const oldest = messages[0];
+    expect(oldest.content).toHaveLength(1);
+    if (oldest.content[0].type !== "text") throw new Error("expected text");
+    expect(oldest.content[0].text).toContain("turn 0 conclusion");
+    expect(oldest.content[0].text).toContain("elided from replayed history");
+
+    // The replay stays bounded rather than growing with the thread.
+    const toolPayload = messages
+      .flatMap((m) => m.content)
+      .filter((p) => p.type === "tool-result")
+      .reduce(
+        (total, p) => total + (p.type === "tool-result" ? p.content.length : 0),
+        0,
+      );
+    expect(toolPayload).toBeLessThanOrEqual(64_000);
+  });
+
+  it("drops a tool call thread_data never gave an id or name", () => {
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Did a thing." },
+              { type: "tool-call", toolName: "db-query", args: {} },
+            ],
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+    // An unpaired id-less call cannot be replayed as valid tool_use; the prose
+    // still survives.
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "Did a thing." },
+    ]);
+  });
+});
+
 describe("recoverThreadHistoryForRequest", () => {
   const thread = (count: number, chars = 10) =>
     JSON.stringify({

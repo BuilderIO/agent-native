@@ -1410,6 +1410,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
+    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+    leaveConfirmDescription:
+      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+    leaveAndDiscard: "बाहर जाएं और हटाएं",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",

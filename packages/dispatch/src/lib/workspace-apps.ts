@@ -1,4 +1,5 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 
 import { CANONICAL_WORKSPACE_SSO_APP_ORIGINS } from "../shared/workspace-sso";
@@ -156,6 +157,29 @@ export function workspaceAppDirectHref(
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
+}
+
+export function shouldOpenWorkspaceAppInTopWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  return isInBuilderFrame() || window.parent !== window;
+}
+
+export function navigateToWorkspaceApp(href: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const targetUrl = new URL(href, window.location.href);
+    if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
+      return false;
+    }
+    const targetWindow =
+      shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
+    targetWindow.location.href = targetUrl.href;
+    return true;
+  } catch {
+    // coercion-ok: a blocked top-window assignment is an expected fallback signal.
+    return false;
+  }
 }
 
 /**

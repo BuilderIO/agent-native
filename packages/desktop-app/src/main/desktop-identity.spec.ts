@@ -1376,6 +1376,127 @@ describe("DesktopIdentityBroker", () => {
     );
   });
 
+  it("retries a transient 502 from the exchange gateway instead of failing the ceremony", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore();
+    const identityFetch = vi
+      .fn<() => Promise<Response>>()
+      // The gateway/runtime in front of the exchange route, not the route
+      // itself, returns this — a bare gateway error page, not JSON.
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token: "desktop-session",
+            email: "steve@example.com",
+          }),
+          { status: 200 },
+        ),
+      );
+    const webContents = { on: vi.fn(), setWindowOpenHandler: vi.fn() };
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation: vi.fn(() => true),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1] as (event: { preventDefault: () => void }, url: string) => void;
+    const state = `${Buffer.from(JSON.stringify({ f: "desktop-flow" })).toString("base64url")}.signature`;
+    navigationHandler(
+      { preventDefault: vi.fn() },
+      `https://accounts.google.com/o/oauth2/v2/auth?state=${state}&verifier=magic-link-verifier`,
+    );
+
+    await vi.waitFor(() => expect(identityFetch).toHaveBeenCalledTimes(2));
+    closedListener?.();
+
+    await expect(signIn).resolves.toBe(true);
+    expect(identityCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "desktop-session",
+      }),
+    );
+  });
+
+  it("still fails the ceremony on a real application error from the exchange route", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore();
+    const identityFetch = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: "Invalid desktop exchange verifier." }),
+          { status: 403 },
+        ),
+      );
+    const webContents = { on: vi.fn(), setWindowOpenHandler: vi.fn() };
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation: vi.fn(() => true),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1] as (event: { preventDefault: () => void }, url: string) => void;
+    const state = `${Buffer.from(JSON.stringify({ f: "desktop-flow" })).toString("base64url")}.signature`;
+    navigationHandler(
+      { preventDefault: vi.fn() },
+      `https://accounts.google.com/o/oauth2/v2/auth?state=${state}&verifier=magic-link-verifier`,
+    );
+
+    await vi.waitFor(() => expect(identityFetch).toHaveBeenCalledTimes(1));
+    closedListener?.();
+
+    await expect(signIn).resolves.toBe(false);
+    expect(identityFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the system browser and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
