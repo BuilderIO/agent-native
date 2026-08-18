@@ -116,7 +116,7 @@ export default function CalendarTemplate() {
         }
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa1ade4652cb7400cac6780582aa63c0a?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85296abd8b3b40bbb63423503b99f474?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.calendar.s001")}
             loading="lazy"
@@ -126,13 +126,7 @@ export default function CalendarTemplate() {
         }
       />
 
-      <TemplateActivationFrame
-        heading={
-          <h2 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.calendar.s008")}
-          </h2>
-        }
-      >
+      <TemplateActivationFrame>
         <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <a
             href="https://calendar.agent-native.com"
