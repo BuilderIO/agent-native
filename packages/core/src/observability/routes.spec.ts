@@ -182,6 +182,7 @@ describe("observability routes", () => {
           $ai_trace_id: "run-1",
           $ai_session_id: "thread-1",
           $ai_model: "gpt-5.6-terra",
+          deployment_environment: "test",
         },
         { userId: "alice@example.com" },
       );
