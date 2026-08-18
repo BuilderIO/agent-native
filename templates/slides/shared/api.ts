@@ -221,7 +221,7 @@ export function toSharedDeckSlide(
   const shared: SharedDeckSlide = {
     id: normalizeString(slide.id, `slide-${index + 1}`),
     content: normalizeString(slide.content, ""),
-    notes: "",
+    notes: normalizeString(slide.notes, ""),
     layout: normalizeString(slide.layout, "content"),
   };
 
