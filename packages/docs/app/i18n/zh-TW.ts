@@ -1526,6 +1526,7 @@ const messages = {
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 快取",
     deploymentEnvironmentVariables: "部署：環境變數",
+    updatingUiInProduction: "在正式環境中更新 UI",
     environmentVariables: "環境變數",
     progress: "進度",
     authentication: "認證",

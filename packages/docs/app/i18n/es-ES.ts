@@ -1556,6 +1556,7 @@ const esES = {
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",
+    updatingUiInProduction: "Actualizar la UI en Producción",
     environmentVariables: "Variables de entorno",
     progress: "Progreso",
     authentication: "Autenticación",

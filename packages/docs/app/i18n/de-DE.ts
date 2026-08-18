@@ -1556,6 +1556,7 @@ const deDE = {
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",
+    updatingUiInProduction: "UI in Produktion Aktualisieren",
     environmentVariables: "Umgebungsvariablen",
     progress: "Fortschritt",
     authentication: "Authentifizierung",

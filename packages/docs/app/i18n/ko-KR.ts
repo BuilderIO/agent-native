@@ -1549,6 +1549,7 @@ const koKR = {
     deploymentOtherPlatforms: "기타 플랫폼",
     ssrCaching: "SSR 캐싱",
     deploymentEnvironmentVariables: "배포: 환경 변수",
+    updatingUiInProduction: "프로덕션에서 UI 업데이트",
     environmentVariables: "환경 변수",
     progress: "진행 상황",
     authentication: "인증",

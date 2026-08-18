@@ -1544,6 +1544,7 @@ const arSA = {
     deploymentOtherPlatforms: "منصات أخرى",
     ssrCaching: "تخزين SSR المؤقت",
     deploymentEnvironmentVariables: "النشر: متغيرات البيئة",
+    updatingUiInProduction: "تحديث الواجهة في الإنتاج",
     environmentVariables: "متغيرات البيئة",
     progress: "Progress",
     authentication: "Authentication",

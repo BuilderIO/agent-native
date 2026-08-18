@@ -1553,6 +1553,7 @@ const jaJP = {
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
     deploymentEnvironmentVariables: "デプロイ: 環境変数",
+    updatingUiInProduction: "本番環境でのUI更新",
     environmentVariables: "環境変数",
     progress: "進行状況",
     authentication: "認証",

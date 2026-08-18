@@ -1557,6 +1557,7 @@ const frFR = {
     deploymentOtherPlatforms: "Autres Plateformes",
     ssrCaching: "Mise en Cache SSR",
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",
+    updatingUiInProduction: "Mettre à Jour l'UI en Production",
     environmentVariables: "Variables d'environnement",
     progress: "Progression",
     authentication: "Authentification",

@@ -1546,6 +1546,7 @@ const hiIN = {
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",
+    updatingUiInProduction: "Production में UI अपडेट करना",
     environmentVariables: "पर्यावरण चर",
     progress: "Progress",
     authentication: "Authentication",

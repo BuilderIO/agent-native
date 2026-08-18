@@ -644,6 +644,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "deployment-environment-variables",
       },
       {
+        id: "updating-ui-in-production",
+        labelKey: "updatingUiInProduction",
+        slug: "updating-ui-in-production",
+      },
+      {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",

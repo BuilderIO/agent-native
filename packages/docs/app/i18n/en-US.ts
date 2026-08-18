@@ -1546,6 +1546,7 @@ const enUS = {
     deploymentOtherPlatforms: "Other Platforms",
     ssrCaching: "SSR Caching",
     deploymentEnvironmentVariables: "Deployment: Environment Variables",
+    updatingUiInProduction: "Updating UI in Production",
     environmentVariables: "Environment Variables",
     progress: "Progress",
     authentication: "Authentication",

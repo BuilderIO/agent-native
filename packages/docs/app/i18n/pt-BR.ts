@@ -1552,6 +1552,7 @@ const ptBR = {
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",
+    updatingUiInProduction: "Atualizando a UI em Produção",
     environmentVariables: "Variáveis de ambiente",
     progress: "Progresso",
     authentication: "Autenticação",
