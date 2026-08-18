@@ -196,9 +196,56 @@ describe("resolveCleanupSegmentsJson", () => {
   ]);
 
   it("keeps measured timings rather than re-synthesizing them", () => {
-    expect(
+    const cleaned = JSON.parse(
       resolveCleanupSegmentsJson(measured, "Hello there. Second cue.", 120_000),
-    ).toBe(measured);
+    );
+    expect(cleaned).toEqual([
+      { startMs: 0, endMs: 1_200, text: "Hello there." },
+      { startMs: 1_200, endMs: 2_400, text: "Second cue." },
+    ]);
+  });
+
+  it("rewrites text while retaining attribution and measured timings", () => {
+    const attributed = JSON.stringify([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "old mic words",
+        source: "mic",
+        speaker: "Me",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "old system words",
+        source: "system",
+        speaker: "Them",
+      },
+    ]);
+    const cleaned = JSON.parse(
+      resolveCleanupSegmentsJson(
+        attributed,
+        "Cleaned transcript text",
+        120_000,
+      ),
+    );
+
+    expect(cleaned).toEqual([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "Cleaned transcript",
+        source: "mic",
+        speaker: "Me",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "text",
+        source: "system",
+        speaker: "Them",
+      },
+    ]);
   });
 
   it("synthesizes cues only when no measured timings exist", () => {
@@ -222,6 +269,10 @@ describe("resolveCleanupSegmentsJson", () => {
       resolveCleanupSegmentsJson(sparse, "cleaned up text here", 135_000),
     );
     expect(kept[kept.length - 1].endMs).toBe(1_800);
+    expect(kept.map((segment: { text: string }) => segment.text)).toEqual([
+      "cleaned up",
+      "text here",
+    ]);
   });
 });
 

@@ -63,6 +63,7 @@ import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  type TranscriptSegment,
 } from "../shared/transcript-segments.js";
 import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js";
 import cleanupTranscript from "./cleanup-transcript.js";
@@ -498,6 +499,45 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
+function rewriteMeasuredSegmentText(
+  segments: TranscriptSegment[],
+  cleanedText: string,
+): TranscriptSegment[] {
+  const words = cleanedText
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  if (segments.length === 0 || words.length === 0) return [];
+
+  const weights = segments.map((segment) =>
+    Math.max(1, segment.text.trim().split(/\s+/).filter(Boolean).length),
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let wordIndex = 0;
+  let weightIndex = 0;
+
+  return segments.flatMap((segment, index) => {
+    const isLast = index === segments.length - 1;
+    const remainingSegments = segments.length - index - 1;
+    const targetEnd = isLast
+      ? words.length
+      : Math.round(
+          (words.length * (weightIndex + weights[index])) / totalWeight,
+        );
+    const minimumEnd =
+      words.length >= segments.length ? wordIndex + 1 : wordIndex;
+    const maximumEnd = Math.max(wordIndex, words.length - remainingSegments);
+    const end = isLast
+      ? words.length
+      : Math.min(maximumEnd, Math.max(minimumEnd, targetEnd));
+    const text = words.slice(wordIndex, end).join(" ");
+    wordIndex = end;
+    weightIndex += weights[index];
+    return text ? [{ ...segment, text }] : [];
+  });
+}
+
 /**
  * Pick the segments to store after cleanup rewrites the transcript text.
  *
@@ -513,12 +553,14 @@ export function resolveCleanupSegmentsJson(
   durationMs: number | null | undefined,
 ): string {
   const priorSegments = parseTranscriptSegments(priorSegmentsJson);
-  if (
-    priorSegments.length > 1 ||
-    (priorSegments.length === 1 &&
-      (priorSegments[0].source || priorSegments[0].speaker))
-  ) {
-    return JSON.stringify(priorSegments);
+  if (priorSegments.length > 0) {
+    const rewrittenSegments = rewriteMeasuredSegmentText(
+      priorSegments,
+      cleanedText,
+    );
+    if (rewrittenSegments.length > 0) {
+      return JSON.stringify(rewrittenSegments);
+    }
   }
   return fullTextSegmentJson(cleanedText, durationMs);
 }

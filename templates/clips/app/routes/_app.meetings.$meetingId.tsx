@@ -500,6 +500,12 @@ export default function MeetingDetailRoute() {
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
+  const actionItemsDraftRef = useRef<{
+    meetingId: string;
+    items: ActionItem[];
+  } | null>(null);
+  const actionItemsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingActionItemsSavesRef = useRef(0);
 
   // Imperative scroll-to handle wired by TranscriptBubbles
   const transcriptScrollToRef = useRef<((index: number) => void) | null>(null);
@@ -547,6 +553,22 @@ export default function MeetingDetailRoute() {
     !!meeting?.userNotesMd ||
     (meeting?.bulletsJson?.length ?? 0) > 0 ||
     (meeting?.actionItemsJson?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!meeting) {
+      actionItemsDraftRef.current = null;
+      return;
+    }
+    if (
+      actionItemsDraftRef.current?.meetingId !== meeting.id ||
+      pendingActionItemsSavesRef.current === 0
+    ) {
+      actionItemsDraftRef.current = {
+        meetingId: meeting.id,
+        items: meeting.actionItemsJson ?? [],
+      };
+    }
+  }, [meeting?.id, meeting?.actionItemsJson]);
 
   // Recording is a native Clips desktop-app gesture (Granola-style), not an
   // in-browser capture. For an un-recorded, not-yet-past meeting we surface a
@@ -632,13 +654,34 @@ export default function MeetingDetailRoute() {
 
   const persistActionItems = (next: ActionItem[]) => {
     if (!meeting) return;
+    const meetingId = meeting.id;
+    actionItemsDraftRef.current = { meetingId, items: next };
     patchCachedMeeting({ actionItemsJson: next });
-    updateMeeting.mutate({ id: meeting.id, actionItems: next });
+    pendingActionItemsSavesRef.current += 1;
+    actionItemsSaveQueueRef.current = actionItemsSaveQueueRef.current
+      .catch(() => undefined)
+      .then(() =>
+        updateMeeting.mutateAsync({ id: meetingId, actionItems: next }),
+      )
+      .catch((error) => {
+        console.error("[clips] action-item save failed", error);
+      })
+      .finally(() => {
+        pendingActionItemsSavesRef.current -= 1;
+      });
+  };
+
+  const currentActionItems = () => {
+    const draft = actionItemsDraftRef.current;
+    if (meeting && draft && draft.meetingId === meeting.id) {
+      return draft.items;
+    }
+    return meeting?.actionItemsJson ?? [];
   };
 
   const handleToggleActionItem = (index: number, completed: boolean) => {
     if (!meeting) return;
-    const items = meeting.actionItemsJson ?? [];
+    const items = currentActionItems();
     const next = items.map((it, i) =>
       i === index
         ? { ...it, completedAt: completed ? new Date().toISOString() : null }
@@ -649,7 +692,7 @@ export default function MeetingDetailRoute() {
 
   const handleActionItemChange = (index: number, text: string) => {
     if (!meeting) return;
-    const items = meeting.actionItemsJson ?? [];
+    const items = currentActionItems();
     persistActionItems(
       items.map((item, itemIndex) =>
         itemIndex === index ? { ...item, text } : item,
@@ -659,14 +702,14 @@ export default function MeetingDetailRoute() {
 
   const handleActionItemRemove = (index: number) => {
     if (!meeting) return;
-    const items = meeting.actionItemsJson ?? [];
+    const items = currentActionItems();
     persistActionItems(items.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const handleActionItemAdd = (text: string) => {
     if (!meeting) return;
     persistActionItems([
-      ...(meeting.actionItemsJson ?? []),
+      ...currentActionItems(),
       {
         text,
         assigneeEmail: null,
