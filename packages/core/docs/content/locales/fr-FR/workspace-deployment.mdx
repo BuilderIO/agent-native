@@ -1,0 +1,350 @@
+---
+title: "Déploiement de workspace"
+description: "Déployez chaque application d'un workspace agent-native vers une seule origine avec une seule commande, ou auto-hébergez un workspace avec Docker Compose."
+---
+
+# Déploiement de workspace
+
+Si votre projet est un [workspace](/docs/multi-app-workspace) avec plusieurs applications, vous pouvez déployer chaque application vers une seule origine au lieu de gérer des déploiements séparés par application. Cette page couvre le chemin géré en une commande et une alternative auto-hébergée avec Docker Compose. Voir [Déploiement](/docs/deployment) pour choisir d'abord une base de données, un préréglage, et une plateforme.
+
+## Une origine, plusieurs applications {#workspace-deploy}
+
+Déployez chaque application d'un workspace vers une seule origine avec une seule commande :
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+<Diagram id="doc-block-1aw1umr" title="Une origine, plusieurs applications" summary={"Chaque application du workspace est construite avec son propre chemin de base et montée sous un préfixe de chemin sur une seule origine. La connexion et l'A2A inter-applications sont ainsi de même origine et gratuits."}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">session de connexion partagée</span
+    ><span class="diagram-pill ok">A2A inter-applications sans configuration</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+**Même origine** signifie que chaque application ressemble à une partie du même site web pour le navigateur. Cela vous donne deux grands avantages gratuitement :
+
+- **Session de connexion partagée**. Connectez-vous à une application, et toutes les applications sont connectées.
+- **A2A inter-applications sans configuration**. Mentionner `@calendar` depuis mail est une requête de même origine. Il n'y a ni CORS ni signature JWT entre applications sœurs.
+
+<Callout tone="info">
+
+En interne, chaque application est construite avec son propre **chemin de base**, un préfixe d'URL comme `/mail` défini via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, puis empaqueté pour le préréglage Nitro cible. Cloudflare Pages achemine via un **worker répartiteur** généré, un petit script à `dist/_worker.js` qui lit le chemin entrant et transfère la requête vers l'application correspondante. Netlify utilise une fonction par application plus des redirections générées. Vercel écrit une sortie `.vercel/output` au niveau du workspace en utilisant la Build Output API.
+
+</Callout>
+
+Publiez le build pour votre plateforme :
+
+<TabsBlock
+  id="doc-block-wsdeploytabs1"
+  tabs={[
+    {
+      id: "cloudflare",
+      label: "Cloudflare (par défaut)",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-cf",
+          data: { code: "wrangler pages deploy dist", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-nl",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset netlify",
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-vc",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset vercel",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="warning">
+
+Les builds de workspace hébergés nécessitent `A2A_SECRET` dans l'environnement du fournisseur de déploiement. Sans lui, Slack, les webhooks entrants, et la reprise A2A inter-applications ne fonctionnent pas, car tous passent par des processeurs d'arrière-plan signés. Les vérifications d'artefacts locales avec `--build-only` fonctionnent toujours sans lui.
+
+</Callout>
+
+<Callout tone="info">
+
+Vous configurez une commande de build de fournisseur au lieu de déployer manuellement ? Ajoutez `--build-only` à la même commande, par exemple `npx @agent-native/core@latest deploy --preset vercel --build-only`. Cela écrit directement la sortie, donc aucun `vercel.json` n'est requis pour le routage du workspace.
+
+Vous préférez un domaine séparé par application plutôt qu'une origine partagée ? Chaque application du workspace reste déployable indépendamment. Exécutez `cd apps/<name> && npx @agent-native/core@latest build` comme un scaffold autonome.
+
+</Callout>
+
+## Workspace auto-hébergé avec Docker Compose {#workspace-docker-compose}
+
+Un workspace n'est pas aujourd'hui un seul processus serveur Nitro. Chaque application construit toujours dans son propre répertoire `.output/` et exécute son propre serveur Node/Nitro, donc auto-héberger un workspace signifie exécuter plusieurs serveurs derrière un seul point d'entrée.
+
+<Diagram id="doc-block-3selfhost1" title="Forme d'un workspace auto-hébergé" summary={"Un reverse proxy devant un conteneur par application, tous pointant vers la même base de données Postgres."}>
+
+```html
+<div class="diagram-selfhost">
+  <div class="diagram-box" data-rough>Internet</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">proxy</span
+    ><small class="diagram-muted">achemine par préfixe de chemin</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-row">
+      <span class="diagram-pill">/mail</span
+      ><small class="diagram-muted">conteneur mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/calendar</span
+      ><small class="diagram-muted">conteneur calendar</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Postgres partagé<br /><small class="diagram-muted">une seule DATABASE_URL</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-selfhost {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-selfhost .diagram-panel.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-selfhost .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Un **reverse proxy** est ce point d'entrée unique dans le schéma ci-dessus : il reçoit chaque requête et la transfère au bon conteneur selon le chemin de l'URL, le même rôle que joue le worker répartiteur de Cloudflare pour un déploiement géré. Sur un VPS, cela signifie un conteneur par application du workspace, tous pointant vers la même base de données Postgres et les mêmes secrets de production partagés, avec le proxy devant.
+
+<Steps>
+
+### Construisez chaque application avec un chemin de base correspondant
+
+Le chemin de base est une entrée au moment du build pour le bundle client et une entrée d'exécution pour le serveur. Construisez chaque application avec le même chemin vers lequel le proxy l'acheminera :
+
+```bash maxLines=8
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+### Écrivez un Dockerfile réutilisable
+
+Prenez le nom de l'application et le préfixe de chemin comme arguments de build, de sorte qu'un seul Dockerfile serve chaque application du workspace :
+
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+### Composez Postgres, les applications, et le proxy
+
+Cet exemple utilise Caddy car il peut terminer HTTP localement ou se placer derrière le proxy SSL de Cloudflare, mais la partie importante est le routage par préfixe de chemin :
+
+```yaml filename="docker-compose.yml" maxLines=30
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+### Configurez le proxy
+
+```caddyfile filename="Caddyfile"
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+</Steps>
+
+<Callout tone="info">
+
+- Gardez `DATABASE_URL`, `BETTER_AUTH_SECRET`, `A2A_SECRET`, et les autres
+  secrets de production identiques entre les conteneurs d'applications quand vous
+  voulez une authentification, des identifiants, et une A2A inter-applications partagés.
+- Définissez `BETTER_AUTH_URL` sur l'URL publique pour ce chemin d'application. Les URL de
+  rappel OAuth doivent utiliser la même URL publique.
+- Ne comptez pas sur le système de fichiers du conteneur pour les données de production. Utilisez
+  Postgres (ou un autre backend SQL persistant) pour `DATABASE_URL`.
+- Si Cloudflare termine TLS devant le VPS, configurez Cloudflare pour envoyer
+  des en-têtes `X-Forwarded-Proto` / `X-Forwarded-Host` normaux et acheminer l'hôte
+  public vers le conteneur proxy.
+
+</Callout>
+
+## Et ensuite
+
+- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante, un préréglage Nitro, et une plateforme avant de déployer un workspace
+- [**Workspace multi-application**](/docs/multi-app-workspace) — le modèle de workspace sur lequel s'appuie la commande `deploy` de cette page
+- [**Sécurité**](/docs/security) — la checklist de production et les drapeaux optionnels pour un déploiement hébergé

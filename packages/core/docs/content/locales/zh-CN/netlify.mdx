@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "使用 Netlify Nitro 预设将代理本机应用部署到 Netlify,并为缩容到零的数据库配置 keep-warm。"
+---
+
+# Netlify
+
+Nitro 的 `netlify` 预设效果很好,在实践中,对于与外部 Postgres(Neon)通信的模板,它带来的冷启动比 Cloudflare Pages 快得多(TTFB 约 200 毫秒,而后者约 9 秒)。可以在 `vite.config.ts` 中设置预设:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+……或者在构建时设置 `NITRO_PRESET=netlify`。
+
+对于工作区,通过运行以下命令从同一个 Netlify 站点部署每个应用:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+这个工作区构建会把静态资源写在 `dist/_workspace_static/` 下,并把每个应用路由到自己的 Netlify 函数,不做强制的资源重定向,因此像 `/mail/assets/...` 这样的文件会在服务器函数处理应用路由之前就以静态方式提供。
+
+## Keep-warm 与缩容到零的数据库 {#netlify-keep-warm}
+
+启用后,Netlify 构建会生成一个计划函数,**每分钟**请求一次 `/_agent-native/health`。这会让服务器函数及其数据库保持温热,使空闲一段时间后的下一位访问者不必承担冷启动(在 Neon 上是 1 到 5 秒)。
+
+Keep-warm **默认是关闭的**,因为每分钟一次的唤醒会阻止按量计费、缩容到零的数据库自动挂起。在免费套餐的 Neon 上,这可能耗尽计算配额,数据库随后会在会话中途拒绝**所有**读取。其表现是应用彻底不可用,而不只是变慢。当下一位访问者更低的延迟值得让数据库保持唤醒时,才设置 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`。
+
+只有在主 keep-warm 标志启用之后,keep-warm 的计划任务和后台函数预热才会生效:
+
+| 变量                                         | 效果                                                                                                          |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 选择加入计划性的服务器/数据库预热。默认未设置。                                                                |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 兼容性的关闭开关,设置后优先于选择加入的标志。                                                                  |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 用一个 5 段式的 cron 表达式覆盖节奏,例如 `*/5 * * * *`。启用时的默认节奏是 `* * * * *`。无法解析的值会**导致构建失败**。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 只取消后台函数的预热,仍保持服务器预热。预热 `server` 只是一次请求。预热 `-background` 会启动一个全新的容器,重新探测 schema。 |
+
+如果你使用的是免费套餐或其他受配额限制的数据库套餐,请让 `AGENT_NATIVE_ENABLE_KEEP_WARM` 保持未设置。如果你选择启用它,请使用更慢的节奏,或者设置 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` 来去掉开销更大的后台预热。
+
+## 下一步
+
+- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
+- [**SSR Caching**](/docs/ssr-caching) — 默认的缓存策略,以及 Netlify 独立的 `netlify-cdn-cache-control` 行为
+- [**Node.js & Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Cloudflare**](/docs/cloudflare) 和 [**Other Platforms**](/docs/other-platforms) — 其他 Nitro 预设

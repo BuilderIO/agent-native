@@ -1,0 +1,104 @@
+---
+title: "प्रोडक्शन एजेंट एक्सेस"
+description: "frameworkTools और codeExecution के ज़रिए एक तैनात production agent के पास कौन से framework tools और code-execution capabilities हैं, उन्हें control करें।"
+---
+
+# प्रोडक्शन एजेंट एक्सेस
+
+## प्रोडक्शन एजेंट Tools {#production-agent-tools}
+
+Production agents को ऐप के registered actions के साथ-साथ framework के अपने
+tools भी मिलते हैं। `frameworkTools` तय करता है कि इनमें से कौन से framework
+tools यह ऐप expose करता है। हर group आज के व्यवहार को डिफ़ॉल्ट रखता है,
+इसलिए option को छोड़ने से कुछ नहीं बदलता:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` और `extensions` वही values accept करते हैं जो पुराने top-level flags करते थे:
+
+- `database: "read"`। डिफ़ॉल्ट। केवल `db-schema` और `db-query` register करता है।
+  Agents SQL से data inspect करते हैं लेकिन writes के लिए typed app actions
+  उपयोग करने चाहिए।
+- `database: "write"` या `true`। जान-बूझकर raw SQL maintenance के लिए
+  अतिरिक्त `db-exec` और `db-patch` भी register करता है। Writes current
+  user/org तक scoped रहते हैं और schema changes block किए जाते हैं।
+- `database: "off"` या `false`। Agent surface से raw database tools हटा
+  देता है ताकि ऐप के actions ही एकमात्र data access path हों।
+- `extensions: true`। ऐप को framework extension-management actions और
+  prompt guidance (`create-extension`, `update-extension`, आदि) में opt in
+  कराता है। Authenticated REST creation की अनुमति देने के लिए core-routes
+  plugin पर भी `extensionTools: true` सेट करें। Extensions डिफ़ॉल्ट रूप से
+  disabled हैं।
+
+बाकी groups boolean हैं, सब डिफ़ॉल्ट रूप से on: `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, और `email`। एक voice-first या single-purpose ऐप के लिए सभी groups
+एक साथ बंद करने के लिए `frameworkTools: "minimal"` उपयोग करें, या सिर्फ़ एक
+रखने के लिए `frameworkTools: { preset: "minimal", resources: true }`। एक
+explicit group key हमेशा preset पर भारी पड़ती है।
+
+किसी group को बंद करना उसे केवल **agent** surfaces से हटाता है: interactive
+chat, MCP, A2A, और background runs। Matching HTTP action routes माउंट रहते
+हैं, क्योंकि UI उन तक client hooks से पहुंचती है। `sharing` disable करने से
+screen पर मौजूद किसी share dialog को 404 नहीं मिलना चाहिए। इसे उपयोग करने से
+पहले यह parity cost तौलें: framework का contract यह है कि UI जो कर सकती है
+वह agent भी कर सकता है, इसलिए एक दिखते share button के साथ `sharing: false`
+एक जान-बूझकर किया गया break है, और तभी सही बैठता है जब ऐप में ऐसा कोई surface
+हो ही नहीं।
+
+इस option से independent, framework tools अब डिफ़ॉल्ट रूप से पहले model
+request में promote नहीं होते। वे searchable registry में रहते हैं और
+`tool-search` से load होते हैं, या तुरंत अगर ऐप उन्हें `initialToolNames` में
+नाम देता है।
+
+<Callout tone="warning">
+  Top-level `databaseTools` और `extensionTools` options `frameworkTools.database`
+  और `frameworkTools.extensions` के पक्ष में deprecated हैं। वे अब भी honor
+  किए जाते हैं, लेकिन एक top-level flag और उसके `frameworkTools` equivalent को
+  conflicting values पर सेट करने से plugin startup पर throw होता है, बजाय
+  किसी ऐसे tool surface के साथ boot होने के जिसे किसी ने नहीं चुना।
+</Callout>
+
+## प्रोडक्शन कोड निष्पादन {#production-code-execution}
+
+डिफ़ॉल्ट रूप से, production agents बिना code-execution tools के चलते हैं। वे app actions, database tools, MCP tools, browser/session tools, और अन्य registered framework tools को call कर सकते हैं, लेकिन उन्हें shell या filesystem access नहीं मिलता।
+
+Node-compatible deployments agent chat plugin या एक environment override के ज़रिए production code execution में opt in कर सकते हैं:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+उपलब्ध modes हैं:
+
+- `off`। डिफ़ॉल्ट। Production में कोई code-execution tools register नहीं होते।
+- `sandboxed`। `run-code` register करता है, एक isolated Node.js JavaScript runner एक scrubbed environment, एक fresh temp directory, output/time limits, और `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, और `workspaceRead` / `workspaceWrite` द्वारा उपयोग किए जाने वाले Resources-backed workspace file bridge जैसे allowlisted registered tools के लिए एक localhost bridge के साथ।
+- `trusted`। `run-code` के साथ-साथ पूरी coding tool registry (`bash`, `read`, `edit`, `write`) register करता है। इसे केवल single-tenant या operator-controlled deployments के लिए उपयोग करें जहां host तक पूरी shell access जान-बूझकर दी गई हो।
+
+बिना कोई code change किए किसी विशेष deployment के लिए plugin option override करने के लिए `AGENT_PROD_CODE_EXECUTION=sandboxed` या `AGENT_PROD_CODE_EXECUTION=trusted` सेट करें। `AGENT_PROD_CODE_EXECUTION=off` plugin option के enable होने पर भी code execution को बंद कर देता है।
+
+`run-code` sandbox process-level isolation है, कोई OS container नहीं। यह child process environment से app secrets हटा देता है और उपलब्ध होने पर Node permission model उपयोग करता है, लेकिन outbound network को Node खुद block नहीं करता। Authenticated calls को tool द्वारा expose किए गए bridge helpers से होकर जाना चाहिए।
+
+## आगे क्या है
+
+- [**Actions: Access & Authorization**](/docs/actions-access-control) — per-action access-control axes जिन्हें इस पेज की tool-level gating complement करती है
+- [**Production में UI अपडेट करना**](/docs/updating-ui-in-production) — code execution बंद छोड़े जाने पर एक तैनात agent क्या edit कर सकता है और क्या नहीं
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` और अन्य production env vars

@@ -1,0 +1,85 @@
+---
+title: "तैनाती: पर्यावरण चर"
+description: "Build, runtime, secrets, और hosting व्यवहार के लिए production पर्यावरण चर reference।"
+---
+
+# तैनाती: पर्यावरण चर
+
+Repository-wide reference के लिए, जिसमें template, provider, local, और CI
+variables शामिल हैं, देखें [पर्यावरण चर](/docs/environment-variables)। नीचे
+दी गई tables production values और hosting व्यवहार के लिए authoritative
+तैनाती guide बनी रहती हैं।
+
+## Build / Runtime {#env-runtime}
+
+| Variable                                    | विवरण                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Server port (केवल Node.js)                                                                                                                                                                                                                                                                                                                                                |
+| `NITRO_PRESET`                              | Build time पर build preset override करें                                                                                                                                                                                                                                                                                                                                  |
+| `APP_BASE_PATH`                             | ऐप को किसी prefix के तहत माउंट करें (जैसे `/mail`)। `npx @agent-native/core@latest deploy` द्वारा अपने-आप सेट होता है। Standalone के लिए unset छोड़ दें।                                                                                                                                                                                                                  |
+| `APP_URL`                                   | वैकल्पिक canonical public origin। A2A JWT audience, OAuth public origin, self-dispatch webhook targets, और generated resource links resolve करते समय `BETTER_AUTH_URL` से पहले check किया जाता है। इसे preview/staging deploys पर explicitly सेट करें जहां request host भरोसेमंद न हो।                                                                                  |
+| `AGENT_PROD_CODE_EXECUTION`                 | वैकल्पिक production code-execution mode: `off` (डिफ़ॉल्ट), `sandboxed`, या `trusted`। देखें [Production Code Execution](/docs/actions-agent-tools#production-code-execution)।                                                                                                                                                                                            |
+| `AGENT_NATIVE_SSR_CACHE`                    | तैनाती-व्यापी SSR shell cache policy: unset/`on` डिफ़ॉल्ट hard-cache बनाए रखता है, `off` `no-store` भेजता है, या `30s` / `5m` जैसी कोई अवधि कम freshness सेट करती है। देखें [SSR कैशिंग](/docs/ssr-caching)।                                                                                                                                                                |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Netlify keep-warm scheduled function में opt in करें। डिफ़ॉल्ट रूप से unset है। देखें [Keep-warm](/docs/netlify#netlify-keep-warm)।                                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm scheduled function के लिए compatibility kill switch। देखें [Keep-warm](/docs/netlify#netlify-keep-warm)।                                                                                                                                                                                                                                                |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Keep-warm cadence को एक 5-field cron expression से override करें (enable होने पर डिफ़ॉल्ट `* * * * *`)। एक unparseable value build को fail कर देती है। देखें [Keep-warm](/docs/netlify#netlify-keep-warm)।                                                                                                                                                                |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | सिर्फ़ background-function warm हटाएं और server को गर्म रखें। देखें [Keep-warm](/docs/netlify#netlify-keep-warm)।                                                                                                                                                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | In-process backstop sweep timers बंद करें (automation redispatch, agent-teams reconciliation, sandbox-execution recovery)। Serverless पर ये हर warm container में चलते हैं, इसलिए इनकी query rate instance count के साथ बढ़ती है। इसे **केवल** तभी सेट करें जब कोई durable scheduler पहले से वही recovery चला रहा हो, वरना queued काम फिर से try नहीं होगा।                |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | उन deployments पर on-demand schema DDL skip करें जिन्हें automatic serverless skip cover नहीं करता। ज़रूरी है कि आपका schema पहले से migrate हो चुका हो। देखें [On-demand schema DDL](/docs/deployment#skip-ensure-tables)।                                                                                                                                                |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Preview-safe Builder authorization relay के लिए dedicated 32+ char shared HMAC secret। स्वीकृत corporate callback deployment और preview deployments पर वही value तभी सेट करें जब authorization को एक isolated preview database में जाना ज़रूरी हो।                                                                                                                       |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | केवल corporate callback के लिए, exact trusted preview origins की comma-separated allowlist (उदाहरण के लिए, `https://0123456789abcdef01234567--content.netlify.app`)। इसे केवल corporate callback deployment पर सेट करें। Netlify origins को एक immutable, deploy-specific 24-hex permalink उपयोग करना चाहिए। Mutable `deploy-preview-*` aliases, wildcards, और domain suffixes reject किए जाते हैं। |
+
+डेटाबेस connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) [डेटाबेस](/docs/server-database#production) में रहते हैं।
+
+## Production-sensitive configuration {#env-required-prod}
+
+ये settings production-sensitive व्यवहार को cover करती हैं। Framework auth
+उपयोग करने वाले एक standalone ऐप को एक स्थिर `BETTER_AUTH_SECRET` और एक
+स्थायी डेटाबेस चाहिए। Public auth URL unset होने पर request, known template,
+या hosting platform से infer किया जाता है। कार्यस्थान और A2A settings उन
+features पर conditional हैं। गुम values या तो fail-closed होती हैं या एक
+loud warning के साथ कमज़ोर व्यवहार पर वापस आ जाती हैं।
+
+| Variable                                    | विवरण                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ char की random string। Session cookies sign करती है और `OAUTH_STATE_SECRET` तथा app-local encrypted values की fallback है। यह existing shared vault ciphertext के लिए एक legacy read candidate भी है। Hard-required है: production में गुम होने पर framework startup पर throw करता है।                       |
+| `BETTER_AUTH_URL`                           | इस ऐप के लिए वैकल्पिक public origin override (जैसे `https://mail.example.com`)। Framework unset होने पर इसे request, known-template, और hosting-platform context से infer करता है।                                                                                                                              |
+| `ANTHROPIC_API_KEY`                         | Embedded production agent के लिए API key। **Multi-tenant deploys में**, जब user के पास per-user key नहीं होती तो framework इस पर fallback करने से इनकार करता है। Bring-your-own-key ज़रूरी है। Single-tenant self-hosted installs इसे एक global key के रूप में उपयोग करते हैं।                                   |
+| `OAUTH_STATE_SECRET`                        | OAuth state envelopes (Google, Atlassian, Zoom) के लिए dedicated HMAC key। Unset होने पर `BETTER_AUTH_SECRET` पर fallback करता है, लेकिन एक dedicated value की सिफ़ारिश की जाती है ताकि एक को rotate करने से दूसरा invalidate न हो। `openssl rand -hex 32` से generate करें।                                       |
+| `A2A_SECRET`                                | Inter-app A2A JSON-RPC और signed background handoffs के लिए shared HMAC। Hosted कार्यस्थान deploys और A2A features के लिए ज़रूरी है। इसके बिना, वे endpoints production में fail-closed हो जाते हैं। जब कोई dedicated कार्यस्थान vault key सेट नहीं है, तो shared vault ciphertext इस value से purpose-derived key उपयोग करता है, इसलिए इसे rotate करने से vault key भी rotate होती है। |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Shared encrypted-at-rest secrets vault के लिए preferred stable AES-256-GCM key। इसे पढ़ने वाले हर ऐप में वही value रखें। यह app-local OAuth/credential encryption से अलग है, इसलिए A2A trust vault rows को stranded किए बिना rotate हो सकता है। Existing A2A-, Better Auth-, और app-key ciphertext सफल reads पर migrate हो जाती है।    |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | एक rotation window के दौरान ही उपयोग होने वाली वैकल्पिक पिछली कार्यस्थान vault key। इसे नई `WORKSPACE_SECRETS_ENCRYPTION_KEY` के साथ deploy करें, सफल reads को rows re-encrypt करने दें, फिर migration के बाद हटा दें।                                                                                             |
+| `SECRETS_ENCRYPTION_KEY`                    | App-local encryption और shared vault के लिए legacy combined key। यह अब भी समर्थित है, लेकिन नए multi-app deployments को shared vault के लिए `WORKSPACE_SECRETS_ENCRYPTION_KEY` उपयोग करना चाहिए ताकि कार्यस्थान encryption बदलने से app-local OAuth ciphertext न बदले।                                              |
+
+## Auth और Identity {#env-auth}
+
+OAuth provider credentials (Google, GitHub), स्थिर MCP bearer fallbacks (`ACCESS_TOKEN` / `ACCESS_TOKENS`), और email-verification toggles [प्रमाणीकरण](/docs/authentication) में documented हैं। चुने गए auth mode के हिसाब से उन्हें वहां सेट करें।
+
+## Inbound Webhooks {#env-webhooks}
+
+हर messaging integration को production में अपनी खुद की signing secret चाहिए (secret गुम होने पर handlers जाली requests पर fail-closed हो जाते हैं)। Per-integration variables [Messaging](/docs/messaging) और [सुरक्षा](/docs/security) में listed हैं। केवल local development के लिए, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` "warn and accept" में वापस opt in करता है। इसे कभी भी prod में सेट न करें।
+
+## Security Configuration (Opt-in) {#security-config}
+
+Defaults strict हैं। मुट्ठी भर opt-in flags व्यवहार को relax करते हैं (debug stack traces, unverified webhooks, workspace-scoped key fallback, MCP hub multi-org switch, runtime env-var writes)। इन्हें उनके security trade-offs के साथ [सुरक्षा](/docs/security) में documented किया गया है। जब तक आप specifically relaxed path नहीं चाहते, इन्हें सेट न करें।
+
+## कार्यस्थान .env Inheritance {#env-inheritance}
+
+एक कार्यस्थान के अंदर, root `.env` अपने-आप हर ऐप में load हो जाता है, इसलिए `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, और `OAUTH_STATE_SECRET` जैसी shared keys को केवल एक बार सेट करने की ज़रूरत है। Per-app `apps/<name>/.env` conflict पर जीतता है।
+
+## मज़बूत Secrets Generate करना {#env-generate-secrets}
+
+"32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`) चिह्नित किसी भी secret के लिए, इसके साथ fresh values generate करें:
+
+```bash
+openssl rand -hex 32
+```
+
+हर instance पर env var को replace करके और फिर से deploy करके signing/session keys rotate करें। पुरानी key के तहत signed sessions और OAuth state envelopes invalid हो जाते हैं, इसलिए users को फिर से sign in करना पड़ सकता है। ऊपर बताई गई `..._PREVIOUS` window के साथ `WORKSPACE_SECRETS_ENCRYPTION_KEY` rotate करें ताकि encrypted vault rows migrate होते समय भी पढ़ने लायक बने रहें।
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**पर्यावरण चर**](/docs/environment-variables) — repository-wide reference, जिसमें template, provider, local, और CI variables शामिल हैं
+- [**सुरक्षा**](/docs/security) — इस पेज में बताए गए production checklist और opt-in flags
+- [**प्रमाणीकरण**](/docs/authentication) — चुने गए auth mode के लिए OAuth credentials और env vars

@@ -1,0 +1,51 @@
+---
+title: "Node.js & Docker"
+description: "انشر تطبيق agent-native باستخدام إعداد Node.js المسبق الافتراضي لـ Nitro، بشكل مستقل أو مُحوَّى (containerized) باستخدام Docker."
+---
+
+# Node.js & Docker
+
+Node.js هو الإعداد المسبق الافتراضي لـ Nitro. تغطي هذه الصفحة تشغيله مباشرةً وتحويله إلى حاوية باستخدام Docker. راجع [النشر](/docs/deployment) لاختيار قاعدة بيانات أولاً، و[نشر مساحة العمل](/docs/workspace-deployment#workspace-docker-compose) للاستضافة الذاتية لمساحة عمل متعددة التطبيقات باستخدام Docker Compose.
+
+## Node.js (الافتراضي) {#nodejs}
+
+الإعداد المسبق الافتراضي. قم بالبناء والتشغيل:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+اضبط `PORT` لتكوين منفذ الاستماع (الافتراضي: `3000`).
+
+استخدم خط دعم Node.js LTS الحالي لعمليات نشر الإنتاج. اعتبارًا من مايو 2026، هذا هو Node.js 24. وصل Node.js 20 إلى نهاية عمره الافتراضي في 30 أبريل 2026 ولم يعد يتلقى تحديثات أمان من المصدر.
+
+## Docker {#docker}
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+استضافة مساحة عمل متعددة التطبيقات ذاتيًا باستخدام Docker Compose، مبنية على نفس Dockerfile المستقل هذا، مغطاة في
+[نشر مساحة العمل](/docs/workspace-deployment#workspace-docker-compose).
+
+## ما هي الخطوة التالية
+
+- [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي
+- [**نشر مساحة العمل**](/docs/workspace-deployment) — استضف ذاتيًا مساحة عمل متعددة التطبيقات باستخدام Docker Compose
+- [**Vercel**](/docs/vercel)، و[**Netlify**](/docs/netlify)، و[**Cloudflare**](/docs/cloudflare)، و[**منصات أخرى**](/docs/other-platforms) — إعدادات Nitro المسبقة الأخرى

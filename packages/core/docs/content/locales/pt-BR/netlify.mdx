@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Implante um app nativo do agente na Netlify com o preset Netlify do Nitro, e configure o keep-warm para bancos de dados com escala a zero."
+---
+
+# Netlify
+
+O preset `netlify` do Nitro funciona bem e, na prática, tem nos dado cold starts muito mais rápidos do que o Cloudflare Pages (~200ms de TTFB vs ~9s) para templates que se comunicam com Postgres externo (Neon). Defina o preset em `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…ou defina `NITRO_PRESET=netlify` no momento do build.
+
+Para um espaço de trabalho, implante todos os apps a partir de um único site Netlify executando:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+O build do espaço de trabalho grava assets estáticos em `dist/_workspace_static/` e roteia cada app para sua própria função Netlify sem redirecionamentos forçados de assets, então arquivos como `/mail/assets/...` são servidos estaticamente antes que a função do servidor trate as rotas do app.
+
+## Keep-warm e bancos de dados com escala a zero {#netlify-keep-warm}
+
+Quando habilitado, o build da Netlify emite uma função agendada que solicita `/_agent-native/health` **a cada minuto**. Isso mantém a função do servidor e seu banco de dados aquecidos, para que o próximo visitante após um período de inatividade não pague um cold start (1–5s no Neon).
+
+O keep-warm fica **desabilitado por padrão** porque despertar uma vez por minuto impede a autossuspensão em bancos de dados medidos com escala a zero. Em um Neon de nível gratuito isso pode esgotar a cota de computação, e o banco de dados então rejeita **todas** as leituras no meio da sessão. O sintoma é um app morto, não um app lento. Defina `AGENT_NATIVE_ENABLE_KEEP_WARM=1` quando a menor latência para o próximo visitante valer o tempo de banco de dados ativo.
+
+A programação do keep-warm e o aquecimento da função em segundo plano só se aplicam depois que a flag principal do keep-warm é habilitada:
+
+| Variável                                    | Efeito                                                                                                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opta pelo aquecimento agendado do servidor/banco de dados. Não definida por padrão.                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Chave de desativação de compatibilidade que prevalece sobre a flag de opt-in quando definida.                                                                                |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescreve a cadência com uma expressão cron de 5 campos, por exemplo `*/5 * * * *`. A cadência padrão quando habilitado é `* * * * *`. Um valor não analisável **faz o build falhar**. |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta apenas o aquecimento da função em segundo plano, mantendo o servidor aquecido. Aquecer `server` é uma requisição. Aquecer `-background` inicia um container novo que sonda o schema novamente. |
+
+Se você estiver em um nível de banco de dados gratuito ou de outra forma limitado por cota, deixe `AGENT_NATIVE_ENABLE_KEEP_WARM` sem definir. Se optar por habilitá-lo, use uma cadência mais lenta ou defina `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` para descartar o aquecimento em segundo plano, mais caro.
+
+## O que vem a seguir
+
+- [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção
+- [**Cache SSR**](/docs/ssr-caching) — a política de cache padrão e o comportamento separado do `netlify-cdn-cache-control` da Netlify
+- [**Node.js & Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare) e [**Outras Plataformas**](/docs/other-platforms) — os outros presets do Nitro

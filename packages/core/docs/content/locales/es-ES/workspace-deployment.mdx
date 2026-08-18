@@ -1,0 +1,352 @@
+---
+title: "Implementación de espacios de trabajo"
+description: "Implementa cada aplicación de un espacio de trabajo nativo del agente en un único origen con un solo comando, o autoaloja un espacio de trabajo con Docker Compose."
+---
+
+# Implementación de espacios de trabajo
+
+Si tu proyecto es un [espacio de trabajo](/docs/multi-app-workspace) con más de una aplicación, puedes implementar todas las aplicaciones en un único origen en lugar de gestionar implementaciones separadas por aplicación. Esta página cubre la ruta gestionada de un solo comando y una alternativa autoalojada con Docker Compose. Consulta [Implementación](/docs/deployment) para elegir primero una base de datos, un ajuste preestablecido y una plataforma.
+
+## Un origen, muchas aplicaciones {#workspace-deploy}
+
+Implementa cada aplicación de un espacio de trabajo en un único origen con un solo comando:
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+<Diagram id="doc-block-1aw1umr" title="Un origen, muchas aplicaciones" summary={"Cada aplicación del espacio de trabajo se compila con su propia ruta base y se monta bajo un prefijo de ruta en un único origen. Como resultado, el inicio de sesión y A2A entre aplicaciones son del mismo origen y gratuitos."}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">sesión de inicio de sesión compartida</span
+    ><span class="diagram-pill ok">A2A entre aplicaciones sin configuración</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+**Mismo origen** significa que cada aplicación parece parte del mismo sitio web para el navegador. Eso te da dos grandes ventajas gratis:
+
+- **Sesión de inicio de sesión compartida**. Inicia sesión en cualquier aplicación y todas las aplicaciones quedan conectadas.
+- **A2A entre aplicaciones sin configuración**. Etiquetar `@calendar` desde el correo es una solicitud del mismo origen. No hay CORS ni firma JWT entre aplicaciones hermanas.
+
+<Callout tone="info">
+
+Internamente, cada aplicación se compila con su propia **ruta base**, un prefijo de URL como `/mail` establecido mediante `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, y luego se empaqueta para el ajuste preestablecido de Nitro de destino. Cloudflare Pages enruta a través de un **worker despachador** generado, un pequeño script en `dist/_worker.js` que lee la ruta entrante y reenvía la solicitud a la aplicación correspondiente. Netlify usa una función por aplicación más redirecciones generadas. Vercel escribe un `.vercel/output` a nivel de espacio de trabajo usando la Build Output API.
+
+</Callout>
+
+Publica la compilación para tu plataforma:
+
+<TabsBlock
+  id="doc-block-wsdeploytabs1"
+  tabs={[
+    {
+      id: "cloudflare",
+      label: "Cloudflare (predeterminado)",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-cf",
+          data: { code: "wrangler pages deploy dist", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-nl",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset netlify",
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-vc",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset vercel",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="warning">
+
+Las compilaciones de espacios de trabajo alojados requieren `A2A_SECRET` en el entorno del proveedor de implementación. Sin ella, Slack, los webhooks entrantes y la reanudación de A2A entre aplicaciones no funcionan, ya que todos ellos pasan por procesadores en segundo plano firmados. Las comprobaciones de artefactos locales con `--build-only` siguen funcionando sin ella.
+
+</Callout>
+
+<Callout tone="info">
+
+¿Estás configurando el comando de compilación de un proveedor en lugar de implementar a mano? Añade `--build-only` al mismo comando, por ejemplo `npx @agent-native/core@latest deploy --preset vercel --build-only`. Esto escribe la salida directamente, por lo que no se requiere ningún `vercel.json` para el enrutamiento del espacio de trabajo.
+
+¿Prefieres un dominio independiente por aplicación en lugar de un origen compartido? Cada aplicación del espacio de trabajo se puede seguir implementando de forma independiente. Ejecuta `cd apps/<name> && npx @agent-native/core@latest build` como si fuera un andamiaje independiente.
+
+</Callout>
+
+## Espacio de trabajo autoalojado con Docker Compose {#workspace-docker-compose}
+
+Hoy en día, un espacio de trabajo no es un único proceso de servidor Nitro. Cada aplicación sigue compilándose en su propio directorio `.output/` y ejecuta su propio servidor Node/Nitro, así que autoalojar un espacio de trabajo significa ejecutar varios servidores detrás de un único punto de entrada.
+
+<Diagram id="doc-block-3selfhost1" title="Forma de un espacio de trabajo autoalojado" summary={"Un único proxy inverso delante de un contenedor por aplicación, todos apuntando a la misma base de datos Postgres."}>
+
+```html
+<div class="diagram-selfhost">
+  <div class="diagram-box" data-rough>Internet</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">proxy</span
+    ><small class="diagram-muted">enruta por prefijo de ruta</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-row">
+      <span class="diagram-pill">/mail</span
+      ><small class="diagram-muted">contenedor mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/calendar</span
+      ><small class="diagram-muted">contenedor calendar</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Postgres compartido<br /><small class="diagram-muted">un DATABASE_URL</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-selfhost {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-selfhost .diagram-panel.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-selfhost .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Un **proxy inverso** es ese único punto de entrada en la imagen anterior: recibe cada solicitud y la reenvía al contenedor correcto según la ruta de la URL, el mismo trabajo que hace el worker despachador de Cloudflare en una implementación gestionada. En un VPS, eso significa un contenedor por aplicación del espacio de trabajo, todos apuntando a la misma base de datos Postgres y a los mismos secretos de producción compartidos, con el proxy delante.
+
+<Steps>
+
+### Compila cada aplicación con una ruta base coincidente
+
+La ruta base es una entrada en tiempo de compilación para el paquete cliente y una entrada en tiempo de ejecución para el servidor. Compila cada aplicación con la misma ruta a la que el proxy la enrutará:
+
+```bash maxLines=8
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+### Escribe un Dockerfile reutilizable
+
+Toma el nombre de la aplicación y el prefijo de ruta como argumentos de compilación, de modo que un solo Dockerfile sirva a todas las aplicaciones del espacio de trabajo:
+
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+### Compón Postgres, las aplicaciones y el proxy
+
+Este ejemplo usa Caddy porque puede terminar HTTP localmente o situarse detrás del proxy SSL de Cloudflare, pero lo importante es el enrutamiento por prefijo de ruta:
+
+```yaml filename="docker-compose.yml" maxLines=30
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+### Configura el proxy
+
+```caddyfile filename="Caddyfile"
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+</Steps>
+
+<Callout tone="info">
+
+- Mantén `DATABASE_URL`, `BETTER_AUTH_SECRET`, `A2A_SECRET` y otros secretos
+  de producción idénticos en todos los contenedores de aplicaciones cuando
+  quieras autenticación compartida, credenciales compartidas y A2A entre
+  aplicaciones.
+- Establece `BETTER_AUTH_URL` con la URL pública de esa ruta de aplicación.
+  Las URL de callback de OAuth deben usar la misma URL pública.
+- No dependas del sistema de archivos del contenedor para los datos de
+  producción. Usa Postgres (u otro backend SQL persistente) para
+  `DATABASE_URL`.
+- Si Cloudflare termina TLS delante del VPS, configura Cloudflare para que
+  envíe las cabeceras normales `X-Forwarded-Proto` / `X-Forwarded-Host` y
+  enrute el host público al contenedor del proxy.
+
+</Callout>
+
+## Qué sigue
+
+- [**Implementación**](/docs/deployment) — elige una base de datos persistente, un ajuste preestablecido de Nitro y una plataforma antes de implementar un espacio de trabajo
+- [**Espacios de trabajo multiaplicación**](/docs/multi-app-workspace) — el modelo de espacio de trabajo sobre el que se basa el comando `deploy` de esta página
+- [**Seguridad**](/docs/security) — la lista de comprobación de producción y los flags opcionales para una implementación alojada

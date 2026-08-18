@@ -1,0 +1,45 @@
+---
+title: "Mise en cache SSR"
+description: "La politique de cache dur par défaut pour les réponses HTML SSR et les réponses .data de React Router, et comment la surcharger avec AGENT_NATIVE_SSR_CACHE."
+---
+
+# Mise en cache SSR
+
+Chaque réponse HTML SSR et chaque réponse `.data` de React Router est une coquille publique et impersonnelle unique. `createH3SSRHandler` retire les cookies avant le rendu, de sorte que les mêmes octets sont corrects pour chaque visiteur et que toute la personnalisation se fait côté client après le chargement. C'est ce qui permet d'estampiller sans risque une seule politique de cache dur par défaut sur ces réponses :
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+La même valeur est reflétée sur `cdn-cache-control`. `netlify-cdn-cache-control` porte sa propre valeur par défaut à durée de vie plus longue, `public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600`, puisque le CDN de Netlify lit cet en-tête séparément de l'en-tête standard. Une seule entrée CDN partagée sert alors l'ensemble du site au lieu d'un rendu par requête. C'est le plus grand levier sur la latence de première réponse. Laissez-le activé sauf si l'un des cas ci-dessous s'applique à votre déploiement.
+
+## Surcharger avec `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
+
+Définissez `AGENT_NATIVE_SSR_CACHE` dans l'environnement de déploiement pour changer la politique de tout le déploiement :
+
+| Valeur                                               | Résultat                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| non défini, `on`, `default`, `true`, `1`                 | La politique par défaut ci-dessus, inchangée. Recommandé pour les meilleures performances. |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` sur `cache-control`, `cdn-cache-control`, et `netlify-cdn-cache-control`. |
+| Une durée : `30`, `30s`, `5m`, `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` sur `cache-control` et `cdn-cache-control`. `netlify-cdn-cache-control` utilise la même durée avec `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`. |
+
+Les nombres bruts sont des secondes. `stale-while-revalidate` reflète délibérément `max-age` pour une durée personnalisée : une fenêtre de fraîcheur courte associée à la fenêtre de péremption par défaut de sept jours redonnerait exactement l'obsolescence que vous vouliez éviter. Une valeur non reconnue enregistre un avertissement et se replie sur la valeur par défaut, de sorte qu'une faute de frappe ne peut jamais désactiver silencieusement le CDN.
+
+Réduisez-la ou désactivez-la quand l'un des cas suivants est vrai :
+
+1. **Votre hébergeur ne purge pas son CDN au déploiement.** Netlify et Vercel le font. Certaines configurations auto-gérées ne le font pas. Sans purge, un build déployé peut continuer à servir la coquille précédente pendant `max-age` plus `stale-while-revalidate`.
+2. **Vos loaders renvoient des données publiques mutables.** Après une mutation réussie, un `useRevalidator()` ou une nouvelle récupération après redirection peut lire la copie `.data` mise en cache du navigateur au lieu de la sortie fraîche du loader.
+
+Le paramètre s'applique à chaque surface de coquille publique : le HTML SSR et le `.data` de React Router, la coquille HTML de connexion, la route `/_agent-native/speculation-rules.json`, le site de documentation, et le SSR de formulaire public dans le template de formulaires. Le Worker Cloudflare généré le résout au moment du build, donc définissez-le dans l'environnement de déploiement avant que le build ne s'exécute.
+
+Trois choses à garder à l'esprit :
+
+- **Désactiver la mise en cache ne rend pas le SSR personnalisé.** Les cookies sont toujours retirés avant le rendu et les loaders SSR voient toujours la branche anonyme. Les données par utilisateur doivent toujours être résolues côté client. Cette variable contrôle uniquement la _durée_ du cache.
+- **C'est à l'échelle du déploiement, pas par route, par conception.** Une surcharge de cache par route ou par requête est la façon dont la charge utile d'un visiteur finit dans l'entrée CDN partagée d'un autre visiteur, donc le framework n'en propose pas. `guard:ssr-cache-shell` l'impose.
+- **Pour des données fraîches après mutation, préférez les actions plutôt que de désactiver le cache.** Les données d'application appartiennent aux [actions](/docs/actions-overview), lues depuis le client avec `useActionQuery` / `useActionMutation` et maintenues à jour par le polling de `useDbSync()`. Rien de tout cela ne passe par le cache de coquille SSR. Gardez les loaders SSR en train de rendre la coquille publique, et ne recourez à cette variable que lorsque vous voulez vraiment des données de loader plus fraîches.
+
+## Et ensuite
+
+- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
+- [**Déploiement : Variables d'environnement**](/docs/deployment-environment-variables) — la référence complète des variables d'environnement de production
+- [**Netlify**](/docs/netlify) — pourquoi `netlify-cdn-cache-control` porte sa propre valeur par défaut à durée de vie plus longue

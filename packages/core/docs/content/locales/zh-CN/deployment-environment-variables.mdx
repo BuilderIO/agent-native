@@ -1,0 +1,83 @@
+---
+title: "部署:环境变量"
+description: "面向构建、运行时、密钥和托管行为的生产环境变量参考。"
+---
+
+# 部署:环境变量
+
+关于覆盖整个代码仓库的参考,包括模板、提供商、本地和 CI
+变量,请参见 [Environment Variables](/docs/environment-variables)。下面
+的表格仍然是关于生产值和托管行为的权威部署指南。
+
+## 构建 / 运行时 {#env-runtime}
+
+| 变量                                         | 描述                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | 服务器端口(仅限 Node.js)                                                                                                                                                                                                                                                                                  |
+| `NITRO_PRESET`                              | 在构建时覆盖构建预设                                                                                                                                                                                                                                                                                        |
+| `APP_BASE_PATH`                             | 把应用挂载在一个前缀下(例如 `/mail`)。由 `npx @agent-native/core@latest deploy` 自动设置。独立部署时保持未设置。                                                                                                                                                                                            |
+| `APP_URL`                                   | 可选的规范公共源。在解析 A2A JWT 受众、OAuth 公共源、自我调度的 webhook 目标和生成的资源链接时,会先于 `BETTER_AUTH_URL` 被检查。请在请求主机不可靠的预览/暂存部署上显式设置它。                                                                                                                             |
+| `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式:`off`(默认)、`sandboxed` 或 `trusted`。参见 [Production Code Execution](/docs/actions-agent-tools#production-code-execution)。                                                                                                                                                     |
+| `AGENT_NATIVE_SSR_CACHE`                    | 部署范围的 SSR 外壳缓存策略:未设置/`on` 保持默认硬缓存,`off` 发送 `no-store`,或者用一个时长(例如 `30s` / `5m`)设置更短的新鲜度。参见 [SSR Caching](/docs/ssr-caching)。                                                                                                                                     |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 选择加入 Netlify 的 keep-warm 计划函数。默认未设置。参见 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                                                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm 计划函数的兼容性关闭开关。参见 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                                                                             |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 用一个 5 段式的 cron 表达式覆盖 keep-warm 的节奏(启用时默认是 `* * * * *`)。无法解析的值会导致构建失败。参见 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 只取消后台函数的预热,仍保持服务器预热。参见 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                                                                                 |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 关闭进程内的兜底清扫定时器(自动化重新调度、agent-teams 对账、沙箱执行恢复)。在无服务器环境下,这些定时器按每个温实例运行,因此它们的查询速率会随实例数量增长。**只有**在已经有一个持久调度器驱动同样的恢复流程时,才设置它,否则排队中的工作将不会被重试。                                                     |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 在自动无服务器跳过机制没有覆盖到的部署上,跳过按需的 schema DDL。要求你的 schema 已经迁移完毕。参见 [On-demand schema DDL](/docs/deployment#skip-ensure-tables)。                                                                                                                                            |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 专用的 32 位以上字符共享 HMAC 密钥,用于预览安全的 Builder 授权中继。只有当授权结果必须写入一个隔离的预览数据库时,才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                                          |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表(例如 `https://0123456789abcdef01234567--content.netlify.app`)。只在企业回调部署上设置它。Netlify 的来源必须使用一个不可变的、特定于该次部署的 24 位十六进制永久链接。可变的 `deploy-preview-*` 别名、通配符和域名后缀都会被拒绝。                     |
+
+数据库连接变量(`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用的 `<APP_NAME>_DATABASE_URL`)记录在 [Database](/docs/server-database#production) 中。
+
+## 生产敏感配置 {#env-required-prod}
+
+这些设置涵盖生产敏感行为。一个使用框架身份验证的独立应用
+需要一个稳定的 `BETTER_AUTH_SECRET` 和一个持久数据库。当公共身份验证 URL
+未设置时,框架会从请求、已知模板或托管平台推断它。工作区和 A2A
+设置取决于所使用的功能。缺失的值要么安全失败,要么
+在发出明确警告后回退到较弱的行为。
+
+| 变量                                         | 描述                                                                                                                                                                                                                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 一个 32 位以上字符的随机字符串。用于签署会话 cookie,并作为 `OAUTH_STATE_SECRET` 和应用本地加密值的后备。它同时也是读取现有共享保管库密文的一个旧版候选项。硬性必需:在生产环境中如果缺失,框架会在启动时抛出错误。                                                       |
+| `BETTER_AUTH_URL`                           | 这个应用的可选公共源覆盖值(例如 `https://mail.example.com`)。未设置时,框架会从请求、已知模板和托管平台上下文推断它。                                                                                                                                                   |
+| `ANTHROPIC_API_KEY`                         | 嵌入式生产代理的 API 密钥。**在多租户部署中**,当用户没有各自的密钥时,框架拒绝回退到这个密钥。需要自带密钥。单租户自托管安装会把它用作一个全局密钥。                                                                                                                    |
+| `OAUTH_STATE_SECRET`                        | 用于 OAuth 状态信封(Google、Atlassian、Zoom)的专用 HMAC 密钥。未设置时回退到 `BETTER_AUTH_SECRET`,但建议使用一个专用值,这样轮换其中一个就不会使另一个失效。可通过 `openssl rand -hex 32` 生成。                                                                       |
+| `A2A_SECRET`                                | 用于应用间 A2A JSON-RPC 和签名后台交接的共享 HMAC。托管式工作区部署和 A2A 功能都需要它。没有它,这些端点在生产环境中会失败关闭。当没有设置专用的工作区保管库密钥时,共享保管库密文会使用一个从这个值派生的、按用途区分的密钥,因此轮换它也会轮换保管库密钥。                 |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共享的、加密静态存储的密钥保管库首选的稳定 AES-256-GCM 密钥。每个读取该保管库的应用都要设置相同的值。它与应用本地的 OAuth/凭据加密是分开的,因此 A2A 信任可以在不搁置保管库数据行的情况下轮换。已有的 A2A、Better Auth 和应用密钥密文会在成功读取时被迁移。               |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 可选的旧工作区保管库密钥,仅在轮换窗口期间使用。把它和新的 `WORKSPACE_SECRETS_ENCRYPTION_KEY` 一起部署,让成功的读取重新加密数据行,迁移完成后再移除它。                                                                                                                 |
+| `SECRETS_ENCRYPTION_KEY`                    | 用于应用本地加密和共享保管库的旧版组合密钥。它仍然受支持,但新的多应用部署应该为共享保管库使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`,这样更改工作区加密就不会改变应用本地的 OAuth 密文。                                                                                     |
+
+## 身份验证与身份 {#env-auth}
+
+OAuth 提供商凭据(Google、GitHub)、静态 MCP 承载后备(`ACCESS_TOKEN` / `ACCESS_TOKENS`),以及邮件验证开关,都记录在 [Authentication](/docs/authentication) 中。请根据你所选择的身份验证模式,在那里设置它们。
+
+## 入站 Webhooks {#env-webhooks}
+
+每个消息集成在生产环境中都需要自己的签名密钥(当密钥缺失时,处理程序会对伪造请求失败关闭)。每个集成对应的变量列在 [Messaging](/docs/messaging) 和 [Security](/docs/security) 中。仅在本地开发时,`AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` 可以重新选择加入“警告并接受”的行为。切勿在生产环境中设置它。
+
+## 安全配置(可选择加入) {#security-config}
+
+默认值是严格的。少数几个可选择加入的标志会放松相应行为(调试堆栈跟踪、未经验证的 webhook、工作区范围的密钥回退、MCP hub 多组织切换、运行时环境变量写入)。它们连同各自的安全权衡记录在 [Security](/docs/security) 中。除非你确实想要那种放松后的路径,否则不要设置它们。
+
+## 工作区 .env 继承 {#env-inheritance}
+
+在一个工作区内,根目录的 `.env` 会自动加载到每个应用中,因此像 `ANTHROPIC_API_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET` 和 `OAUTH_STATE_SECRET` 这样的共享密钥只需要设置一次。每个应用各自的 `apps/<name>/.env` 在冲突时优先。
+
+## 生成强密钥 {#env-generate-secrets}
+
+对于任何标注为“32 位以上字符随机”的密钥(`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`WORKSPACE_SECRETS_ENCRYPTION_KEY`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`),用以下命令生成新的值:
+
+```bash
+openssl rand -hex 32
+```
+
+通过在每个实例上替换环境变量并重新部署来轮换签名/会话密钥。用旧密钥签署的会话和 OAuth 状态信封会失效,因此用户可能需要重新登录。按照上面描述的 `..._PREVIOUS` 窗口来轮换 `WORKSPACE_SECRETS_ENCRYPTION_KEY`,这样加密的保管库数据行在迁移期间仍然可读。
+
+## 下一步
+
+- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
+- [**Environment Variables**](/docs/environment-variables) — 覆盖整个代码仓库的参考,包括模板、提供商、本地和 CI 变量
+- [**Security**](/docs/security) — 本页贯穿始终引用的生产检查清单和可选择加入的标志
+- [**Authentication**](/docs/authentication) — 你所选身份验证模式对应的 OAuth 凭据和环境变量

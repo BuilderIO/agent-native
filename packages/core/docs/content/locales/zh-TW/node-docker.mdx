@@ -1,0 +1,53 @@
+---
+title: "Node.js 與 Docker"
+description: "使用預設的 Node.js Nitro 預設集部署 agent-native 應用程式，可以是獨立執行，也可以用 Docker 容器化。"
+---
+
+# Node.js 與 Docker
+
+Node.js 是預設的 Nitro 預設集。本頁面涵蓋直接執行它，以及用 Docker 將它容器化。若要先選擇資料庫，請參閱 [Deployment](/docs/deployment)。若要使用 Docker Compose 自行架設多應用程式工作區，請參閱 [Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose)。
+
+## Node.js（預設）{#nodejs}
+
+預設的預設集。建置並執行：
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+設定 `PORT` 來設定監聽埠（預設值：`3000`）。
+
+正式環境部署請使用目前的 Node.js LTS 版本線。截至 2026 年 5 月，那是
+Node.js 24。Node.js 20 已於 2026 年 4 月 30 日終止支援，不再收到上游安全性更新。
+
+## Docker {#docker}
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+使用 Docker Compose 自行架設多應用程式工作區（建立在這同一份獨立
+Dockerfile 之上）的內容，請參閱
+[Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose)。
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**Workspace Deployment**](/docs/workspace-deployment) — 使用 Docker Compose 自行架設多應用程式工作區
+- [**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare) 和 [**Other Platforms**](/docs/other-platforms) — 其他的 Nitro 預設集

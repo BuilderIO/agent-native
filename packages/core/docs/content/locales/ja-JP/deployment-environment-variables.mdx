@@ -1,0 +1,77 @@
+---
+title: "デプロイ: 環境変数"
+description: "ビルド、ランタイム、シークレット、ホスティング動作に関する本番環境変数のリファレンス。"
+---
+
+# デプロイ: 環境変数
+
+テンプレート、プロバイダー、ローカル、CI の変数を含むリポジトリ全体のリファレンスは [環境変数](/docs/environment-variables) を参照してください。以下の表は、本番の値とホスティング動作に関する正式なデプロイガイドです。
+
+## ビルド / ランタイム {#env-runtime}
+
+| 変数                                         | 説明                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                       | サーバーのポート（Node.js のみ）                                                                                                                                                                                                                                          |
+| `NITRO_PRESET`                               | ビルド時にビルドプリセットを上書き                                                                                                                                                                                                                                        |
+| `APP_BASE_PATH`                              | アプリをプレフィックス（例: `/mail`）配下にマウントします。`npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにします。                                                                                              |
+| `APP_URL`                                    | 任意の正規公開オリジン。A2A JWT の audience、OAuth の公開オリジン、self-dispatch webhook のターゲット、生成されるリソースリンクを解決する際、`BETTER_AUTH_URL` より先に確認されます。リクエストホストが信頼できないプレビュー/ステージングデプロイでは明示的に設定してください。 |
+| `AGENT_PROD_CODE_EXECUTION`                  | 任意の本番コード実行モード: `off` (デフォルト)、`sandboxed`、`trusted`。[本番コード実行](/docs/actions-agent-tools#production-code-execution) を参照。                                                                                                                    |
+| `AGENT_NATIVE_SSR_CACHE`                     | デプロイ全体の SSR シェルキャッシュポリシー: 未設定 / `on` はデフォルトのハードキャッシュを維持、`off` は `no-store` を送信、`30s` / `5m` のような期間はより短い鮮度を設定します。[SSR キャッシュ](/docs/ssr-caching) を参照。                                              |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`              | Netlify の keep-warm スケジュール function にオプトインします。デフォルトでは未設定。[Keep-warm](/docs/netlify#netlify-keep-warm) を参照。                                                                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`             | Netlify の keep-warm スケジュール function 用の互換性キルスイッチ。[Keep-warm](/docs/netlify#netlify-keep-warm) を参照。                                                                                                                                                |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`            | 5 フィールドの cron 式で keep-warm の頻度を上書きします（有効時のデフォルトは `* * * * *`）。解析できない値はビルドを失敗させます。[Keep-warm](/docs/netlify#netlify-keep-warm) を参照。                                                                                 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND`  | background-function のウォームアップのみを取りやめ、サーバーのウォームアップは維持します。[Keep-warm](/docs/netlify#netlify-keep-warm) を参照。                                                                                                                         |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`      | プロセス内のバックストップ スイープ タイマー（automation の再ディスパッチ、agent-teams の整合、sandbox-execution の復旧）を無効にします。サーバーレスではウォームコンテナごとに実行されるため、クエリレートはインスタンス数に比例して増えます。同じ復旧を担う永続的なスケジューラーがすでにある場合に**限り**設定してください。そうでないとキューに入った作業が再試行されません。 |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`            | 自動サーバーレススキップの対象外となるデプロイで、オンデマンドのスキーマ DDL をスキップします。スキーマがすでにマイグレーション済みであることが前提です。[オンデマンドのスキーマ DDL](/docs/deployment#skip-ensure-tables) を参照。                                        |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`          | プレビューでも安全な Builder 認可リレー専用の、32 文字以上の共有 HMAC シークレットです。認可を隔離されたプレビューデータベースに反映させる必要がある場合に限り、承認済みの企業コールバックデプロイとプレビューデプロイに同じ値を設定します。                                  |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS`  | 企業コールバック専用の、信頼された正確なプレビューオリジンのカンマ区切り許可リスト（例: `https://0123456789abcdef01234567--content.netlify.app`）です。企業コールバックデプロイにのみ設定します。Netlify のオリジンは、変更不可なデプロイ固有の 24 桁 16 進パーマリンクを使用する必要があります。変更可能な `deploy-preview-*` エイリアス、ワイルドカード、ドメインサフィックスは拒否されます。 |
+
+データベース接続変数（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`）は [データベース](/docs/server-database#production) にあります。
+
+## 本番機密設定 {#env-required-prod}
+
+これらの設定は本番の機密性が高い動作をカバーします。フレームワークの認証を使うスタンドアロンアプリには、安定した `BETTER_AUTH_SECRET` と永続的なデータベースが必要です。公開認証 URL は、未設定の場合はリクエスト、既知のテンプレート、またはホスティングプラットフォームから推測されます。ワークスペースと A2A の設定はそれらの機能に応じた条件付きです。値が欠けている場合、フェイルクローズするか、大きな警告を伴ってより弱い動作にフォールバックします。
+
+| 変数                                         | 説明                                                                                                                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                         | 32 文字以上のランダムな文字列。セッション Cookie に署名し、`OAUTH_STATE_SECRET` とアプリローカルな暗号化値のフォールバックになります。既存の共有 vault 暗号文の読み取り候補としてのレガシー用途もあります。必須項目です。本番で欠けているとフレームワークは起動時に例外をスローします。 |
+| `BETTER_AUTH_URL`                            | このアプリの公開オリジンを上書きする任意の値（例: `https://mail.example.com`）です。未設定の場合、フレームワークはリクエスト、既知のテンプレート、ホスティングプラットフォームのコンテキストから推測します。                                                              |
+| `ANTHROPIC_API_KEY`                          | 埋め込みの本番エージェント用の API キーです。**マルチテナントデプロイでは**、ユーザーにユーザーごとのキーがない場合、フレームワークはこれへのフォールバックを拒否します。Bring-your-own-key が必須です。シングルテナントのセルフホストインストールでは、これをグローバルキーとして使用します。 |
+| `OAUTH_STATE_SECRET`                         | OAuth の state エンベロープ（Google、Atlassian、Zoom）専用の HMAC キーです。未設定の場合は `BETTER_AUTH_SECRET` にフォールバックしますが、片方をローテーションしてももう片方が無効にならないよう、専用の値を推奨します。`openssl rand -hex 32` で生成してください。          |
+| `A2A_SECRET`                                 | アプリ間の A2A JSON-RPC と署名付き background handoff 用の共有 HMAC です。ホスト型ワークスペースのデプロイと A2A 機能に必須です。これがないと、それらのエンドポイントは本番でフェイルクローズします。専用のワークスペース vault キーが設定されていない場合、共有 vault の暗号文はこの値から導出された用途別キーを使用するため、これをローテーションすると vault キーもローテーションされます。 |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`           | 共有の保存時暗号化シークレット vault 用に推奨される、安定した AES-256-GCM キーです。vault を読み取るすべてのアプリで同じ値を設定します。アプリローカルな OAuth/資格情報の暗号化とは別なので、A2A の信頼をローテーションしても vault の行が取り残されることはありません。既存の A2A、Better Auth、アプリキーの暗号文は、読み取りが成功した時点でマイグレーションされます。 |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`  | ローテーション期間中にのみ使用する、任意の以前のワークスペース vault キーです。新しい `WORKSPACE_SECRETS_ENCRYPTION_KEY` と一緒にデプロイし、読み取りが成功するたびに行を再暗号化させ、マイグレーション後に削除してください。                                              |
+| `SECRETS_ENCRYPTION_KEY`                     | アプリローカルな暗号化と共有 vault を兼ねるレガシーな統合キーです。引き続きサポートされますが、新しいマルチアプリデプロイでは、ワークスペースの暗号化を変更してもアプリローカルな OAuth 暗号文が変わらないよう、共有 vault には `WORKSPACE_SECRETS_ENCRYPTION_KEY` を使うべきです。 |
+
+## 認証とアイデンティティ {#env-auth}
+
+OAuth プロバイダーの資格情報（Google、GitHub）、静的な MCP bearer フォールバック（`ACCESS_TOKEN` / `ACCESS_TOKENS`）、メール検証の切り替えは [認証](/docs/authentication) に文書化されています。選んだ認証モードに応じて、そちらで設定してください。
+
+## インバウンド Webhook {#env-webhooks}
+
+各メッセージング統合には、本番用の専用署名シークレットが必要です（シークレットが欠けている場合、ハンドラーは偽造リクエストに対してフェイルクローズします）。統合ごとの変数は [メッセージ](/docs/messaging) と [セキュリティ](/docs/security) に一覧があります。ローカル開発限定で、`AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` は「警告して受理する」動作に戻します。本番では絶対に設定しないでください。
+
+## セキュリティ設定 (オプトイン) {#security-config}
+
+デフォルトは厳格です。いくつかのオプトインフラグが動作を緩めます（デバッグ用スタックトレース、未検証の Webhook、ワークスペーススコープのキーフォールバック、MCP ハブのマルチ組織切り替え、ランタイムでの環境変数書き込み）。それぞれのセキュリティ上のトレードオフは [セキュリティ](/docs/security) に文書化されています。緩い方の挙動を意図的に望む場合を除いて設定しないでください。
+
+## ワークスペースの .env 継承 {#env-inheritance}
+
+ワークスペース内では、ルートの `.env` がすべてのアプリに自動的に読み込まれるため、`ANTHROPIC_API_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET` のような共有キーは 1 回設定するだけで済みます。競合した場合はアプリごとの `apps/<name>/.env` が優先されます。
+
+## 強力なシークレットの生成 {#env-generate-secrets}
+
+「32 文字以上のランダム」と記載されているシークレット（`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`WORKSPACE_SECRETS_ENCRYPTION_KEY`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`）には、次のコマンドで新しい値を生成してください。
+
+```bash
+openssl rand -hex 32
+```
+
+署名/セッションキーをローテーションするには、すべてのインスタンスで環境変数を置き換えて再デプロイします。古いキーで署名されたセッションと OAuth の state エンベロープは無効になるため、ユーザーが再度サインインする必要が生じることがあります。`WORKSPACE_SECRETS_ENCRYPTION_KEY` は、前述の `..._PREVIOUS` ウィンドウを使ってローテーションし、マイグレーション中も暗号化された vault の行を読み取り可能な状態に保ってください。
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**環境変数**](/docs/environment-variables) — テンプレート、プロバイダー、ローカル、CI の変数を含むリポジトリ全体のリファレンス
+- [**セキュリティ**](/docs/security) — このページ全体で参照されている本番チェックリストとオプトインフラグ
+- [**認証**](/docs/authentication) — 選んだ認証モードのための OAuth 資格情報と環境変数

@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "使用 Netlify Nitro 預設集將 agent-native 應用程式部署到 Netlify，並為縮減至零資料庫設定 keep-warm。"
+---
+
+# Netlify
+
+Nitro 的 `netlify` 預設集運作良好，而且在實務上，對於會連線外部 Postgres（Neon）的範本來說，它帶來的冷啟動速度比 Cloudflare Pages 快上許多（約 200ms TTFB，相較於約 9 秒）。你可以在 `vite.config.ts` 中設定預設集：
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+……或者在建置時設定 `NITRO_PRESET=netlify`。
+
+對於工作區，執行以下指令，從一個 Netlify 網站部署每個應用程式：
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+工作區建置會將靜態資源寫入 `dist/_workspace_static/` 下，並將每個應用程式路由到自己的 Netlify function，且不強制進行資源重新導向，因此像 `/mail/assets/...` 這樣的檔案會先以靜態方式提供，之後伺服器 function 才會處理應用程式路由。
+
+## Keep-warm 與縮減至零資料庫 {#netlify-keep-warm}
+
+啟用後，Netlify 建置會產生一個排程 function，**每分鐘**請求一次 `/_agent-native/health`。這會讓伺服器 function 及其資料庫保持喚醒狀態，因此閒置一段時間之後的下一位訪客不需要承受冷啟動（在 Neon 上是 1 到 5 秒）。
+
+Keep-warm **預設為停用**，因為每分鐘一次的喚醒會阻止按用量計費的縮減至零資料庫進行自動暫停。在免費方案的 Neon 上，這可能會耗盡計算配額，之後資料庫會在工作階段中途拒絕**所有**讀取。徵狀是應用程式完全掛掉，而不是變慢。當較低的下一位訪客延遲值得換來資料庫的喚醒時間時，請設定 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`。
+
+keep-warm 排程和背景 function 喚醒，都只有在主要的 keep-warm 旗標啟用之後才會生效：
+
+| Variable                                    | Effect                                                                                                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 選擇加入排程的伺服器/資料庫喚醒。預設未設定。                                                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 相容性關閉開關，設定後會覆蓋選擇加入的旗標。                                                                                                           |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 使用 5 個欄位的 cron 表達式覆寫執行頻率，例如 `*/5 * * * *`。啟用時的預設頻率為 `* * * * *`。無法解析的值會**導致建置失敗**。         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 只移除背景 function 的喚醒，保留伺服器的喚醒。喚醒 `server` 只是一次請求。喚醒 `-background` 則會啟動一個全新的容器，重新探測結構描述。 |
+
+如果你使用的是免費方案或其他有配額限制的資料庫方案，請讓 `AGENT_NATIVE_ENABLE_KEEP_WARM` 保持未設定。如果你選擇加入，請使用較慢的頻率，或設定 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` 來移除成本較高的背景喚醒。
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**SSR Caching**](/docs/ssr-caching) — 預設的快取政策，以及 Netlify 獨立的 `netlify-cdn-cache-control` 行為
+- [**Node.js 與 Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Cloudflare**](/docs/cloudflare) 和 [**Other Platforms**](/docs/other-platforms) — 其他的 Nitro 預設集

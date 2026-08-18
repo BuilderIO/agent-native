@@ -1,0 +1,34 @@
+---
+title: "Atualizando a UI em Produção"
+description: "Como a UI de um app implantado é atualizada após o lançamento, e o fluxo de trabalho gerenciado separado do Builder.io para edição visual em produção."
+---
+
+# Atualizando a UI em Produção
+
+O agente comum de um app implantado trabalha através de ferramentas do app
+(actions, banco de dados, MCP e integrações configuradas) em vez de receber
+acesso ambiente ao código-fonte do app. Alterações de código-fonte pertencem
+ao fluxo de desenvolvimento do repositório. Um quadro embutido, local ou do
+Builder pode editar o repositório quando esse quadro recebe intencionalmente
+ferramentas de espaço de trabalho e de escrita.
+
+Em uma implantação de produção padrão com [execução de código em produção](/docs/actions-agent-tools#production-code-execution) desativada, o agente tem acesso a ferramentas do app (actions, banco de dados, MCP), mas não ao sistema de arquivos. Isso significa que o agente pode ler e gravar dados, executar actions e interagir com serviços externos. Ele não pode editar seus componentes React nem adicionar novas rotas em uma instância implantada.
+
+## Builder.io: Edição Visual em Produção {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) é um fluxo de trabalho gerenciado separado, com capacidade de código, no qual um agente pode modificar a UI do seu app em produção. Conecte seu repositório ao Builder.io (nível gratuito disponível) e peça alterações de UI diretamente. Nenhuma reimplantação é necessária.
+
+**Como funciona:**
+
+1. Conecte seu repositório nativo do agente ao Builder.io (nível gratuito disponível)
+2. O Builder.io fornece um quadro de nuvem com o agente, edição visual e colaboração em tempo real
+3. Peça ao agente para fazer alterações na UI. Ele edita seus componentes, rotas e estilos ao vivo
+4. As alterações são commitadas de volta ao seu repositório
+
+Veja [Quadros](/docs/frames) para saber mais sobre o painel de agente embutido vs. as opções de quadro de nuvem.
+
+## O que vem a seguir
+
+- [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção
+- [**Quadros**](/docs/frames) — o painel de agente embutido vs. o quadro de nuvem do Builder.io para edições de UI em produção
+- [**Acesso do Agente em Produção**](/docs/actions-agent-tools) — quais ferramentas o agente implantado tem por padrão

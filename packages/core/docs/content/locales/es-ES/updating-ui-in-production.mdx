@@ -1,0 +1,35 @@
+---
+title: "Actualizar la UI en producción"
+description: "Cómo se actualiza la UI de una aplicación implementada después del lanzamiento, y el flujo de trabajo gestionado independiente de Builder.io para la edición visual en producción."
+---
+
+# Actualizar la UI en producción
+
+El agente ordinario de una aplicación implementada trabaja a través de las
+herramientas de la aplicación (actions, base de datos, MCP e integraciones
+configuradas) en lugar de recibir acceso ambiental al código fuente de la
+aplicación. Los cambios de código pertenecen al flujo de trabajo de
+desarrollo del repositorio. Un frame integrado, local o de Builder puede
+editar el repositorio cuando a ese frame se le conceden intencionalmente
+herramientas de espacio de trabajo y de escritura.
+
+En una implementación de producción estándar con la [ejecución de código en producción](/docs/actions-agent-tools#production-code-execution) desactivada, el agente tiene acceso a las herramientas de la aplicación (actions, base de datos, MCP) pero no al sistema de archivos. Esto significa que el agente puede leer y escribir datos, ejecutar actions e interactuar con servicios externos. No puede editar tus componentes de React ni añadir nuevas rutas en una instancia implementada.
+
+## Builder.io: edición visual en producción {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) es un flujo de trabajo gestionado independiente con capacidad de código donde un agente puede modificar la UI de tu aplicación en producción. Conecta tu repositorio a Builder.io (nivel gratuito disponible) y solicita cambios de UI directamente. No necesitas volver a implementar.
+
+**Cómo funciona:**
+
+1. Conecta tu repositorio nativo del agente a Builder.io (nivel gratuito disponible)
+2. Builder.io proporciona un frame en la nube con el agente, edición visual y colaboración en tiempo real
+3. Solicita al agente que realice cambios en la UI. Edita tus componentes, rutas y estilos en vivo
+4. Los cambios se confirman de vuelta en tu repositorio
+
+Consulta [Marcos](/docs/frames) para más información sobre el panel de agente integrado frente a las opciones de frame en la nube.
+
+## Qué sigue
+
+- [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
+- [**Marcos**](/docs/frames) — el panel de agente integrado frente al frame en la nube de Builder.io para editar la UI de producción
+- [**Acceso del agente en producción**](/docs/actions-agent-tools) — qué herramientas tiene el agente implementado de forma predeterminada

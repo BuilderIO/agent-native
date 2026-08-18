@@ -1,0 +1,348 @@
+---
+title: "ワークスペースのデプロイ"
+description: "1 つのコマンドで、agent-native ワークスペース内のすべてのアプリを 1 つのオリジンに配信するか、Docker Compose を使ってワークスペースをセルフホストします。"
+---
+
+# ワークスペースのデプロイ
+
+プロジェクトが複数のアプリを持つ [ワークスペース](/docs/multi-app-workspace) である場合、アプリごとに個別のデプロイを管理する代わりに、すべてのアプリを 1 つのオリジンにデプロイできます。このページでは、マネージドな 1 コマンドのパスと、セルフホストの Docker Compose という代替手段を扱います。まずデータベース、プリセット、プラットフォームを選ぶには、先に [デプロイ](/docs/deployment) を参照してください。
+
+## 1 つのオリジン、複数のアプリ {#workspace-deploy}
+
+1 つのコマンドで、ワークスペース内のすべてのアプリを 1 つのオリジンに配信します。
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+<Diagram id="doc-block-1aw1umr" title="1 つのオリジン、複数のアプリ" summary={"各ワークスペースアプリは、それぞれ独自のベースパスでビルドされ、単一のオリジン上のパスプレフィックス配下にマウントされます。その結果、ログインとアプリ間の A2A は同一オリジンとなり、無償で実現されます。"}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">共有ログインセッション</span
+    ><span class="diagram-pill ok">ゼロ設定のアプリ間 A2A</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+**同一オリジン** とは、ブラウザから見てすべてのアプリが同じウェブサイトの一部に見えることを意味します。これにより、無償で 2 つの大きな利点が得られます。
+
+- **共有ログインセッション**。いずれかのアプリにログインすれば、すべてのアプリがログイン済みになります。
+- **ゼロ設定のアプリ間 A2A**。mail から `@calendar` をタグ付けするのは同一オリジンの fetch です。兄弟アプリ間に CORS も JWT 署名もありません。
+
+<Callout tone="info">
+
+内部的には、各アプリは `APP_BASE_PATH`/`VITE_APP_BASE_PATH` で設定される `/mail` のような URL プレフィックス、すなわち独自の**ベースパス**でビルドされ、その後ターゲットの Nitro プリセット向けにパッケージ化されます。Cloudflare Pages は、生成された**ディスパッチャーワーカー**、つまり受信したパスを読み取って一致するアプリにリクエストを転送する `dist/_worker.js` の小さなスクリプトを経由してルーティングします。Netlify はアプリごとに 1 つの function と、生成されたリダイレクトを使用します。Vercel は Build Output API を使って、ワークスペースレベルの `.vercel/output` を書き出します。
+
+</Callout>
+
+プラットフォーム向けにビルドを公開します。
+
+<TabsBlock
+  id="doc-block-wsdeploytabs1"
+  tabs={[
+    {
+      id: "cloudflare",
+      label: "Cloudflare (デフォルト)",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-cf",
+          data: { code: "wrangler pages deploy dist", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-nl",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset netlify",
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-vc",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset vercel",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="warning">
+
+ホスト型のワークスペースビルドには、デプロイプロバイダーの環境に `A2A_SECRET` が必要です。これがないと、Slack、インバウンド Webhook、アプリ間 A2A の再開が動作しません。これらはすべて署名済みの background プロセッサーを経由するためです。ローカルの `--build-only` によるアーティファクトチェックは、これがなくても実行できます。
+
+</Callout>
+
+<Callout tone="info">
+
+手動でデプロイする代わりにプロバイダーのビルドコマンドを組み込みますか？ 同じコマンドに `--build-only` を追加します。例えば `npx @agent-native/core@latest deploy --preset vercel --build-only` のようにします。これは出力を直接書き出すため、ワークスペースのルーティングに `vercel.json` は不要です。
+
+1 つの共有オリジンではなく、アプリごとに別々のドメインを使いたいですか？ ワークスペース内のどのアプリも引き続き独立してデプロイ可能です。スタンドアロンのスキャフォールドと同様に `cd apps/<name> && npx @agent-native/core@latest build` を実行してください。
+
+</Callout>
+
+## Docker Compose によるワークスペースのセルフホスト {#workspace-docker-compose}
+
+現状、ワークスペースは 1 つの Nitro サーバープロセスではありません。各アプリは依然として独自の `.output/` ディレクトリにビルドされ、独自の Node/Nitro サーバーを実行するため、ワークスペースをセルフホストするということは、単一のエントリポイントの背後で複数のサーバーを実行することを意味します。
+
+<Diagram id="doc-block-3selfhost1" title="セルフホストされたワークスペースの構成" summary={"アプリごとに 1 つのコンテナがあり、その前段に 1 つのリバースプロキシが立ち、すべてが同じ Postgres データベースを指します。"}>
+
+```html
+<div class="diagram-selfhost">
+  <div class="diagram-box" data-rough>インターネット</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">プロキシ</span
+    ><small class="diagram-muted">パスプレフィックスでルーティング</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-row">
+      <span class="diagram-pill">/mail</span
+      ><small class="diagram-muted">mail コンテナ</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/calendar</span
+      ><small class="diagram-muted">calendar コンテナ</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    共有 Postgres<br /><small class="diagram-muted">1 つの DATABASE_URL</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-selfhost {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-selfhost .diagram-panel.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-selfhost .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+**リバースプロキシ** とは、上の図にある、その単一のエントリポイントのことです。すべてのリクエストを受け取り、URL のパスに基づいて正しいコンテナに転送します。これは、マネージドデプロイにおいて Cloudflare のディスパッチャーワーカーが担うのと同じ役割です。VPS では、これはワークスペースアプリごとに 1 つのコンテナがあり、すべてが同じ Postgres データベースと共有の本番シークレットを指し、その前段にプロキシが立つことを意味します。
+
+<Steps>
+
+### 一致するベースパスで各アプリをビルドする
+
+ベースパスは、クライアントバンドルにとってはビルド時の入力であり、サーバーにとってはランタイムの入力です。プロキシがルーティングするのと同じパスで各アプリをビルドします。
+
+```bash maxLines=8
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+### 再利用可能な Dockerfile を書く
+
+アプリ名とパスプレフィックスをビルド引数として受け取ることで、1 つの Dockerfile がワークスペース内のすべてのアプリに対応します。
+
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+### Postgres、アプリ、プロキシを Compose する
+
+この例では、ローカルで HTTP を終端することも Cloudflare の SSL プロキシの背後に置くこともできるため Caddy を使用していますが、重要な部分はパスプレフィックスによるルーティングです。
+
+```yaml filename="docker-compose.yml" maxLines=30
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+### プロキシを設定する
+
+```caddyfile filename="Caddyfile"
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+</Steps>
+
+<Callout tone="info">
+
+- 共有認証、共有資格情報、アプリ間 A2A を望む場合は、`DATABASE_URL`、`BETTER_AUTH_SECRET`、
+  `A2A_SECRET`、その他の本番シークレットをアプリのコンテナ間で同一に保ちます。
+- `BETTER_AUTH_URL` は、そのアプリのパスに対応する公開 URL に設定します。OAuth コールバック URL
+  も同じ公開 URL を使用するべきです。
+- 本番データをコンテナのファイルシステムに依存させないでください。`DATABASE_URL` には Postgres（または
+  他の永続的な SQL バックエンド）を使用してください。
+- Cloudflare が VPS の前段で TLS を終端する場合は、通常の `X-Forwarded-Proto` / `X-Forwarded-Host`
+  ヘッダーを送信し、公開ホストをプロキシコンテナにルーティングするよう Cloudflare を設定してください。
+
+</Callout>
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — ワークスペースをデプロイする前に、永続的なデータベース、Nitro プリセット、プラットフォームを選ぶ
+- [**マルチアプリ ワークスペース**](/docs/multi-app-workspace) — このページの `deploy` コマンドが基盤とするワークスペースモデル
+- [**セキュリティ**](/docs/security) — ホスト型デプロイのための本番チェックリストとオプトインフラグ

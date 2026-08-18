@@ -1,0 +1,27 @@
+---
+title: "其他平台"
+description: "使用對應的 Nitro 預設集將 agent-native 應用程式部署到 AWS Lambda 或 Deno Deploy。"
+---
+
+# 其他平台
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**Node.js 與 Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Cloudflare**](/docs/cloudflare) — 其他的 Nitro 預設集

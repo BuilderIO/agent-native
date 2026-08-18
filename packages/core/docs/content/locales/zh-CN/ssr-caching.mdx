@@ -1,0 +1,45 @@
+---
+title: "SSR 缓存"
+description: "SSR HTML 和 React Router .data 响应的默认硬缓存策略,以及如何通过 AGENT_NATIVE_SSR_CACHE 覆盖它。"
+---
+
+# SSR 缓存
+
+每一个 SSR HTML 响应和每一个 React Router `.data` 响应都是同一个非个性化的公共外壳。`createH3SSRHandler` 在渲染之前会剥离 cookie,因此同样的字节对每个访问者都是正确的,所有个性化都发生在加载完成之后的客户端。这正是为什么默认在这些响应上盖上单一的硬缓存策略是安全的:
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+同样的值会被镜像到 `cdn-cache-control` 上。`netlify-cdn-cache-control` 则带有自己更长期的默认值,`public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600`,因为 Netlify 的 CDN 会单独读取这个请求头,而不是标准的那一个。这样一来,一个共享的 CDN 条目就能服务整个站点,而不必逐请求渲染。这是首次响应延迟上最大的单一杠杆。除非下面的某种情况适用于你的部署,否则请保持开启。
+
+## 使用 `AGENT_NATIVE_SSR_CACHE` 覆盖 {#ssr-cache-env}
+
+在部署环境中设置 `AGENT_NATIVE_SSR_CACHE`,即可更改整个部署的策略:
+
+| 值                                                    | 结果                                                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 未设置、`on`、`default`、`true`、`1`                 | 上面的默认策略,不变。为获得最佳性能,推荐使用。                                                              |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | 在 `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上都发送 `no-store`。                |
+| 一个时长值:`30`、`30s`、`5m`、`2h`                  | 在 `cache-control` 和 `cdn-cache-control` 上设置 `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。`netlify-cdn-cache-control` 使用相同的时长,配合 `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。 |
+
+裸数字表示秒。`stale-while-revalidate` 有意为一个自定义时长镜像 `max-age`:如果把一个短的新鲜度窗口,和默认的七天陈旧窗口搭配在一起,恰好会返回你本想选择退出的那种陈旧数据。一个无法识别的值会记录一条警告并回退到默认值,因此一个拼写错误永远不会悄悄禁用 CDN。
+
+在以下任意一种情况成立时,把它调低或关闭:
+
+1. **你的主机不会在部署时清除其 CDN。** Netlify 和 Vercel 会这么做。一些自托管的部署不会。如果没有清除,一次已发布的构建可能会在 `max-age` 加上 `stale-while-revalidate` 的时长内继续提供之前的外壳。
+2. **你的加载器返回可变的公共数据。** 在一次成功的变更之后,`useRevalidator()` 或操作后重定向触发的重新获取,可能会读取浏览器缓存的 `.data` 副本,而不是最新的加载器输出。
+
+这项设置适用于每一个公共外壳表面:React Router 的 SSR HTML 与 `.data`、登录 HTML 外壳、`/_agent-native/speculation-rules.json` 路由、文档站点,以及 forms 模板中的公共表单 SSR。生成的 Cloudflare Worker 会在构建时解析这个值,因此请在构建运行之前,先在部署环境中设置它。
+
+有三点需要牢记:
+
+- **关闭缓存并不会让 SSR 变得个性化。** Cookie 在渲染之前仍会被剥离,SSR 加载器仍然只会看到匿名分支。用户专属数据依然必须在客户端解析。这个变量只控制缓存的*时长*。
+- **它是部署范围的设置,而不是按路由的,这是有意的设计。** 按路由或按请求的缓存覆盖,会导致一个访问者的负载最终出现在另一个访问者共享的 CDN 条目里,因此框架不提供这种选项。`guard:ssr-cache-shell` 会强制执行这一点。
+- **对于需要在变更后立即新鲜的数据,优先使用 actions,而不是禁用缓存。** 应用数据属于 [actions](/docs/actions-overview),通过 `useActionQuery` / `useActionMutation` 从客户端读取,并通过 `useDbSync()` 轮询保持实时。这些都不经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳,只有在你确实需要更新鲜的加载器数据时,才使用这个变量。
+
+## 下一步
+
+- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — 完整的生产环境变量参考
+- [**Netlify**](/docs/netlify) — 为什么 `netlify-cdn-cache-control` 带有自己更长期的默认值

@@ -1,0 +1,32 @@
+---
+title: "在生产环境中更新 UI"
+description: "已部署应用的 UI 在上线后如何更新,以及 Builder.io 用于生产环境可视化编辑的独立托管工作流。"
+---
+
+# 在生产环境中更新 UI
+
+普通的已部署应用代理是通过应用工具(actions、数据库、
+MCP 和已配置的集成)工作的,而不是获得对应用源代码的环境访问权限。源代码
+更改属于代码仓库的开发工作流。当一个嵌入式、本地或 Builder 框架被有意授予
+工作区和写入工具时,它可以编辑代码仓库。
+
+在一个把[生产代码执行](/docs/actions-agent-tools#production-code-execution)关闭的标准生产部署中,代理可以访问应用工具(actions、数据库、MCP),但不能访问文件系统。这意味着代理可以读取和写入数据、运行 actions,并与外部服务交互。它无法在一个已部署的实例上编辑你的 React 组件,或添加新路由。
+
+## Builder.io:生产环境中的可视化编辑 {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一个独立的、具备代码能力的托管工作流,代理可以在其中于生产环境修改你应用的 UI。把你的代码仓库连接到 Builder.io(提供免费套餐),然后直接提示进行 UI 更改。无需重新部署。
+
+**它是如何工作的:**
+
+1. 把你的代理本机代码仓库连接到 Builder.io(提供免费套餐)
+2. Builder.io 提供一个带有代理、可视化编辑和实时协作的云端框架
+3. 提示代理进行 UI 更改。它会实时编辑你的组件、路由和样式
+4. 更改会被提交回你的代码仓库
+
+关于嵌入式代理面板与云端框架选项的更多内容,请参见 [Frames](/docs/frames)。
+
+## 下一步
+
+- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
+- [**Frames**](/docs/frames) — 嵌入式代理面板与 Builder.io 云端框架在生产 UI 编辑上的对比
+- [**Production Agent Access**](/docs/actions-agent-tools) — 已部署代理默认拥有哪些工具

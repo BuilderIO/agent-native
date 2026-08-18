@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Déployez une application agent-native sur Netlify avec le préréglage Nitro Netlify, et configurez le maintien à chaud pour les bases de données scale-to-zero."
+---
+
+# Netlify
+
+Le préréglage Nitro `netlify` fonctionne bien et, en pratique, nous a donné des démarrages à froid bien plus rapides que Cloudflare Pages (~200ms TTFB contre ~9s) pour les templates qui communiquent avec un Postgres externe (Neon). Définissez soit le préréglage dans `vite.config.ts` :
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…soit définissez `NITRO_PRESET=netlify` au moment du build.
+
+Pour un workspace, déployez chaque application depuis un seul site Netlify en exécutant :
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+Le build de workspace écrit les assets statiques sous `dist/_workspace_static/` et achemine chaque application vers sa propre fonction Netlify sans redirections d'assets forcées, de sorte que des fichiers comme `/mail/assets/...` sont servis statiquement avant que la fonction serveur ne traite les routes de l'application.
+
+## Maintien à chaud et bases de données scale-to-zero {#netlify-keep-warm}
+
+Lorsqu'elle est activée, le build Netlify émet une fonction planifiée qui demande `/_agent-native/health` **chaque minute**. Cela maintient au chaud la fonction serveur et sa base de données pour que le prochain visiteur après une période d'inactivité ne paie pas un démarrage à froid (1 à 5s sur Neon).
+
+Le maintien à chaud est **désactivé par défaut** car un réveil une fois par minute empêche l'auto-suspension sur les bases de données scale-to-zero facturées à l'usage. Sur un Neon en offre gratuite, cela peut épuiser le quota de calcul, et la base de données rejette alors **toutes** les lectures en cours de session. Le symptôme est une application morte, pas une application lente. Définissez `AGENT_NATIVE_ENABLE_KEEP_WARM=1` quand la latence réduite pour le prochain visiteur vaut le temps de veille de la base de données.
+
+Le planning de maintien à chaud et le maintien à chaud de la fonction d'arrière-plan ne s'appliquent qu'après l'activation du drapeau principal de maintien à chaud :
+
+| Variable                                    | Effet                                                                                                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le maintien à chaud planifié du serveur/de la base de données. Non défini par défaut.                                                                                  |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interrupteur de compatibilité qui l'emporte sur le drapeau d'activation quand il est défini.                                                                                  |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Remplace la cadence par une expression cron à 5 champs, par ex. `*/5 * * * *`. La cadence par défaut une fois activée est `* * * * *`. Une valeur non interprétable **fait échouer le build**. |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Supprime uniquement le maintien à chaud de la fonction d'arrière-plan, en gardant le serveur au chaud. Réchauffer `server` est une seule requête. Réchauffer `-background` démarre un nouveau conteneur qui re-sonde le schéma. |
+
+Si vous êtes sur un niveau de base de données gratuit ou autrement limité en quota, laissez `AGENT_NATIVE_ENABLE_KEEP_WARM` non défini. Si vous l'activez, utilisez une cadence plus lente ou définissez `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` pour supprimer le réchauffement d'arrière-plan plus coûteux.
+
+## Et ensuite
+
+- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
+- [**Mise en cache SSR**](/docs/ssr-caching) — la politique de cache par défaut et le comportement séparé `netlify-cdn-cache-control` de Netlify
+- [**Node.js & Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare), et [**Autres plateformes**](/docs/other-platforms) — les autres préréglages Nitro

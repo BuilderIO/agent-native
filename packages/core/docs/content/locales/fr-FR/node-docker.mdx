@@ -1,0 +1,54 @@
+---
+title: "Node.js & Docker"
+description: "Déployez une application agent-native avec le préréglage Nitro Node.js par défaut, en autonome ou conteneurisée avec Docker."
+---
+
+# Node.js & Docker
+
+Node.js est le préréglage Nitro par défaut. Cette page couvre son exécution directe et sa conteneurisation avec Docker. Voir [Déploiement](/docs/deployment) pour choisir d'abord une base de données, et [Déploiement de workspace](/docs/workspace-deployment#workspace-docker-compose) pour auto-héberger un workspace multi-application avec Docker Compose.
+
+## Node.js (par défaut) {#nodejs}
+
+Le préréglage par défaut. Construisez et exécutez :
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Définissez `PORT` pour configurer le port d'écoute (par défaut : `3000`).
+
+Utilisez la ligne LTS actuelle de Node.js pour les déploiements en production. En date
+de mai 2026, il s'agit de Node.js 24. Node.js 20 a atteint sa fin de vie le 30 avril
+2026 et ne reçoit plus de mises à jour de sécurité en amont.
+
+## Docker {#docker}
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Auto-héberger un workspace multi-application avec Docker Compose, en s'appuyant
+sur ce même Dockerfile autonome, est couvert dans
+[Déploiement de workspace](/docs/workspace-deployment#workspace-docker-compose).
+
+## Et ensuite
+
+- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
+- [**Déploiement de workspace**](/docs/workspace-deployment) — auto-hébergez un workspace multi-application avec Docker Compose
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), et [**Autres plateformes**](/docs/other-platforms) — les autres préréglages Nitro

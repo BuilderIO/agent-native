@@ -1,0 +1,33 @@
+---
+title: "Mettre à jour l'interface en production"
+description: "Comment l'interface d'une application déployée est mise à jour après le lancement, et le workflow géré séparé de Builder.io pour l'édition visuelle en production."
+---
+
+# Mettre à jour l'interface en production
+
+L'agent d'une application déployée ordinaire travaille via les outils de l'application
+(actions, base de données, MCP, et intégrations configurées) plutôt que de recevoir un
+accès ambiant au code source de l'application. Les changements de code source appartiennent
+au workflow de développement du dépôt. Un cadre (frame) intégré, local, ou Builder peut modifier
+le dépôt quand ce cadre reçoit intentionnellement l'outillage de workspace et d'écriture.
+
+Dans un déploiement de production standard avec l'[exécution de code en production](/docs/actions-agent-tools#production-code-execution) désactivée, l'agent a accès aux outils de l'application (actions, base de données, MCP) mais pas au système de fichiers. Cela signifie que l'agent peut lire et écrire des données, exécuter des actions, et interagir avec des services externes. Il ne peut pas modifier vos composants React ou ajouter de nouvelles routes sur une instance déployée.
+
+## Builder.io : édition visuelle en production {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) est un workflow géré séparé et capable de coder où un agent peut modifier l'interface de votre application en production. Connectez votre dépôt à Builder.io (offre gratuite disponible) et demandez des changements d'interface directement. Aucun redéploiement nécessaire.
+
+**Comment ça marche :**
+
+1. Connectez votre dépôt agent-native à Builder.io (offre gratuite disponible)
+2. Builder.io fournit un cadre cloud avec l'agent, l'édition visuelle, et la collaboration en temps réel
+3. Demandez à l'agent de faire des changements d'interface. Il modifie vos composants, routes, et styles en direct
+4. Les changements sont commités dans votre dépôt
+
+Voir [Cadres](/docs/frames) pour en savoir plus sur le panneau agent intégré face aux options de cadre cloud.
+
+## Et ensuite
+
+- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
+- [**Cadres**](/docs/frames) — le panneau agent intégré face au cadre cloud de Builder.io pour les modifications d'interface en production
+- [**Accès de l'agent de production**](/docs/actions-agent-tools) — les outils dont dispose l'agent déployé par défaut

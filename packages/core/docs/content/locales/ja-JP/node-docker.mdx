@@ -1,0 +1,51 @@
+---
+title: "Node.js & Docker"
+description: "デフォルトの Node.js Nitro プリセットを使って agent-native アプリをデプロイします。スタンドアロンでも、Docker でコンテナ化してもかまいません。"
+---
+
+# Node.js & Docker
+
+Node.js はデフォルトの Nitro プリセットです。このページでは、直接実行する方法と Docker でコンテナ化する方法を扱います。まずデータベースを選ぶには [デプロイ](/docs/deployment) を、Docker Compose でマルチアプリワークスペースをセルフホストするには [ワークスペースのデプロイ](/docs/workspace-deployment#workspace-docker-compose) を参照してください。
+
+## Node.js (Default) {#nodejs}
+
+デフォルトのプリセットです。ビルドして実行します。
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+`PORT` を設定してリッスンポートを構成します（デフォルト: `3000`）。
+
+本番デプロイには現在の Node.js LTS ラインを使用してください。2026年5月時点では Node.js 24 です。Node.js 20 は 2026年4月30日にエンドオブライフを迎え、アップストリームのセキュリティアップデートを受け取らなくなりました。
+
+## Docker {#docker}
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+この同じスタンドアロンの Dockerfile を土台にした、Docker Compose によるマルチアプリワークスペースのセルフホストは
+[ワークスペースのデプロイ](/docs/workspace-deployment#workspace-docker-compose) で扱っています。
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — Docker Compose でマルチアプリワークスペースをセルフホストする
+- [**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare)、[**その他のプラットフォーム**](/docs/other-platforms) — その他の Nitro プリセット

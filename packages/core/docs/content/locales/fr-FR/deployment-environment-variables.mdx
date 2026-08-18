@@ -1,0 +1,85 @@
+---
+title: "Déploiement : Variables d'environnement"
+description: "La référence des variables d'environnement de production pour le build, l'exécution, les secrets, et le comportement d'hébergement."
+---
+
+# Déploiement : Variables d'environnement
+
+Pour la référence à l'échelle du dépôt, y compris les variables de template, de
+fournisseur, locales, et de CI, voir [Variables d'environnement](/docs/environment-variables). Les
+tableaux ci-dessous restent le guide de référence pour les valeurs de production et
+le comportement d'hébergement.
+
+## Build / Exécution {#env-runtime}
+
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Port du serveur (Node.js uniquement)                                                                                                                                                                                                                                                                                                                                    |
+| `NITRO_PRESET`                              | Surcharge le préréglage de build au moment du build                                                                                                                                                                                                                                                                                                                     |
+| `APP_BASE_PATH`                             | Monte l'application sous un préfixe (par ex. `/mail`). Défini automatiquement par `npx @agent-native/core@latest deploy`. Laissez non défini pour un usage autonome.                                                                                                                                                                                                    |
+| `APP_URL`                                   | Origine publique canonique optionnelle. Vérifiée avant `BETTER_AUTH_URL` lors de la résolution de l'audience du JWT A2A, de l'origine publique OAuth, des cibles de webhook auto-dispatch, et des liens de ressources générés. Définissez-la explicitement sur les déploiements de preview/staging où l'hôte de la requête n'est pas fiable.                            |
+| `AGENT_PROD_CODE_EXECUTION`                 | Mode optionnel d'exécution de code en production : `off` (par défaut), `sandboxed`, ou `trusted`. Voir [Exécution de code en production](/docs/actions-agent-tools#production-code-execution).                                                                                                                                                                        |
+| `AGENT_NATIVE_SSR_CACHE`                    | Politique de cache de coquille SSR à l'échelle du déploiement : non défini/`on` garde le cache dur par défaut, `off` envoie `no-store`, ou une durée comme `30s` / `5m` définit une fraîcheur plus courte. Voir [Mise en cache SSR](/docs/ssr-caching).                                                                                                                |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active la fonction planifiée de maintien à chaud de Netlify. Non défini par défaut. Voir [Maintien à chaud](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interrupteur de compatibilité pour la fonction planifiée de maintien à chaud de Netlify. Voir [Maintien à chaud](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                      |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Remplace la cadence de maintien à chaud par une expression cron à 5 champs (par défaut `* * * * *` une fois activé). Une valeur non interprétable fait échouer le build. Voir [Maintien à chaud](/docs/netlify#netlify-keep-warm).                                                                                                                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Supprime uniquement le maintien à chaud de la fonction d'arrière-plan et garde le serveur au chaud. Voir [Maintien à chaud](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                           |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Désactive les minuteurs de balayage de secours en cours de processus (re-dispatch d'automatisation, réconciliation d'agent-teams, récupération d'exécution sandbox). Sur serverless, ceux-ci s'exécutent par conteneur chaud, donc leur taux de requêtes évolue avec le nombre d'instances. Définissez-la **uniquement** là où un planificateur durable pilote déjà la même récupération, sinon le travail en attente ne sera pas réessayé.                        |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Saute le DDL de schéma à la demande sur les déploiements que le saut serverless automatique ne couvre pas. Nécessite que votre schéma soit déjà migré. Voir [DDL de schéma à la demande](/docs/deployment#skip-ensure-tables).                                                                                                                                        |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Secret HMAC partagé dédié de 32+ caractères pour le relais d'autorisation Builder sûr pour les previews. Définissez la même valeur sur le déploiement de rappel corporate approuvé et sur les déploiements de preview uniquement lorsque l'autorisation doit atterrir dans une base de données de preview isolée.                                                    |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Liste blanche uniquement pour le rappel corporate, séparée par des virgules, d'origines de preview de confiance exactes (par exemple, `https://0123456789abcdef01234567--content.netlify.app`). Définissez-la uniquement sur le déploiement de rappel corporate. Les origines Netlify doivent utiliser un permalien immuable de 24 caractères hexadécimaux propre au déploiement. Les alias mutables `deploy-preview-*`, les jokers, et les suffixes de domaine sont rejetés. |
+
+Les variables de connexion à la base de données (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` par application) vivent dans [Base de données](/docs/server-database#production).
+
+## Configuration sensible pour la production {#env-required-prod}
+
+Ces paramètres couvrent le comportement sensible pour la production. Une application autonome utilisant
+l'authentification du framework a besoin d'un `BETTER_AUTH_SECRET` stable et d'une base de données
+persistante. L'URL d'authentification publique est déduite de la requête, du template connu, ou de la
+plateforme d'hébergement quand elle n'est pas définie. Les paramètres de workspace et d'A2A sont conditionnés à ces
+fonctionnalités. Les valeurs manquantes soit échouent de façon sécurisée, soit se replient sur un comportement plus faible
+avec un avertissement bruyant.
+
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | Chaîne aléatoire de 32+ caractères. Signe les cookies de session et sert de repli pour `OAUTH_STATE_SECRET` et les valeurs chiffrées locales à l'application. C'est aussi un candidat de lecture hérité pour le texte chiffré du vault partagé existant. Strictement requis : le framework échoue au démarrage si absent en production.               |
+| `BETTER_AUTH_URL`                           | Surcharge optionnelle de l'origine publique pour cette application (par ex. `https://mail.example.com`). Le framework la déduit du contexte de la requête, du template connu, et de la plateforme d'hébergement quand elle n'est pas définie.                                                                                                        |
+| `ANTHROPIC_API_KEY`                         | Clé API pour l'agent de production intégré. **Dans les déploiements multi-tenants**, le framework refuse de se replier sur celle-ci quand l'utilisateur n'a pas de clé personnelle. Bring-your-own-key est requis. Les installations mono-tenant auto-hébergées l'utilisent comme clé globale.                                                       |
+| `OAUTH_STATE_SECRET`                        | Clé HMAC dédiée pour les enveloppes d'état OAuth (Google, Atlassian, Zoom). Se replie sur `BETTER_AUTH_SECRET` quand non définie, mais une valeur dédiée est recommandée pour qu'en faire tourner une n'invalide pas l'autre. Générez-la via `openssl rand -hex 32`.                                                                                  |
+| `A2A_SECRET`                                | HMAC partagé pour le JSON-RPC A2A inter-applications et les transferts d'arrière-plan signés. Requis pour les déploiements de workspace hébergés et les fonctionnalités A2A. Sans elle, ces points de terminaison échouent de façon sécurisée en production. Quand aucune clé de vault de workspace dédiée n'est définie, le texte chiffré du vault partagé utilise une clé dérivée de cette valeur, donc la faire tourner fait aussi tourner la clé du vault. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Clé AES-256-GCM stable préférée pour le vault de secrets chiffré au repos partagé. Définissez la même valeur dans chaque application qui lit le vault. Elle est séparée du chiffrement OAuth/identifiants local à l'application, donc la confiance A2A peut tourner sans coincer les lignes du vault. Le texte chiffré A2A, Better Auth, et de clé d'application existant est migré à la première lecture réussie. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Clé de vault de workspace précédente optionnelle utilisée uniquement pendant une fenêtre de rotation. Déployez-la aux côtés du nouveau `WORKSPACE_SECRETS_ENCRYPTION_KEY`, laissez les lectures réussies re-chiffrer les lignes, puis retirez-la après la migration.                                                                                 |
+| `SECRETS_ENCRYPTION_KEY`                    | Clé combinée héritée pour le chiffrement local à l'application et le vault partagé. Elle reste prise en charge, mais les nouveaux déploiements multi-application devraient utiliser `WORKSPACE_SECRETS_ENCRYPTION_KEY` pour le vault partagé afin que changer le chiffrement du workspace ne change pas le texte chiffré OAuth local à l'application. |
+
+## Authentification et identité {#env-auth}
+
+Les identifiants de fournisseur OAuth (Google, GitHub), les replis de jeton porteur MCP statiques (`ACCESS_TOKEN` / `ACCESS_TOKENS`), et les bascules de vérification d'e-mail sont documentés dans [Authentification](/docs/authentication). Définissez-les là selon le mode d'authentification que vous choisissez.
+
+## Webhooks entrants {#env-webhooks}
+
+Chaque intégration de messagerie nécessite son propre secret de signature en production (les gestionnaires échouent de façon sécurisée sur les requêtes forgées quand le secret est absent). Les variables par intégration sont listées dans [Messagerie](/docs/messaging) et [Sécurité](/docs/security). Pour le développement local uniquement, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` réactive le comportement « avertir et accepter ». Ne le définissez jamais en production.
+
+## Configuration de sécurité (optionnelle) {#security-config}
+
+Les valeurs par défaut sont strictes. Une poignée de drapeaux optionnels assouplissent le comportement (traces de pile de débogage, webhooks non vérifiés, repli de clé à l'échelle du workspace, bascule multi-org du hub MCP, écritures de variables d'environnement à l'exécution). Ils sont documentés avec leurs compromis de sécurité dans [Sécurité](/docs/security). Ne les définissez pas sauf si vous voulez spécifiquement le comportement assoupli.
+
+## Héritage `.env` de workspace {#env-inheritance}
+
+Dans un workspace, le `.env` racine est chargé automatiquement dans chaque application, donc les clés partagées comme `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, et `OAUTH_STATE_SECRET` n'ont besoin d'être définies qu'une seule fois. `apps/<name>/.env` par application l'emporte en cas de conflit.
+
+## Générer des secrets solides {#env-generate-secrets}
+
+Pour tout secret marqué « 32+ caractères aléatoires » (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), générez des valeurs fraîches avec :
+
+```bash
+openssl rand -hex 32
+```
+
+Faites tourner les clés de signature/session en remplaçant la variable d'environnement sur chaque instance et en redéployant. Les sessions et les enveloppes d'état OAuth signées sous l'ancienne clé deviennent invalides, donc les utilisateurs devront peut-être se reconnecter. Faites tourner `WORKSPACE_SECRETS_ENCRYPTION_KEY` avec la fenêtre `..._PREVIOUS` décrite ci-dessus pour que les lignes de vault chiffrées restent lisibles pendant leur migration.
+
+## Et ensuite
+
+- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
+- [**Variables d'environnement**](/docs/environment-variables) — la référence à l'échelle du dépôt, y compris les variables de template, de fournisseur, locales, et de CI
+- [**Sécurité**](/docs/security) — la checklist de production et les drapeaux optionnels référencés tout au long de cette page
+- [**Authentification**](/docs/authentication) — identifiants OAuth et variables d'environnement pour le mode d'authentification choisi

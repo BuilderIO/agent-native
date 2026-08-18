@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Netlify Nitro プリセットを使って agent-native アプリを Netlify にデプロイし、スケールツーゼロデータベース向けの keep-warm を設定します。"
+---
+
+# Netlify
+
+Nitro の `netlify` プリセットはよく機能し、外部の Postgres（Neon）と通信するテンプレートでは、実際に Cloudflare Pages よりもはるかに速いコールドスタート（TTFB 約 200ms 対 約 9秒）を実現しています。プリセットは `vite.config.ts` で設定するか、
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…もしくはビルド時に `NITRO_PRESET=netlify` を設定します。
+
+ワークスペースの場合、次を実行して 1 つの Netlify サイトからすべてのアプリをデプロイします。
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+このワークスペースビルドは、静的アセットを `dist/_workspace_static/` 配下に書き出し、強制的なアセットリダイレクトなしで各アプリを専用の Netlify function にルーティングします。そのため `/mail/assets/...` のようなファイルは、サーバー function がアプリのルートを処理する前に静的に配信されます。
+
+## Keep-warm とスケールツーゼロデータベース {#netlify-keep-warm}
+
+有効にすると、Netlify のビルドは `/_agent-native/health` を**毎分**リクエストするスケジュール function を出力します。これによりサーバー function とそのデータベースがウォームな状態に保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。
+
+Keep-warm は**デフォルトで無効**です。1 分ごとのウェイクは、従量制のスケールツーゼロデータベースの自動サスペンドを妨げるためです。無料枠の Neon ではこれによりコンピュートクォータを使い果たすことがあり、その場合データベースはセッション途中で**すべての**読み取りを拒否します。症状は遅いアプリではなく、死んだアプリです。次の訪問者のレイテンシ低下がデータベースの稼働時間に見合う場合は `AGENT_NATIVE_ENABLE_KEEP_WARM=1` を設定してください。
+
+keep-warm のスケジュールと background-function のウォームアップは、メインの keep-warm フラグが有効になっている場合にのみ適用されます。
+
+| 変数                                        | 効果                                                                                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | スケジュールされたサーバー/データベースのウォームアップをオプトインします。デフォルトでは未設定です。                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 設定されている場合、オプトインフラグより優先される互換性のためのキルスイッチです。                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5 フィールドの cron 式（例: `*/5 * * * *`）で頻度を上書きします。有効時のデフォルトの頻度は `* * * * *` です。解析できない値は**ビルドを失敗させます**。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | background-function のウォームアップのみを取りやめ、サーバーのウォームアップは維持します。`server` のウォームアップは 1 リクエストで済みますが、`-background` のウォームアップは新しいコンテナを起動してスキーマを再プローブします。 |
+
+無料枠またはクォータが制限されたデータベースティアを使用している場合は、`AGENT_NATIVE_ENABLE_KEEP_WARM` を未設定のままにしてください。オプトインする場合は、より遅い頻度を使うか、`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` を設定して、より高コストな background のウォームアップを取りやめてください。
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**SSR キャッシュ**](/docs/ssr-caching) — デフォルトのキャッシュポリシーと、Netlify 独自の `netlify-cdn-cache-control` の動作
+- [**Node.js & Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Cloudflare**](/docs/cloudflare)、[**その他のプラットフォーム**](/docs/other-platforms) — その他の Nitro プリセット

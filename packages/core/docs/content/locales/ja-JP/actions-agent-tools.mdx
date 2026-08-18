@@ -1,0 +1,72 @@
+---
+title: "本番エージェントアクセス"
+description: "`frameworkTools` と `codeExecution` を通じて、デプロイされた本番エージェントが持つフレームワークツールとコード実行機能を制御します。"
+---
+
+# 本番エージェントアクセス
+
+## 本番エージェントツール {#production-agent-tools}
+
+本番エージェントは、アプリに登録されたアクションに加えて、フレームワーク自身のツールを受け取ります。`frameworkTools` は、そのうちどのフレームワークツールをこのアプリが公開するかを選択します。すべてのグループはデフォルトで現状の動作のままなので、オプションを省略しても何も変わりません。
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` と `extensions` は、以前のトップレベルフラグと同じ値を受け付けます。
+
+- `database: "read"`。デフォルトです。`db-schema` と `db-query` のみを登録します。エージェントは SQL でデータを検査できますが、書き込みには型付きのアプリアクションを使う必要があります。
+- `database: "write"` または `true`。意図的な生 SQL のメンテナンス用に `db-exec` と `db-patch` を追加で登録します。書き込みは現在のユーザー/組織にスコープされ、スキーマの変更はブロックされます。
+- `database: "off"` または `false`。生のデータベースツールをエージェントのサーフェスから取り除き、アプリのアクションだけがデータアクセス経路になるようにします。
+- `extensions: true`。アプリをフレームワークの拡張機能管理アクションとプロンプトガイダンス（`create-extension`、`update-extension` など）にオプトインさせます。認証済みの REST 作成を許可するには、core-routes プラグインでも `extensionTools: true` を設定してください。拡張機能はデフォルトで無効です。
+
+残りのグループはすべてブール値で、デフォルトではすべて有効です: `sharing`、`review`、`history`、`featureFlags`、`localization`、`audit`、`contextXray`、`userProfile`、`automation`、`docs`、`resources`、`web`、`workspaceApps`、`chat`、`email`。ボイスファーストや単一目的のアプリでは、`frameworkTools: "minimal"` を使ってすべてのグループを一度に無効にするか、`frameworkTools: { preset: "minimal", resources: true }` として 1 つだけ残します。明示的なグループキーは常にプリセットより優先されます。
+
+グループを無効にすると、それが取り除かれるのは**エージェント**のサーフェスからだけです。インタラクティブチャット、MCP、A2A、バックグラウンド実行が対象です。対応する HTTP アクションルートはマウントされたままです。UI はクライアントフックを通じてそれらに到達するためです。`sharing` を無効にしても、画面に表示されたままの共有ダイアログを 404 にしてはいけません。使う前にこのパリティコストを検討してください。フレームワークの契約は、UI にできることはエージェントにもできるというものなので、表示されている共有ボタンの隣で `sharing: false` にするのは意図的な破棄であり、アプリにそもそもそのようなサーフェスが一切ない場合にのみ意味を持ちます。
+
+フレームワークツールは、このオプションとは関係なく、デフォルトでは最初のモデルリクエストに昇格されなくなりました。検索可能なレジストリに留まり、`tool-search` を通じて読み込まれるか、アプリが `initialToolNames` でそれらを指定していれば即座に読み込まれます。
+
+<Callout tone="warning">
+  トップレベルの `databaseTools` と `extensionTools` オプションは非推奨で、`frameworkTools.database` と `frameworkTools.extensions` に置き換わりました。引き続き有効ですが、トップレベルフラグとそれに対応する `frameworkTools` の値が競合していると、誰も選んでいないツールサーフェスのまま起動するのではなく、プラグインの起動時に例外がスローされます。
+</Callout>
+
+## 本番コード実行 {#production-code-execution}
+
+デフォルトでは、本番エージェントはコード実行ツールなしで動作します。アプリのアクション、データベースツール、MCP ツール、ブラウザ/セッションツール、その他の登録済みフレームワークツールは呼び出せますが、シェルやファイルシステムへのアクセスは得られません。
+
+Node 互換のデプロイでは、agent chat プラグインまたは環境変数の上書きを通じて、本番コード実行にオプトインできます。
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+利用可能なモードは次のとおりです。
+
+- `off`。デフォルトです。本番ではコード実行ツールは一切登録されません。
+- `sandboxed`。`run-code` を登録します。これは、環境変数を除去し、新しい一時ディレクトリ、出力/時間の制限、そして `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`、および `workspaceRead` / `workspaceWrite` が使用する Resources 対応のワークスペースファイルブリッジといった許可リスト登録済みツールへの localhost ブリッジを持つ、隔離された Node.js の JavaScript ランナーです。
+- `trusted`。`run-code` に加えて、フル機能のコーディングツールレジストリ（`bash`、`read`、`edit`、`write`）を登録します。ホストへの完全なシェルアクセスが意図的なものである、シングルテナントまたはオペレーター管理下のデプロイでのみ使用してください。
+
+コードを変更せずに特定のデプロイでプラグインオプションを上書きするには、`AGENT_PROD_CODE_EXECUTION=sandboxed` または `AGENT_PROD_CODE_EXECUTION=trusted` を設定します。`AGENT_PROD_CODE_EXECUTION=off` は、プラグインオプションが有効にしている場合でもコード実行を強制的に無効にします。
+
+`run-code` のサンドボックスは、OS コンテナではなくプロセスレベルの隔離です。子プロセスの環境からアプリのシークレットを取り除き、利用可能な場合は Node のパーミッションモデルを使用しますが、アウトバウンドのネットワークは Node 自体ではブロックされません。認証が必要な呼び出しは、このツールが公開するブリッジヘルパーを経由するべきです。
+
+## 次は何ですか
+
+- [**アクション: アクセスと認可**](/docs/actions-access-control) — このページのツールレベルのゲーティングを補完する、アクションごとのアクセス制御の軸
+- [**本番環境での UI 更新**](/docs/updating-ui-in-production) — コード実行をオフにした場合、デプロイされたエージェントが編集できることとできないこと
+- [**デプロイ: 環境変数**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` などの本番環境変数

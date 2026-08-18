@@ -1,0 +1,55 @@
+---
+title: "Node.js & Docker"
+description: "Stellen Sie eine agentennative App mit der standardmäßigen Node.js-Nitro-Voreinstellung bereit, eigenständig oder containerisiert mit Docker."
+---
+
+# Node.js & Docker
+
+Node.js ist die Standard-Nitro-Voreinstellung. Diese Seite behandelt das direkte Ausführen und das Containerisieren mit Docker. Wählen Sie zuerst unter [Bereitstellung](/docs/deployment) eine Datenbank, und siehe [Arbeitsbereichsbereitstellung](/docs/workspace-deployment#workspace-docker-compose) für das Selbsthosten eines Multi-App-Arbeitsbereichs mit Docker Compose.
+
+## Node.js (Standard) {#nodejs}
+
+Die Standardvoreinstellung. Bauen und ausführen:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Legen Sie `PORT` fest, um den Listen-Port zu konfigurieren (Standard: `3000`).
+
+Verwenden Sie für Produktionsbereitstellungen die aktuelle Node.js-LTS-Reihe. Mit
+Stand Mai 2026 ist das Node.js 24. Node.js 20 hat am 30. April 2026 sein
+End-of-Life erreicht und erhält keine Upstream-Sicherheitsupdates mehr.
+
+## Docker {#docker}
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Das Selbsthosten eines Multi-App-Arbeitsbereichs mit Docker Compose, aufbauend
+auf demselben eigenständigen Dockerfile, wird in
+[Arbeitsbereichsbereitstellung](/docs/workspace-deployment#workspace-docker-compose)
+behandelt.
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**Arbeitsbereichsbereitstellung**](/docs/workspace-deployment) — einen Multi-App-Arbeitsbereich mit Docker Compose selbst hosten
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) und [**Andere Plattformen**](/docs/other-platforms) — die anderen Nitro-Voreinstellungen

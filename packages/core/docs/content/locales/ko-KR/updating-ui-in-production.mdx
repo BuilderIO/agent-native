@@ -1,0 +1,33 @@
+---
+title: "프로덕션에서 UI 업데이트하기"
+description: "배포된 앱의 UI가 출시 후 어떻게 업데이트되는지, 그리고 프로덕션에서의 시각적 편집을 위한 Builder.io의 별도 관리형 워크플로."
+---
+
+# 프로덕션에서 UI 업데이트하기
+
+일반적으로 배포된 앱의 에이전트는 앱 소스 코드에 대한 상시 접근 권한을
+받는 대신, 앱 도구(actions, 데이터베이스, MCP, 구성된 통합)를 통해
+동작합니다. 소스 변경은 저장소의 개발 워크플로에 속합니다. 임베디드,
+로컬, 또는 Builder 프레임은 해당 프레임에 작업 공간과 쓰기 도구가
+의도적으로 부여된 경우 저장소를 편집할 수 있습니다.
+
+[프로덕션 코드 실행](/docs/actions-agent-tools#production-code-execution)을 끈 표준 프로덕션 배포에서는, 에이전트는 앱 도구(actions, 데이터베이스, MCP)에 접근할 수 있지만 파일 시스템에는 접근할 수 없습니다. 즉, 에이전트는 데이터를 읽고 쓰고, actions를 실행하고, 외부 서비스와 상호 작용할 수 있습니다. 배포된 인스턴스에서 React 컴포넌트를 편집하거나 새 라우트를 추가할 수는 없습니다.
+
+## Builder.io: 프로덕션에서의 시각적 편집 {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 에이전트가 프로덕션에서 앱의 UI를 수정할 수 있는, 코드 작업이 가능한 별도의 관리형 워크플로입니다. 저장소를 Builder.io에 연결하고(무료 등급 제공) UI 변경을 직접 프롬프트로 요청하세요. 재배포가 필요하지 않습니다.
+
+**작동 방식:**
+
+1. agent-native 저장소를 Builder.io에 연결하세요(무료 등급 제공)
+2. Builder.io는 에이전트, 시각적 편집, 실시간 협업이 포함된 클라우드 프레임을 제공합니다
+3. 에이전트에게 UI 변경을 프롬프트하세요. 컴포넌트, 라우트, 스타일을 실시간으로 편집합니다
+4. 변경 사항은 저장소에 다시 커밋됩니다
+
+임베디드 에이전트 패널과 클라우드 프레임 옵션에 대한 더 자세한 내용은 [Frames](/docs/frames)를 참조하세요.
+
+## 다음 단계
+
+- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
+- [**Frames**](/docs/frames) — 프로덕션 UI 편집을 위한 임베디드 에이전트 패널과 Builder.io의 클라우드 프레임 비교
+- [**Production Agent Access**](/docs/actions-agent-tools) — 배포된 에이전트가 기본적으로 갖는 도구들

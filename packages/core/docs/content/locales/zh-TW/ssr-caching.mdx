@@ -1,0 +1,45 @@
+---
+title: "SSR 快取"
+description: "SSR HTML 與 React Router .data 回應的預設強制快取政策，以及如何使用 AGENT_NATIVE_SSR_CACHE 覆寫它。"
+---
+
+# SSR 快取
+
+每一個 SSR HTML 回應和每一個 React Router `.data` 回應，都是同一份不具個人化、公開的 shell。`createH3SSRHandler` 會在渲染之前先剝除 cookies，因此同一組位元組資料對每一位訪客都是正確的，所有個人化都在載入後於用戶端進行。這就是為什麼可以安全地為這些回應預設套用單一的強制快取政策：
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+相同的值也會鏡射到 `cdn-cache-control`。`netlify-cdn-cache-control` 則帶有自己存續期間更長的預設值 `public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600`，因為 Netlify 的 CDN 是獨立讀取這個標頭，而不是讀取標準標頭。這樣一來，一個共用的 CDN 項目就能服務整個網站，而不需要針對每個請求各自渲染。這是影響首次回應延遲最大的單一因素。除非你的部署符合下面其中一種情況，否則請保持它開啟。
+
+## 使用 `AGENT_NATIVE_SSR_CACHE` 覆寫 {#ssr-cache-env}
+
+在部署環境中設定 `AGENT_NATIVE_SSR_CACHE`，可以變更整個部署的政策：
+
+| Value                                               | Result                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 未設定、`on`、`default`、`true`、`1`                 | 上面的預設政策，維持不變。建議用於獲得最佳效能。               |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | 在 `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上設為 `no-store`。 |
+| 一個持續時間：`30`、`30s`、`5m`、`2h`                 | 在 `cache-control` 和 `cdn-cache-control` 上設為 `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。`netlify-cdn-cache-control` 使用相同的持續時間，搭配 `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。 |
+
+純數字代表秒數。對於自訂持續時間，`stale-while-revalidate` 刻意鏡射 `max-age`：一個很短的新鮮度視窗，如果搭配預設的七天過期視窗，就會傳回你原本想要退出的那種過期狀態。無法辨識的值會記錄一則警告並回退到預設值，因此打錯字絕對不會悄悄停用 CDN。
+
+在下列任一情況成立時，請調降或關閉它：
+
+1. **你的主機在部署時不會清除其 CDN。** Netlify 和 Vercel 會清除，某些自行管理的設定則不會。如果沒有清除，已上線的建置可能會在 `max-age` 加上 `stale-while-revalidate` 的期間內持續提供先前的 shell。
+2. **你的 loader 回傳可變動的公開資料。** 在一次成功的 mutation 之後，`useRevalidator()` 或動作後重新導向的重新擷取，可能會讀取瀏覽器快取的 `.data` 副本，而不是最新的 loader 輸出。
+
+這項設定適用於每一個公開 shell 介面：React Router SSR HTML 和 `.data`、登入 HTML shell、`/_agent-native/speculation-rules.json` 路由、文件網站，以及 forms 範本中的公開表單 SSR。產生出來的 Cloudflare Worker 會在建置時解析這個值，因此請在建置執行之前，先在部署環境中設定它。
+
+有三件事要記住：
+
+- **關閉快取並不會讓 SSR 變成個人化。** Cookies 在渲染前仍然會被剝除，SSR loader 仍然只會看到匿名分支。每位使用者的資料仍然必須在用戶端解析。這個變數只控制快取的 _持續時間_。
+- **依照設計，它是整個部署層級的設定，而不是逐路由設定。** 逐路由或逐請求的快取覆寫，正是導致某位訪客的內容最終出現在另一位訪客共用的 CDN 項目中的原因，因此框架不提供這種選項。`guard:ssr-cache-shell` 會強制執行這一點。
+- **想要取得 mutation 後最新的資料時，優先使用 actions，而不是停用快取。** 應用程式資料應該放在 [actions](/docs/actions-overview) 中，由用戶端透過 `useActionQuery` / `useActionMutation` 讀取，並透過 `useDbSync()` 輪詢保持最新。這一切都不會經過 SSR shell 快取。讓 SSR loader 繼續渲染公開 shell，只有在你真的需要更新鮮的 loader 資料時，才使用這個變數。
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — 完整的正式環境環境變數參考
+- [**Netlify**](/docs/netlify) — 為什麼 `netlify-cdn-cache-control` 帶有自己存續期間更長的預設值

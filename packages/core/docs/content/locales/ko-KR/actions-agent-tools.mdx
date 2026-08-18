@@ -1,0 +1,122 @@
+---
+title: "프로덕션 에이전트 접근"
+description: "frameworkTools와 codeExecution을 통해 배포된 프로덕션 에이전트가 갖는 프레임워크 도구와 코드 실행 기능을 제어하세요."
+---
+
+# 프로덕션 에이전트 접근
+
+## 프로덕션 에이전트 도구 {#production-agent-tools}
+
+프로덕션 에이전트는 앱에 등록된 actions와 프레임워크 자체 도구를 함께
+갖습니다. `frameworkTools`는 이 앱이 이러한 프레임워크 도구 중 어떤 것을
+노출할지 선택합니다. 모든 그룹은 오늘날의 동작을 기본값으로 하므로, 옵션을
+생략해도 아무것도 바뀌지 않습니다:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database`와 `extensions`는 기존 최상위 플래그가 받던 값을 그대로 받습니다:
+
+- `database: "read"`. 기본값입니다. `db-schema`와 `db-query`만 등록합니다.
+  에이전트는 SQL로 데이터를 조회할 수 있지만 쓰기에는 타입이 지정된 앱
+  actions를 사용해야 합니다.
+- `database: "write"` 또는 `true`. 의도적인 원시 SQL 유지 관리를 위해
+  `db-exec`와 `db-patch`를 추가로 등록합니다. 쓰기는 현재 사용자/조직으로
+  범위가 지정되며 스키마 변경은 차단됩니다.
+- `database: "off"` 또는 `false`. 원시 데이터베이스 도구를 에이전트
+  표면에서 제거하여 앱의 actions만이 유일한 데이터 접근 경로가 되도록
+  합니다.
+- `extensions: true`. 앱을 프레임워크 extension 관리 actions와 프롬프트
+  안내(`create-extension`, `update-extension` 등)에 옵트인시킵니다. 인증된
+  REST 생성도 허용하려면 core-routes 플러그인에도 `extensionTools: true`를
+  설정하세요. Extensions는 기본적으로 비활성화되어 있습니다.
+
+나머지 그룹은 모두 불리언이며 기본적으로 모두 켜져 있습니다: `sharing`,
+`review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, `email`. 음성 우선이나 단일 목적 앱을 위해 모든 그룹을 한 번에
+끄려면 `frameworkTools: "minimal"`을 사용하고, 하나만 유지하려면
+`frameworkTools: { preset: "minimal", resources: true }`를 사용하세요.
+명시적인 그룹 키는 항상 프리셋보다 우선합니다.
+
+그룹을 끄면 이는 **에이전트** 표면에서만 제거됩니다. 즉 대화형 채팅, MCP,
+A2A, 백그라운드 실행입니다. 일치하는 HTTP action 라우트는 계속 마운트된
+상태로 유지됩니다. UI가 클라이언트 훅을 통해 이들에 접근하기 때문입니다.
+`sharing`을 비활성화해도 화면에 여전히 표시된 공유 대화상자가 404가
+되어서는 안 됩니다. 이를 사용하기 전에 이 패리티 비용을 저울질하세요.
+프레임워크의 계약은 UI가 할 수 있는 모든 것을 에이전트도 할 수 있다는
+것이므로, 공유 버튼이 보이는 상태에서 `sharing: false`를 설정하는 것은
+의도적인 계약 위반이며, 앱에 그런 표면이 아예 없는 경우에만 타당합니다.
+
+이 옵션과 무관하게, 프레임워크 도구는 더 이상 기본적으로 첫 모델 요청에
+프로모션되지 않습니다. 이들은 검색 가능한 레지스트리에 남아 `tool-search`를
+통해 로드되거나, 앱이 `initialToolNames`에서 이름을 지정한 경우 즉시
+로드됩니다.
+
+<Callout tone="warning">
+  최상위 `databaseTools`와 `extensionTools` 옵션은 지원 중단(deprecated)되었으며,
+  대신 `frameworkTools.database`와 `frameworkTools.extensions`를 사용해야
+  합니다. 여전히 동작하지만, 최상위 플래그와 이에 대응하는 `frameworkTools`
+  값을 서로 충돌하는 값으로 설정하면 아무도 선택하지 않은 도구 표면으로
+  부팅하는 대신 플러그인 시작 시 예외를 발생시킵니다.
+</Callout>
+
+## 프로덕션 코드 실행 {#production-code-execution}
+
+기본적으로 프로덕션 에이전트는 코드 실행 도구 없이 실행됩니다. 앱
+actions, 데이터베이스 도구, MCP 도구, 브라우저/세션 도구, 그 외 등록된
+프레임워크 도구를 호출할 수 있지만, 셸이나 파일 시스템 접근 권한은 갖지
+않습니다.
+
+Node 호환 배포는 에이전트 채팅 플러그인이나 환경 변수 재정의를 통해
+프로덕션 코드 실행에 옵트인할 수 있습니다:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+사용 가능한 모드는 다음과 같습니다:
+
+- `off`. 기본값입니다. 프로덕션에는 코드 실행 도구가 등록되지 않습니다.
+- `sandboxed`. `run-code`를 등록합니다. 이는 정제된 환경, 새로운 임시
+  디렉터리, 출력/시간 제한, 그리고 `provider-api-request`,
+  `provider-api-docs`, `provider-api-catalog`, `web-request`,
+  `workspaceRead` / `workspaceWrite`가 사용하는 Resources 기반 작업 공간
+  파일 브리지 같은 허용 목록에 등록된 도구로의 localhost 브리지를 갖춘
+  격리된 Node.js JavaScript 러너입니다.
+- `trusted`. `run-code`와 전체 코딩 도구 레지스트리(`bash`, `read`,
+  `edit`, `write`)를 등록합니다. 호스트에 대한 전체 셸 접근이 의도된,
+  단일 테넌트 또는 운영자가 제어하는 배포에만 사용하세요.
+
+코드 변경 없이 특정 배포에 대해 플러그인 옵션을 재정의하려면
+`AGENT_PROD_CODE_EXECUTION=sandboxed` 또는
+`AGENT_PROD_CODE_EXECUTION=trusted`를 설정하세요.
+`AGENT_PROD_CODE_EXECUTION=off`는 플러그인 옵션이 이를 활성화하더라도
+코드 실행을 강제로 끕니다.
+
+`run-code` 샌드박스는 OS 컨테이너가 아니라 프로세스 수준의 격리입니다.
+자식 프로세스 환경에서 앱 시크릿을 제거하고 가능한 경우 Node 권한 모델을
+사용하지만, 아웃바운드 네트워크는 Node 자체에 의해 차단되지 않습니다.
+인증된 호출은 이 도구가 노출하는 브리지 헬퍼를 거쳐야 합니다.
+
+## 다음 단계
+
+- [**Actions: Access & Authorization**](/docs/actions-access-control) — 이 페이지의 도구 수준 게이팅을 보완하는 액션별 접근 제어 축
+- [**Updating UI in Production**](/docs/updating-ui-in-production) — 코드 실행을 끈 상태에서 배포된 에이전트가 편집할 수 있는 것과 없는 것
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION`과 그 외 프로덕션 환경 변수
