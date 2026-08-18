@@ -294,7 +294,9 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The targeted Design workspace includes its dependent toolkit and recap
+    # packages. Keep enough room for a cold install and the full serial suite.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
