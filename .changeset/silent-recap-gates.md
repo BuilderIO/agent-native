@@ -1,4 +1,5 @@
 ---
+"@agent-native/core": patch
 "@agent-native/recap-cli": patch
 ---
 
