@@ -17,6 +17,24 @@ import { z } from "zod";
  * in the process down with it.
  */
 export const workspaceConfig = z.object({
+  isWorkspace: z
+    .boolean()
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_WORKSPACE", "VITE_AGENT_NATIVE_WORKSPACE"],
+      doc: "Whether this app is mounted inside a shared workspace gateway.",
+    }),
+  appsJson: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      ],
+      doc: "Serialized workspace app manifest used by mounted app runtimes.",
+    }),
   gatewayUrl: z
     .string()
     .min(1)

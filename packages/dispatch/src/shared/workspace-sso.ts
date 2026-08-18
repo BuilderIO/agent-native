@@ -116,3 +116,58 @@ export function parseWorkspaceSsoAppRegistrations(
   }
   return registrations;
 }
+
+function appOrigin(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== "string" || !rawUrl.trim()) return null;
+  try {
+    const url = new URL(rawUrl.trim());
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
+  } catch {
+    // coercion-ok: malformed app metadata is not eligible for workspace SSO.
+    return null;
+  }
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    return LOCALHOST_HOSTS.has(new URL(origin).hostname);
+  } catch {
+    // coercion-ok: only a previously parsed origin reaches this helper.
+    return false;
+  }
+}
+
+/**
+ * Keep the server-side app catalog and the browser's action choice on the
+ * same exact-origin rules. `registryRaw` is deliberately supplied by the
+ * caller so this shared module never reads process or browser environment.
+ */
+export function isWorkspaceSsoAppUrl(
+  app: { id: string; url?: unknown },
+  options: { nodeEnv?: string; registryRaw?: unknown } = {},
+): boolean {
+  const origin = appOrigin(app.url);
+  if (!origin) return false;
+
+  const appId = app.id.trim().toLowerCase();
+  const canonicalOrigin =
+    CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
+      appId as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
+    ];
+  if (canonicalOrigin === origin) return true;
+
+  if (
+    options.nodeEnv !== "production" &&
+    canonicalOrigin &&
+    isLoopbackOrigin(origin)
+  ) {
+    return true;
+  }
+
+  return parseWorkspaceSsoAppRegistrations(options.registryRaw).some(
+    (registration) =>
+      registration.appId === appId && registration.origin === origin,
+  );
+}
