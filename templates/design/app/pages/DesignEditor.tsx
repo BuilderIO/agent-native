@@ -32448,7 +32448,7 @@ function DesignEditor() {
                             <DropdownMenuTrigger asChild>
                               <Button
                                 // guard:allow-raw-color — translucent divider on the branded blue Apply button
-                              className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                                className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                                 aria-label={t(
                                   "designEditor.pendingVisualStyles.previewLabel",
                                 )}
