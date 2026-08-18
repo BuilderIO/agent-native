@@ -15,6 +15,38 @@ Set `DATABASE_URL` in your deploy provider before promoting an app to production
 
 Use `DATABASE_AUTH_TOKEN` only when your database provider requires a separate token, such as Turso/libSQL. For workspaces, all apps inherit the root `DATABASE_URL` by default. Set `<APP_NAME>_DATABASE_URL` when one app should use a different database.
 
+### On-demand schema DDL {#skip-ensure-tables}
+
+Each store calls `ensureTable()` on its first database touch, which probes
+`information_schema` / `pg_indexes` and issues `CREATE TABLE` / `ADD COLUMN` /
+`CREATE INDEX` only for what is genuinely missing. On a long-lived Node server
+that cost is paid once per boot and is invisible. On serverless, "first touch" is
+**every cold start**, across ~57 stores. A cold request can pay a few hundred
+serial round trips before it does any real work.
+
+Two things reduce it:
+
+- The probes are answered from **one batched introspection pass per database**
+  (two queries), instead of one query per table, column, and index. This is
+  automatic and needs no configuration.
+- On Netlify Functions, AWS Lambda, and Vercel Functions in production, the
+  framework skips the probe-and-DDL machinery automatically. No env var is
+  needed on those platforms.
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the same machinery on deployments
+  the automatic check does not cover, such as a long-lived Node server, Docker,
+  or another self-hosted setup.
+
+Set `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` when your database schema is already
+migrated and you do not want application boot creating or altering tables on
+one of those deployments. This is the normal case for a production deployment
+with a real migration step.
+
+<Callout tone="risk">
+
+**Neither this flag nor the automatic serverless skip can fail closed.** If the schema is in fact missing, the first real query fails loudly rather than being repaired on the fly. That is the point, but it means you own the migration story. Do not rely on either one for a deployment that relies on application boot to provision its tables.
+
+</Callout>
+
 ## Workspace Deploy: One Origin, Many Apps {#workspace-deploy}
 
 If your project is a [workspace](/docs/multi-app-workspace), you can ship every app in it to a single origin with one command:
@@ -449,38 +481,6 @@ The keep-warm schedule and background-function warm only apply after the main ke
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drops only the background-function warm, keeping the server warm. Warming `server` is one request. Warming `-background` starts a fresh container that re-probes the schema. |
 
 If you are on a free or otherwise quota-limited database tier, leave `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you opt in, use a slower cadence or set `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` to drop the more expensive background warm.
-
-### On-demand schema DDL {#skip-ensure-tables}
-
-Each store calls `ensureTable()` on its first database touch, which probes
-`information_schema` / `pg_indexes` and issues `CREATE TABLE` / `ADD COLUMN` /
-`CREATE INDEX` only for what is genuinely missing. On a long-lived Node server
-that cost is paid once per boot and is invisible. On serverless, "first touch" is
-**every cold start**, across ~57 stores. A cold request can pay a few hundred
-serial round trips before it does any real work.
-
-Two things reduce it:
-
-- The probes are answered from **one batched introspection pass per database**
-  (two queries), instead of one query per table, column, and index. This is
-  automatic and needs no configuration.
-- On Netlify Functions, AWS Lambda, and Vercel Functions in production, the
-  framework skips the probe-and-DDL machinery automatically. No env var is
-  needed on those platforms.
-- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the same machinery on deployments
-  the automatic check does not cover, such as a long-lived Node server, Docker,
-  or another self-hosted setup.
-
-Set `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` when your database schema is already
-migrated and you do not want application boot creating or altering tables on
-one of those deployments. This is the normal case for a production deployment
-with a real migration step.
-
-<Callout tone="risk">
-
-**Neither this flag nor the automatic serverless skip can fail closed.** If the schema is in fact missing, the first real query fails loudly rather than being repaired on the fly. That is the point, but it means you own the migration story. Do not rely on either one for a deployment that relies on application boot to provision its tables.
-
-</Callout>
 
 ## Cloudflare Pages {#cloudflare-pages}
 
