@@ -50,6 +50,7 @@ describe("infinite filtered pagination", () => {
         element: {} as Element,
         hasNextPage,
         isFetchingNextPage,
+        isFetchNextPageError: false,
         fetchNextPage,
       });
       return FakeIntersectionObserver.instances[
@@ -77,5 +78,24 @@ describe("infinite filtered pagination", () => {
     rearm(true)?.emit(true);
     expect(fetchNextPage).toHaveBeenCalledTimes(3);
     expect(loadedPages).toEqual(pages);
+  });
+
+  it("waits for an explicit retry after a page fetch fails", () => {
+    vi.stubGlobal(
+      "IntersectionObserver",
+      FakeIntersectionObserver as unknown as typeof IntersectionObserver,
+    );
+
+    const fetchNextPage = vi.fn(async () => undefined);
+
+    observeNextPage({
+      element: {} as Element,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      isFetchNextPageError: true,
+      fetchNextPage,
+    });
+
+    expect(FakeIntersectionObserver.instances).toHaveLength(0);
   });
 });

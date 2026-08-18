@@ -7,7 +7,7 @@ const deckRows = [
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
     visibility: "private",
     designSystemId: null,
-    ownerEmail: "alice@example.com",
+    ownerEmail: "Alice@Example.com",
     createdAt: "2026-05-03T00:00:00.000Z",
     updatedAt: "2026-05-03T00:00:00.000Z",
   },
@@ -95,6 +95,7 @@ describe("list-decks", () => {
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",
       slides: [{ id: "slide-1" }],
+      createdByMe: true,
     });
   });
 

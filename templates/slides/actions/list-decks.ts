@@ -8,6 +8,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getDeckUrl } from "./_app-url.js";
 
+function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
 function slidesDeepLink(): string {
   return buildDeepLink({ app: "slides", view: "list" });
 }
@@ -47,6 +52,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();
+    const normalizedOwnerEmail = normalizeEmail(ownerEmail);
     if (
       args.includeSlides === "true" &&
       ctx?.caller === "frontend" &&
@@ -91,7 +97,9 @@ export default defineAction({
           title: row.title,
           updatedAt: row.updatedAt,
           visibility: row.visibility,
-          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+          createdByMe:
+            normalizedOwnerEmail !== null &&
+            normalizeEmail(row.ownerEmail) === normalizedOwnerEmail,
         })),
       };
     }
@@ -122,7 +130,9 @@ export default defineAction({
           url: getDeckUrl(row.id),
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
-          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+          createdByMe:
+            normalizedOwnerEmail !== null &&
+            normalizeEmail(row.ownerEmail) === normalizedOwnerEmail,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         })),
@@ -148,7 +158,9 @@ export default defineAction({
           id: row.id,
           title: row.title,
           visibility: row.visibility,
-          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+          createdByMe:
+            normalizedOwnerEmail !== null &&
+            normalizeEmail(row.ownerEmail) === normalizedOwnerEmail,
           designSystemId: row.designSystemId ?? data.designSystemId ?? null,
           createdAt:
             typeof data.createdAt === "string" ? data.createdAt : row.createdAt,

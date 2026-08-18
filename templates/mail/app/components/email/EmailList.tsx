@@ -84,6 +84,7 @@ interface EmailListProps {
   hasNextPage?: boolean;
   fetchNextPage?: () => Promise<unknown>;
   isFetchingNextPage?: boolean;
+  isFetchNextPageError?: boolean;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedIds: Set<string>;
@@ -367,6 +368,7 @@ export function EmailList({
   hasNextPage: hasNextPageProp,
   fetchNextPage: fetchNextPageProp,
   isFetchingNextPage: isFetchingNextPageProp,
+  isFetchNextPageError: isFetchNextPageErrorProp,
   focusedId,
   setFocusedId,
   selectedIds,
@@ -398,6 +400,7 @@ export function EmailList({
     hasNextPage: fetchedEmailsHasNextPage,
     fetchNextPage: fetchFetchedNextPage,
     isFetchingNextPage: fetchedEmailsFetchingNextPage,
+    isFetchNextPageError: fetchedEmailsFetchNextPageError,
   } = useEmails(view, searchQuery, labelParam ?? undefined, {
     enabled: emailsProp === undefined,
   });
@@ -411,6 +414,8 @@ export function EmailList({
   const fetchNextPage = fetchNextPageProp ?? fetchFetchedNextPage;
   const isFetchingNextPage =
     isFetchingNextPageProp ?? fetchedEmailsFetchingNextPage;
+  const isFetchNextPageError =
+    isFetchNextPageErrorProp ?? fetchedEmailsFetchNextPageError;
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
@@ -1138,9 +1143,10 @@ export function EmailList({
       element: el,
       hasNextPage: Boolean(hasNextPage),
       isFetchingNextPage: Boolean(isFetchingNextPage),
+      isFetchNextPageError: Boolean(isFetchNextPageError),
       fetchNextPage,
     });
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
   // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
@@ -1602,6 +1608,15 @@ export function EmailList({
               <Spinner className="size-3 text-muted-foreground" />
               {t("mail.empty.loadingMore")}
             </div>
+          )}
+          {isFetchNextPageError && !isFetchingNextPage && (
+            <button
+              type="button"
+              onClick={() => void fetchNextPage()}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+            >
+              {t("mail.error.tryAgain")}
+            </button>
           )}
         </div>
       </div>

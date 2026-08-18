@@ -31,9 +31,9 @@ describe("Inbox pagination", () => {
     expect(source.slice(0, emptyState)).toContain(
       "if (threads.length === 0 && hasNextPage)",
     );
-    expect(source).toContain(
-      "[hasNextPage, isFetchingNextPage, fetchNextPage]",
-    );
+    expect(source).toContain("isFetchNextPageError");
+    expect(inboxSource()).toContain("shouldShowInboxZero");
+    expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
   });
 });
 

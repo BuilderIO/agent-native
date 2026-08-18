@@ -2,6 +2,7 @@ interface ObserveNextPageOptions {
   element: Element;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
   fetchNextPage: () => Promise<unknown>;
 }
 
@@ -10,15 +11,19 @@ interface ObserveNextPageOptions {
  *
  * The owning effect re-runs when `isFetchingNextPage` changes. That lets the
  * next observer receive the sentinel's already-visible state after a fetch,
- * including when several consecutive pages contain no filtered matches.
+ * including when several consecutive pages contain no filtered matches. A
+ * failed page is deliberately left unobserved until the user explicitly
+ * retries it, so a persistent provider error cannot create a request loop.
  */
 export function observeNextPage({
   element,
   hasNextPage,
   isFetchingNextPage,
+  isFetchNextPageError,
   fetchNextPage,
 }: ObserveNextPageOptions): () => void {
-  if (!hasNextPage || isFetchingNextPage) return () => {};
+  if (!hasNextPage || isFetchingNextPage || isFetchNextPageError)
+    return () => {};
 
   let fetchInFlight = false;
   const observer = new IntersectionObserver(
