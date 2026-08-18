@@ -2650,9 +2650,9 @@ export default function SlideEditor({
     );
   }, []);
 
-  /** Column ops change cell count per row but not `<col>` tracks. A
-   *  `<colgroup>` (imported decks can carry one — sanitize-slide-html allows
-   *  it) positionally maps each `<col>` to a column, so an unsynced insert
+  /** Column ops change cell count per row but not col tracks. A colgroup
+   *  (imported decks can carry one — sanitize-slide-html allows it)
+   *  positionally maps each col element to a column, so an unsynced insert
    *  or delete leaves too few/many tracks and visually misaligns columns.
    *  Row ops don't touch columns, so this only guards column ops. */
   const tableHasColgroup = useCallback((table: HTMLTableElement) => {
