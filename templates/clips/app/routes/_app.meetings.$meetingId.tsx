@@ -97,6 +97,7 @@ interface Meeting {
   ownerEmail?: string | null;
   scheduledStart: string;
   scheduledEnd?: string | null;
+  updatedAt?: string | null;
   actualStart?: string | null;
   actualEnd?: string | null;
   platform?: string;
@@ -513,11 +514,13 @@ export default function MeetingDetailRoute() {
     meetingId: string;
     items: ActionItem[];
   } | null>(null);
-  const actionItemsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const actionItemsSaveRevisionRef = useRef(0);
   const pendingActionItemsSavesRef = useRef(0);
-  const richNoteSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const meetingContentSaveQueueRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
   const richNoteSaveRevisionRef = useRef(0);
+  const meetingUpdatedAtRef = useRef<string | null>(null);
 
   // Imperative scroll-to handle wired by TranscriptBubbles
   const transcriptScrollToRef = useRef<((index: number) => void) | null>(null);
@@ -588,6 +591,10 @@ export default function MeetingDetailRoute() {
     }
   }, [meeting?.id, meeting?.actionItemsJson]);
 
+  useEffect(() => {
+    meetingUpdatedAtRef.current = meeting?.updatedAt ?? null;
+  }, [meeting?.id, meeting?.updatedAt]);
+
   // Recording is a native Clips desktop-app gesture (Granola-style), not an
   // in-browser capture. For an un-recorded, not-yet-past meeting we surface a
   // handoff to the desktop app. While the desktop records, this web view polls
@@ -652,10 +659,34 @@ export default function MeetingDetailRoute() {
     );
   };
 
+  const recordMeetingSaveResult = (result: unknown) => {
+    const updatedAt = (
+      result as { meeting?: { updatedAt?: unknown } } | null | undefined
+    )?.meeting?.updatedAt;
+    if (typeof updatedAt !== "string") return;
+    meetingUpdatedAtRef.current = updatedAt;
+    patchCachedMeeting({ updatedAt });
+  };
+
   const handleTitleChange = (next: string) => {
     if (!meeting) return;
     patchCachedMeeting({ title: next });
-    updateMeeting.mutate({ id: meeting.id, title: next });
+    const save = meetingContentSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const expectedUpdatedAt = meetingUpdatedAtRef.current;
+        const result = await updateMeeting.mutateAsync({
+          id: meeting.id,
+          title: next,
+          ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+        });
+        recordMeetingSaveResult(result);
+        return result;
+      });
+    meetingContentSaveQueueRef.current = save.catch((error) => {
+      console.error("[clips] meeting title save failed", error);
+      toast.error(t("transcriptPanel.saveFailed", { status: "title" }));
+    });
   };
 
   const enqueueRichNoteSave = (
@@ -664,10 +695,19 @@ export default function MeetingDetailRoute() {
     label: string,
   ) => {
     const revision = ++richNoteSaveRevisionRef.current;
-    const save = richNoteSaveQueueRef.current
+    const save = meetingContentSaveQueueRef.current
       .catch(() => undefined)
-      .then(() => updateMeeting.mutateAsync({ id: meetingId, ...patch }));
-    richNoteSaveQueueRef.current = save.catch(async (error) => {
+      .then(async () => {
+        const expectedUpdatedAt = meetingUpdatedAtRef.current;
+        const result = await updateMeeting.mutateAsync({
+          id: meetingId,
+          ...patch,
+          ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+        });
+        recordMeetingSaveResult(result);
+        return result;
+      });
+    meetingContentSaveQueueRef.current = save.catch(async (error) => {
       console.error("[clips] rich note save failed", error);
       if (richNoteSaveRevisionRef.current === revision) {
         await refetchMeeting().catch((refetchError) => {
@@ -708,17 +748,20 @@ export default function MeetingDetailRoute() {
     actionItemsDraftRef.current = { meetingId, items: next };
     patchCachedMeeting({ actionItemsJson: next });
     pendingActionItemsSavesRef.current += 1;
-    const save = actionItemsSaveQueueRef.current
+    const save = meetingContentSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        const expectedUpdatedAt = meetingUpdatedAtRef.current;
         const result = await updateMeeting.mutateAsync({
           id: meetingId,
           actionItems: next,
+          ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
         });
+        recordMeetingSaveResult(result);
         actionItemsAuthoritativeRef.current = { meetingId, items: next };
         return result;
       });
-    actionItemsSaveQueueRef.current = save
+    meetingContentSaveQueueRef.current = save
       .catch(async (error) => {
         console.error("[clips] action-item save failed", error);
         toast.error(

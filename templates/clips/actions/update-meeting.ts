@@ -5,7 +5,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -17,6 +17,11 @@ export default defineAction({
     "Partially update a meeting (title, schedule, notes, summary, action items). Only provided fields are updated.",
   schema: z.object({
     id: z.string().describe("Meeting id"),
+    expectedUpdatedAt: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Reject the write if the meeting changed since it was read"),
     title: z.string().optional(),
     scheduledStart: z.string().nullish(),
     scheduledEnd: z.string().nullish(),
@@ -93,10 +98,24 @@ export default defineAction({
     // item rows used by list/query surfaces in sync as one mutation. In
     // particular, completion state and manual edits must survive a refresh.
     await db.transaction(async (tx) => {
-      await tx
+      const [updatedMeeting] = await tx
         .update(schema.meetings)
         .set(patch)
-        .where(eq(schema.meetings.id, args.id));
+        .where(
+          args.expectedUpdatedAt !== undefined
+            ? and(
+                eq(schema.meetings.id, args.id),
+                eq(schema.meetings.updatedAt, args.expectedUpdatedAt),
+              )
+            : eq(schema.meetings.id, args.id),
+        )
+        .returning({
+          id: schema.meetings.id,
+          updatedAt: schema.meetings.updatedAt,
+        });
+      if (!updatedMeeting) {
+        throw new Error("Meeting changed while saving. Refresh and try again.");
+      }
 
       if (normalizedActionItems !== undefined) {
         await tx
