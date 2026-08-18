@@ -485,14 +485,6 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    if (!shouldRetryStreaming && !bufferedFallbackAvailable) {
-      setResponseStatus(event, 409);
-      return {
-        error:
-          "Recording upload storage could not start a buffered retry session.",
-      };
-    }
-
     const resetLease = await renewUploadLease(recordingId, {
       attemptId: recoveryEnabled ? existingAttemptId : null,
       generationId: nextGenerationId,
