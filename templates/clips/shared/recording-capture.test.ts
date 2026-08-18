@@ -46,26 +46,28 @@ describe("screen capture quality policy", () => {
 });
 
 describe("screen capture audio policy", () => {
-  it("requests screen audio regardless of the microphone", () => {
-    // The recorder used one flag for BOTH mic capture and whether Chrome even
-    // offered the "share tab audio" checkbox. With the mic off, a screen
-    // recording captured zero audio tracks: 345 production recordings landed
-    // with has_audio=false and were told "No speech was detected because this
-    // recording was saved without audio" — 64% of recent transcript failures,
-    // blaming the recording for a capture setting.
+  it("requests screen audio when the microphone is on", () => {
     for (const surface of ["browser", "window", "monitor"] as const) {
-      const options = screenCaptureDisplayOptions(surface);
+      const options = screenCaptureDisplayOptions(surface, true);
       expect(options.audio).toBe(true);
       expect(options.systemAudio).toBe("include");
     }
   });
 
+  it("does not request system audio when the mic is off (privacy: mic off means no audio captured at all — Slack thread 1786086902028429)", () => {
+    for (const surface of ["browser", "window", "monitor"] as const) {
+      const options = screenCaptureDisplayOptions(surface, false);
+      expect(options.audio).toBe(false);
+      expect(options.systemAudio).toBe("exclude");
+    }
+  });
+
   it("still opens the tab picker only for browser-surface capture", () => {
-    expect(screenCaptureDisplayOptions("browser").selfBrowserSurface).toBe(
-      "include",
-    );
-    expect(screenCaptureDisplayOptions("window").selfBrowserSurface).toBe(
-      "exclude",
-    );
+    expect(
+      screenCaptureDisplayOptions("browser", true).selfBrowserSurface,
+    ).toBe("include");
+    expect(
+      screenCaptureDisplayOptions("window", true).selfBrowserSurface,
+    ).toBe("exclude");
   });
 });

@@ -265,4 +265,25 @@ describe("formatOverflowForTool", () => {
     expect(msg).toContain("1200x420");
     expect(msg).toContain("740x420");
   });
+
+  // Reproduces the Oliver Robertson thread (Slack C0ATH3CCZT4 / 1786909841224549):
+  // a side-by-side card row overflowing horizontally got the exact same
+  // vertical-density fix list ("fewer stacked cards", "smaller gaps",
+  // "reduce padding") on every repair attempt. None of those items touch a
+  // fixed/oversized column width, so the agent looped without ever being
+  // told the one repair that actually fixes a horizontal overflow.
+  it("prescribes a column-width fix for horizontal-only overflow instead of the vertical checklist", () => {
+    const msg = formatOverflowForTool("deck-X", {
+      slideId: "slide-Y",
+      contentHeight: 420,
+      contentWidth: 1200,
+      viewportHeight: 420,
+      viewportWidth: 740,
+      verticalOverflow: 0,
+      horizontalOverflow: 460,
+      measuredAt: Date.now(),
+    });
+
+    expect(msg).toMatch(/fewer.*columns|flex-based column widths|percentage.*column widths/i);
+  });
 });

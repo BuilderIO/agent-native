@@ -890,7 +890,7 @@ export class RecorderEngine {
         this.opts.displaySurface ?? "window",
       );
       const displayOptions: ExtendedDisplayMediaOptions =
-        screenCaptureDisplayOptions(displaySurface);
+        screenCaptureDisplayOptions(displaySurface, wantsMic);
 
       if (wantsMic || wantsDisplay) {
         this.audioMixCtx?.close().catch(() => {});

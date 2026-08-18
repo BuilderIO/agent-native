@@ -323,14 +323,37 @@ export function backfillEngineMessagesToolResults(
 // EngineMessage → Anthropic.MessageParam
 // ---------------------------------------------------------------------------
 
+/**
+ * A thinking block replays only with the signature Anthropic issued for it, or
+ * (redacted) with its encrypted payload. An empty signature is not a fallback:
+ * the native API rejects the whole request, so a turn that streamed fine dies
+ * with a provider error pointing nowhere near the cause. Drop the unsendable
+ * block and say so instead of coercing it into a guaranteed 400.
+ *
+ * Not applied to the Builder gateway: its tolerance for an unsigned thinking
+ * block is unverified, so that path keeps its existing behavior rather than
+ * trading a working request for an untested one.
+ */
+function replayableAnthropicPart(part: EngineContentPart): boolean {
+  if (part.type !== "thinking") return true;
+  if (part.redactedData || part.signature) return true;
+  console.warn(
+    "[anthropic-engine] dropping a thinking block with no signature; it cannot be replayed",
+  );
+  return false;
+}
+
 export function engineMessageToAnthropic(
   msg: EngineMessage,
   opts?: { builderGateway?: boolean },
 ): Anthropic.MessageParam {
   const builderGateway = opts?.builderGateway === true;
+  const content = builderGateway
+    ? msg.content
+    : msg.content.filter(replayableAnthropicPart);
   return {
     role: msg.role,
-    content: msg.content.map((p) => enginePartToAnthropic(p, builderGateway)),
+    content: content.map((p) => enginePartToAnthropic(p, builderGateway)),
   };
 }
 
