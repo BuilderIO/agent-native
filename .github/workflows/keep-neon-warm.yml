@@ -67,6 +67,8 @@ jobs:
           # failure and the de-duplication never engaged. The signature is
           # which apps are failing and how, not by how much.
           SIGNATURE="$(printf '%s' "$FAILING" | tr -d '0-9' | shasum | cut -c1-12)"
+          # The backticks are literal Markdown fences in the issue body.
+          # shellcheck disable=SC2016
           BODY="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n<!-- health-signature: %s -->' \
             "15-minute audit is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
           page_oncall() {
