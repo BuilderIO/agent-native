@@ -3865,6 +3865,7 @@ const AssistantChatInner = forwardRef<
     // A restored tab can be reclassified as client-only after the thread list
     // loads. Once that happens, there is no server row to restore, so show the
     // empty composer instead of leaving the per-thread restore skeleton up.
+    setThreadRestoreError(null);
     setIsRestoring(false);
   }, [isNewThread, threadId]);
 

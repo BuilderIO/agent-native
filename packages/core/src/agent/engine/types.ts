@@ -152,6 +152,13 @@ export interface EngineThinkingPart {
   text: string;
   /** Opaque signature for pass-through on next turn (Anthropic extended thinking) */
   signature?: string;
+  /**
+   * Encrypted payload of an Anthropic `redacted_thinking` block, which carries
+   * no readable `text` or `signature`. Anthropic requires the block back
+   * verbatim in the same tool-use turn, so it has to survive normalization —
+   * a part with this set replays as `redacted_thinking`, not as `thinking`.
+   */
+  redactedData?: string;
 }
 
 export type EngineContentPart =

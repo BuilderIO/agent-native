@@ -35,6 +35,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { useRecordingLeaveGuard } from "@/hooks/use-recording-leave-guard";
 import {
   fetchVideoStorageStatus,
   useVideoStorageStatus,
@@ -2518,6 +2519,22 @@ export default function RecordRoute() {
     };
   }, [extensionCapture, stopLiveTranscription]);
 
+  // In-app navigation (e.g. a Library link) unmounts this route the same way
+  // a tab close does, but the browser never fires `beforeunload` for it — so
+  // without this, the cleanup effect above ran `releaseCapture()`
+  // unconditionally and silently killed an at-risk recording. Route every
+  // in-app navigation attempt through the same `hasRecordingAtRisk()` check
+  // `warnBeforeDiscard` uses, so both exits are gated by one check instead of
+  // two divergent ones.
+  const {
+    leavePromptOpen,
+    onDialogOpenChange,
+    onCloseAutoFocus,
+    confirmLeave,
+  } = useRecordingLeaveGuard(
+    useCallback(() => !!engineRef.current?.hasRecordingAtRisk(), []),
+  );
+
   // -------------------------------------------------------------------------
   // Render.
   // -------------------------------------------------------------------------
@@ -2735,6 +2752,31 @@ export default function RecordRoute() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {t("recordingToolbar.discardRecording")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
+        <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("recordRoute.leaveConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("recordRoute.leaveConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                confirmLeave();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("recordRoute.leaveAndDiscard")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
