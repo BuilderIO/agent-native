@@ -38,6 +38,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import {
+  builderGatewayInternalErrorUserMessage,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
   isBuilderGatewayInternalErrorMessage,
@@ -63,6 +64,7 @@ import type {
   EngineCapabilities,
   EngineContentPart,
   EngineEvent,
+  EngineRequestShape,
   EngineStreamOptions,
 } from "./types.js";
 
@@ -320,6 +322,18 @@ class BuilderEngine implements AgentEngine {
         : {}),
     };
 
+    // Measured once, from the exact string that goes on the wire, and carried
+    // on every error stop below. A gateway rejection tells us nothing about
+    // what we sent, so without this an oversized or malformed request and a
+    // gateway outage are the same capture.
+    const payload = JSON.stringify(body);
+    const requestShape: EngineRequestShape = {
+      model: opts.model,
+      payloadBytes: new TextEncoder().encode(payload).length,
+      toolCount: cachedTools.length,
+      messageCount: cachedMessages.length,
+    };
+
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
     const gatewayUrl = new URL(
       "messages",
@@ -349,7 +363,7 @@ class BuilderEngine implements AgentEngine {
             ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
-          body: JSON.stringify(body),
+          body: payload,
           signal: gatewayAbort.signal,
         });
       } catch (err) {
@@ -374,6 +388,7 @@ class BuilderEngine implements AgentEngine {
           timedOut,
           gatewayAbort.effectiveTimeoutMs(),
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -383,7 +398,7 @@ class BuilderEngine implements AgentEngine {
       );
 
       if (!response.ok) {
-        yield* emitHttpError(response, { creditsLane });
+        yield* emitHttpError(response, { creditsLane, requestShape });
         return;
       }
 
@@ -420,6 +435,7 @@ class BuilderEngine implements AgentEngine {
               : {}),
           },
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -433,6 +449,7 @@ class BuilderEngine implements AgentEngine {
             statusCode: response.status,
           },
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -445,6 +462,7 @@ class BuilderEngine implements AgentEngine {
         onFirstEvent: gatewayAbort.markFirstEvent,
         gatewayUrl,
         requestStartedAt: tStart,
+        requestShape,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -500,6 +518,7 @@ function isTransientGatewayFailure(
 function gatewayErrorStop(
   details: GatewayErrorStopDetails,
   creditsLane: boolean | undefined,
+  requestShape?: EngineRequestShape,
 ): EngineEvent {
   const { error, errorCode, upgradeUrl, ...retry } = details;
   return {
@@ -508,20 +527,23 @@ function gatewayErrorStop(
     ...(creditsLane
       ? gatewayVisitorFacingError(errorCode)
       : {
-          error,
+          error: builderGatewayInternalErrorUserMessage(error) ?? error,
           ...(errorCode ? { errorCode } : {}),
           ...(upgradeUrl ? { upgradeUrl } : {}),
         }),
     ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
       ? { contextOverflow: true }
       : {}),
+    // Absent before the request is built (missing credentials): a stop with no
+    // shape means nothing was sent, not that the payload measured zero.
+    ...(requestShape ? { requestShape } : {}),
     ...retry,
   };
 }
 
 async function* emitHttpError(
   response: Response,
-  opts: { creditsLane: boolean },
+  opts: { creditsLane: boolean; requestShape?: EngineRequestShape },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
   // Read the body once as text and then try to parse — calling `.json()`
@@ -540,7 +562,7 @@ async function* emitHttpError(
   const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-    gatewayErrorStop(details, opts.creditsLane);
+    gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 
   // Belt-and-suspenders: 402 without a structured `credits-limit` code
   // (e.g. bare proxy response) still means quota → show upgrade CTA.
@@ -647,6 +669,7 @@ async function* parseJsonlStream(
     gatewayUrl?: URL;
     requestStartedAt?: number;
     creditsLane?: boolean;
+    requestShape?: EngineRequestShape;
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -720,6 +743,7 @@ async function* parseJsonlStream(
             providerRetryable: true,
           },
           captureContext.creditsLane,
+          captureContext.requestShape,
         );
         return;
       }
@@ -811,7 +835,11 @@ async function* parseJsonlStream(
 
           const reason = event.reason ?? "end_turn";
           const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-            gatewayErrorStop(details, captureContext.creditsLane);
+            gatewayErrorStop(
+              details,
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
           if (reason === "rate_limited") {
             yield stop({
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
@@ -946,6 +974,7 @@ async function* parseJsonlStream(
         errorCode: BUILDER_GATEWAY_STREAM_ENDED_ERROR_CODE,
       },
       captureContext.creditsLane,
+      captureContext.requestShape,
     );
   } catch (err) {
     const timedOut = captureContext.didGatewayTimeout?.() ?? false;
@@ -970,6 +999,7 @@ async function* parseJsonlStream(
       timedOut,
       gatewayTimeoutMs,
       captureContext.creditsLane,
+      captureContext.requestShape,
     );
   } finally {
     // Release the reader on every exit path — early returns (invalid JSONL,
@@ -1242,6 +1272,7 @@ function createBuilderGatewayTimeoutStop(
   timedOut: boolean,
   timeoutMs: number,
   creditsLane: boolean | undefined,
+  requestShape?: EngineRequestShape,
 ): EngineEvent {
   const error = normalizeBuilderGatewayFetchError(err, timedOut, timeoutMs);
   if (timedOut) {
@@ -1251,6 +1282,7 @@ function createBuilderGatewayTimeoutStop(
     return gatewayErrorStop(
       { error, errorCode: "builder_gateway_timeout" },
       creditsLane,
+      requestShape,
     );
   }
   if (isBuilderGatewayNetworkError(err)) {
@@ -1261,6 +1293,7 @@ function createBuilderGatewayTimeoutStop(
         providerRetryable: true,
       },
       creditsLane,
+      requestShape,
     );
   }
   const errorCode = classifyTerminalErrorCode(error);
@@ -1271,6 +1304,7 @@ function createBuilderGatewayTimeoutStop(
       ...(isTransientGatewayFailure(error) ? { providerRetryable: true } : {}),
     },
     creditsLane,
+    requestShape,
   );
 }
 

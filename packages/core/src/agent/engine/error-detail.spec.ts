@@ -5,6 +5,7 @@ import {
   classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  builderGatewayInternalErrorUserMessage,
   isBuilderGatewayInternalErrorMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
@@ -149,6 +150,30 @@ describe("isProviderConnectionErrorMessage", () => {
         "Overloaded. ERROR ID: bebaeb5da13441539790834b63ff955a",
       ),
     ).toBe("overloaded_error");
+  });
+
+  // "Sorry, we ran into an issue processing your request" is indistinguishable
+  // from this app crashing, so it gets reported as lost data. Name the layer,
+  // and keep the id the gateway's own logs are searched by.
+  it("names the failing layer in the envelope shown to the user", () => {
+    const rewritten = builderGatewayInternalErrorUserMessage(
+      "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+    );
+    expect(rewritten).toContain("AI provider");
+    expect(rewritten).toContain("ERROR ID: bebaeb5da13441539790834b63ff955a");
+    expect(rewritten).not.toContain("Sorry, we ran into an issue");
+    // Run persistence classifies the DELIVERED message, so the rewrite must
+    // still read as the envelope or the code degrades to `unknown`.
+    expect(classifyTerminalErrorCode(rewritten!)).toBe(
+      BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+    );
+  });
+
+  it("leaves a message that is not the envelope alone", () => {
+    expect(
+      builderGatewayInternalErrorUserMessage("Bad request (request id: req_9)"),
+    ).toBeNull();
+    expect(builderGatewayInternalErrorUserMessage("error id: abc")).toBeNull();
   });
 
   it("does not read an ordinary id as the envelope", () => {

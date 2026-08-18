@@ -116,9 +116,38 @@ const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
  * first attempt.
  */
 export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
+  return builderGatewayErrorId(message) !== null;
+}
+
+function builderGatewayErrorId(message: string): string | null {
   const match = BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message);
+  if (!match || match[1].length < BUILDER_GATEWAY_ERROR_ID_MIN_CHARS) {
+    return null;
+  }
+  return match[1];
+}
+
+/**
+ * Say which layer failed. The gateway's own apology ("we ran into an issue
+ * processing your request") is indistinguishable from this app crashing, so
+ * people report it as lost data and support has nowhere to start.
+ *
+ * The `ERROR ID:` token is reproduced verbatim, not reworded: it is the key
+ * the gateway's own logs are searched by, and every predicate in this file
+ * that recognises the envelope keys off it — including on the rewritten
+ * message, which is what run persistence classifies downstream.
+ *
+ * Returns null when `message` is not that envelope.
+ */
+export function builderGatewayInternalErrorUserMessage(
+  message: string,
+): string | null {
+  const errorId = builderGatewayErrorId(message);
+  if (errorId === null) return null;
   return (
-    match !== null && match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
+    "The AI provider (Builder AI gateway) could not process this request. " +
+    "This is a fault in the model service, not in your data or this app — " +
+    `retrying usually works. ERROR ID: ${errorId}`
   );
 }
 
