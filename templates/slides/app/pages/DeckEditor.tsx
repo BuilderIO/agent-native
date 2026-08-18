@@ -58,8 +58,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  clearSlideEditingActive,
   deckIdFromPathname,
   hasUnsavedDeckChanges,
+  markSlideEditingActive,
   type Slide,
   useDecks,
   useSaveState,
@@ -1561,11 +1563,15 @@ export default function DeckEditor() {
                 options,
               )
             }
-            onInlineEditStart={() => {
+            onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
               markDeckDirty(id);
+              if (id) markSlideEditingActive(id, slideId);
             }}
-            onInlineEditEnd={() => setInlineEditActive(false)}
+            onInlineEditEnd={(slideId) => {
+              setInlineEditActive(false);
+              if (id) clearSlideEditingActive(id, slideId);
+            }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
               setReplaceImageSrc(src);

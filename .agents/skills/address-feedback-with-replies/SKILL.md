@@ -15,6 +15,10 @@ metadata:
 Use this workflow when the user wants feedback triaged, fixed, and answered in
 Slack in one pass. Compose and post replies only for the threads the user put
 in scope. Keep the code change and the external reply equally evidence-based.
+When several Slack threads clearly describe the same underlying issue, group
+them into one similar-feedback cluster and use one Builder thread for the
+cluster, while still replying in every in-scope Slack thread that needs a
+status.
 
 ## Prerequisites
 
@@ -51,12 +55,22 @@ similar phrases are internal notes, never a complete Slack reply. If a reply
 does not say what was fixed and verified or ask what is needed to fix it, do not
 post it.
 
+**Clarification needed** is an open state, not a finished one. Asking the
+question creates a standing obligation to come back for the answer: the thread
+now looks owned to any cursor that scans for unhandled reports, so nothing will
+resurface it on its own. `review-latest-feedback` owns that re-check and runs
+it before it scans for new messages; when this workflow runs on its own, re-read
+every thread it previously asked in and act on the replies first.
+
 ## Workflow
 
 1. Build a per-thread checklist with the symptom, expected behavior, evidence,
    owner, and disposition: bug, UX suggestion, unclear, policy, or out of
    scope. Use the shared `address-feedback` categorization and Fix-altitude
-   gate when choosing the disposition and owning seam.
+   gate when choosing the disposition and owning seam. When the same underlying
+   issue appears in multiple threads, build one cluster checklist and drive one
+   Builder thread for that cluster; do not create separate Builder threads
+   unless the reports diverge in symptom, surface, or owner.
 2. The reaction is the first external action after classification. Add `👀` to
    each concrete bug or clarification-needed thread immediately, one thread at
    a time as it enters scope. Do not batch reactions until after investigation,
@@ -161,7 +175,8 @@ happened yet, say that plainly and do not imply that the fix is already live.
 - Run focused checks for every changed surface and `git diff --check`.
 - Re-read the Slack threads after posting and confirm each requested reply is
   present under the intended parent.
-- Report repeat reports, fixed items, flagged items, clarification questions,
+- Report repeat reports and any similar-feedback cluster handled as one Builder
+  thread, along with the fixed items, flagged items, clarification questions,
   verification gaps, and the exact release state.
 
 ## Related Skills
