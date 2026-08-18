@@ -122,4 +122,53 @@ describe("RecorderEngine screen wake lock", () => {
     const engine = makeEngine();
     await expect(engine.acquire()).resolves.toBeTruthy();
   });
+
+  it("releases a wake lock that resolves after teardown", async () => {
+    let resolveRequest!: (sentinel: { release: () => Promise<void> }) => void;
+    const requestPromise = new Promise<{ release: () => Promise<void> }>(
+      (resolve) => {
+        resolveRequest = resolve;
+      },
+    );
+    const request = vi.fn(() => requestPromise);
+    const release = vi.fn(async () => {});
+    const getDisplayMedia = vi.fn(
+      async () => new FakeStream([new FakeTrack()]),
+    );
+
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+      isSecureContext: true,
+    });
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        close() {
+          return Promise.resolve();
+        }
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response()),
+    );
+    vi.stubGlobal("navigator", {
+      mediaDevices: { getDisplayMedia, getUserMedia: vi.fn() },
+      wakeLock: { request },
+    });
+
+    const engine = makeEngine();
+    await engine.acquire();
+    await Promise.resolve();
+    expect(request).toHaveBeenCalledWith("screen");
+
+    await engine.cancel();
+    expect(release).not.toHaveBeenCalled();
+
+    resolveRequest({ release });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
 });

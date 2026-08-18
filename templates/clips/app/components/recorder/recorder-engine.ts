@@ -506,6 +506,7 @@ export class RecorderEngine {
   private audioMixCtx: AudioContext | null = null;
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
   private wakeLock: WakeLockSentinel | null = null;
+  private wakeLockGeneration = 0;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -2371,17 +2372,24 @@ export class RecorderEngine {
 
   /** Best-effort — unsupported browsers or a denied request must never block capture. */
   private async acquireWakeLock(): Promise<void> {
+    const generation = ++this.wakeLockGeneration;
     try {
       // coercion-ok: optional chaining yields undefined only when the Wake
       // Lock API itself is absent (older/other browsers) — a real rejection
       // (denied request) is caught below, not coerced here.
-      this.wakeLock = (await navigator.wakeLock?.request?.("screen")) ?? null;
+      const wakeLock = (await navigator.wakeLock?.request?.("screen")) ?? null;
+      if (generation !== this.wakeLockGeneration || !this.displayStream) {
+        wakeLock?.release().catch(() => {});
+        return;
+      }
+      this.wakeLock = wakeLock;
     } catch {
-      this.wakeLock = null;
+      if (generation === this.wakeLockGeneration) this.wakeLock = null;
     }
   }
 
   private releaseWakeLock(): void {
+    this.wakeLockGeneration += 1;
     this.wakeLock?.release().catch(() => {});
     this.wakeLock = null;
   }
