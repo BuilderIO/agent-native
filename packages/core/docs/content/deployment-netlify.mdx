@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Deploy an agent-native app to Netlify with the Netlify Nitro preset, and configure keep-warm for scale-to-zero databases."
+---
+
+# Netlify
+
+The Nitro `netlify` preset works well and, in practice, has given us much faster cold starts than Cloudflare Pages (~200ms TTFB vs ~9s) for templates that talk to external Postgres (Neon). Either set the preset in `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…or set `NITRO_PRESET=netlify` at build time.
+
+For a workspace, deploy every app from one Netlify site by running:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
+
+## Keep-warm and scale-to-zero databases {#netlify-keep-warm}
+
+When enabled, the Netlify build emits a scheduled function that requests `/_agent-native/health` **every minute**. That keeps the server function and its database warm so the next visitor after an idle period doesn't pay a cold start (1–5s on Neon).
+
+Keep-warm is **disabled by default** because a once-a-minute wake prevents autosuspend on metered scale-to-zero databases. On a free-tier Neon this can exhaust the compute quota, and the database then rejects **all** reads mid-session. The symptom is a dead app, not a slow one. Set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` when the lower next-visitor latency is worth the database awake-time.
+
+The keep-warm schedule and background-function warm only apply after the main keep-warm flag is enabled:
+
+| Variable                                    | Effect                                                                                                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opts into the scheduled server/database warm. Unset by default.                                                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch that wins over the opt-in flag when set.                                                                                                           |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Overrides the cadence with a 5-field cron expression, e.g. `*/5 * * * *`. The default cadence when enabled is `* * * * *`. An unparseable value **fails the build**.         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drops only the background-function warm, keeping the server warm. Warming `server` is one request. Warming `-background` starts a fresh container that re-probes the schema. |
+
+If you are on a free or otherwise quota-limited database tier, leave `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you opt in, use a slower cadence or set `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` to drop the more expensive background warm.
+
+## What's next
+
+- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
+- [**SSR Caching**](/docs/deployment#ssr-caching) — the default cache policy and Netlify's separate `netlify-cdn-cache-control` behavior
+- [**Node.js & Docker**](/docs/deployment-node-docker), [**Vercel**](/docs/deployment-vercel), [**Cloudflare**](/docs/deployment-cloudflare), and [**Other Platforms**](/docs/deployment-other-platforms) — the other Nitro presets

@@ -1,0 +1,54 @@
+---
+title: "Node.js & Docker"
+description: "Deploy an agent-native app with the default Node.js Nitro preset, standalone or containerized with Docker."
+---
+
+# Node.js & Docker
+
+Node.js is the default Nitro preset. This page covers running it directly and containerizing it with Docker. See [Deployment](/docs/deployment) for picking a database first, and [Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose) for self-hosting a multi-app workspace with Docker Compose.
+
+## Node.js (Default) {#nodejs}
+
+The default preset. Build and run:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Set `PORT` to configure the listen port (default: `3000`).
+
+Use the current Node.js LTS line for production deploys. As of May 2026, that
+is Node.js 24. Node.js 20 reached end-of-life on April 30, 2026 and no longer
+receives upstream security updates.
+
+## Docker {#docker}
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Self-hosting a multi-app workspace with Docker Compose, built on this same
+standalone Dockerfile, is covered in
+[Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose).
+
+## What's next
+
+- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
+- [**Workspace Deployment**](/docs/workspace-deployment) — self-host a multi-app workspace with Docker Compose
+- [**Vercel**](/docs/deployment-vercel), [**Netlify**](/docs/deployment-netlify), [**Cloudflare**](/docs/deployment-cloudflare), and [**Other Platforms**](/docs/deployment-other-platforms) — the other Nitro presets

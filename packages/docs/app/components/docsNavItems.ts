@@ -613,6 +613,31 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "workspace-deployment",
       },
       {
+        id: "deployment-node-docker",
+        labelKey: "deploymentNodeDocker",
+        slug: "deployment-node-docker",
+      },
+      {
+        id: "deployment-vercel",
+        labelKey: "deploymentVercel",
+        slug: "deployment-vercel",
+      },
+      {
+        id: "deployment-netlify",
+        labelKey: "deploymentNetlify",
+        slug: "deployment-netlify",
+      },
+      {
+        id: "deployment-cloudflare",
+        labelKey: "deploymentCloudflare",
+        slug: "deployment-cloudflare",
+      },
+      {
+        id: "deployment-other-platforms",
+        labelKey: "deploymentOtherPlatforms",
+        slug: "deployment-other-platforms",
+      },
+      {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",

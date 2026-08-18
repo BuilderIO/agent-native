@@ -154,157 +154,13 @@ Or use the `NITRO_PRESET` environment variable at build time:
 NITRO_PRESET=netlify npx @agent-native/core@latest build
 ```
 
-## Node.js (Default) {#nodejs}
+See the page for your platform for build and deploy details:
 
-The default preset. Build and run:
-
-```bash
-npx @agent-native/core@latest build
-node .output/server/index.mjs
-```
-
-Set `PORT` to configure the listen port (default: `3000`).
-
-Use the current Node.js LTS line for production deploys. As of May 2026, that
-is Node.js 24. Node.js 20 reached end-of-life on April 30, 2026 and no longer
-receives upstream security updates.
-
-### Docker {#docker}
-
-```dockerfile filename="Dockerfile"
-FROM node:24-slim AS build
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm build
-
-FROM node:24-slim
-WORKDIR /app
-COPY --from=build /app/.output .output
-# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
-# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-RUN mkdir -p /app/data
-ENV PORT=3000
-EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
-```
-
-Self-hosting a multi-app workspace with Docker Compose, built on this same
-standalone Dockerfile, is covered in
-[Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose).
-
-## Vercel {#vercel}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-Deploy via the Vercel CLI or git push:
-
-```bash
-vercel deploy
-```
-
-For a workspace, build every app into one Vercel Build Output API bundle:
-
-```bash
-npx @agent-native/core@latest deploy --preset vercel
-```
-
-For Vercel Git deployments, set the build command to:
-
-```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
-```
-
-The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
-
-## Netlify {#netlify}
-
-The Nitro `netlify` preset works well and, in practice, has given us much faster cold starts than Cloudflare Pages (~200ms TTFB vs ~9s) for templates that talk to external Postgres (Neon). Either set the preset in `vite.config.ts`:
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
-```
-
-…or set `NITRO_PRESET=netlify` at build time.
-
-For a workspace, deploy every app from one Netlify site by running:
-
-```bash
-npx @agent-native/core@latest deploy --preset netlify
-```
-
-The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
-
-### Keep-warm and scale-to-zero databases {#netlify-keep-warm}
-
-When enabled, the Netlify build emits a scheduled function that requests `/_agent-native/health` **every minute**. That keeps the server function and its database warm so the next visitor after an idle period doesn't pay a cold start (1–5s on Neon).
-
-Keep-warm is **disabled by default** because a once-a-minute wake prevents autosuspend on metered scale-to-zero databases. On a free-tier Neon this can exhaust the compute quota, and the database then rejects **all** reads mid-session. The symptom is a dead app, not a slow one. Set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` when the lower next-visitor latency is worth the database awake-time.
-
-The keep-warm schedule and background-function warm only apply after the main keep-warm flag is enabled:
-
-| Variable                                    | Effect                                                                                                                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opts into the scheduled server/database warm. Unset by default.                                                                                                              |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch that wins over the opt-in flag when set.                                                                                                           |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Overrides the cadence with a 5-field cron expression, e.g. `*/5 * * * *`. The default cadence when enabled is `* * * * *`. An unparseable value **fails the build**.         |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drops only the background-function warm, keeping the server warm. Warming `server` is one request. Warming `-background` starts a fresh container that re-probes the schema. |
-
-If you are on a free or otherwise quota-limited database tier, leave `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you opt in, use a slower cadence or set `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` to drop the more expensive background warm.
-
-## Cloudflare Pages {#cloudflare-pages}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
-
-## Cloudflare Workers {#cloudflare-workers}
-
-Use Nitro's native module output for a Cloudflare Worker. This keeps SSR
-enabled and emits the Worker entry point plus static assets under
-`.output/server` and `.output/public`:
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
-
-Build and deploy the generated Worker with Wrangler:
-
-```bash
-npx @agent-native/core@latest build
-npx wrangler deploy --config .output/server/wrangler.json
-```
-
-You can also select the preset explicitly with
-`NITRO_PRESET=cloudflare_module`. Configure a durable external SQL database
-before deploying. A Worker filesystem is not a persistent application store.
-
-## AWS Lambda {#aws-lambda}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
-});
-```
-
-## Deno Deploy {#deno-deploy}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
-});
-```
+- [**Node.js & Docker**](/docs/deployment-node-docker) — the default preset, plus a standalone Dockerfile
+- [**Vercel**](/docs/deployment-vercel)
+- [**Netlify**](/docs/deployment-netlify) — includes keep-warm for scale-to-zero databases
+- [**Cloudflare**](/docs/deployment-cloudflare) — Pages and Workers
+- [**Other Platforms**](/docs/deployment-other-platforms) — AWS Lambda and Deno Deploy
 
 ## SSR Caching {#ssr-caching}
 
@@ -358,10 +214,10 @@ hosting behavior.
 | `APP_URL`                                   | Optional canonical public origin. Checked ahead of `BETTER_AUTH_URL` when resolving the A2A JWT audience, the OAuth public origin, self-dispatch webhook targets, and generated resource links. Set it explicitly on preview/staging deploys where the request host is unreliable.                                                                                      |
 | `AGENT_PROD_CODE_EXECUTION`                 | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                       |
 | `AGENT_NATIVE_SSR_CACHE`                    | Deployment-wide SSR shell cache policy: unset/`on` keeps the default hard-cache, `off` sends `no-store`, or a duration such as `30s` / `5m` sets a shorter freshness. See [SSR Caching](#ssr-caching).                                                                                                                                                                  |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opt into the Netlify keep-warm scheduled function. Unset by default. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                               |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch for the Netlify keep-warm scheduled function. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                            |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Override the keep-warm cadence with a 5-field cron expression (default `* * * * *` when enabled). An unparseable value fails the build. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                            |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drop only the background-function warm and keep the server warm. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opt into the Netlify keep-warm scheduled function. Unset by default. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                                                                                               |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch for the Netlify keep-warm scheduled function. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                                                                                            |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Override the keep-warm cadence with a 5-field cron expression (default `* * * * *` when enabled). An unparseable value fails the build. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drop only the background-function warm and keep the server warm. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                                                                                                   |
 | `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Turn off the in-process backstop sweep timers (automation redispatch, agent-teams reconciliation, sandbox-execution recovery). On serverless these run per warm container, so their query rate scales with instance count. Set it **only** where a durable scheduler already drives the same recovery, or queued work will not be retried.                              |
 | `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Skip on-demand schema DDL on deployments the automatic serverless skip does not cover. Requires that your schema is already migrated. See [On-demand schema DDL](#skip-ensure-tables).                                                                                                                                                  |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dedicated 32+ char shared HMAC secret for preview-safe Builder authorization relay. Set the same value on the approved corporate callback deployment and preview deployments only when authorization must land in an isolated preview database.                                                                                                                         |
