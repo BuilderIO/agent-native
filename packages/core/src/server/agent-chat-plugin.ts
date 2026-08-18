@@ -1956,8 +1956,8 @@ export function createAgentChatPlugin(
             schemaBlock +
             extra +
             modelOverlay +
-            runtimeContext +
-            selectedReceiverContext;
+            selectedReceiverContext +
+            runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           // Build tools — same as interactive handler. Cross-app delegation is
