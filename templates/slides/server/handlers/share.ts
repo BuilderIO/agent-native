@@ -18,7 +18,7 @@ import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../db";
 import {
-  resolveSlidesRequestAuthContext,
+  resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
@@ -47,7 +47,12 @@ export const shareDeck = defineEventHandler(async (event) => {
   // and pass the resolved context into `withSlidesRequestContext` so it
   // doesn't re-resolve session + org on the same request (which would
   // double the session/getOrgContext I/O per share).
-  const session = await resolveSlidesRequestAuthContext(event);
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
   if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };

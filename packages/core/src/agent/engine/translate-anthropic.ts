@@ -425,6 +425,11 @@ function enginePartToAnthropic(
     }
 
     case "thinking":
+      // A redacted block has no readable thinking or signature — only its
+      // encrypted payload, which Anthropic requires back unmodified.
+      if (part.redactedData) {
+        return { type: "redacted_thinking", data: part.redactedData } as any;
+      }
       // Anthropic thinking blocks — pass through with signature for context window continuity
       return {
         type: "thinking",
@@ -496,7 +501,22 @@ export function anthropicContentToEngine(
           signature: b.signature,
         };
       }
-      // Unknown block type — skip
+      if ((block as any).type === "redacted_thinking") {
+        // Dropping this looked like "skip an unreadable block", but Anthropic
+        // requires the whole thinking sequence back verbatim within a tool-use
+        // turn: losing it makes the very next loop iteration send an assistant
+        // turn the API refuses, from a turn that streamed perfectly.
+        return {
+          type: "thinking" as const,
+          text: "",
+          redactedData: (block as any).data ?? "",
+        };
+      }
+      // Unknown block type. Skipping is the only safe replay, but a silent skip
+      // is how redacted_thinking went missing — say which type was dropped.
+      console.warn(
+        `[anthropic-engine] dropping unrecognized content block type "${(block as any).type}" from the assistant turn; it will not be replayed`,
+      );
       return { type: "text" as const, text: "" };
     })
     .filter((p) => !(p.type === "text" && p.text === ""));

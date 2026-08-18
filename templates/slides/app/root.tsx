@@ -66,6 +66,26 @@ const BARE_ROUTES = new Set(["/slide"]);
 /** Route prefixes that render without the app shell */
 const BARE_PREFIXES = ["/share/", "/p/"];
 
+/**
+ * Routes that serve deck content to any visitor — owner, teammate, or an
+ * anonymous recipient of a shared link — rather than an app-management
+ * surface. `/deck/:id` renders the full editor shell (so it's not "bare"
+ * above: viewers still get chrome, just read-only), but it must never force
+ * sign-in or gate on first-run onboarding, or a shared link flashes the deck
+ * and then buries it under "create your first deck" (the onboarding gate has
+ * no route awareness of its own — see `sessionBypass` below). `/present` is
+ * the full-screen presentation view and `/slide` is the agent-embed preview;
+ * both are shown to viewers the same way.
+ */
+export function isShareableContentPath(pathname: string): boolean {
+  return (
+    BARE_ROUTES.has(pathname) ||
+    BARE_PREFIXES.some((p) => pathname.startsWith(p)) ||
+    pathname.startsWith("/deck/") ||
+    pathname.endsWith("/present")
+  );
+}
+
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
@@ -311,6 +331,7 @@ export default function Root() {
         queryClient={queryClient}
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
+        sessionBypass={isShareableContentPath(location.pathname)}
       >
         <AppContent />
       </AppProviders>
