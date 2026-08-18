@@ -45,9 +45,18 @@ jobs:
 
       - name: Create beta snapshot versions
         run: |
-          pnpm changeset pre enter beta
           pnpm changeset version --snapshot beta
           pnpm install --lockfile-only
+
+      - name: Generate Builder downstream app token
+        id: builder-downstream-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: |
+            builder-agent-native-workspace
 
       - name: Build all packages
         run: pnpm -r build
@@ -60,7 +69,8 @@ jobs:
 
       - name: Notify downstream repos
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          SELF_TOKEN: ${{ steps.app-token.outputs.token }}
+          WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
           RELEASE_CHANNEL: beta
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -88,9 +98,14 @@ jobs:
           )"
           payload="$(jq -cn --arg p "$packages" --arg c "$RELEASE_CHANNEL" --arg r "$SOURCE_REPOSITORY" --arg u "$SOURCE_RUN_URL" --arg s "$SOURCE_SHA" \
             '{event_type:"agent-native-packages-published",client_payload:{publishedPackages:$p,releaseChannel:$c,sourceRepository:$r,sourceRunUrl:$u,sha:$s}}')"
-          curl --fail-with-body --retry 5 --retry-all-errors -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            --data "$payload" \
-            "https://api.github.com/repos/BuilderIO/builder-agent-native-workspace/dispatches"
+          dispatch() {
+            local target="$1" token="$2"
+            curl --fail-with-body --retry 5 --retry-all-errors -X POST \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --data "$payload" \
+              "https://api.github.com/repos/${target}/dispatches"
+          }
+          dispatch "BuilderIO/builder-agent-native-workspace" "$WORKSPACE_TOKEN"
+          dispatch "$SOURCE_REPOSITORY" "$SELF_TOKEN"

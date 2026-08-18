@@ -101,6 +101,7 @@ jobs:
             const rebuild = process.env.REBUILD === 'true';
             const headers = { Authorization: `Bearer ${token}` };
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
+            let failed = false;
 
             async function cancelQueuedProductionDeploys(name, id, options = {}) {
               const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
@@ -168,6 +169,7 @@ jobs:
                   core.info(`[${name}] triggered a fresh production build for ${ref}.`);
                 } else {
                   core.setFailed(`[${name}] build trigger failed: ${r.status} ${await r.text()}`);
+                  failed = true;
                   continue;
                 }
               }
@@ -176,3 +178,6 @@ jobs:
             }
 
             core.info(`Promotion complete for ${target} (ref=${ref}, clear_others=${clearOthers}, rebuild=${rebuild}).`);
+            if (failed) {
+              core.setFailed('One or more production site promotions failed.');
+            }

@@ -60,12 +60,6 @@ on:
         required: false
         type: boolean
         default: false
-      releaseChannel:
-        description: "Release channel included in downstream notifications"
-        required: false
-        type: choice
-        options: [latest, beta]
-        default: latest
 
 permissions: {}
 
@@ -200,7 +194,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RELEASE_CHANNEL: ${{ inputs.releaseChannel || 'latest' }}
+          RELEASE_CHANNEL: latest
         run: |
           set -euo pipefail
           note() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
