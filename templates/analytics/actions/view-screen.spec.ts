@@ -90,11 +90,16 @@ describe("view-screen monitoring status-pages branch", () => {
       id: "dash-1",
       title: "Revenue",
     };
-    setScreen({ view: "ask" }, { pathname: "/ask" });
+    setScreen(
+      { view: "dashboard", dashboardId: "dash-1" },
+      { pathname: "/ask" },
+    );
 
     const out = await runScreen();
 
     expect(out.selectedObject).toBeUndefined();
+    expect(out.navigation).toEqual({ view: "ask" });
+    expect(out.dashboard).toBeUndefined();
   });
 
   it("lists status pages in the monitoring surfaces catalog", async () => {

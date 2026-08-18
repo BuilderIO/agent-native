@@ -38,14 +38,18 @@ export default defineAction({
       search?: string;
       searchParams?: Record<string, string>;
     } | null;
-    const nav = navigation as any;
-    const isAskView = nav?.view === "ask" || url?.pathname === "/ask";
+    const rawNav = navigation as any;
+    const isAskView = rawNav?.view === "ask" || url?.pathname === "/ask";
+    // The URL is authoritative during route transitions. Do not let a stale
+    // dashboard navigation object enrich the standalone Ask screen.
+    const effectiveNavigation = isAskView ? { view: "ask" } : navigation;
+    const nav = effectiveNavigation as any;
     const selectedObject = isAskView
       ? null
       : await readAppStateForCurrentTab("selected-object");
 
     const screen: Record<string, unknown> = {};
-    if (navigation) screen.navigation = navigation;
+    if (effectiveNavigation) screen.navigation = effectiveNavigation;
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
 
