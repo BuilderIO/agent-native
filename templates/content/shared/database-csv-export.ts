@@ -36,7 +36,7 @@ export interface DatabaseCsvRow {
 }
 
 function csvCell(value: string): string {
-  const safe = /^[\t ]*[=+\-@]/.test(value) ? `'${value}` : value;
+  const safe = /^[\t\r\n ]*[=+\-@]/.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 

@@ -93,6 +93,18 @@ describe("document export", () => {
     ).toBe('Title,Status,Tags,Done\r\nRow,Ready,"Two, One",TRUE\r\n');
   });
 
+  it("neutralizes formulas after spreadsheet-trimmed line whitespace", () => {
+    expect(
+      renderDatabaseCsv(
+        [],
+        [
+          { title: "\r=1+1", values: new Map() },
+          { title: "\n@SUM(1,1)", values: new Map() },
+        ],
+      ),
+    ).toBe('Title\r\n"\'\r=1+1"\r\n"\'\n@SUM(1,1)"\r\n');
+  });
+
   it("carries ordered Blocks fields in a non-rendering identity manifest", () => {
     const markdown = "Alpha\nBeta";
     const blocksFields = [
