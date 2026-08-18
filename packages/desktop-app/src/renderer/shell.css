@@ -598,6 +598,14 @@ body {
   width: min(100%, var(--code-agents-chat-max));
   max-width: var(--code-agents-chat-max);
   box-sizing: border-box;
+  /* The composer frame has an 8px bottom inset; offset the shared 12px flex
+     gap so the visible chat-to-picker spacing is about 10px. */
+  margin-top: -10px;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-overview-footer {
+  /* Keep the Apps section a little more distinct from the picker row. */
+  margin-top: 10px;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
