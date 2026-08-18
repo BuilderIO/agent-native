@@ -15,8 +15,11 @@ import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
 } from "../shared/properties.js";
+import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { getDatabaseByDocumentId } from "./_database-utils.js";
 import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
+
+const COLLECTION_EXPORT_ACCESS_CONCURRENCY = 8;
 
 async function databaseExportContent(documentId: string) {
   const database = await getDatabaseByDocumentId(documentId);
@@ -36,19 +39,35 @@ async function databaseExportContent(documentId: string) {
     );
   const items: CollectionExportItem[] = [];
 
-  for (const member of members) {
-    const access = await resolveAccess("document", member.documentId);
-    if (!access || access.resource.trashedAt) continue;
-    if (member.bodyHydrationStatus !== "hydrated") {
-      throw new Error(
-        `Database item "${member.documentId}" is not ready for export`,
-      );
-    }
+  for (
+    let offset = 0;
+    offset < members.length;
+    offset += COLLECTION_EXPORT_ACCESS_CONCURRENCY
+  ) {
+    const batch = members.slice(
+      offset,
+      offset + COLLECTION_EXPORT_ACCESS_CONCURRENCY,
+    );
+    const resolved = await Promise.all(
+      batch.map(async (member) => ({
+        member,
+        access: await resolveContentDocumentAccess(member.documentId),
+      })),
+    );
 
-    items.push({
-      title: access.resource.title,
-      content: access.resource.content,
-    });
+    for (const { member, access } of resolved) {
+      if (!access || access.resource.trashedAt) continue;
+      if (member.bodyHydrationStatus !== "hydrated") {
+        throw new Error(
+          `Database item "${member.documentId}" is not ready for export`,
+        );
+      }
+
+      items.push({
+        title: access.resource.title,
+        content: access.resource.content,
+      });
+    }
   }
 
   return collectionItemsMarkdown(items);
