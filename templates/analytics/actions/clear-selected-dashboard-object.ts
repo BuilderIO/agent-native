@@ -3,6 +3,7 @@ import {
   appStateKeyForBrowserTab,
   compareAndSetAppState,
   getCurrentRequestBrowserTabId,
+  readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -30,13 +31,21 @@ export default defineAction({
     source: z.string().min(1).max(96),
   }),
   run: async ({ dashboardId, expectedSelection, source }) => {
-    const stateKey = appStateKeyForBrowserTab(
+    const browserTabId = getCurrentRequestBrowserTabId();
+    const scopedStateKey = appStateKeyForBrowserTab(
       SELECTED_OBJECT_STATE_KEY,
-      getCurrentRequestBrowserTabId(),
+      browserTabId,
     );
-    const current = await readAppStateForCurrentTab(SELECTED_OBJECT_STATE_KEY, {
-      fallbackToGlobal: false,
-    });
+    const tabCurrent = await readAppStateForCurrentTab(
+      SELECTED_OBJECT_STATE_KEY,
+      { fallbackToGlobal: false },
+    );
+    const globalCurrent =
+      browserTabId && !tabCurrent
+        ? await readAppState(SELECTED_OBJECT_STATE_KEY)
+        : null;
+    const current = tabCurrent ?? globalCurrent;
+    const stateKey = tabCurrent ? scopedStateKey : SELECTED_OBJECT_STATE_KEY;
     if (!current || current[SELECTED_OBJECT_SOURCE_FIELD] !== source) {
       return { cleared: false };
     }

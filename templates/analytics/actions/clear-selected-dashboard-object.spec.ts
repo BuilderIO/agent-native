@@ -10,11 +10,13 @@ const appStateKeyForBrowserTab = vi.fn(
 );
 const compareAndSetAppState = vi.fn();
 const getCurrentRequestBrowserTabId = vi.fn(() => "test-tab");
+const readAppState = vi.fn();
 const readAppStateForCurrentTab = vi.fn();
 vi.mock("@agent-native/core/application-state", () => ({
   appStateKeyForBrowserTab,
   compareAndSetAppState,
   getCurrentRequestBrowserTabId,
+  readAppState,
   readAppStateForCurrentTab,
 }));
 
@@ -25,6 +27,7 @@ describe("clear-selected-dashboard-object", () => {
     vi.clearAllMocks();
     compareAndSetAppState.mockResolvedValue(true);
     getCurrentRequestBrowserTabId.mockReturnValue("test-tab");
+    readAppState.mockResolvedValue(null);
     readAppStateForCurrentTab.mockResolvedValue(null);
   });
 
@@ -124,6 +127,26 @@ describe("clear-selected-dashboard-object", () => {
     expect(compareAndSetAppState).toHaveBeenCalledWith(
       "selected-object:test-tab",
       originalSelection,
+      null,
+    );
+  });
+
+  it("falls back to the legacy global key when no tab-scoped selection exists", async () => {
+    const current = {
+      type: "dashboard",
+      id: "dash-1",
+      __agentNativeSelectedObjectSource: "test-tab",
+    };
+    readAppStateForCurrentTab.mockResolvedValue(null);
+    readAppState.mockResolvedValue(current);
+
+    await expect(
+      action.run({ dashboardId: "dash-1", source: "test-tab" }),
+    ).resolves.toEqual({ cleared: true });
+
+    expect(compareAndSetAppState).toHaveBeenCalledWith(
+      "selected-object",
+      current,
       null,
     );
   });
