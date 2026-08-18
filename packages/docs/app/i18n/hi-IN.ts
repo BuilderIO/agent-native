@@ -1539,6 +1539,7 @@ const hiIN = {
     localFileMode: "Local File Mode",
     fileUploads: "File uploads",
     deployment: "Deployment",
+    deploymentOverview: "अवलोकन",
     workspaceDeployment: "वर्कस्पेस परिनियोजन",
     deploymentNodeDocker: "Node.js और Docker",
     deploymentVercel: "Vercel",

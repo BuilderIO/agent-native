@@ -1549,6 +1549,7 @@ const esES = {
     localFileMode: "Modo de archivos locales",
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
+    deploymentOverview: "Resumen",
     workspaceDeployment: "Despliegue del Workspace",
     deploymentNodeDocker: "Node.js y Docker",
     deploymentVercel: "Vercel",

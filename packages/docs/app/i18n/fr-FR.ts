@@ -1550,6 +1550,7 @@ const frFR = {
     localFileMode: "Mode fichiers locaux",
     fileUploads: "Téléversements",
     deployment: "Déploiement",
+    deploymentOverview: "Vue d’ensemble",
     workspaceDeployment: "Déploiement du Workspace",
     deploymentNodeDocker: "Node.js et Docker",
     deploymentVercel: "Vercel",

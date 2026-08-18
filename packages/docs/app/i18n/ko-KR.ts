@@ -1542,6 +1542,7 @@ const koKR = {
     localFileMode: "로컬 파일 모드",
     fileUploads: "파일 업로드",
     deployment: "배포",
+    deploymentOverview: "개요",
     workspaceDeployment: "워크스페이스 배포",
     deploymentNodeDocker: "Node.js 및 Docker",
     deploymentVercel: "Vercel",

@@ -107,7 +107,7 @@ Per-app independent deploy is still supported. Just run `cd apps/<name> && npx @
 
 ## Self-hosted Workspace with Docker Compose {#workspace-docker-compose}
 
-The [standalone Dockerfile](/docs/deployment-node-docker#docker) is for one app. A workspace is not one Nitro
+The [standalone Dockerfile](/docs/node-docker#docker) is for one app. A workspace is not one Nitro
 server process today: each app still builds to its own `.output/` directory and
 runs its own Node/Nitro server. For a VPS, run one container per workspace app,
 point every app at the same Postgres database and shared production secrets, and

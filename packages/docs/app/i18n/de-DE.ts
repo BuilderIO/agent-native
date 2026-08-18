@@ -1549,6 +1549,7 @@ const deDE = {
     localFileMode: "Lokaler Dateimodus",
     fileUploads: "Datei-Uploads",
     deployment: "Deployment",
+    deploymentOverview: "Überblick",
     workspaceDeployment: "Workspace-Deployment",
     deploymentNodeDocker: "Node.js und Docker",
     deploymentVercel: "Vercel",

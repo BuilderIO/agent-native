@@ -1545,6 +1545,7 @@ const ptBR = {
     localFileMode: "Modo de arquivos locais",
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
+    deploymentOverview: "Visão geral",
     workspaceDeployment: "Deploy do Workspace",
     deploymentNodeDocker: "Node.js e Docker",
     deploymentVercel: "Vercel",

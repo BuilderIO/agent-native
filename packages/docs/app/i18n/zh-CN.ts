@@ -1521,6 +1521,7 @@ const zhCN = {
     localFileMode: "本地文件模式",
     fileUploads: "文件上传",
     deployment: "部署",
+    deploymentOverview: "概览",
     workspaceDeployment: "工作区部署",
     deploymentNodeDocker: "Node.js 与 Docker",
     deploymentVercel: "Vercel",

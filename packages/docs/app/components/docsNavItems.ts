@@ -611,47 +611,57 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "internationalization",
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
-        id: "workspace-deployment",
-        labelKey: "workspaceDeployment",
-        slug: "workspace-deployment",
-      },
-      {
-        id: "deployment-node-docker",
-        labelKey: "deploymentNodeDocker",
-        slug: "deployment-node-docker",
-      },
-      {
-        id: "deployment-vercel",
-        labelKey: "deploymentVercel",
-        slug: "deployment-vercel",
-      },
-      {
-        id: "deployment-netlify",
-        labelKey: "deploymentNetlify",
-        slug: "deployment-netlify",
-      },
-      {
-        id: "deployment-cloudflare",
-        labelKey: "deploymentCloudflare",
-        slug: "deployment-cloudflare",
-      },
-      {
-        id: "deployment-other-platforms",
-        labelKey: "deploymentOtherPlatforms",
-        slug: "deployment-other-platforms",
-      },
-      { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
-      {
-        id: "deployment-environment-variables",
-        labelKey: "deploymentEnvironmentVariables",
-        slug: "deployment-environment-variables",
-      },
-      {
-        id: "updating-ui-in-production",
-        labelKey: "updatingUiInProduction",
-        slug: "updating-ui-in-production",
+        id: "deployment-section",
+        labelKey: "deployment",
+        children: [
+          {
+            id: "deployment",
+            labelKey: "deploymentOverview",
+            slug: "deployment",
+          },
+          {
+            id: "workspace-deployment",
+            labelKey: "workspaceDeployment",
+            slug: "workspace-deployment",
+          },
+          {
+            id: "node-docker",
+            labelKey: "deploymentNodeDocker",
+            slug: "node-docker",
+          },
+          {
+            id: "vercel",
+            labelKey: "deploymentVercel",
+            slug: "vercel",
+          },
+          {
+            id: "netlify",
+            labelKey: "deploymentNetlify",
+            slug: "netlify",
+          },
+          {
+            id: "cloudflare",
+            labelKey: "deploymentCloudflare",
+            slug: "cloudflare",
+          },
+          {
+            id: "other-platforms",
+            labelKey: "deploymentOtherPlatforms",
+            slug: "other-platforms",
+          },
+          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
+          {
+            id: "deployment-environment-variables",
+            labelKey: "deploymentEnvironmentVariables",
+            slug: "deployment-environment-variables",
+          },
+          {
+            id: "updating-ui-in-production",
+            labelKey: "updatingUiInProduction",
+            slug: "updating-ui-in-production",
+          },
+        ],
       },
       {
         id: "environment-variables",

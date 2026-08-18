@@ -1546,6 +1546,7 @@ const jaJP = {
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
+    deploymentOverview: "概要",
     workspaceDeployment: "ワークスペースのデプロイ",
     deploymentNodeDocker: "Node.js と Docker",
     deploymentVercel: "Vercel",

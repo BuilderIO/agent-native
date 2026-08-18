@@ -1537,6 +1537,7 @@ const arSA = {
     localFileMode: "Local File Mode",
     fileUploads: "تحميلات الملفات",
     deployment: "Deployment",
+    deploymentOverview: "نظرة عامة",
     workspaceDeployment: "نشر مساحة العمل",
     deploymentNodeDocker: "Node.js و Docker",
     deploymentVercel: "Vercel",

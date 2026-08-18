@@ -1539,6 +1539,7 @@ const enUS = {
     localFileMode: "Local File Mode",
     fileUploads: "File Uploads",
     deployment: "Deployment",
+    deploymentOverview: "Overview",
     workspaceDeployment: "Workspace Deployment",
     deploymentNodeDocker: "Node.js & Docker",
     deploymentVercel: "Vercel",
