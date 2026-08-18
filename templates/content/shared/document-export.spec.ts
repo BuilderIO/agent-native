@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { legacyBlocksFieldIdentity } from "./blocks-field-identity";
+import { renderDatabaseCsv } from "./database-csv-export";
 import {
   buildDocumentExport,
   collectionItemsMarkdown,
@@ -8,8 +9,90 @@ import {
   markdownWithTitle,
 } from "./document-export";
 import { KATEX_STYLESHEET_URL } from "./math-rendering";
+import type { DocumentPropertyValue } from "./properties";
 
 describe("document export", () => {
+  it("renders RFC 4180 CSV with formula-safe cells", () => {
+    expect(
+      renderDatabaseCsv(
+        [
+          {
+            id: "notes",
+            name: "Notes, quoted",
+            property: { definition: { type: "text", options: {} } },
+          },
+          {
+            id: "amount",
+            name: "Amount",
+            property: { definition: { type: "text", options: {} } },
+          },
+        ],
+        [
+          {
+            title: '=HYPERLINK("https://example.com")',
+            values: new Map([
+              ["notes", 'hello, "world"\nnext'],
+              ["amount", null],
+            ]),
+          },
+        ],
+      ),
+    ).toBe(
+      'Title,"Notes, quoted",Amount\r\n"\'=HYPERLINK(""https://example.com"")","hello, ""world""\nnext",\r\n',
+    );
+  });
+
+  it("uses option labels, array order, and checkbox text in CSV cells", () => {
+    expect(
+      renderDatabaseCsv(
+        [
+          {
+            id: "status",
+            name: "Status",
+            property: {
+              definition: {
+                type: "status",
+                options: {
+                  options: [{ id: "ready", name: "Ready", color: "green" }],
+                },
+              },
+            },
+          },
+          {
+            id: "tags",
+            name: "Tags",
+            property: {
+              definition: {
+                type: "multi_select",
+                options: {
+                  options: [
+                    { id: "two", name: "Two", color: "blue" },
+                    { id: "one", name: "One", color: "gray" },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "done",
+            name: "Done",
+            property: { definition: { type: "checkbox", options: {} } },
+          },
+        ],
+        [
+          {
+            title: "Row",
+            values: new Map<string, DocumentPropertyValue>([
+              ["status", "ready"],
+              ["tags", ["two", "one"]],
+              ["done", true],
+            ]),
+          },
+        ],
+      ),
+    ).toBe('Title,Status,Tags,Done\r\nRow,Ready,"Two, One",TRUE\r\n');
+  });
+
   it("carries ordered Blocks fields in a non-rendering identity manifest", () => {
     const markdown = "Alpha\nBeta";
     const blocksFields = [

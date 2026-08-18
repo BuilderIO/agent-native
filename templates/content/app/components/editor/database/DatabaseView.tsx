@@ -276,6 +276,7 @@ import {
   releasePreviewDocumentSaveController,
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
+import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
@@ -294,6 +295,7 @@ export interface DatabaseViewProps {
   renderMode?: "page" | "inline";
   canEdit?: boolean;
   isActive?: boolean;
+  onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
@@ -741,6 +743,7 @@ export function DatabaseView({
   renderMode = "page",
   canEdit = true,
   isActive,
+  onExportContextChange,
 }: DatabaseViewProps) {
   const { data: document } = useDocument(databaseDocumentId);
 
@@ -756,6 +759,7 @@ export function DatabaseView({
       renderMode={renderMode}
       canEdit={effectiveCanEdit}
       isActive={isActive ?? renderMode === "page"}
+      onExportContextChange={onExportContextChange}
     />
   );
 }
@@ -768,6 +772,7 @@ function DatabaseTable({
   renderMode,
   canEdit,
   isActive,
+  onExportContextChange,
 }: {
   document: Document;
   databaseId: string;
@@ -776,6 +781,7 @@ function DatabaseTable({
   renderMode: "page" | "inline";
   canEdit: boolean;
   isActive: boolean;
+  onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -1062,6 +1068,37 @@ function DatabaseTable({
       ),
     [orderedProperties, items, activeView],
   );
+  const exportContext = useMemo<DatabaseExportContext>(
+    () => ({
+      viewId: activeView.id,
+      viewName: activeView.name,
+      query: { search: searchQuery, filters, sorts, filterMode },
+      properties: orderedProperties.map((property) => ({
+        id: property.definition.id,
+        name: property.definition.name,
+        type: property.definition.type,
+        visible: isDatabasePropertyVisibleInView(property, items, activeView),
+      })),
+    }),
+    [
+      activeView,
+      filterMode,
+      filters,
+      items,
+      orderedProperties,
+      searchQuery,
+      sorts,
+    ],
+  );
+  useEffect(() => {
+    // Inline blocks share this component but cannot replace the page snapshot.
+    if (renderMode === "page") onExportContextChange?.(exportContext);
+  }, [exportContext, onExportContextChange, renderMode]);
+  useEffect(() => {
+    return () => {
+      if (renderMode === "page") onExportContextChange?.(null);
+    };
+  }, [onExportContextChange, renderMode]);
   const visibleItems = useMemo(
     () =>
       applyDatabaseView(
