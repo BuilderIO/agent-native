@@ -1238,11 +1238,56 @@ const TYPE_SUBSTITUTE_KEYS = [
   "not",
 ] as const;
 
-function stripUnsupportedSchemaKeywords<T>(node: T): T {
+/**
+ * `format` values OpenAI's function-schema validator accepts. Anything else --
+ * `uri` from `z.string().url()`, `binary`, `regex`, … -- is answered with
+ * "'<x>' is not a valid format" and a 400 for the WHOLE request.
+ *
+ * Dropping an unknown format only widens what the schema accepts, and the
+ * action's own zod schema still validates the value server-side, so nothing is
+ * actually loosened. Kept as an allowlist rather than a denylist: a new format
+ * we have not heard of should degrade to "unconstrained", not to a 400 that
+ * takes every other tool in the payload down with it.
+ */
+const PROVIDER_SUPPORTED_FORMATS = new Set([
+  "date-time",
+  "time",
+  "date",
+  "duration",
+  "email",
+  "hostname",
+  "ipv4",
+  "ipv6",
+  "uuid",
+]);
+
+/**
+ * Keywords that only ever CONSTRAIN a value and that OpenAI's validator rejects
+ * outright. Removing a constraint can never make a previously-valid document
+ * invalid, so this is safe in a way that rewriting structure would not be.
+ */
+const PROVIDER_REJECTED_KEYWORDS = [
+  "propertyNames",
+  "patternProperties",
+  "dependentSchemas",
+  "dependentRequired",
+  "if",
+  "then",
+  "else",
+  "not",
+] as const;
+
+export function stripUnsupportedSchemaKeywords<T>(node: T): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
 
-  delete obj.propertyNames;
+  for (const keyword of PROVIDER_REJECTED_KEYWORDS) delete obj[keyword];
+  if (
+    typeof obj.format === "string" &&
+    !PROVIDER_SUPPORTED_FORMATS.has(obj.format)
+  ) {
+    delete obj.format;
+  }
 
   for (const key of SUBSCHEMA_VALUE_KEYS) {
     // `items`/`additionalItems` may also be an array of subschemas.
