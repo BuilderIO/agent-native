@@ -29,6 +29,7 @@ export async function retryNextPage(
 ): Promise<void> {
   try {
     await fetchNextPage();
+    // coercion-ok: React Query owns the error; catch prevents an unhandled retry rejection.
   } catch {
     // React Query owns the visible error state for the failed page.
   }
