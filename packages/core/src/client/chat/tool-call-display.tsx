@@ -612,6 +612,7 @@ function ApprovalAffordance({
               approval.approvalKey,
               "approved",
               toolCallId,
+              approval.askId,
             );
             ctx.onApprove(approval.approvalKey);
           }}
@@ -633,6 +634,7 @@ function ApprovalAffordance({
               approval.approvalKey,
               "approved",
               toolCallId,
+              approval.askId,
             );
             ctx.onAlwaysAllow?.(approval.approvalKey);
           }}
@@ -650,7 +652,12 @@ function ApprovalAffordance({
         type="button"
         onClick={() => {
           setLocalResolution("denied");
-          ctx?.onApprovalResolved?.(approval.approvalKey, "denied", toolCallId);
+          ctx?.onApprovalResolved?.(
+            approval.approvalKey,
+            "denied",
+            toolCallId,
+            approval.askId,
+          );
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
