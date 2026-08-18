@@ -59,9 +59,15 @@ jobs:
       - name: Verify head commit is bot-authored
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          actual_head=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$actual_head" != "$HEAD_SHA" ]; then
+            echo "::error::PR head moved from verified event SHA $HEAD_SHA to $actual_head — refusing admin-merge." >&2
+            exit 1
+          fi
           author=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.author.login // ""')
           committer=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.committer.login // ""')
           if [ "$author" != "builder-io-integration[bot]" ] || [ "$committer" != "builder-io-integration[bot]" ]; then
@@ -72,6 +78,7 @@ jobs:
       - name: Verify release-only diff
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
@@ -92,6 +99,7 @@ jobs:
       - name: Force-merge with admin bypass
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash
+        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"
