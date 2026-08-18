@@ -102,6 +102,23 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain('t("agentChat.common.retry")');
   });
 
+  it("clears a stale restore error when a saved tab becomes a fresh chat", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const recoveryStart = source.indexOf(
+      "  useEffect(() => {\n    if (!threadId || !isNewThread) return;",
+    );
+    const recoveryEnd = source.indexOf(
+      "  // Restore messages from server on mount",
+      recoveryStart,
+    );
+    const recoverySource = source.slice(recoveryStart, recoveryEnd);
+
+    expect(recoverySource).toContain("setThreadRestoreError(null);");
+    expect(recoverySource).toContain("setIsRestoring(false);");
+  });
+
   it("replays embedded transcript restoration safely under StrictMode", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
