@@ -473,6 +473,18 @@ const messages = {
       "यह लिंक टीम प्रस्तुति की ओर इशारा करता है। ऊपर दिखाई गई टीम से जुड़ें और डेक यहां अपने-आप खुल जाएगा।",
     deckUnavailableDescription:
       "यह डेक हटाया गया हो सकता है, या आपके खाते को इसका एक्सेस नहीं है।",
+    privateDeckTitle: "यह डेक निजी है",
+    privateDeckDescription:
+      "यह डेक खोलने के लिए मालिक से एक्सेस का अनुरोध करें। अनुरोध भेजने पर उन्हें सूचना मिलेगी।",
+    signedInAs: "आप इस खाते से साइन इन हैं",
+    accessRequestSentDescription:
+      "मालिक को सूचना भेज दी गई है। एक्सेस मिलने के बाद आप यह डेक खोल सकेंगे।",
+    accessRequestRecordedDescription:
+      "आपका अनुरोध दर्ज कर लिया गया है। एक्सेस मिलने के बाद आप यह डेक खोल सकेंगे।",
+    requestAccessPending: "अनुरोध भेजा जा रहा है…",
+    accessRequestSent: "अनुरोध भेज दिया गया",
+    requestAccess: "एक्सेस का अनुरोध करें",
+    signInToRequestAccess: "एक्सेस का अनुरोध करने के लिए साइन इन करें",
     backToDecks: "डेक पर वापस जाएं",
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",

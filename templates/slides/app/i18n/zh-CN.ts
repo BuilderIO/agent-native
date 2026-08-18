@@ -466,6 +466,18 @@ const messages = {
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
     deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
+    privateDeckTitle: "此幻灯片是私密的",
+    privateDeckDescription:
+      "请求所有者授予访问权限以打开此幻灯片。发送请求后，所有者会收到通知。",
+    signedInAs: "你已登录为",
+    accessRequestSentDescription:
+      "所有者已收到通知。获得访问权限后，你就可以打开此幻灯片。",
+    accessRequestRecordedDescription:
+      "你的请求已记录。获得访问权限后，你就可以打开此幻灯片。",
+    requestAccessPending: "正在发送请求…",
+    accessRequestSent: "请求已发送",
+    requestAccess: "请求访问权限",
+    signInToRequestAccess: "登录以请求访问权限",
     backToDecks: "返回幻灯片",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",

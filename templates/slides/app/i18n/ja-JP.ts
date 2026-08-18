@@ -472,7 +472,19 @@ const messages = {
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
     deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
-    backToDecks: "返回幻灯片",
+    privateDeckTitle: "このデッキは非公開です",
+    privateDeckDescription:
+      "このデッキを開くには所有者にアクセスをリクエストしてください。リクエストを送信すると所有者に通知されます。",
+    signedInAs: "ログイン中のアカウント",
+    accessRequestSentDescription:
+      "所有者に通知しました。アクセスが許可されると、このデッキを開けます。",
+    accessRequestRecordedDescription:
+      "リクエストを記録しました。アクセスが許可されると、このデッキを開けます。",
+    requestAccessPending: "リクエストを送信中…",
+    accessRequestSent: "リクエストを送信しました",
+    requestAccess: "アクセスをリクエスト",
+    signInToRequestAccess: "ログインしてアクセスをリクエスト",
+    backToDecks: "デッキに戻る",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:

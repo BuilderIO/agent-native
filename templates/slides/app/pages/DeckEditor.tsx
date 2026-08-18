@@ -4,6 +4,7 @@ import {
   emailToColor,
   emailToName,
   appBasePath,
+  agentNativePath,
   callAction,
   useGuidedQuestionFlow,
   useT,
@@ -19,9 +20,13 @@ import {
   DragEndEvent,
 } from "@dnd-kit/core";
 import {
+  IconAt,
   IconArrowLeft,
   IconLock,
+  IconLoader2,
+  IconLogin2,
   IconRefresh,
+  IconUserPlus,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
@@ -54,6 +59,11 @@ import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { Button } from "@/components/ui/button";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  useDeckAccessStatus,
+  useRequestDeckAccess,
+  type DeckAccessStatusResponse,
+} from "@/hooks/use-deck-access";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
@@ -82,37 +92,70 @@ const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
 );
 
 function MissingDeckAccessPane({
+  accessStatus,
+  accessStatusError,
+  accessStatusLoading,
   hasTeamJoinOption,
   orgLoading,
   orgError,
+  requestAccessPending,
+  accessRequestSent,
+  accessRequestNotified,
+  signedIn,
+  viewerEmail,
   refreshing,
+  onRequestAccess,
+  onSignIn,
   onRetry,
   onBack,
 }: {
+  accessStatus: DeckAccessStatusResponse | null;
+  accessStatusError: boolean;
+  accessStatusLoading: boolean;
   hasTeamJoinOption: boolean;
   orgLoading: boolean;
   orgError: boolean;
+  requestAccessPending: boolean;
+  accessRequestSent: boolean;
+  accessRequestNotified: boolean;
+  signedIn: boolean;
+  viewerEmail: string | null;
   refreshing: boolean;
+  onRequestAccess: () => void;
+  onSignIn: () => void;
   onRetry: () => void;
   onBack: () => void;
 }) {
   const t = useT();
+  const privateDeck = Boolean(
+    accessStatus?.exists &&
+    !accessStatus.hasAccess &&
+    accessStatus.visibility !== "public",
+  );
+  const checkingAccess = accessStatusLoading || orgLoading;
+  const accessCheckFailed = accessStatusError || orgError;
   const Icon =
-    hasTeamJoinOption || orgLoading || orgError ? IconUsersGroup : IconLock;
-  const title = orgLoading
+    privateDeck || (!hasTeamJoinOption && !checkingAccess && !accessCheckFailed)
+      ? IconLock
+      : IconUsersGroup;
+  const title = checkingAccess
     ? t("deckEditor.lookingForDeck")
-    : orgError
-      ? t("deckEditor.teamAccessCheckFailed")
-      : hasTeamJoinOption
-        ? t("deckEditor.joinTeamToOpen")
-        : t("deckEditor.deckUnavailable");
-  const description = orgLoading
+    : privateDeck
+      ? t("deckEditor.privateDeckTitle")
+      : accessCheckFailed
+        ? t("deckEditor.teamAccessCheckFailed")
+        : hasTeamJoinOption
+          ? t("deckEditor.joinTeamToOpen")
+          : t("deckEditor.deckUnavailable");
+  const description = checkingAccess
     ? t("deckEditor.checkingSharedAccess")
-    : orgError
-      ? t("deckEditor.verifySharedAccessFailed")
-      : hasTeamJoinOption
-        ? t("deckEditor.joinTeamDescription")
-        : t("deckEditor.deckUnavailableDescription");
+    : privateDeck
+      ? t("deckEditor.privateDeckDescription")
+      : accessCheckFailed
+        ? t("deckEditor.verifySharedAccessFailed")
+        : hasTeamJoinOption
+          ? t("deckEditor.joinTeamDescription")
+          : t("deckEditor.deckUnavailableDescription");
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
@@ -126,21 +169,64 @@ function MissingDeckAccessPane({
           </div>
         </div>
         <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={onBack}>
-            <IconArrowLeft className="size-4" />
-            {t("deckEditor.backToDecks")}
-          </Button>
-          <Button
-            type="button"
-            onClick={onRetry}
-            disabled={refreshing || orgLoading}
-          >
-            <IconRefresh
-              className={refreshing ? "size-4 animate-spin" : "size-4"}
-            />
-            {t("deckEditor.tryAgain")}
-          </Button>
+        {privateDeck && viewerEmail ? (
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
+            <IconAt className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate text-muted-foreground">
+              {t("deckEditor.signedInAs")}{" "}
+              <span className="font-medium text-foreground">{viewerEmail}</span>
+            </span>
+          </div>
+        ) : null}
+        {privateDeck && accessRequestSent ? (
+          <div className="mt-3 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+            {t(
+              accessRequestNotified
+                ? "deckEditor.accessRequestSentDescription"
+                : "deckEditor.accessRequestRecordedDescription",
+            )}
+          </div>
+        ) : null}
+        <div className="mt-5 flex flex-col gap-2">
+          {privateDeck ? (
+            <Button
+              type="button"
+              onClick={signedIn ? onRequestAccess : onSignIn}
+              disabled={requestAccessPending || accessRequestSent}
+            >
+              {requestAccessPending ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : signedIn ? (
+                <IconUserPlus className="size-4" />
+              ) : (
+                <IconLogin2 className="size-4" />
+              )}
+              {requestAccessPending
+                ? t("deckEditor.requestAccessPending")
+                : accessRequestSent
+                  ? t("deckEditor.accessRequestSent")
+                  : signedIn
+                    ? t("deckEditor.requestAccess")
+                    : t("deckEditor.signInToRequestAccess")}
+            </Button>
+          ) : null}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={onBack}>
+              <IconArrowLeft className="size-4" />
+              {t("deckEditor.backToDecks")}
+            </Button>
+            <Button
+              type="button"
+              variant={privateDeck ? "ghost" : "default"}
+              onClick={onRetry}
+              disabled={refreshing || checkingAccess}
+            >
+              <IconRefresh
+                className={refreshing ? "size-4 animate-spin" : "size-4"}
+              />
+              {t("deckEditor.tryAgain")}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -152,6 +238,7 @@ export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
     reloadDecks,
@@ -169,6 +256,8 @@ export default function DeckEditor() {
     canRedo,
     loading,
   } = useDecks();
+  const deckAccessStatusQuery = useDeckAccessStatus(id);
+  const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const { generating } = useAgentGenerating();
   // Track new-deck-creation intent: set once on mount if ?generating=1.
@@ -178,6 +267,10 @@ export default function DeckEditor() {
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
+  const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
+    string | null
+  >(null);
+  const [accessRequestNotified, setAccessRequestNotified] = useState(false);
   const {
     data: org,
     isLoading: orgLoading,
@@ -223,6 +316,7 @@ export default function DeckEditor() {
   }, []);
 
   const deck = getDeck(id || "");
+  const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const hasTeamJoinOption =
     !org?.orgId &&
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
@@ -231,7 +325,7 @@ export default function DeckEditor() {
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor.
-  const { canEdit } = useDeckRole(id);
+  const { canEdit } = useDeckRole(deck ? id : undefined);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -285,6 +379,35 @@ export default function DeckEditor() {
       setRetryingMissingDeck(false);
     }
   }, [refetchOrg, reloadDecks]);
+
+  const openSignIn = useCallback(() => {
+    const returnPath = window.location.pathname + window.location.search;
+    window.location.href = `${agentNativePath(
+      "/_agent-native/sign-in",
+    )}?return=${encodeURIComponent(returnPath)}`;
+  }, []);
+
+  const requestDeckAccess = useCallback(() => {
+    if (!id) return;
+    requestDeckAccessMutation.mutate(
+      { deckId: id },
+      {
+        onSuccess: (result) => {
+          setAccessRequestSentDeckId(id);
+          setAccessRequestNotified(result.notifiedOwner);
+          toast.success(result.message);
+          if (result.alreadyHasAccess) void reloadDecks();
+        },
+      },
+    );
+  }, [id, reloadDecks, requestDeckAccessMutation]);
+
+  useEffect(() => {
+    if (accessRequestSentDeckId && accessRequestSentDeckId !== id) {
+      setAccessRequestSentDeckId(null);
+      setAccessRequestNotified(false);
+    }
+  }, [accessRequestSentDeckId, id]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -665,7 +788,6 @@ export default function DeckEditor() {
     useRef<typeof deck extends undefined ? null : any>(null);
 
   // Session for collab user identity
-  const { session } = useSession();
   const currentUser = session?.email
     ? {
         email: session.email,
@@ -703,7 +825,7 @@ export default function DeckEditor() {
     recentEdits: deckRecentEdits,
     awareness: deckPresenceAwareness,
   } = useDeckPresence({
-    deckId: id ?? null,
+    deckId: deck ? (id ?? null) : null,
     activeSlideId: activeSlideId,
     user: currentUser,
   });
@@ -715,21 +837,33 @@ export default function DeckEditor() {
   const agentActive = deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
-  const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
+  const currentSlideCommentsQuery = useSlideComments(
+    deck ? (id ?? null) : null,
+    activeSlideId,
+  );
   const currentSlideThreads: CommentThread[] =
     currentSlideCommentsQuery.data ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
     (t) => !t.resolved,
   ).length;
 
-  if (loading) return <div className="h-screen bg-background" />;
-  if (!deck || !id) {
+  if (loading || !deck || !id) {
     return (
       <MissingDeckAccessPane
+        accessStatus={deckAccessStatus}
+        accessStatusError={deckAccessStatusQuery.isError}
+        accessStatusLoading={loading || deckAccessStatusQuery.isLoading}
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
         orgError={orgError}
+        requestAccessPending={requestDeckAccessMutation.isPending}
+        accessRequestSent={accessRequestSentDeckId === id}
+        accessRequestNotified={accessRequestNotified}
+        signedIn={Boolean(session) && !sessionLoading}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}
+        onRequestAccess={requestDeckAccess}
+        onSignIn={openSignIn}
         onRetry={() => void retryOpenDeck()}
         onBack={() => navigate("/")}
       />

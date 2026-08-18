@@ -114,6 +114,20 @@ Real credential values belong only in local `.env` files, deployment configurati
 | `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
 
+## Private Deck Access Recovery
+
+The editor route intentionally keeps private decks out of the content response
+when the current viewer has no grant. The `get-deck-access-status` action may
+return only existence, visibility, and the current viewer identity so the UI
+can explain the denial without exposing deck data. The private-deck pane uses
+that metadata to show the Google-Docs-style "This deck is private" state.
+
+Signed-in viewers can call `request-deck-access`. That action records a
+`deck.access_requested` event in `deck_events` and notifies the deck owner by
+email when outbound email is configured. It never grants access; the owner
+must use the existing Share controls. Anonymous viewers are sent through the
+normal sign-in flow first.
+
 ## Build & Dev Commands
 
 ```bash
