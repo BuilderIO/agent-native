@@ -28,7 +28,7 @@ export const templates = [
     demoUrl: "https://plan.agent-native.com",
     color: "#52525B",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fefc6a3ac908149fa92e2b9392c0bb372?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F775bae8e78b34d309bd3b9be5d7137e8?format=webp&width=800&height=1200",
   },
   {
     name: "Design",
@@ -38,7 +38,7 @@ export const templates = [
     demoUrl: "https://design.agent-native.com",
     color: "#F472B6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F75026532fe204acbab72d41dbeb34305?format=webp&width=800&height=1200",
   },
   {
     name: "Content",
@@ -48,7 +48,7 @@ export const templates = [
     demoUrl: "https://content.agent-native.com",
     color: "#7928ca",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9fb501f3ab2145e78ab4a8b5b80bb793?format=webp&width=800&height=1200",
   },
   {
     name: "Slides",
@@ -58,7 +58,7 @@ export const templates = [
     demoUrl: "https://slides.agent-native.com",
     color: "#f59e0b",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffccd0f339b764a6cbbf5308d0045112d?format=webp&width=800&height=1200",
   },
   {
     name: "Analytics",
@@ -68,7 +68,7 @@ export const templates = [
     demoUrl: "https://analytics.agent-native.com",
     color: "var(--docs-accent)",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4272c4c3fb924206bae05141ed8f324b?format=webp&width=800&height=1200",
   },
   {
     name: "Mail",
@@ -78,7 +78,7 @@ export const templates = [
     demoUrl: "https://mail.agent-native.com",
     color: "#0ea5e9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F996f57a8e1ce4570b9fefd57df56cc4c?format=webp&width=800&height=1200",
   },
   {
     name: "Forms",
@@ -88,7 +88,7 @@ export const templates = [
     demoUrl: "https://forms.agent-native.com",
     color: "#06B6D4",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F46975a73af5246b39a23e6c4c1361516?format=webp&width=800&height=1200",
   },
   {
     name: "Brain",
@@ -98,7 +98,7 @@ export const templates = [
     demoUrl: "https://brain.agent-native.com",
     color: "#8B5CF6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8cc4d4e2d39d4781bd4dd86d449d88e7?format=webp&width=800&height=1200",
   },
   {
     name: "Assets",
@@ -108,7 +108,7 @@ export const templates = [
     demoUrl: "https://assets.agent-native.com",
     color: "#0F766E",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F797d0b56b93a4e779baa0d7a5724e0db?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9fdd5469051f421db5f1fdcc749de66b?format=webp&width=800&height=1200",
   },
   {
     name: "Calendar",
@@ -118,7 +118,7 @@ export const templates = [
     demoUrl: "https://calendar.agent-native.com",
     color: "#10b981",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7847155fdcf14f559d34752c11f311b9?format=webp&width=800&height=1200",
   },
   {
     name: "Dispatch",
@@ -128,7 +128,7 @@ export const templates = [
     demoUrl: "https://dispatch.agent-native.com",
     color: "#14B8A6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdf5c35aec8924134a9b9bbc9d8cec9e8?format=webp&width=800&height=1200",
   },
   {
     name: "Chat",
@@ -138,7 +138,7 @@ export const templates = [
     demoUrl: "https://chat.agent-native.com",
     color: "#18181B",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0341ba536725449587831a33bde6f489?format=webp&width=800&height=1200",
   },
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
