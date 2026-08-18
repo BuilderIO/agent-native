@@ -40,6 +40,8 @@ function GoogleIcon() {
 const COPY = resolveNativeAuthCopy(
   typeof navigator === "undefined" ? undefined : navigator.language,
 );
+const TERMS_URL = "https://www.agent-native.com/terms";
+const PRIVACY_URL = "https://www.agent-native.com/privacy";
 
 interface DesktopIdentityGateProps {
   appName: string;
@@ -209,6 +211,10 @@ export default function DesktopIdentityGate({
       onClick={(event) => event.stopPropagation()}
     >
       <div className="desktop-identity-gate__panel desktop-identity-gate__panel--form">
+        <div className="desktop-identity-gate__heading">
+          <h1>{COPY.welcomeTitle}</h1>
+          <p>{COPY.welcomeSubtitle}</p>
+        </div>
         <form className="desktop-identity-gate__form" onSubmit={submit}>
           <button
             type="button"
@@ -224,7 +230,9 @@ export default function DesktopIdentityGate({
             <span>{COPY.dividerOr}</span>
           </div>
 
+          <label htmlFor="desktop-identity-email">{COPY.email}</label>
           <input
+            id="desktop-identity-email"
             ref={emailRef}
             type="email"
             autoComplete="email"
@@ -261,19 +269,47 @@ export default function DesktopIdentityGate({
             </p>
           ) : null}
 
-          <button
-            type="submit"
-            className="desktop-identity-gate__submit desktop-identity-gate__submit--primary"
-            disabled={!canSubmit || busy}
-          >
-            {busy
-              ? authMode === "magic-link"
-                ? COPY.sending
-                : COPY.signingIn
-              : authMode === "magic-link"
-                ? COPY.sendMagicLink
-                : COPY.signIn}
-          </button>
+          {busy || canSubmit ? (
+            <button
+              type="submit"
+              className="desktop-identity-gate__submit desktop-identity-gate__submit--primary"
+              disabled={!canSubmit || busy}
+            >
+              {busy
+                ? authMode === "magic-link"
+                  ? COPY.sending
+                  : COPY.signingIn
+                : authMode === "magic-link"
+                  ? COPY.sendMagicLink
+                  : COPY.signIn}
+            </button>
+          ) : null}
+
+          {authMode === "magic-link" ? (
+            <p className="desktop-identity-gate__legal">
+              {COPY.legalPrefix}{" "}
+              <a
+                href={TERMS_URL}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void window.electronAPI?.shell.openExternal(TERMS_URL);
+                }}
+              >
+                {COPY.legalTerms}
+              </a>{" "}
+              {COPY.legalConnector}{" "}
+              <a
+                href={PRIVACY_URL}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void window.electronAPI?.shell.openExternal(PRIVACY_URL);
+                }}
+              >
+                {COPY.legalPrivacy}
+              </a>
+              {COPY.legalSuffix}
+            </p>
+          ) : null}
 
           <button
             type="button"

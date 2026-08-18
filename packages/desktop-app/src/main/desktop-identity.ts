@@ -453,6 +453,10 @@ async function readDesktopIdentityMagicLinkResponse(
 
 export class DesktopIdentityBroker {
   private readonly pendingByApp = new Map<string, Promise<boolean>>();
+  private readonly pendingModernAppSessions = new Map<
+    string,
+    Promise<boolean>
+  >();
   private readonly unsupportedAppIds = new Set<string>();
   private readonly activeSessionCopies = new Set<Promise<void>>();
   private queue: Promise<void> = Promise.resolve();
@@ -625,7 +629,7 @@ export class DesktopIdentityBroker {
     }
 
     const operation = this.options.openExternal
-      ? this.ensureModernAppSession(appId)
+      ? this.ensureModernAppSessionDeduped(appId)
       : this.ensureAppSessionInternal(appId, {
           interactive: false,
           skipIfPresent: true,
@@ -634,6 +638,36 @@ export class DesktopIdentityBroker {
           // not replace the workspace-level signed-in state while it runs.
           preserveStatus: true,
         });
+    return operation;
+  }
+
+  private ensureModernAppSessionDeduped(
+    appId: string,
+    generation = this.ceremonyGeneration,
+    expectedEmail?: string,
+  ): Promise<boolean> {
+    const pendingKey = `${generation}:${appId}`;
+    const existing = this.pendingModernAppSessions.get(pendingKey);
+    if (existing) return existing;
+
+    const operation = this.ensureModernAppSession(
+      appId,
+      generation,
+      expectedEmail,
+    );
+    this.pendingModernAppSessions.set(pendingKey, operation);
+    void operation.then(
+      () => {
+        if (this.pendingModernAppSessions.get(pendingKey) === operation) {
+          this.pendingModernAppSessions.delete(pendingKey);
+        }
+      },
+      () => {
+        if (this.pendingModernAppSessions.get(pendingKey) === operation) {
+          this.pendingModernAppSessions.delete(pendingKey);
+        }
+      },
+    );
     return operation;
   }
 
@@ -1210,7 +1244,7 @@ export class DesktopIdentityBroker {
       for (const app of remaining) {
         let succeeded = false;
         try {
-          succeeded = await this.ensureModernAppSession(
+          succeeded = await this.ensureModernAppSessionDeduped(
             app.id,
             generation,
             identityEmail,
@@ -1307,6 +1341,16 @@ export class DesktopIdentityBroker {
     const identityEmail =
       expectedEmail ?? (await this.verifyIdentitySession(authority));
     if (!identityEmail) return false;
+
+    // Status notifications can arrive again after the child reloads. Keep a
+    // matching session in place instead of minting another one-time ticket
+    // and reloading the same WebView forever.
+    if (await this.hasMatchingIdentitySession(app).catch(() => false)) {
+      return true;
+    }
+    if (await this.hasAppSession(app)) {
+      await this.clearAppSessionCookies(app);
+    }
 
     if (app.identityAuthority === true || app.id === authority.id) {
       return this.ensureAuthoritySessionFromIdentity(
@@ -1985,6 +2029,7 @@ export class DesktopIdentityBroker {
     this.signInOperation = null;
     this.magicLinkRequestOperation = null;
     this.pendingByApp.clear();
+    this.pendingModernAppSessions.clear();
     this.unsupportedAppIds.clear();
     this.closeActiveWindow();
     this.updateSignOutIntent(options);
