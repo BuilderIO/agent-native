@@ -80,19 +80,22 @@ async function createPersonalSpace(args: {
   id: string;
   name: string;
   filesDatabaseId: string;
+  ownerEmail?: string;
 }) {
   const now = new Date().toISOString();
-  await getDb().insert(schema.contentSpaces).values({
-    id: args.id,
-    name: args.name,
-    kind: "personal",
-    ownerEmail: OWNER,
-    orgId: null,
-    filesDatabaseId: args.filesDatabaseId,
-    createdBy: OWNER,
-    createdAt: now,
-    updatedAt: now,
-  });
+  await getDb()
+    .insert(schema.contentSpaces)
+    .values({
+      id: args.id,
+      name: args.name,
+      kind: "personal",
+      ownerEmail: args.ownerEmail ?? OWNER,
+      orgId: null,
+      filesDatabaseId: args.filesDatabaseId,
+      createdBy: args.ownerEmail ?? OWNER,
+      createdAt: now,
+      updatedAt: now,
+    });
 }
 
 describe("list-content-databases", () => {
@@ -423,6 +426,42 @@ describe("list-content-databases", () => {
       expect((inaccessibleError as Error).message).not.toContain(
         "db-private-other",
       );
+    });
+  });
+
+  it("does not discover a shared document from another Personal space", async () => {
+    const otherOwner = "other@example.com";
+    const spaceId = "space-private-other";
+    const documentId = "db-doc-shared-cross-space";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Other Personal",
+      filesDatabaseId: "other-files-database",
+      ownerEmail: otherOwner,
+    });
+    await createDatabaseDocument({
+      documentId,
+      databaseId: "db-shared-cross-space",
+      title: "Shared document, private space",
+      spaceId,
+      ownerEmail: otherOwner,
+    });
+    await getDb().insert(schema.documentShares).values({
+      id: "share-cross-space-document",
+      resourceId: documentId,
+      principalType: "user",
+      principalId: OWNER,
+      role: "viewer",
+      createdBy: otherOwner,
+      createdAt: new Date().toISOString(),
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        query: "Shared document, private space",
+      });
+      expect(inventory.databases).toEqual([]);
+      expect(inventory.pagination.totalItems).toBe(0);
     });
   });
 

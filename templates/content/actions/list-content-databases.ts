@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -16,7 +17,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
-import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import {
+  listContentOrganizationMemberships,
+  normalizeContentSpaceEmail,
+  resolveContentSpaceAccess,
+} from "./_content-space-access.js";
 import { documentDiscoveryPagination } from "./_document-discovery-query.js";
 
 const DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT = 50;
@@ -94,6 +99,12 @@ export default defineAction({
       );
     }
     const db = getDb();
+    const requestUserEmail = getRequestUserEmail();
+    if (!requestUserEmail) throw new Error("no authenticated user");
+    const normalizedUserEmail = normalizeContentSpaceEmail(requestUserEmail);
+    const authorizedOrganizationIds = (
+      await listContentOrganizationMemberships(normalizedUserEmail)
+    ).map((membership) => membership.orgId);
     if (args.spaceId) {
       await resolveContentSpaceAccess(args.spaceId, "viewer", { db });
     }
@@ -179,7 +190,15 @@ export default defineAction({
       isNull(schema.contentSpaces.archivedAt),
       or(
         isNull(schema.contentDatabases.spaceId),
-        isNotNull(schema.contentSpaces.id),
+        and(
+          isNotNull(schema.contentSpaces.id),
+          or(
+            sql`LOWER(${schema.contentSpaces.ownerEmail}) = ${normalizedUserEmail}`,
+            authorizedOrganizationIds.length > 0
+              ? inArray(schema.contentSpaces.orgId, authorizedOrganizationIds)
+              : undefined,
+          ),
+        ),
       ),
       isNull(schema.contentDatabases.systemRole),
       args.spaceId
