@@ -71,6 +71,7 @@ const messages = {
     status: "Estado",
     coverage: "Cobertura",
     reason: "Motivo",
+    updatedAt: "Actualizado",
     detailTitle: "Detalle de la decisión",
     selectItem:
       "Selecciona un elemento para inspeccionar sus evidencias y decisiones.",

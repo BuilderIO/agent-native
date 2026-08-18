@@ -71,6 +71,7 @@ const messages = {
     status: "Status",
     coverage: "Cobertura",
     reason: "Motivo",
+    updatedAt: "Atualizado",
     detailTitle: "Detalhes da decisão",
     selectItem: "Selecione um item para inspecionar evidências e decisões.",
     detailError: "Não foi possível carregar esta observação.",

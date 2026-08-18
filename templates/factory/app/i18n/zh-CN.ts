@@ -66,6 +66,7 @@ const messages = {
     status: "状态",
     coverage: "覆盖范围",
     reason: "原因",
+    updatedAt: "已更新",
     detailTitle: "决策详情",
     selectItem: "选择一项以查看证据和决策。",
     detailError: "无法加载此观察记录。",

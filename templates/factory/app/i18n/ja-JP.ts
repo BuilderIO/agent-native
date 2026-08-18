@@ -70,6 +70,7 @@ const messages = {
     status: "ステータス",
     coverage: "カバレッジ",
     reason: "理由",
+    updatedAt: "最終更新",
     detailTitle: "判断の詳細",
     selectItem: "項目を選択して証拠と判断を確認してください。",
     detailError: "この観測を読み込めませんでした。",

@@ -69,6 +69,7 @@ const messages = {
     status: "الحالة",
     coverage: "التغطية",
     reason: "السبب",
+    updatedAt: "تم التحديث",
     detailTitle: "تفاصيل القرار",
     selectItem: "اختر عنصراً لفحص الأدلة والقرارات.",
     detailError: "تعذر تحميل هذه الملاحظة.",

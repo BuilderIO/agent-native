@@ -71,6 +71,7 @@ const messages = {
     status: "상태",
     coverage: "범위",
     reason: "이유",
+    updatedAt: "업데이트됨",
     detailTitle: "결정 세부 정보",
     selectItem: "증거와 결정을 확인할 항목을 선택하세요.",
     detailError: "이 관찰 항목을 불러오지 못했습니다.",

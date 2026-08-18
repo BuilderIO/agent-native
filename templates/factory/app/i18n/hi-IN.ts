@@ -69,6 +69,7 @@ const messages = {
     status: "स्थिति",
     coverage: "कवरेज",
     reason: "कारण",
+    updatedAt: "अपडेट किया गया",
     detailTitle: "निर्णय विवरण",
     selectItem: "साक्ष्य और निर्णय देखने के लिए कोई आइटम चुनें।",
     detailError: "यह अवलोकन लोड नहीं हो सका।",

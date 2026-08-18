@@ -66,6 +66,7 @@ const messages = {
     status: "狀態",
     coverage: "涵蓋範圍",
     reason: "原因",
+    updatedAt: "已更新",
     detailTitle: "決策詳細資料",
     selectItem: "選取項目以檢查證據與決策。",
     detailError: "無法載入此觀察記錄。",

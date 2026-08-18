@@ -71,6 +71,7 @@ const messages = {
     status: "Status",
     coverage: "Abdeckung",
     reason: "Grund",
+    updatedAt: "Aktualisiert",
     detailTitle: "Entscheidungsdetails",
     selectItem: "Element auswählen, um Belege und Entscheidungen zu prüfen.",
     detailError: "Diese Beobachtung konnte nicht geladen werden.",
