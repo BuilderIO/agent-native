@@ -478,8 +478,12 @@ describe("session replay", () => {
       });
       expect(result.started).toBe(true);
 
+      let resolveUpload!: (response: Response) => void;
       fetchMock.mockImplementation(
-        () => new Promise<Response>(() => undefined),
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
       );
       recordOptions.emit({ type: 3, data: { href: "/inbox" } });
       await vi.advanceTimersByTimeAsync(0);
@@ -490,11 +494,31 @@ describe("session replay", () => {
 
       await vi.advanceTimersByTimeAsync(15_000);
 
-      // With no transport-level cancellation, the race rejection still has to
-      // release the lock so a later flush can make progress.
+      // With no transport-level cancellation, the timed-out batch stays fenced
+      // while its original request is still live. Retrying it here would allow
+      // a late success to race the same replay sequence.
       fetchMock.mockResolvedValue(new Response("{}"));
-      await replay.flushSessionReplay("manual");
+      const blockedFlush = replay.flushSessionReplay("manual");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Once the original request settles, a new FullSnapshot is the safe
+      // re-anchor. The implementation may resume a queued flush automatically,
+      // but it must never send the uncertain batch a second time.
+      resolveUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+      await blockedFlush;
+      recordOptions.emit({ type: 2, data: { href: "/reanchored" } });
+      await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const bodies = await Promise.all(
+        fetchMock.mock.calls.map(([, init]) =>
+          parseReplayUpload(init as RequestInit),
+        ),
+      );
+      expect(bodies[1].events).toHaveLength(1);
+      expect(bodies[1].events[0].type).toBe(2);
 
       await replay.stopSessionReplay();
     } finally {
