@@ -21,6 +21,7 @@ import { Button } from "../../components/ui/button";
 import { Spinner } from "../../components/ui/spinner";
 import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
+  navigateToWorkspaceApp,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -112,7 +113,7 @@ export default function WorkspaceAppCatchAllRoute() {
   useEffect(() => {
     if (isSelfReference) return;
     if (!app || app.status === "pending" || !href) return;
-    window.location.assign(href);
+    navigateToWorkspaceApp(href);
   }, [app, href, isSelfReference]);
 
   if (isSelfReference) {

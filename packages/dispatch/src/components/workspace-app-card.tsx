@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import {
   isPendingBuilderHref,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
@@ -134,6 +136,11 @@ export function WorkspaceAppCard({
           href={href}
           target={openInNewTab ? "_blank" : undefined}
           rel={openInNewTab ? "noreferrer" : undefined}
+          onClick={(event) => {
+            if (openInNewTab || !shouldOpenWorkspaceAppInTopWindow()) return;
+            event.preventDefault();
+            navigateToWorkspaceApp(href);
+          }}
           aria-label={`Open ${app.name}`}
           className="absolute inset-0 z-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />

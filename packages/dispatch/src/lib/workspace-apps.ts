@@ -1,3 +1,5 @@
+import { isInBuilderFrame } from "@agent-native/core/client";
+
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
@@ -28,4 +30,18 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
+}
+
+export function shouldOpenWorkspaceAppInTopWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  return isInBuilderFrame() || window.parent !== window;
+}
+
+export function navigateToWorkspaceApp(href: string): void {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(href, window.location.href).href;
+  const targetWindow =
+    shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
+  targetWindow.location.href = url;
 }

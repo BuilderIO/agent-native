@@ -13,6 +13,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import {
+  navigateToWorkspaceApp,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -37,7 +38,7 @@ export default function WorkspaceAppRoute() {
 
   useEffect(() => {
     if (!app || app.status === "pending" || !href) return;
-    window.location.assign(href);
+    navigateToWorkspaceApp(href);
   }, [app, href]);
 
   return (
