@@ -173,8 +173,8 @@ export function navigateToWorkspaceApp(href: string): boolean {
       shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
     targetWindow.location.href = url;
     return true;
-    // coercion-ok: a blocked top-window assignment is an expected fallback signal.
   } catch {
+    // coercion-ok: a blocked top-window assignment is an expected fallback signal.
     return false;
   }
 }
