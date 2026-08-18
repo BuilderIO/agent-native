@@ -24,8 +24,8 @@ import {
 } from "./agent-chat-plugin.js";
 
 describe("delegated A2A recoverable artifact checkpoints", () => {
-  it("uses an organization A2A secret when no global secret is configured", async () => {
-    vi.stubEnv("A2A_SECRET", "");
+  it("prefers the organization A2A secret when a global secret is also configured", async () => {
+    vi.stubEnv("A2A_SECRET", "global-a2a-secret");
     vi.doMock("../org/context.js", () => ({
       getOrgA2ASecret: vi.fn(async () => "org-only-a2a-secret"),
     }));

@@ -364,6 +364,23 @@ describe("appendA2AArtifactLinks", () => {
         row: expect.objectContaining({ documentId: "feedback-document-1" }),
       }),
     ]);
+
+    vi.stubEnv("A2A_SECRET", secret);
+    const organizationSecret = "different-organization-receipt-secret";
+    const outer = appendA2AArtifactLinks(
+      "Delegated update finished.",
+      [{ tool: "call-agent", result: downstream }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: organizationSecret,
+      },
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: outer }],
+        { persistedArtifactSecrets: [organizationSecret] },
+      ),
+    ).toEqual([]);
   });
 
   it("preserves exact block receipt identity without retaining block bodies", () => {

@@ -224,7 +224,7 @@ function withPersistedArtifactMarker(
     persistedArtifactSecrets: verificationSecrets,
   }).slice(0, 12);
   const mutationReceipts = extractA2APersistedMutationReceipts(toolResults, {
-    persistedArtifactSecrets: verificationSecrets,
+    persistedArtifactSecrets: secret ? [secret] : [],
   }).slice(0, 12);
   if ((identities.length === 0 && mutationReceipts.length === 0) || !secret)
     return text;
@@ -1301,12 +1301,9 @@ export function appendA2APersistedMutationReceipts(
   toolResults: A2AToolResultSummary[],
   options: A2AArtifactResponseOptions = {},
 ): string {
-  const receiptSecrets = [options.persistedArtifactSecret, a2aSecret()].filter(
-    (value, index, values): value is string =>
-      !!value && values.indexOf(value) === index,
-  );
+  const receiptSecret = options.persistedArtifactSecret ?? a2aSecret();
   const receipts = extractA2APersistedMutationReceipts(toolResults, {
-    persistedArtifactSecrets: receiptSecrets,
+    persistedArtifactSecrets: receiptSecret ? [receiptSecret] : [],
   }).filter((receipt) => !text.includes(receipt.receiptId));
   if (receipts.length === 0) return text;
   const lines = receipts.map((receipt) => {
