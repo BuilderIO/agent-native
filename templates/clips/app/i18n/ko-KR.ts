@@ -388,6 +388,9 @@ const messages = {
     aiNotes: "AI 노트",
     summary: "요약",
     actionItems: "조치사항",
+    addActionItem: "액션 아이템 추가",
+    removeActionItem: "액션 아이템 삭제",
+    actionItemPlaceholder: "무엇을 해야 하나요?",
     working: "일하고 있는…",
     noActionItems:
       "아직 작업 항목이 없습니다. 성적표에서 메모가 생성된 후에 여기에 표시됩니다.",
@@ -1122,6 +1125,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",
     them: "상대",
+    unknownSpeaker: "화자",
     searchTranscript: "기록 검색",
     searchPlaceholder: "기록 검색…",
     searchMatchCount: "{{total}}개 중 {{current}}번째",

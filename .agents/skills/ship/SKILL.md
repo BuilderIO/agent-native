@@ -61,6 +61,29 @@ production template deploy or package publish fails, retrigger the failed job
 when the existing code already contains the fix; otherwise make the necessary
 code/config fix and ship that follow-up until production is live.
 
+## Latest-feedback handoff
+
+When `/review-latest-feedback` has run before `/ship`, its sweep is a required
+ship input. Carry the sweep's start cursor, grouped reports, evidence links, and
+disposition table into the PR or ship recap. Every actionable item must have an
+owning source seam and focused verification, with one explicit disposition:
+fixed, awaiting reporter clarification, already owned or duplicate, deferred or
+informational, external or non-repo-owned, or unavailable/unverified.
+
+Do not ship a feedback fix that is only a wording-specific rule or that lacks
+the evidence needed to identify its owner. Re-run or refresh the feedback sweep
+when the branch changes after triage or when new comments, Slack replies,
+GitHub review comments, or Sentry findings arrive. Treat an unavailable
+connector as unavailable - never as “nothing matched” - and preserve that gap
+in the recap.
+
+The ship report and PR description must keep source-tested, built, published or
+deployed, and observed-live claims separate. A green test or PR does not prove
+that a feedback fix is live; verify the affected production surface after merge.
+Before merging, `/babysit-pr` must re-check that every actionable feedback or
+review item has a fix or a concise reply and that no new evidence has been left
+without a disposition.
+
 ## Worktree and branch setup
 
 A detached HEAD is a valid shipping context. Codex and platform-managed

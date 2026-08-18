@@ -3877,8 +3877,8 @@ async function mountBetterAuthRoutes(
           returnUrl,
           redirect: q.redirect === "1",
           workspace:
-            process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-            process.env.VITE_AGENT_NATIVE_WORKSPACE === "1",
+            getAppConfig().workspace.isWorkspace === true ||
+            typeof getAppConfig().workspace.appsJson === "string",
         });
         const params = new URLSearchParams({
           client_id: googleSignInCredentials.clientId,

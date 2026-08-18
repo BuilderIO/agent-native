@@ -187,6 +187,18 @@ explicitly invokes the relevant shipping or PR-review workflow. If publishing
 authority is absent, leave the verified change in the current worktree and
 say so in the recap rather than claiming it shipped.
 
+## Ship handoff
+
+When a verified fix is ready for `/ship`, make the handoff explicit instead of
+leaving the shipping workflow to reconstruct the sweep. Include the exact
+start cursor, grouped source reports, evidence links, owning seam, focused
+verification, and one disposition for every item in the PR body or ship recap.
+Keep source-tested, built, published or deployed, and observed-live claims
+separate. If the branch changes or new Slack, GitHub, or Sentry evidence
+arrives, tell `/ship` to refresh the sweep before merging. An unavailable
+connector remains unavailable in that handoff and must never be summarized as
+“nothing matched.”
+
 ## End-of-run recap
 
 Every run ends with a compact recap for every item inspected, including items

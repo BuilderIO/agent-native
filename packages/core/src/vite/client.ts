@@ -56,6 +56,7 @@ import {
 import {
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
+  isTruthyRuntimeValue,
 } from "../shared/runtime-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import {
@@ -3525,7 +3526,11 @@ function createAgentNativeConfig(
   reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();
-  const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
+  const isWorkspaceChild =
+    isTruthyRuntimeValue(process.env.AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(process.env.VITE_AGENT_NATIVE_WORKSPACE) ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim());
   const monorepoPackageAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),

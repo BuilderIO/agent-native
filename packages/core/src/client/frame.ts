@@ -1,3 +1,4 @@
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -189,8 +190,7 @@ export function getCallbackOrigin(): string {
 }
 
 function envFlag(name: string): boolean {
-  const value = runtimeEnvValue(name);
-  return value === "1" || value === "true" || value === true;
+  return isTruthyRuntimeValue(runtimeEnvValue(name));
 }
 
 function runtimeEnvValue(name: string): string | boolean | undefined {
@@ -214,10 +214,23 @@ function workspaceOAuthOrigin(): string | null {
   // primary path any more.
   const shell =
     typeof window !== "undefined" ? window.__AGENT_NATIVE_CONFIG__ : undefined;
+  const projectedRaw =
+    shell?.workspaceOAuthOrigin || shell?.appUrl || shell?.workspaceGatewayUrl;
+  if (shell?.workspaceRuntime === true) {
+    if (typeof projectedRaw === "string" && projectedRaw.trim()) {
+      try {
+        return new URL(projectedRaw).origin;
+      } catch {
+        // coercion-ok: a stale projected origin intentionally falls back below.
+        // Fall through to the current origin when the projected value is stale.
+      }
+    }
+    const currentOrigin = getCallbackOrigin();
+    return currentOrigin || null;
+  }
+
   const raw =
-    shell?.workspaceOAuthOrigin ||
-    shell?.appUrl ||
-    shell?.workspaceGatewayUrl ||
+    projectedRaw ||
     runtimeEnvValue("VITE_WORKSPACE_OAUTH_ORIGIN") ||
     runtimeEnvValue("WORKSPACE_OAUTH_ORIGIN") ||
     runtimeEnvValue("VITE_APP_URL") ||
@@ -235,8 +248,11 @@ function workspaceOAuthOrigin(): string | null {
 }
 
 function shouldUseWorkspaceCallbackRelay(path: string): boolean {
+  const projectedWorkspaceRuntime =
+    typeof window !== "undefined" &&
+    window.__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
-    envFlag("VITE_AGENT_NATIVE_WORKSPACE") &&
+    (projectedWorkspaceRuntime || envFlag("VITE_AGENT_NATIVE_WORKSPACE")) &&
     path.startsWith("/_agent-native/") &&
     (path.endsWith("/callback") || path.includes("/callback/"))
   );
