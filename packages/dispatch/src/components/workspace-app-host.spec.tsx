@@ -262,10 +262,10 @@ describe("WorkspaceAppKeepAlive", () => {
     ).toBe(true);
   });
 
-  it("does not resolve archived workspace apps for direct routes", async () => {
+  it("does not resolve archived workspace apps from granted discovery", async () => {
     clientState.workspaceApps = [
       {
-        id: "hidden-app",
+        id: "analytics.agent-native.com",
         name: "Hidden app",
         path: "/hidden-app",
         url: null,
@@ -277,7 +277,7 @@ describe("WorkspaceAppKeepAlive", () => {
     await act(async () => {
       root.render(
         <MemoryRouter>
-          <WorkspaceAppKeepAlive activeAppId="hidden-app" />
+          <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />
         </MemoryRouter>,
       );
       await Promise.resolve();

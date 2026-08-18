@@ -438,6 +438,10 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     () => workspaceApps.filter((item) => !item.archived),
     [workspaceApps],
   );
+  const workspaceAppIds = useMemo(
+    () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
+    [workspaceApps],
+  );
   const workspaceApp = useMemo(
     () =>
       visibleWorkspaceApps.find(
@@ -463,7 +467,13 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     }
     for (const app of grantedAppsQuery.data?.apps ?? []) {
       const id = app.id.trim();
-      if (!id || merged.has(id.toLowerCase())) continue;
+      if (
+        !id ||
+        workspaceAppIds.has(id.toLowerCase()) ||
+        merged.has(id.toLowerCase())
+      ) {
+        continue;
+      }
       merged.set(id.toLowerCase(), {
         id,
         name: app.name.trim() || id,
@@ -474,7 +484,7 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     }
 
     return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps]);
+  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps, workspaceAppIds]);
   const app = useMemo(
     () =>
       apps.find(
