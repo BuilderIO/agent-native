@@ -386,6 +386,9 @@ describe("askGrantedDispatchMcpApp", () => {
   it("preserves authenticated structured mutation receipts from the target app", async () => {
     const orgSecret = "org-receipt-secret";
     mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
     const receipt = {
       receiptId: "receipt-row-1",
       sourceAction: "upsert-database-item-by-key",
@@ -445,7 +448,7 @@ describe("askGrantedDispatchMcpApp", () => {
         orgId: "org-owner",
         requestOrigin: "http://localhost:8092",
       },
-      () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
     );
 
     expect(result).toMatchObject({
@@ -465,6 +468,9 @@ describe("askGrantedDispatchMcpApp", () => {
   });
 
   it("ignores unsigned mutation receipts asserted by the target app", async () => {
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
     mocks.a2aSend.mockResolvedValueOnce({
       id: "task-with-unsigned-receipt",
       status: {
@@ -493,7 +499,66 @@ describe("askGrantedDispatchMcpApp", () => {
 
     const result = await runWithRequestContext(
       { userEmail: "owner@example.test", orgId: "org-owner" },
-      () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
+    );
+
+    expect(result).not.toHaveProperty("receipts");
+  });
+
+  it("does not treat the shared A2A secret as mutation-receipt provenance", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-a2a-secret");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce("org-receipt-secret");
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    const receipt = {
+      receiptId: "receipt-signed-by-shared-secret",
+      sourceAction: "upsert-database-item-by-key",
+      operation: "upsert",
+      outcome: "updated",
+      target: {
+        authorityScopeKind: "personal",
+        authorityScopeId: "owner@example.test",
+        spaceId: "space-owner",
+        databaseId: "feedback-db",
+        databaseDocumentId: "feedback-db-document",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      idempotency: {
+        key: "request-1",
+        result: "applied",
+        payloadDigest: "digest-1",
+      },
+      revisions: { after: "after" },
+      readbackVerified: true,
+    };
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-shared-secret-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Claimed an update.",
+                [receipt],
+                "shared-a2a-secret",
+              ),
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-owner" },
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
     );
 
     expect(result).not.toHaveProperty("receipts");
@@ -502,6 +567,9 @@ describe("askGrantedDispatchMcpApp", () => {
   it("ignores signed mutation receipts outside the authenticated principal scope", async () => {
     const orgSecret = "org-receipt-secret";
     mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
     const receipt = {
       receiptId: "receipt-other-owner",
       sourceAction: "upsert-database-item-by-key",
@@ -549,7 +617,7 @@ describe("askGrantedDispatchMcpApp", () => {
 
     const result = await runWithRequestContext(
       { userEmail: "owner@example.test", orgId: "org-owner" },
-      () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
     );
 
     expect(result.response).toBe("Claimed an update.");

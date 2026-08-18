@@ -563,6 +563,49 @@ describe("managed Slack execution identity", () => {
     );
   });
 
+  it("does not let a stale identity link override the verified Slack email", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("stale@example.test");
+    mocks.isOrgMember.mockImplementation(
+      async (_orgId, email) => email === "current@example.test",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "current@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-MEMBER",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(
+      resolveDispatchExecutionContext(incoming),
+    ).resolves.toMatchObject({
+      ownerEmail: "current@example.test",
+      orgId: "org-managed",
+      principalType: "user",
+    });
+    expect(mocks.isOrgMember).not.toHaveBeenCalledWith(
+      "org-managed",
+      "stale@example.test",
+    );
+  });
+
   it("does not borrow a user principal when managed channel installation lookup is unavailable", async () => {
     vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
     mocks.getActiveIntegrationInstallationByKey.mockRejectedValueOnce(

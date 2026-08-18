@@ -115,23 +115,20 @@ type DispatchMutationReceipt = A2APersistedMutationReceipt;
 
 function dispatchTaskMutationReceipts(
   task: Task,
+  app: string,
   identity: {
     userEmail: string;
     orgId: string | null;
     orgSecret: string | null;
   },
 ): DispatchMutationReceipt[] {
+  if (app !== "content" || !identity.orgSecret) return [];
   const text = dispatchTaskText(task);
   if (!text) return [];
   const result = [{ tool: "call-agent", result: text }];
-  const receipts = extractA2APersistedMutationReceipts(result);
-  if (receipts.length === 0 && identity.orgSecret) {
-    receipts.push(
-      ...extractA2APersistedMutationReceipts(result, {
-        persistedArtifactSecrets: [identity.orgSecret],
-      }),
-    );
-  }
+  const receipts = extractA2APersistedMutationReceipts(result, {
+    persistedArtifactSecrets: [identity.orgSecret],
+  });
   return receipts.filter((receipt) => {
     if (receipt.target.authorityScopeKind === "personal") {
       return (
@@ -181,7 +178,7 @@ function dispatchAskAppTaskResult(
 ): DispatchAskAppTaskResult {
   const status = String(task.status.state);
   const response = stripA2APersistedArtifactMarkers(dispatchTaskText(task));
-  const receipts = dispatchTaskMutationReceipts(task, identity);
+  const receipts = dispatchTaskMutationReceipts(task, app, identity);
   const base = {
     app,
     routedVia: "a2a" as const,
