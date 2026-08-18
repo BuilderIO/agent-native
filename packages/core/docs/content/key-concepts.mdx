@@ -370,6 +370,8 @@ Every consumer calls the same underlying function, so there is only one implemen
 
 When the agent changes data, the UI needs to reflect that without a manual refresh. `useDbSync()` is what makes that automatic. Same-process writes stream over `/_agent-native/events`; `/_agent-native/poll` remains the cross-process and serverless fallback. When the agent writes to the database (application state, settings, or domain data), a version counter increments and the client invalidates the relevant React Query caches.
 
+SSE covers the common case instead of WebSockets because it gives same-process writes an immediate path to the browser with plain HTTP, while the version-counter poll stays as a fallback that works in every deployment environment — including serverless and edge, where persistent sockets may not be available.
+
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
 import { useDbSync } from "@agent-native/core/client/hooks";

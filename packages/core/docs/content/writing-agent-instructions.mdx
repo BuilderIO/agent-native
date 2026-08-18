@@ -102,6 +102,14 @@ data and the same actions.
 
 Keep one canonical instructions file: `AGENTS.md`. If a client expects `CLAUDE.md`, make it a symlink to `AGENTS.md` rather than a second copy. Two hand-maintained files drift, and the agent ends up with contradictory rules. One source of truth, linked where needed.
 
+`AGENTS.md` is the universal standard the framework builds on, so any AI coding tool that reads project instructions works out of the box:
+
+- **Claude Code** — reads `CLAUDE.md` (symlinked from `AGENTS.md` by the CLI setup)
+- **Cursor** — reads `AGENTS.md` directly, or `.cursorrules` (Cursor's legacy location) if present
+- **Windsurf** — reads `AGENTS.md` directly, or `.windsurfrules` (Windsurf's legacy location) if present
+- **Codex, Gemini, and others** — work via the embedded agent panel
+- **Builder.io** — cloud-hosted agent with visual editing and collaboration
+
 ## SKILL.md frontmatter must say what AND when {#skill-frontmatter}
 
 The `description` is the only thing the agent sees when deciding whether to read a skill. It must answer two questions: what the skill covers, and when to trigger it. A description that only describes the topic will not fire.

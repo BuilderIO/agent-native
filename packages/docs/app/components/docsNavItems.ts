@@ -51,7 +51,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "agentSurfaces",
         slug: "agent-surfaces",
       },
-      { id: "faq", labelKey: "faq", slug: "faq" },
     ],
   },
   {
