@@ -91,7 +91,13 @@ describe("provider-rejected format and constraint keywords", () => {
     const safe = stripUnsupportedSchemaKeywords(
       JSON.parse(JSON.stringify(schema)),
     ) as any;
-    for (const k of ["patternProperties","not","if","then","dependentRequired"]) {
+    for (const k of [
+      "patternProperties",
+      "not",
+      "if",
+      "then",
+      "dependentRequired",
+    ]) {
       expect(safe[k]).toBeUndefined();
     }
     // The real shape survives.

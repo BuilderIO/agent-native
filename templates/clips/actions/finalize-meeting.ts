@@ -310,10 +310,11 @@ export default defineAction({
         if (Array.isArray(currentActionItems)) {
           persistedActionItems = currentActionItems;
         }
-      } catch {
-        // Keep the model result if a legacy row contains malformed JSON. The
-        // successful meeting update still leaves the existing dedicated rows
-        // untouched.
+      } catch (error) {
+        console.warn(
+          "[finalize-meeting] preserved action items JSON was malformed; keeping dedicated rows",
+          error,
+        );
       }
     });
 
