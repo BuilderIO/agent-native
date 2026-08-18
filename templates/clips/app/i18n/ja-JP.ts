@@ -1439,6 +1439,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
+    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+    leaveConfirmDescription:
+      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+    leaveAndDiscard: "離れて破棄する",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",

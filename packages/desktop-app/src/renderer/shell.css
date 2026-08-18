@@ -2105,6 +2105,14 @@ body {
   white-space: nowrap;
 }
 
+/* Shared settings rows use compact action controls instead of the legacy
+   overlay's full-width button treatment. */
+.settings-page-tabs-content .agent-native-settings-row__control .settings-btn {
+  width: auto;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
 .settings-provider-message {
   color: hsl(var(--muted-foreground));
   font-size: 11px;

@@ -1,5 +1,51 @@
 # @agent-native/core
 
+## 0.161.15
+
+### Patch Changes
+
+- 551b583: Fix `CORS_ALLOWED_ORIGINS` exact-match comparison to tolerate operator formatting differences (scheme/host casing, a trailing slash, or a bare domain with no scheme) instead of silently rejecting an otherwise-legitimate configured origin.
+- 551b583: Stop sending unbounded inline base64 attachments to the model. Text attachments
+  were capped; binary ones were not, so a large screenshot or PDF went out as a
+  multi-megabyte `file_url` and OpenAI rejected the entire request ("string too
+  long", 4,149,128 against a 1,048,576 limit), killing the turn. The upload to
+  blob storage already happened — the hosted URL is now used in place of the bytes
+  when they exceed the cap, instead of being discarded.
+- 00025b1: Keep replayed conversations faithful to what the agent actually did.
+  - Resuming a run (chained background continuation, agent-teams `continue`) now
+    replays the tool calls and results stored in `thread_data` instead of
+    flattening each turn to its prose, so a resumed chunk can see the output of
+    work already committed rather than re-running it. Integration turns keep their
+    existing delivered-text-only replay policy, and each replayed result is bounded
+    with an in-band truncation notice.
+  - The outbound history window no longer slides by one message per turn. Every
+    prompt cache matches a byte-identical prefix, so a window that moved every turn
+    meant no cached prefix ever matched once a thread passed the message cap, and
+    the whole conversation was re-billed at write price on every turn. The window
+    start is now quantized to a stride.
+  - Anthropic `redacted_thinking` blocks survive normalization and replay verbatim.
+    They were silently dropped as an unknown block type, which left the next
+    iteration of a tool-use turn sending an assistant turn the API rejects.
+    Unrecognized content block types now warn instead of vanishing.
+
+## 0.161.14
+
+### Patch Changes
+
+- 96ecc13: Use compact app search and pin labels that stay on one line.
+- 96ecc13: Clear stale thread restore errors when an unavailable saved tab becomes a fresh chat.
+- 96ecc13: Give type-less tool-schema positions a concrete JSON value union. OpenAI rejects
+  any schema position without a `type` ("schema must have a 'type' key") and 400s
+  the entire chat request, the same way it rejected `oneOf`. Zod emits a bare `{}`
+  for `z.unknown()`/`z.any()`, of which there are 137 sites across the templates,
+  so this is answered at the same boundary rather than by retyping every action.
+
+## 0.161.13
+
+### Patch Changes
+
+- a269cc8: Keep failed MCP app iframes visible under a compact error overlay with a clear open-in-new-tab escape hatch.
+
 ## 0.161.12
 
 ### Patch Changes

@@ -435,6 +435,47 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(inner.anyOf).toHaveLength(3);
   });
 
+  // OpenAI rejects a schema position with no `type` — "schema must have a
+  // 'type' key" — and 400s the whole request, exactly like `oneOf` did. This
+  // surfaced only after the oneOf fix let the validator reach the next layer.
+  it("gives z.unknown() a typed value union so OpenAI accepts it", () => {
+    const action = defineAction({
+      description: "typeless field",
+      schema: z.object({ value: z.unknown() }),
+      run: async () => "ok",
+    });
+    const value = (action.tool.parameters as any).properties.value;
+    expect(Array.isArray(value.anyOf)).toBe(true);
+    expect(value.anyOf.map((b: any) => b.type)).toContain("string");
+    expect(value.anyOf.map((b: any) => b.type)).toContain("object");
+  });
+
+  it("types the value schema inside a record so nothing is left bare", () => {
+    const action = defineAction({
+      description: "record of unknown",
+      schema: z.object({ patch: z.record(z.string(), z.unknown()) }),
+      run: async () => "ok",
+    });
+    const patch = (action.tool.parameters as any).properties.patch;
+    expect(patch.type).toBe("object");
+    const extra = patch.additionalProperties;
+    if (extra && typeof extra === "object") {
+      expect(Array.isArray(extra.anyOf)).toBe(true);
+    }
+  });
+
+  // An enum carries its own shape; adding a value union would widen it.
+  it("leaves an enum-only schema alone", () => {
+    const action = defineAction({
+      description: "enum field",
+      schema: z.object({ mode: z.enum(["a", "b"]) }),
+      run: async () => "ok",
+    });
+    const mode = (action.tool.parameters as any).properties.mode;
+    expect(mode.enum).toEqual(["a", "b"]);
+    expect(mode.anyOf).toBeUndefined();
+  });
+
   it("stores the original schema on the entry for downstream re-validation", () => {
     const schema = z.object({ x: z.string() });
     const action = defineAction({

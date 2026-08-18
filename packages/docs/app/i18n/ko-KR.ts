@@ -77,6 +77,7 @@ const koKR = {
     suggestionDeploy: "프로덕션에 배포하려면?",
   },
   errors: {
+    loadingLatest: "최신 버전을 불러오는 중...",
     notFoundTitle: "페이지를 찾을 수 없음",
     notFoundBody: "찾는 페이지가 없거나 이동되었습니다.",
     goHome: "홈으로",

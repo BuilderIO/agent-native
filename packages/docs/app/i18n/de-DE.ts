@@ -77,6 +77,7 @@ const deDE = {
     suggestionDeploy: "Wie deploye ich in Produktion?",
   },
   errors: {
+    loadingLatest: "Neueste Version wird geladen...",
     notFoundTitle: "Seite nicht gefunden",
     notFoundBody: "Die gesuchte Seite existiert nicht oder wurde verschoben.",
     goHome: "Zur Startseite",

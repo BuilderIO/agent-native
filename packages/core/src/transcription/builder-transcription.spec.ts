@@ -10,9 +10,12 @@ const authState = vi.hoisted(() => ({
   } | null,
 }));
 
+const recordAuthFailure = vi.hoisted(() => vi.fn(async () => {}));
+
 vi.mock("../server/credential-provider.js", () => ({
   getBuilderProxyOrigin: () => "https://cdn.builder.io",
   resolveBuilderGatewayAuth: vi.fn(async () => authState.auth),
+  recordBuilderGatewayAuthFailure: recordAuthFailure,
 }));
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -48,6 +51,55 @@ describe("transcribeWithBuilder", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    recordAuthFailure.mockClear();
+  });
+
+  // The chat path records a rejected credential so it is not retried for
+  // BUILDER_AUTH_FAILURE_TTL_MS. Transcription did not, so one unusable
+  // credential re-sent the same doomed request on every attempt -- prod logged
+  // 24 identical "Missing Authentication header" 401s in a day.
+  it("records the auth failure on a 401 so it is not retried forever", async () => {
+    authState.auth = {
+      authorization: "Bearer tok",
+      spaceId: "space",
+      userId: null,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response("Missing Authentication header", { status: 401 }),
+        ),
+    );
+    await expect(
+      transcribeWithBuilder({
+        audioBytes: new Uint8Array([1]),
+        mimeType: "audio/webm",
+      }),
+    ).rejects.toThrow(/401/);
+    expect(recordAuthFailure).toHaveBeenCalledTimes(1);
+    expect(recordAuthFailure.mock.calls[0][0]).toMatchObject({ status: 401 });
+  });
+
+  // A non-auth failure must NOT burn the credential for 15 minutes.
+  it("does not record an auth failure for a 500", async () => {
+    authState.auth = {
+      authorization: "Bearer tok",
+      spaceId: "space",
+      userId: null,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("boom", { status: 500 })),
+    );
+    await expect(
+      transcribeWithBuilder({
+        audioBytes: new Uint8Array([1]),
+        mimeType: "audio/webm",
+      }),
+    ).rejects.toThrow(/500/);
+    expect(recordAuthFailure).not.toHaveBeenCalled();
   });
 
   // Without the space id the gateway answers 403 "Space ID is required for

@@ -25,6 +25,7 @@ const clientState = vi.hoisted(() => {
     legacyMutateAsync,
     legacyMutateError: null as Error | null,
     legacyErrorMutateAsync,
+    inBuilderFrame: false,
     frameLoadHandler: null as (() => void) | null,
     suppressFrameLoad: false,
     theme: "dark" as "dark" | "light",
@@ -79,6 +80,10 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => clientState.workspaceSsoEnabled,
+}));
+
+vi.mock("@agent-native/core/client/host", () => ({
+  isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -156,6 +161,7 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.legacyMutateAsync.mockClear();
     clientState.legacyMutateError = null;
     clientState.legacyErrorMutateAsync.mockReset();
+    clientState.inBuilderFrame = false;
     clientState.frameLoadHandler = null;
     clientState.suppressFrameLoad = false;
     clientState.workspaceSsoMutateAsync.mockClear();
@@ -166,6 +172,14 @@ describe("WorkspaceAppKeepAlive", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: window,
+    });
     vi.unstubAllGlobals();
   });
 
@@ -352,6 +366,110 @@ describe("WorkspaceAppKeepAlive", () => {
         .querySelector("[data-chat-first-app-error]")
         ?.getAttribute("data-chat-first-app-error"),
     ).toBe("Workspace SSO is temporarily unavailable");
+  });
+
+  it("opens the app in the top window when Dispatch is inside an iframe", async () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    const expectedUrl = new URL("/mail", window.location.href).href;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(topWindow.location.href).toBe(expectedUrl);
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("falls back to the embedded app when top-window navigation is blocked", async () => {
+    const navigateToTopWindow = vi.fn(() => false);
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{ id: "mail", name: "Mail", path: "/mail" }}
+          navigateToTopWindow={navigateToTopWindow}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail");
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail",
+      chrome: "minimal",
+    });
+    expect(container.querySelector("iframe")).not.toBeNull();
+  });
+
+  it("preserves a chat-first deep route in the top window when embedded", async () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    const embedPath = "/emails?status=failed#latest";
+    const expectedUrl = new URL(
+      "/mail/emails?status=failed#latest",
+      window.location.href,
+    ).href;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{ id: "mail", name: "Mail", path: "/mail" }}
+          embedPath={embedPath}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(topWindow.location.href).toBe(expectedUrl);
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("opens the app in the top window for a Builder webview", async () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    const expectedUrl = new URL("/mail", window.location.href).href;
+    clientState.inBuilderFrame = true;
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(topWindow.location.href).toBe(expectedUrl);
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
   });
 
   it("evicts the oldest inactive app after reaching the keep-alive limit", async () => {
