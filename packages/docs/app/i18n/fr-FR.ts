@@ -1556,6 +1556,7 @@ const frFR = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Autres Plateformes",
     ssrCaching: "Mise en Cache SSR",
+    deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",
     environmentVariables: "Variables d'environnement",
     progress: "Progression",
     authentication: "Authentification",

@@ -1543,6 +1543,7 @@ const arSA = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "منصات أخرى",
     ssrCaching: "تخزين SSR المؤقت",
+    deploymentEnvironmentVariables: "النشر: متغيرات البيئة",
     environmentVariables: "متغيرات البيئة",
     progress: "Progress",
     authentication: "Authentication",

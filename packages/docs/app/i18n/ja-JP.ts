@@ -1552,6 +1552,7 @@ const jaJP = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
+    deploymentEnvironmentVariables: "デプロイ: 環境変数",
     environmentVariables: "環境変数",
     progress: "進行状況",
     authentication: "認証",

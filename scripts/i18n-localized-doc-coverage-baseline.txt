@@ -4,6 +4,7 @@
 ar-SA|agent-native-config
 ar-SA|automation-connectors
 ar-SA|deployment-cloudflare
+ar-SA|deployment-environment-variables
 ar-SA|deployment-netlify
 ar-SA|deployment-node-docker
 ar-SA|deployment-other-platforms
@@ -83,6 +84,7 @@ ar-SA|workspace-deployment
 de-DE|agent-native-config
 de-DE|automation-connectors
 de-DE|deployment-cloudflare
+de-DE|deployment-environment-variables
 de-DE|deployment-netlify
 de-DE|deployment-node-docker
 de-DE|deployment-other-platforms
@@ -162,6 +164,7 @@ de-DE|workspace-deployment
 es-ES|agent-native-config
 es-ES|automation-connectors
 es-ES|deployment-cloudflare
+es-ES|deployment-environment-variables
 es-ES|deployment-netlify
 es-ES|deployment-node-docker
 es-ES|deployment-other-platforms
@@ -241,6 +244,7 @@ es-ES|workspace-deployment
 fr-FR|agent-native-config
 fr-FR|automation-connectors
 fr-FR|deployment-cloudflare
+fr-FR|deployment-environment-variables
 fr-FR|deployment-netlify
 fr-FR|deployment-node-docker
 fr-FR|deployment-other-platforms
@@ -320,6 +324,7 @@ fr-FR|workspace-deployment
 hi-IN|agent-native-config
 hi-IN|automation-connectors
 hi-IN|deployment-cloudflare
+hi-IN|deployment-environment-variables
 hi-IN|deployment-netlify
 hi-IN|deployment-node-docker
 hi-IN|deployment-other-platforms
@@ -399,6 +404,7 @@ hi-IN|workspace-deployment
 ja-JP|agent-native-config
 ja-JP|automation-connectors
 ja-JP|deployment-cloudflare
+ja-JP|deployment-environment-variables
 ja-JP|deployment-netlify
 ja-JP|deployment-node-docker
 ja-JP|deployment-other-platforms
@@ -478,6 +484,7 @@ ja-JP|workspace-deployment
 ko-KR|agent-native-config
 ko-KR|automation-connectors
 ko-KR|deployment-cloudflare
+ko-KR|deployment-environment-variables
 ko-KR|deployment-netlify
 ko-KR|deployment-node-docker
 ko-KR|deployment-other-platforms
@@ -557,6 +564,7 @@ ko-KR|workspace-deployment
 pt-BR|agent-native-config
 pt-BR|automation-connectors
 pt-BR|deployment-cloudflare
+pt-BR|deployment-environment-variables
 pt-BR|deployment-netlify
 pt-BR|deployment-node-docker
 pt-BR|deployment-other-platforms
@@ -636,6 +644,7 @@ pt-BR|workspace-deployment
 zh-CN|agent-native-config
 zh-CN|automation-connectors
 zh-CN|deployment-cloudflare
+zh-CN|deployment-environment-variables
 zh-CN|deployment-netlify
 zh-CN|deployment-node-docker
 zh-CN|deployment-other-platforms
@@ -715,6 +724,7 @@ zh-CN|workspace-deployment
 zh-TW|agent-native-config
 zh-TW|automation-connectors
 zh-TW|deployment-cloudflare
+zh-TW|deployment-environment-variables
 zh-TW|deployment-netlify
 zh-TW|deployment-node-docker
 zh-TW|deployment-other-platforms

@@ -1527,6 +1527,7 @@ const zhCN = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 缓存",
+    deploymentEnvironmentVariables: "部署：环境变量",
     environmentVariables: "环境变量",
     progress: "进度",
     authentication: "认证",

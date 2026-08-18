@@ -1555,6 +1555,7 @@ const esES = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
+    deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",
     environmentVariables: "Variables de entorno",
     progress: "Progreso",
     authentication: "Autenticación",

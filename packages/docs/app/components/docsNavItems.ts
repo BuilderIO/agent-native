@@ -639,6 +639,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
       {
+        id: "deployment-environment-variables",
+        labelKey: "deploymentEnvironmentVariables",
+        slug: "deployment-environment-variables",
+      },
+      {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",

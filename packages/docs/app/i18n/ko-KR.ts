@@ -1548,6 +1548,7 @@ const koKR = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "기타 플랫폼",
     ssrCaching: "SSR 캐싱",
+    deploymentEnvironmentVariables: "배포: 환경 변수",
     environmentVariables: "환경 변수",
     progress: "진행 상황",
     authentication: "인증",

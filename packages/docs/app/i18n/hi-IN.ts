@@ -1545,6 +1545,7 @@ const hiIN = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
+    deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",
     environmentVariables: "पर्यावरण चर",
     progress: "Progress",
     authentication: "Authentication",

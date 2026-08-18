@@ -1555,6 +1555,7 @@ const deDE = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
+    deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",
     environmentVariables: "Umgebungsvariablen",
     progress: "Fortschritt",
     authentication: "Authentifizierung",

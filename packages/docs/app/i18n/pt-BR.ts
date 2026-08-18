@@ -1551,6 +1551,7 @@ const ptBR = {
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
+    deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",
     environmentVariables: "Variáveis de ambiente",
     progress: "Progresso",
     authentication: "Autenticação",
