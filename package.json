@@ -55,6 +55,7 @@
     "lint": "pnpm fmt:check && pnpm oxlint && pnpm typecheck",
     "oxlint": "oxlint --config .oxlintrc.json .",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
+    "guard:hooks-registered": "node scripts/guard-hooks-registered.mjs",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
     "guard:no-pnpm-patches": "tsx scripts/guard-no-pnpm-patches.ts",
     "guard:chat-first-shared-ui": "tsx scripts/guard-chat-first-shared-ui.ts",
