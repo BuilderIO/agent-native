@@ -33098,7 +33098,11 @@ function DesignEditor() {
                     canEditDesign ? handleAlignSelection : undefined
                   }
                   onInteractionStateChange={handleInteractionStateChange}
-                  onEditCode={handleShaderEditCode}
+                  onEditCode={
+                    SHOW_DESIGN_CODE_LEFT_PANEL
+                      ? handleShaderEditCode
+                      : undefined
+                  }
                 />
               </div>
             ) : (
@@ -33197,7 +33201,9 @@ function DesignEditor() {
                   canEditDesign ? handleAlignSelection : undefined
                 }
                 onInteractionStateChange={handleInteractionStateChange}
-                onEditCode={handleShaderEditCode}
+                onEditCode={
+                  SHOW_DESIGN_CODE_LEFT_PANEL ? handleShaderEditCode : undefined
+                }
               />
             </div>
           </SheetContent>
