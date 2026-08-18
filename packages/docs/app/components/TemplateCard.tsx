@@ -244,7 +244,6 @@ function TemplateLaunchButton({ template }: { template: Template }) {
     "menu" | "editOnline" | "runLocally"
   >("menu");
   const t = useT();
-  const { locale } = useLocale();
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   function handleCustomizeOpenChange(open: boolean) {
@@ -277,41 +276,31 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
-      <Link
-        data-an-prefetch="viewport"
-        to={sitePathForLocale(`/apps/${template.slug}`, locale)}
-        className="primary-button w-full"
-        onClick={() =>
-          trackEvent("click template", {
-            template: template.slug,
-            location: "card",
-          })
-        }
-      >
-        Learn more
-      </Link>
+      {hasDemoUrl ? (
+        <a
+          href={template.demoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            applyFirstTouchAttributionToLink(event.currentTarget);
+            trackEvent("click try demo", {
+              template: template.slug,
+              location: "card",
+            });
+          }}
+          className="primary-button w-full text-xs"
+        >
+          {t("common.tryIt")}
+        </a>
+      ) : null}
       <div className="flex gap-2">
-        {hasDemoUrl ? (
-          <a
-            href={`${template.demoUrl}/_agent-native/sign-in`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("click sign in", {
-                template: template.slug,
-                location: "card",
-              });
-            }}
-            className="secondary-button flex-1"
-          >
-            {t("common.signIn")}
-          </a>
-        ) : null}
         <Popover open={showCustomize} onOpenChange={handleCustomizeOpenChange}>
           <PopoverTrigger asChild>
-            <button type="button" className="secondary-button flex-1">
-              Customize it
+            <button
+              type="button"
+              className="secondary-button flex-1 whitespace-nowrap text-xs"
+            >
+              {t("common.customizeIt")}
             </button>
           </PopoverTrigger>
           <PopoverContent
