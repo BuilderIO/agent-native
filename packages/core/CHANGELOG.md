@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.161.14
+
+### Patch Changes
+
+- 96ecc13: Use compact app search and pin labels that stay on one line.
+- 96ecc13: Clear stale thread restore errors when an unavailable saved tab becomes a fresh chat.
+- 96ecc13: Give type-less tool-schema positions a concrete JSON value union. OpenAI rejects
+  any schema position without a `type` ("schema must have a 'type' key") and 400s
+  the entire chat request, the same way it rejected `oneOf`. Zod emits a bare `{}`
+  for `z.unknown()`/`z.any()`, of which there are 137 sites across the templates,
+  so this is answered at the same boundary rather than by retyping every action.
+
 ## 0.161.13
 
 ### Patch Changes
