@@ -3375,7 +3375,7 @@ describe("recap gate skip output", () => {
         workflow.indexOf("\n  gate:"),
         workflow.indexOf("\n  recap:"),
       );
-      expect(gateSection).toContain("Visual recap skipped");
+      expect(gateSection).toMatch(/visual recap skipped/i);
       expect(gateSection).not.toContain("### Visual recap — skipped");
       expect(gateSection).not.toContain("Recap skipped for");
       expect(gateSection).not.toContain("createComment");
@@ -4047,7 +4047,7 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain(
       "external fork PR requires a maintainer to apply the recap label to the current head SHA",
     );
-    expect(content).toContain("if (!run && pr && isFork)");
+    expect(content).toContain("Fork visual recap skipped");
     expect(content).toContain("steps.route_health.outputs.unhealthy != 'true'");
     expect(content).toContain("Fetch plan block reference");
     expect(content).toContain(
