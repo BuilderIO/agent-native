@@ -86,7 +86,7 @@ vi.mock("../../shared/gmail-signature.js", () => ({
   htmlSignatureToMarkdown: mocks.htmlSignatureToMarkdown,
 }));
 
-const { getGoogleAddAccountUrl, getGoogleAuthUrl } =
+const { getGoogleAddAccountUrl, getGoogleAuthUrl, handleGoogleCallback } =
   await import("./google-auth.js");
 
 function createEvent(query: Record<string, string> = {}) {
@@ -153,5 +153,35 @@ describe("Mail Google auth-url handlers", () => {
       "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
     );
     await expect(response.text()).resolves.toBe("");
+  });
+
+  it("tells the user which login already owns the Google account, not the Google account's own address", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/callback",
+      owner: "second-login@example.com",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "second-login@example.com",
+      hasProductionSession: true,
+    });
+    const conflict = Object.assign(new Error("owned by another user"), {
+      name: "OAuthAccountOwnedByOtherUserError",
+      accountId: "shared-account@gmail.com",
+      existingOwner: "first-login@example.com",
+      attemptedOwner: "second-login@example.com",
+    });
+    mocks.exchangeCode.mockRejectedValue(conflict);
+
+    await handleGoogleCallback(
+      createEvent({ code: "google-code", state: "encoded-state" }) as any,
+    );
+
+    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
+    const [message] = mocks.oauthErrorPage.mock.calls[0];
+    // The fix: tell the user to sign in as the login that actually owns the
+    // connection (existingOwner), not the Google account's own address.
+    expect(message).toContain("first-login@example.com");
+    expect(message).not.toContain("sign in with shared-account@gmail.com");
   });
 });
