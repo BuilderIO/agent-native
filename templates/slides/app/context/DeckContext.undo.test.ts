@@ -105,6 +105,20 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     expect(applyOpToDeck(before, op)).toBe(before);
   });
 
+  it("does not create an inverse for an unchanged slide patch", () => {
+    const before = deck([
+      slide("a", { content: "same", background: "bg-black" }),
+    ]);
+    const op: PatchDeckOp = {
+      op: "patch-slide",
+      slideId: "a",
+      fields: { content: "same", background: "bg-black" },
+    };
+
+    expect(deriveInverseOp(before, op)).toBeNull();
+    expect(applyOpToDeck(before, op)).toBe(before);
+  });
+
   it("add-slide: inverse is delete-slide, restoring the exact prior deck", () => {
     const before = deck([slide("a"), slide("b")]);
     const op: PatchDeckOp = {
@@ -229,6 +243,17 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
       },
     ]);
     expectRoundTrip(before, op);
+  });
+
+  it("does not create an inverse for unchanged deck fields", () => {
+    const before = deck([slide("a")], { title: "Same title" });
+    const op: PatchDeckOp = {
+      op: "patch-deck-fields",
+      fields: { title: "Same title" },
+    };
+
+    expect(deriveInverseOp(before, op)).toBeNull();
+    expect(applyOpToDeck(before, op)).toBe(before);
   });
 
   it("applying an add-slide that already exists is idempotent", () => {

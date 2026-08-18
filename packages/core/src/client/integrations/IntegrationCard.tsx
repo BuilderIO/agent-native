@@ -7,6 +7,7 @@ import {
   IconChevronRight,
   IconCopy,
   IconCheck,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import React, { useState, useCallback } from "react";
 
@@ -18,6 +19,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import type { IntegrationStatus } from "./useIntegrationStatus.js";
+import { isNonPublicWebhookUrl } from "./webhook-url.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const platformIcons: Record<string, React.ComponentType<any>> = {
@@ -89,12 +91,15 @@ export function IntegrationCard({
     }
   }, [status.platform, status.enabled, status.label, onRefresh]);
 
+  const webhookUrlIsLocalOnly =
+    !!status.webhookUrl && isNonPublicWebhookUrl(status.webhookUrl);
+
   const handleCopy = useCallback(async () => {
-    if (!status.webhookUrl) return;
+    if (!status.webhookUrl || webhookUrlIsLocalOnly) return;
     await navigator.clipboard.writeText(status.webhookUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [status.webhookUrl]);
+  }, [status.webhookUrl, webhookUrlIsLocalOnly]);
 
   return (
     <div className="rounded-md border border-border bg-background">
@@ -127,28 +132,40 @@ export function IntegrationCard({
               <div className="text-[10px] font-medium text-muted-foreground mb-1">
                 {t("integrations.webhookUrl")}
               </div>
-              <div className="flex items-center gap-1">
-                <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
-                  {status.webhookUrl}
-                </code>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={handleCopy}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    >
-                      {copied ? (
-                        <IconCheck size={12} />
-                      ) : (
-                        <IconCopy size={12} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("integrations.copyWebhookUrl")}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
+              {webhookUrlIsLocalOnly ? (
+                <div className="flex gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+                  <IconInfoCircle size={12} className="mt-px shrink-0" />
+                  <span>
+                    {t("integrations.webhookUrlLocalOnly", {
+                      platform: status.label,
+                      url: status.webhookUrl,
+                    })}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
+                    {status.webhookUrl}
+                  </code>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleCopy}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      >
+                        {copied ? (
+                          <IconCheck size={12} />
+                        ) : (
+                          <IconCopy size={12} />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("integrations.copyWebhookUrl")}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
             </div>
           )}
 

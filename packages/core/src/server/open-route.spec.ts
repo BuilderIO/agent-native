@@ -19,6 +19,18 @@ const getConfiguredLoginHtml = vi.hoisted(() => vi.fn());
 vi.mock("./auth.js", () => ({
   getSession: (...a: any[]) => getSession(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtml(...a),
+  // Real (unmocked) behavior: mirrors auth.ts's redirectWithStagedCookies so
+  // tests can prove the open route forwards a cookie `getSession()` staged on
+  // `event.res.headers` (e.g. `promoteQuerySession` promoting a `_session`
+  // query token) instead of dropping it, which a bare 302 Response would.
+  redirectWithStagedCookies: (event: any, location: string, status = 302) => {
+    const headers = new Headers({ Location: location });
+    const staged = event.res?.headers?.getSetCookie?.() ?? [];
+    for (const cookie of staged) headers.append("set-cookie", cookie);
+    const referrerPolicy = event.res?.headers?.get?.("Referrer-Policy");
+    if (referrerPolicy) headers.set("Referrer-Policy", referrerPolicy);
+    return new Response("", { status, headers });
+  },
 }));
 
 const appStatePut = vi.hoisted(() => vi.fn());
@@ -43,8 +55,29 @@ import {
 import { createOpenRouteHandler } from "./open-route.js";
 
 /** Build a fake H3 event the open route understands. */
-function fakeEvent(url: string, method = "GET") {
-  return { method, node: { req: { url } }, path: url } as any;
+function fakeEvent(
+  url: string,
+  method = "GET",
+  opts: {
+    stagedSetCookies?: string[];
+    stagedReferrerPolicy?: string;
+  } = {},
+) {
+  const responseHeaders = new Headers();
+  for (const cookie of opts.stagedSetCookies ?? []) {
+    responseHeaders.append("set-cookie", cookie);
+  }
+  if (opts.stagedReferrerPolicy) {
+    responseHeaders.set("Referrer-Policy", opts.stagedReferrerPolicy);
+  }
+  return {
+    method,
+    node: { req: { url } },
+    path: url,
+    ...(opts.stagedSetCookies || opts.stagedReferrerPolicy
+      ? { res: { headers: responseHeaders } }
+      : {}),
+  } as any;
 }
 
 describe("createOpenRouteHandler", () => {
@@ -86,6 +119,85 @@ describe("createOpenRouteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
+  });
+
+  it("carries a Set-Cookie staged during getSession() (e.g. `_session` promotion) onto the 302 response instead of dropping it", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&designId=design_1&to=%2Fdesign%2Fdesign_1&_session=some-token",
+        "GET",
+        {
+          stagedSetCookies: [
+            "an_session=some-token; Path=/; HttpOnly; SameSite=Lax",
+          ],
+        },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("set-cookie")).toContain("an_session=some-token");
+  });
+
+  it("carries the no-referrer policy staged with a promoted query session onto the redirect", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&designId=design_1&to=%2Fdesign%2Fdesign_1&_session=some-token",
+        "GET",
+        {
+          stagedSetCookies: [
+            "an_session=some-token; Path=/; HttpOnly; SameSite=Lax",
+          ],
+          stagedReferrerPolicy: "no-referrer",
+        },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+
+  it("never persists a `_session` bridge token into the navigate application-state payload", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&designId=design_1&to=%2Fdesign%2Fdesign_1&_session=super-secret-token",
+      ),
+    );
+
+    expect(appStatePut).toHaveBeenCalledTimes(1);
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).not.toHaveProperty("_session");
+    expect(JSON.stringify(payload)).not.toContain("super-secret-token");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).not.toContain("super-secret-token");
+  });
+
+  it("a forged/unknown `_session` value grants nothing: still unauthenticated with no app-state write", async () => {
+    // Mirrors what a remote, non-loopback caller sees if it guesses/replays a
+    // `_session` query value that `getSessionEmail` (auth.ts) doesn't
+    // recognize: `getSession()` resolves null same as no token at all.
+    getSession.mockResolvedValue(null);
+    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&designId=design_1&to=%2Fdesign%2Fdesign_1&_session=guessed-or-stale",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>login</html>");
+    expect(appStatePut).not.toHaveBeenCalled();
   });
 
   it("unauthenticated returns the configured login HTML with status 200 and no app-state write", async () => {
@@ -186,6 +298,18 @@ describe("createOpenRouteHandler", () => {
     // %01 is a control character (Start of Heading).
     const res: Response = await handler(
       fakeEvent("/_agent-native/open?to=%2Ffoo%01bar"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
+  });
+
+  it("open-redirect guard rejects an auth entry path as `to` so a deep link cannot land on a login form", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?to=%2F_agent-native%2Fsign-in"),
     );
 
     expect(res.status).toBe(302);

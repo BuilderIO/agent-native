@@ -20,6 +20,7 @@ description: "透過 Slack、Microsoft Teams、Discord 互動、電子郵件、T
 - **在 Slack** 上向代理傳送私信，或在任何管道中向 `@mention` 傳送代理。
 - **透過手機向 Telegram 或 WhatsApp 上的代理傳送訊息**。
 - **相同的代理，相同的記憶。**無論您在 Slack 上告訴什麼，當您稍後透過電子郵件傳送時，都會記住它。網頁聊天和外部訊息共用同一個對話串歷史紀錄。
+- **從一則訊息操作其他工具。** 一次 @mention 可以變成 Notion 的一列、Jira 的一張票，或 HubSpot 的一筆記錄 —— 完整範例請見 [Slack 的 @mention → Notion 的一列](#slack-to-notion)。
 - 有關單向應用內提醒（響鈴圖示、webhooks），請參閱 [Notifications](/docs/notifications)。
 
 <Diagram id="doc-block-1eq07wo" title={"多管道，一位代理"} summary={"每個平台都進入相同的代理迴圈和相同的 SQL 對話串歷史紀錄 - 因此 Slack 私信 和電子郵件繼續相同的對話。"}>
@@ -126,7 +127,7 @@ Slack 應用程式有一個事件 API 請求 URL。如果同一個 Slack 應用�
 
 ### 提示
 
-- **頻道提及** - 使用 @mention 開始工作。只有同一對話串仍有進行中的任務時，未提及機器人的回覆才會繼續任務。
+- **頻道提及** - 使用 @mention 開始工作。代理要處理的每則頻道訊息都必須明確提及代理；一般對話串回覆和一般頻道聊天不會呼叫代理。
 - **私訊** — 已接受的個人私訊屬於私密對話，並要求已驗證的組織成員或已連結的 Slack 身分。
 - **身分** — 私訊可把驗證過的 Slack 電子郵件對應至同一應用使用者；受管理頻道使用自己的服務身分和政策。
 - **正式環境允許清單** — 設定 `SLACK_ALLOWED_TEAM_IDS`，對於共用 Slack 應用，設定 `SLACK_ALLOWED_API_APP_IDS`，以便有效的簽名金鑰無法被意外的工作區重複使用。
@@ -168,8 +169,7 @@ Event Subscriptions Request URL 設為
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`，
 Interactivity Request URL 設為
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`。
-訂閱 `app_home_opened`、`app_context_changed`、`app_mention`、
-`message.channels`、`message.groups`、`message.im` 和 `message.mpim`。
+訂閱 `app_home_opened`、`app_context_changed`、`app_mention` 和 `message.im`。
 設定 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和
 `SLACK_SIGNING_SECRET` 後，在**設定 → 訊息**中點選 **Add to Slack**。
 每個安裝使用獨立的加密權杖，並依工作區、應用、頻道和對話串隔離會話鍵。
@@ -183,12 +183,185 @@ Interactivity Request URL 設為
 個人 Slack 私訊只接受已驗證的 Agent Native 組織成員，或已連結到該成員的 Slack
 身分。頻道服務主體的政策與預算會和個人身分分開管理。
 
-未提及機器人的回覆只會繼續進行中的對話串；一般頻道聊天不會呼叫代理。有限內容
+代理要處理的每則頻道訊息都必須明確提及代理；一般對話串回覆和一般頻道聊天不會呼叫代理。有限內容
 包含反應和檔案參照，原生任務卡顯示計畫、進度、取消與核准/拒絕。私訊使用個人
 身分；受管理頻道使用明確的服務身分，以及訪客、Slack Connect 和模型政策。
 頻道記憶只在明確要求時儲存或刪除，絕不自動記憶。在頻道中建立的例程會把結果
 送回同一 Slack。組織、請求者與頻道的每日或每月預算會連同完整稽核脈絡一起執行。
 `assistant:write` 會啟用 Agent View 內容事件；`chat:write` 用於回覆與即時狀態更新。
+
+### 完整範例：Slack 的 @mention → Notion 的一列 {#slack-to-notion}
+
+Slack 提及跑通之後，最常見的下一個需求大致是 _「我在對話串裡 @mention 代理時，把我說的內容當成一列寫進我的 Notion 資料庫」_。這件事已經做得到 —— Slack 入站、Notion 供應商 API 與應用程式操作都是內建的 —— 但需要依正確順序接起三個部分，其中兩個若跳過會靜默失敗。
+
+以下所有 `<ANGLE_BRACKETS>` 都是佔位符。切勿把真實的 Notion 密鑰貼到原始碼、已提交的 `.env` 或聊天訊息中。
+
+#### 1. 讓提及先抵達應用程式
+
+在動 Notion 之前，先完成 [設定 Slack](#slack)，並確認頻道中的 `@mention` 會得到回覆。後續步驟有兩點行為很關鍵：
+
+- 含 `@mention` 的那則訊息就是觸發，其文字就是代理看到的內容。
+- 同一對話串中稍後的一般回覆，**只有在該對話串仍有執行中的工作時**才會抵達代理。如果執行已結束，後續訊息會被忽略 —— 請重新 @mention，別假設代理還在聽。
+
+#### 2. 開放供應商 API 操作
+
+Core 內建 Notion 供應商預設（基礎 URL、`Notion-Version` 標頭、驗證、文件連結），但讓代理實際使用它的三個操作 —— `provider-api-catalog`、`provider-api-docs` 與 `provider-api-request` —— 屬於**需主動加入的子路徑匯出**。從未加入這些操作的應用程式根本沒有通往 Notion 的路徑，代理會回答自己沒有 Notion 工具。這一步最常被忽略。
+
+加入供應商執行環境：
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+接著為每個操作 ID 加入一個很薄的操作檔案。工廠函式的所有選項都是選用的，因此每個檔案只需一次呼叫：
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+`actions/` 中的檔案會自動被探索 —— 沒有需要維護的註冊表。若要縮小供應商清單或透過 HTTP 開放，請參閱 [重用 Core 的操作工廠](/docs/integrations#provider-api-factories)。
+
+#### 3. 把 Notion 金鑰放進保管庫，而不是 `.env`
+
+在 **[notion.so/my-integrations](https://www.notion.so/my-integrations)** 建立內部整合並複製其密鑰。然後在你的應用程式中開啟 **Settings → API Keys & Connections**，新增一個名稱恰好為 `NOTION_API_KEY` 的金鑰，貼上值並選擇範圍：
+
+- **Personal** —— 只有以你的身分執行的作業能使用。
+- **Workspace** —— 與組織共用。如果除你之外還有人會 @mention 代理，請選這一項，因為 Slack 的執行是以整合擁有者的身分進行，而不是發訊息的人。
+
+供應商執行環境會依個人 → 組織 → 工作區的順序從加密保管庫解析憑證，且**刻意完全不讀取 `process.env`**，因為部署層級的環境變數會被多租戶應用程式的所有使用者共用。在 `.env` 寫一行 `NOTION_API_KEY` 在這裡不會生效。
+
+#### 4. 把資料庫分享給整合
+
+在 Notion 開啟目標資料庫，然後從 **••• → Connections →** 加入你的整合。跳過這一步是最常見也最容易誤判的 Notion 失敗：API 回傳的是 **404** 而非 403，看起來像資料庫 ID 寫錯。目錄項目帶有這段修正說明，而 `provider-api-request` 會把它附加到任何 401、403 或 404 回應的 `guidance` 欄位。
+
+資料庫 ID 就在資料庫 URL 裡 —— 是 `?` 之前那段 32 個字元的字串。
+
+#### 5. 請你的代理來實作
+
+這一步是任何設定畫面都不會告訴你的：兩半不必你自己接起來，你只要提出想要的行為。在應用程式的代理聊天中：
+
+> 新增一個名為 `add-notion-row` 的操作，透過供應商 API 在 Notion 資料庫 `<NOTION_DATABASE_ID>` 追加一列。它應接收訊息文字、Slack 作者，以及回到該 Slack 訊息的連結。接著更新 `AGENTS.md`，讓別人在 Slack 用 @mention 要求記錄或儲存內容時，你會呼叫這個操作並回覆新的 Notion 頁面 URL。
+
+代理應該寫的是**一個操作** —— 不是 Nitro 路由，也不是瀏覽器端的 `fetch`：
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+這個範例中有三處很關鍵：
+
+- 目前版本的 Notion 會把列掛在資料庫內的**資料來源**上，所以先讀取資料庫，並以其 `data_sources[0].id` 作為父層。直接把資料庫 ID 當成父層是舊版 API 的寫法。
+- `executeRequest` 會回傳供應商錯誤而不是拋出例外，所以要自行檢查 `response.ok`，並把回傳的 `guidance` 一併傳遞 —— 「請分享資料庫」的提示就在那裡。
+- 屬性名稱（`Name`、`Author`、`Source`）必須與資料庫欄位完全一致，型別也要相符。讓代理先讀取資料庫的 `properties`，而不是用猜的。
+
+`AGENTS.md` 這一半不是選用的。少了它，代理雖然有工具，但在 Slack 訊息說「把這個記下來」時沒有理由去用。
+
+#### 6. 驗證結果，以及失敗時該檢查什麼
+
+在代理所在的 Slack 頻道發送 `@YourAgent 把這個記到 Notion：<SOME_TEXT>`。成功的執行會在對話串中回覆新頁面的 URL，Notion 也會出現這一列。
+
+若不成功：
+
+| 你看到的現象                                              | 該檢查哪裡                                                                                                  |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Slack 完全沒有回覆                                        | 提及根本沒抵達應用程式。請重新檢查 [設定 Slack](#slack) 的 Request URL 與簽章密鑰 —— 這不是 Notion 的問題。 |
+| 代理有回覆，但說自己沒有 Notion 工具                      | 步驟 2。供應商 API 操作從未加入 `actions/`。                                                                |
+| `notion credential not configured. Tried: NOTION_API_KEY` | 步驟 3。金鑰放在 `.env`，或以 **Personal** 存在與實際執行帳號不同的帳號下。請改存為 **Workspace**。         |
+| Notion 回傳 `404`                                         | 步驟 4。資料庫從未分享給該整合。                                                                            |
+| Notion 針對屬性回傳 `400`                                 | 操作中的屬性名稱或型別與資料庫欄位不一致。                                                                  |
+| 成功過一次，之後對話串的回覆被忽略                        | 這是預期行為。代理要處理的每則訊息都必須明確提及代理 —— 請重新 @mention。                                   |
 
 ## 設定 Telegram {#telegram}
 

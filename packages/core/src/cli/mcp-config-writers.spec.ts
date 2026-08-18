@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCodexHttpBlock,
@@ -123,6 +123,38 @@ describe("writeJsonMcpEntry", () => {
 
     // File must be untouched
     expect(fs.readFileSync(file, "utf-8")).toBe(corruptContent);
+  });
+
+  it("throws and preserves an existing config when reading it is denied", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "claude.json");
+    const original =
+      '{"projects":{"/work":{"name":"work"}},"mcpServers":{"old":{"url":"https://old.example.com/mcp"}}}\n';
+    fs.writeFileSync(file, original, "utf-8");
+    const denied = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const read = vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw denied;
+    });
+
+    let thrown: Error | null = null;
+    try {
+      writeJsonMcpEntry(file, "new", {
+        type: "http",
+        url: "https://new.example.com/mcp",
+      });
+    } catch (error) {
+      thrown = error as Error;
+    } finally {
+      read.mockRestore();
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown!.message).toContain("Cannot read MCP config file");
+    expect(thrown!.message).toContain(file);
+    expect(thrown!.message).toContain("has not been modified");
+    expect(fs.readFileSync(file, "utf-8")).toBe(original);
   });
 
   it("error message includes the file path and actionable guidance", () => {
@@ -330,6 +362,20 @@ describe("writeHttpEntryForClient", () => {
 });
 
 describe("buildLocalMcpEntryForClient", () => {
+  it("can configure a resolvable npx command for a self-installing MCP", () => {
+    expect(
+      buildLocalMcpEntryForClient(
+        "claude-code",
+        ["-y", "@agent-native/core@latest", "mcp", "screen-memory"],
+        {},
+        "npx",
+      ),
+    ).toEqual({
+      command: "npx",
+      args: ["-y", "@agent-native/core@latest", "mcp", "screen-memory"],
+    });
+  });
+
   it("uses the OpenCode local command-array shape", () => {
     expect(
       buildLocalMcpEntryForClient("opencode", ["mcp", "serve"], {
@@ -399,6 +445,15 @@ describe("canonicalUrl", () => {
   it("strips hash and search params", () => {
     expect(canonicalUrl("https://x.com/mcp?foo=1#bar")).toBe(
       "https://x.com/mcp",
+    );
+  });
+
+  it("canonicalizes legacy MCP URLs, including app base paths", () => {
+    expect(canonicalUrl("https://x.com/_agent-native/mcp")).toBe(
+      "https://x.com/mcp",
+    );
+    expect(canonicalUrl("https://x.com/mail/_agent-native/mcp/")).toBe(
+      "https://x.com/mail/mcp",
     );
   });
 
@@ -791,6 +846,39 @@ describe("writeCodexBlock", () => {
     writeCodexBlock(file, "plan", null);
     expect(fs.readFileSync(file, "utf-8")).toBe('model = "gpt-5.5"\n');
   });
+
+  it("throws and preserves an existing config when reading it is denied", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    const original =
+      'model = "gpt-5.5"\n\n[mcp_servers.existing]\ncommand = "existing"\n';
+    fs.writeFileSync(file, original, "utf-8");
+    const denied = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const read = vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw denied;
+    });
+
+    let thrown: Error | null = null;
+    try {
+      writeCodexBlock(
+        file,
+        "plan",
+        buildCodexHttpBlock("plan", PLAN_URL, "token"),
+      );
+    } catch (error) {
+      thrown = error as Error;
+    } finally {
+      read.mockRestore();
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown!.message).toContain("Cannot read MCP config file");
+    expect(thrown!.message).toContain(file);
+    expect(thrown!.message).toContain("has not been modified");
+    expect(fs.readFileSync(file, "utf-8")).toBe(original);
+  });
 });
 
 describe("codexHasBlock", () => {
@@ -808,5 +896,29 @@ describe("codexHasBlock", () => {
     );
     expect(codexHasBlock(file, "plan")).toBe(true);
     expect(codexHasBlock(file, "other")).toBe(false);
+  });
+
+  it("throws instead of reporting an unreadable config as absent", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(file, '[mcp_servers.plan]\ncommand = "plan"\n', "utf-8");
+    const denied = Object.assign(new Error("EACCES: permission denied"), {
+      code: "EACCES",
+    });
+    const read = vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw denied;
+    });
+
+    let thrown: Error | null = null;
+    try {
+      codexHasBlock(file, "plan");
+    } catch (error) {
+      thrown = error as Error;
+    } finally {
+      read.mockRestore();
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown!.message).toContain("Cannot read MCP config file");
   });
 });

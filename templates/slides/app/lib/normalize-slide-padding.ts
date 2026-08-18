@@ -1,28 +1,50 @@
 /**
- * Force the canonical `padding: 80px 110px` on the outer `.fmd-slide` wrapper
- * when the agent supplies slide HTML. Models drift on numeric values during
- * regeneration — most often dropping the second padding arg, which collapses
- * horizontal padding from 110px to 80px and looks like the right margin
- * shrunk. AGENTS.md treats `80px 110px` as canonical for every layout, so we
- * normalize server-side rather than trusting the model's output.
+ * Ensure the outer `.fmd-slide` wrapper has a padding declaration.
+ *
+ * Explicit padding is part of the slide layout, so preserve it. In particular,
+ * an overflow repair often needs to reduce vertical padding; rewriting that
+ * value here makes a successful-looking agent edit a no-op in the renderer.
  */
 export function normalizeSlidePadding(html: string): string {
-  if (!html.includes('class="fmd-slide"')) return html;
+  for (const match of html.matchAll(/<div\b[^>]*>/gi)) {
+    const openingTag = match[0];
+    const classMatch = /\bclass\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
 
-  return html.replace(
-    /(<div\b[^>]*\bclass="fmd-slide"[^>]*\bstyle=")([^"]*)(")/,
-    (_match, before, style, after) => {
-      const hasPadding = /(?:^|;)\s*padding\s*:/i.test(style);
-      let nextStyle: string;
-      if (hasPadding) {
-        nextStyle = style.replace(
-          /(^|;)\s*padding\s*:\s*[^;]*/i,
-          `$1${style.startsWith("padding") ? "" : " "}padding: 80px 110px`,
-        );
-      } else {
-        nextStyle = `padding: 80px 110px;${style.startsWith(" ") ? "" : " "}${style}`;
-      }
-      return `${before}${nextStyle}${after}`;
-    },
-  );
+    if (!classMatch || !/\bfmd-slide\b/i.test(classMatch[2])) continue;
+
+    const styleMatch = /\bstyle\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
+    if (styleMatch) {
+      const style = styleMatch[2];
+      if (/(?:^|;)\s*padding\s*:/i.test(style)) return html;
+
+      const nextStyle = `padding: 80px 110px;${
+        style.startsWith(" ") ? "" : " "
+      }${style}`;
+      const nextStyleAttribute = styleMatch[0].replace(style, nextStyle);
+      const nextOpeningTag = openingTag.replace(
+        styleMatch[0],
+        nextStyleAttribute,
+      );
+
+      return (
+        html.slice(0, match.index) +
+        nextOpeningTag +
+        html.slice(match.index + openingTag.length)
+      );
+    }
+
+    const classEnd = classMatch.index + classMatch[0].length;
+    const nextOpeningTag =
+      openingTag.slice(0, classEnd) +
+      ' style="padding: 80px 110px;"' +
+      openingTag.slice(classEnd);
+
+    return (
+      html.slice(0, match.index) +
+      nextOpeningTag +
+      html.slice(match.index + openingTag.length)
+    );
+  }
+
+  return html;
 }

@@ -12,28 +12,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function PageHeader({
-  eyebrow,
   title,
-  description,
   actions,
 }: {
-  eyebrow: string;
   title: string;
-  description: string;
   actions?: React.ReactNode;
 }) {
   return (
     <header className="flex flex-col gap-4 border-b border-border bg-card px-4 py-5 sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:px-7">
       <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {eyebrow}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground break-words">
+        <h1 className="text-2xl font-semibold tracking-normal text-foreground break-words">
           {title}
         </h1>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-          {description}
-        </p>
       </div>
       {actions ? (
         <div className="w-full min-w-0 shrink-0 sm:w-auto">{actions}</div>

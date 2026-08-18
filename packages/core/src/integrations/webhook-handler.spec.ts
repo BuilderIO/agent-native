@@ -10,15 +10,14 @@ import {
 
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const isDuplicateEventErrorMock = vi.hoisted(() => vi.fn(() => false));
+const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
-const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
-const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
-const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
-const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
+const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./pending-tasks-store.js", () => ({
   insertPendingTask: insertPendingTaskMock,
   isDuplicateEventError: isDuplicateEventErrorMock,
+  recordPendingTaskDispatchAttempt: recordDispatchAttemptMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -31,18 +30,14 @@ vi.mock("../agent/production-agent.js", async () => {
   >("../agent/production-agent.js");
   return {
     actionsToEngineTools: vi.fn(() => []),
-    engineToProvider: vi.fn((engineName: string) => engineName),
-    getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
-    getOwnerApiKey: getOwnerApiKeyMock,
+    resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
     runAgentLoop: vi.fn(),
     filterInitialEngineTools: actual.filterInitialEngineTools,
   };
 });
 
-vi.mock("../server/credential-provider.js", () => ({
-  canUseDeployCredentialFallbackForRequest:
-    canUseDeployCredentialFallbackForRequestMock,
-  readDeployCredentialEnv: readDeployCredentialEnvMock,
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  runAgentLoopDirectWithSoftTimeout: vi.fn(),
 }));
 
 vi.mock("./internal-token.js", () => ({
@@ -98,10 +93,10 @@ describe("integration webhook handler", () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     insertPendingTaskMock.mockResolvedValue(undefined);
     isDuplicateEventErrorMock.mockReturnValue(false);
-    getOwnerApiKeyMock.mockResolvedValue(undefined);
-    getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
-    readDeployCredentialEnvMock.mockReturnValue(undefined);
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
+    resolveOwnerEngineApiKeyMock.mockResolvedValue({
+      apiKey: undefined,
+      apiKeyEnvVar: undefined,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -340,13 +335,31 @@ describe("integration webhook handler", () => {
 
   it("does not reflect inbound Host into self-dispatch URLs in production", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
     vi.stubEnv("APP_URL", "");
     vi.stubEnv("URL", "");
     vi.stubEnv("DEPLOY_URL", "");
     vi.stubEnv("BETTER_AUTH_URL", "");
 
     expect(() => resolveBaseUrl(createEvent())).toThrow(
-      /requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL/,
+      /requires DEPLOY_PRIME_URL, DEPLOY_URL, URL, APP_URL, or BETTER_AUTH_URL/,
+    );
+  });
+
+  it("dispatches to this deploy, not production, on a deploy preview", () => {
+    // The copy of this resolver that used to live in webhook-handler.ts
+    // preferred APP_URL and never read DEPLOY_PRIME_URL, so integration work
+    // enqueued by a preview was POSTed to production while agent background
+    // work correctly stayed on the preview.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEPLOY_PRIME_URL", "https://preview--app.netlify.app");
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    vi.stubEnv("URL", "");
+    vi.stubEnv("DEPLOY_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+
+    expect(resolveBaseUrl(createEvent())).toBe(
+      "https://preview--app.netlify.app",
     );
   });
 
@@ -399,30 +412,29 @@ describe("integration webhook handler", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("does not use deploy-level fallback keys for guarded integration runs", async () => {
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
-    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
+  it("resolves the integration key for the engine the plugin selected", async () => {
+    // Provenance lives in `resolveOwnerEngineApiKey` (see
+    // owner-engine-api-key.spec.ts); this only guards the pass-through, since
+    // dropping `engineOption` here would silently restore the untagged key.
+    resolveOwnerEngineApiKeyMock.mockResolvedValue({
+      apiKey: "sk-openai-deploy",
+      apiKeyEnvVar: "OPENAI_API_KEY",
+    });
 
     await expect(
       resolveIntegrationApiKey(
-        "anthropic",
+        "openai",
         "alice+qa@agent-native.test",
-        "plugin-api-key",
+        "sk-ant-plugin-key",
       ),
-    ).resolves.toBeUndefined();
-    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
-  });
-
-  it("allows scoped integration owner keys before deploy fallback policy", async () => {
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
-    getOwnerApiKeyMock.mockResolvedValue("scoped-owner-key");
-
-    await expect(
-      resolveIntegrationApiKey(
-        "anthropic",
-        "alice+qa@agent-native.test",
-        "plugin-api-key",
-      ),
-    ).resolves.toBe("scoped-owner-key");
+    ).resolves.toEqual({
+      apiKey: "sk-openai-deploy",
+      apiKeyEnvVar: "OPENAI_API_KEY",
+    });
+    expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+      engineOption: "openai",
+      ownerEmail: "alice+qa@agent-native.test",
+      anthropicFallback: "sk-ant-plugin-key",
+    });
   });
 });

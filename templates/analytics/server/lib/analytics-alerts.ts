@@ -135,6 +135,12 @@ function nowIso(): string {
 
 const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
 const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX =
+  "default-agent-chat-stuck-spike";
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD = 3;
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES = 10;
+const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;
+const DEFAULT_ALERT_SCOPE_PAGE_SIZE = 500;
 const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -296,6 +302,14 @@ function defaultHttp5xxAlertEnabled(): boolean {
   return currentDeployHostname() === "analytics.agent-native.com";
 }
 
+function defaultAgentChatStuckAlertEnabled(): boolean {
+  const configured = boolEnv(
+    "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED",
+  );
+  if (configured !== null) return configured;
+  return currentDeployHostname() === "analytics.agent-native.com";
+}
+
 function envInt(name: string, fallback: number, min: number, max: number) {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -305,18 +319,30 @@ function envInt(name: string, fallback: number, min: number, max: number) {
     : fallback;
 }
 
-function defaultHttp5xxAlertId(ownerEmail: string, orgId: string | null) {
+function defaultAlertId(
+  prefix: string,
+  ownerEmail: string,
+  orgId: string | null,
+) {
   const hash = createHash("sha256")
     .update(`${ownerEmail.toLowerCase()}|${orgId ?? ""}`)
     .digest("hex")
     .slice(0, 10);
-  return `${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-${hash}`;
+  return `${prefix}-${hash}`;
 }
 
-async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
+async function defaultAnalyticsAlertScopePage(offset: number): Promise<{
+  scopes: AccessCtx[];
+  hasMore: boolean;
+}> {
   const ownerEmail = process.env.ANALYTICS_DEFAULT_ALERT_OWNER_EMAIL?.trim();
   const orgId = process.env.ANALYTICS_DEFAULT_ALERT_ORG_ID?.trim() || null;
-  if (ownerEmail) return [{ email: ownerEmail, orgId }];
+  if (ownerEmail) {
+    return {
+      scopes: offset === 0 ? [{ email: ownerEmail, orgId }] : [],
+      hasMore: false,
+    };
+  }
 
   const db = getDb() as any;
   const rows = await db
@@ -326,7 +352,16 @@ async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
     })
     .from(schema.analyticsPublicKeys)
     .where(isNull(schema.analyticsPublicKeys.revokedAt))
-    .limit(1000);
+    .groupBy(
+      schema.analyticsPublicKeys.ownerEmail,
+      schema.analyticsPublicKeys.orgId,
+    )
+    .orderBy(
+      asc(schema.analyticsPublicKeys.ownerEmail),
+      asc(schema.analyticsPublicKeys.orgId),
+    )
+    .limit(DEFAULT_ALERT_SCOPE_PAGE_SIZE)
+    .offset(offset);
 
   const seen = new Set<string>();
   const scopes: AccessCtx[] = [];
@@ -342,7 +377,10 @@ async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
     seen.add(key);
     scopes.push({ email, orgId: scopeOrgId });
   }
-  return scopes;
+  return {
+    scopes,
+    hasMore: rows.length === DEFAULT_ALERT_SCOPE_PAGE_SIZE,
+  };
 }
 
 function rowToRule(row: any): AnalyticsAlertRule {
@@ -517,10 +555,20 @@ export async function deleteAnalyticsAlertRule(
     });
   }
   const db = getDb() as any;
-  await db.delete(schema.analyticsAlertRules).where(ownerWhere(ctx, id));
+  const seededDefault =
+    id.startsWith(`${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-`) ||
+    id.startsWith(`${DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX}-`);
+  if (seededDefault) {
+    await db
+      .update(schema.analyticsAlertRules)
+      .set({ enabled: false, updatedAt: nowIso() })
+      .where(ownerWhere(ctx, id));
+  } else {
+    await db.delete(schema.analyticsAlertRules).where(ownerWhere(ctx, id));
+  }
   recordChange({
     source: "analytics-alert-rules",
-    type: "delete",
+    type: seededDefault ? "change" : "delete",
     key: existing.id,
     owner: existing.ownerEmail,
     orgId: existing.orgId ?? undefined,
@@ -528,6 +576,20 @@ export async function deleteAnalyticsAlertRule(
 }
 
 const DEFAULT_ALERT_SEED_CHUNK_SIZE = 500;
+
+interface DefaultAnalyticsAlertDefinition {
+  idPrefix: string;
+  name: string;
+  description: string;
+  eventName: string;
+  filters: AnalyticsAlertFilter[];
+  threshold: number;
+  thresholdMode?: AnalyticsAlertThresholdMode;
+  distinctBy?: string | null;
+  windowMinutes: number;
+  cooldownMinutes: number;
+  severity: AnalyticsAlertSeverity;
+}
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -537,95 +599,155 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
-  checked: number;
-  created: number;
-}> {
-  if (!defaultHttp5xxAlertEnabled()) return { checked: 0, created: 0 };
+function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
+  const definitions: DefaultAnalyticsAlertDefinition[] = [];
 
-  const scopes = await defaultHttp5xxAlertScopes();
-  if (!scopes.length) return { checked: 0, created: 0 };
-
-  const db = getDb() as any;
-  const threshold = envInt(
-    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
-    5,
-    1,
-    1000,
-  );
-  const windowMinutes = envInt(
-    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
-    5,
-    1,
-    60,
-  );
-  const cooldownMinutes = envInt(
-    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
-    30,
-    0,
-    24 * 60,
-  );
-
-  const scopesById = new Map<string, AccessCtx>();
-  for (const scope of scopes) {
-    scopesById.set(defaultHttp5xxAlertId(scope.email, scope.orgId), scope);
-  }
-  const allIds = Array.from(scopesById.keys());
-
-  const existingIds = new Set<string>();
-  for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
-    const rows = await db
-      .select({ id: schema.analyticsAlertRules.id })
-      .from(schema.analyticsAlertRules)
-      .where(inArray(schema.analyticsAlertRules.id, idChunk));
-    for (const row of rows) existingIds.add(row.id);
-  }
-
-  const missingIds = allIds.filter((id) => !existingIds.has(id));
-  if (!missingIds.length) return { checked: scopes.length, created: 0 };
-
-  const now = nowIso();
-  const rowsToInsert = missingIds.map((id) => {
-    const scope = scopesById.get(id)!;
-    return {
-      id,
+  if (defaultHttp5xxAlertEnabled()) {
+    definitions.push({
+      idPrefix: DEFAULT_HTTP_5XX_ALERT_ID_PREFIX,
       name: "Hosted app HTTP 5xx spike",
       description:
         "Default Agent Native alert for a spike in server responses with 5xx status codes.",
       eventName: "http.response",
-      filters: JSON.stringify([
-        { field: "properties.status_class", value: "5xx" },
-      ]),
-      thresholdMode: "event_count" as const,
-      distinctBy: null,
-      threshold,
-      windowMinutes,
-      cooldownMinutes,
-      severity: "critical" as const,
-      channels: JSON.stringify(["inbox"]),
-      emailRecipients: JSON.stringify([]),
-      enabled: true,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail: scope.email,
-      orgId: scope.orgId,
-    };
-  });
-
-  let created = 0;
-  for (const rowChunk of chunkArray(
-    rowsToInsert,
-    DEFAULT_ALERT_SEED_CHUNK_SIZE,
-  )) {
-    const inserted = await db
-      .insert(schema.analyticsAlertRules)
-      .values(rowChunk)
-      .onConflictDoNothing()
-      .returning({ id: schema.analyticsAlertRules.id });
-    created += inserted.length;
+      filters: [{ field: "properties.status_class", value: "5xx" }],
+      threshold: envInt(
+        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
+        5,
+        1,
+        1000,
+      ),
+      windowMinutes: envInt(
+        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
+        5,
+        1,
+        60,
+      ),
+      cooldownMinutes: envInt(
+        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
+        30,
+        0,
+        24 * 60,
+      ),
+      severity: "critical",
+    });
   }
 
-  return { checked: scopes.length, created };
+  if (defaultAgentChatStuckAlertEnabled()) {
+    definitions.push({
+      idPrefix: DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX,
+      name: "Hosted agent chat stuck spike",
+      description:
+        "Default Agent Native alert for a spike in agent chats detected as stuck.",
+      eventName: "agent_chat_stuck_detected",
+      filters: [],
+      threshold: envInt(
+        "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD",
+        DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD,
+        1,
+        1000,
+      ),
+      thresholdMode: "distinct_count",
+      distinctBy: "properties.runId",
+      windowMinutes: envInt(
+        "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES",
+        DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES,
+        1,
+        60,
+      ),
+      cooldownMinutes: envInt(
+        "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES",
+        DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES,
+        0,
+        24 * 60,
+      ),
+      severity: "critical",
+    });
+  }
+
+  return definitions;
+}
+
+export async function ensureDefaultAnalyticsAlertRules(): Promise<{
+  checked: number;
+  created: number;
+}> {
+  const definitions = defaultAnalyticsAlertDefinitions();
+  if (!definitions.length) return { checked: 0, created: 0 };
+
+  const db = getDb() as any;
+  let checked = 0;
+  let created = 0;
+  let offset = 0;
+  while (true) {
+    const page = await defaultAnalyticsAlertScopePage(offset);
+    const candidatesById = new Map<
+      string,
+      { definition: DefaultAnalyticsAlertDefinition; scope: AccessCtx }
+    >();
+    for (const scope of page.scopes) {
+      for (const definition of definitions) {
+        candidatesById.set(
+          defaultAlertId(definition.idPrefix, scope.email, scope.orgId),
+          { definition, scope },
+        );
+      }
+    }
+    const allIds = Array.from(candidatesById.keys());
+    checked += allIds.length;
+
+    const existingIds = new Set<string>();
+    for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
+      const rows = await db
+        .select({ id: schema.analyticsAlertRules.id })
+        .from(schema.analyticsAlertRules)
+        .where(inArray(schema.analyticsAlertRules.id, idChunk));
+      for (const row of rows) existingIds.add(row.id);
+    }
+
+    const now = nowIso();
+    const rowsToInsert = allIds
+      .filter((id) => !existingIds.has(id))
+      .map((id) => {
+        const { definition, scope } = candidatesById.get(id)!;
+        return {
+          id,
+          name: definition.name,
+          description: definition.description,
+          eventName: definition.eventName,
+          filters: JSON.stringify(definition.filters),
+          thresholdMode: definition.thresholdMode ?? ("event_count" as const),
+          distinctBy: definition.distinctBy ?? null,
+          threshold: definition.threshold,
+          windowMinutes: definition.windowMinutes,
+          cooldownMinutes: definition.cooldownMinutes,
+          severity: definition.severity,
+          channels: JSON.stringify(["inbox"]),
+          emailRecipients: JSON.stringify([]),
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          ownerEmail: scope.email,
+          orgId: scope.orgId,
+        };
+      });
+
+    for (const rowChunk of chunkArray(
+      rowsToInsert,
+      DEFAULT_ALERT_SEED_CHUNK_SIZE,
+    )) {
+      const inserted = await db
+        .insert(schema.analyticsAlertRules)
+        .values(rowChunk)
+        .onConflictDoNothing()
+        .returning({ id: schema.analyticsAlertRules.id });
+      created += inserted.length;
+    }
+
+    if (!page.hasMore) break;
+    offset += DEFAULT_ALERT_SCOPE_PAGE_SIZE;
+  }
+
+  return { checked, created };
 }
 
 export async function listEnabledAnalyticsAlertRules(options: {

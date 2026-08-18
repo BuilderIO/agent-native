@@ -1,6 +1,6 @@
 ---
 title: "Durable Background Runs"
-description: "Long agent-chat turns can run on a separate 15-minute Netlify background function instead of the synchronous request, so multi-step work finishes server-side without the client babysitting continuations. Opt-in per app; a foreground circuit-breaker keeps chat working even if the worker never starts."
+description: "Long agent-chat turns can run on a separate 15-minute Netlify background function instead of the synchronous request, so multi-step work finishes server-side without the client babysitting continuations. Enabled by default on deployed Netlify apps with an explicit opt-out; a foreground circuit-breaker keeps chat working even if the worker never starts."
 ---
 
 # Durable Background Runs
@@ -10,7 +10,8 @@ description: "Long agent-chat turns can run on a separate 15-minute Netlify back
 **Who is this for:** anyone deploying an agent-native app who wants long,
 multi-step agent turns to complete server-side, and anyone wondering what the
 `AGENT_CHAT_DURABLE_BACKGROUND` flag and the second Netlify function do. This
-is opt-in and entirely inside the framework — there is no app code to write.
+is enabled by default on deployed Netlify apps and entirely inside the
+framework — there is no app code to write.
 
 </Callout>
 
@@ -108,14 +109,17 @@ normal API calls always run synchronously on `server`.
 The foreground chat POST decides **per turn**. It dispatches to the background
 function only when all three hold:
 
-- `AGENT_CHAT_DURABLE_BACKGROUND` is truthy (`true` / `1` / `yes` / `on`),
+- the app is deployed on Netlify and `AGENT_CHAT_DURABLE_BACKGROUND` is not
+  explicitly falsy (`false` / `0` / `no` / `off`), or a non-Netlify hosted app
+  explicitly opts in with a truthy value (`true` / `1` / `yes` / `on`),
 - the app is running hosted (on the platform, not local dev), and
 - `A2A_SECRET` is set (the dispatch is an HMAC-signed self-call; without the
   secret it cannot be signed, so the turn stays inline).
 
-If any is missing, the turn runs inline exactly as before. The flag is read at
+If the app is local, `A2A_SECRET` is missing, or the flag is explicitly
+disabled, the turn runs inline exactly as before. The setting is read at
 **both build time** (to decide whether to emit the background function) and
-**runtime** (to decide whether to dispatch), so enabling it requires a redeploy.
+**runtime** (to decide whether to dispatch), so changing it requires a redeploy.
 
 ## The lifecycle and the circuit-breaker {#lifecycle}
 
@@ -190,9 +194,51 @@ one long invocation, not purely additive.
 
 <Callout id="doc-block-gjoj2d" tone="info">
 
-Durable runs are opt-in per app and default OFF. Enable with AGENT_CHAT_DURABLE_BACKGROUND=true (plus A2A_SECRET) and redeploy. Verify a turn actually used the worker by checking that its run reaches dispatch_mode=background-processing rather than falling back to inline recovery.
+Durable runs are enabled by default for deployed Netlify apps. Set
+`AGENT_CHAT_DURABLE_BACKGROUND=false` to opt out, or set it to `true` on another
+host. `A2A_SECRET` is still required. Redeploy after changing the setting, and
+verify a turn actually used the worker by checking that its run reaches
+`dispatch_mode=background-processing` rather than falling back to inline
+recovery.
 
 </Callout>
+
+## The foreground self-chain: a narrower, opt-in escape hatch {#foreground-self-chain}
+
+A second, independent flag governs a different continuation mechanism:
+`AGENT_CHAT_FOREGROUND_SELF_CHAIN`. Where durable background runs move a whole
+long turn onto the 15-minute background function above, the foreground
+self-chain lets a normal (non-durable-background) turn that hits its
+soft-timeout chunk boundary continue via a server-side self-dispatch on the
+**regular** request function, instead of depending on the client to re-POST
+`auto_continue`.
+
+It composes the same way as `AGENT_CHAT_DURABLE_BACKGROUND`: true only when
+the env flag is explicitly truthy (`true` / `1` / `yes` / `on`), the runtime
+is hosted, and `A2A_SECRET` is configured. The two flags are independent and
+never need to agree — an app can enable this narrower capability without
+opting into the full background-function worker path. When a run already
+qualifies for durable background dispatch, that decision is evaluated first
+and takes precedence; the run chains through the background worker instead of
+this path.
+
+<Callout id="doc-block-fgschn1" tone="warning">
+
+This flag is **opt-in and default OFF**. A regular Netlify function has a
+fixed **60-second** wall — far shorter than the 15-minute background-function
+budget above — so a self-dispatched successor can be killed mid-run before it
+persists its next continuation, cutting a long response off mid-sentence.
+With the flag off, hosted apps use the existing client-driven `auto_continue`
+re-POST path instead, which is slower to resume but cannot be killed by a
+server-side timeout.
+
+</Callout>
+
+Only enable this once you've verified the hosted deployment's regular
+function reliably completes self-dispatched continuations inside that
+60-second wall. For long, multi-step turns, prefer
+`AGENT_CHAT_DURABLE_BACKGROUND` above — its background function has a much
+larger budget and is the recommended path.
 
 ## What's next
 

@@ -6,14 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -127,6 +122,106 @@ describe("DesignCanvas live embedded-frame offset", () => {
           "translate:8192px 8192px",
         );
       }
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("releases native wheel scrolling in embedded Interact mode", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const content =
+      '<!doctype html><html><body style="min-height:900px"></body></html>';
+    const render = (interactMode: boolean) => (
+      <DesignCanvas
+        content={content}
+        contentKey="embedded-wheel-mode"
+        screenId="screen-a"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={interactMode}
+        editMode={!interactMode}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        embeddedFrame={{
+          viewportWidth: 400,
+          viewportHeight: 300,
+          displayWidth: 400,
+          displayHeight: 300,
+        }}
+      />
+    );
+    try {
+      await act(async () => root.render(render(false)));
+      const editIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(editIframe?.contentWindow).toBeTruthy();
+      const editPostMessage = vi.spyOn(
+        editIframe!.contentWindow!,
+        "postMessage",
+      );
+      const wheelEnabledMessages = () =>
+        editPostMessage.mock.calls
+          .map(
+            (call) =>
+              call[0] as { type?: string; wheelEnabled?: boolean } | undefined,
+          )
+          .filter(
+            (message): message is { type: string; wheelEnabled?: boolean } =>
+              message?.type === "embedded-canvas-gesture-mode",
+          );
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:editor-chrome-ready" },
+            origin: window.location.origin,
+            source: editIframe!.contentWindow,
+          }),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(wheelEnabledMessages().slice(-1)[0]).toMatchObject({
+          wheelEnabled: true,
+        });
+      });
+
+      await act(async () => root.render(render(true)));
+      const interactIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(interactIframe?.contentWindow).toBeTruthy();
+      const interactPostMessage = vi.spyOn(
+        interactIframe!.contentWindow!,
+        "postMessage",
+      );
+      const interactWheelEnabledMessages = () =>
+        interactPostMessage.mock.calls
+          .map(
+            (call) =>
+              call[0] as { type?: string; wheelEnabled?: boolean } | undefined,
+          )
+          .filter(
+            (message): message is { type: string; wheelEnabled?: boolean } =>
+              message?.type === "embedded-canvas-gesture-mode",
+          );
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:editor-chrome-ready" },
+            origin: window.location.origin,
+            source: interactIframe!.contentWindow,
+          }),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(interactWheelEnabledMessages().slice(-1)[0]).toMatchObject({
+          wheelEnabled: false,
+        });
+      });
     } finally {
       await act(async () => root.unmount());
       container.remove();
@@ -370,6 +465,67 @@ describe("DesignCanvas live embedded-frame offset", () => {
         "iframe[data-design-preview-iframe]",
       );
       expect(visualEditIframe).toBe(alpineIframe);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  // Regression: embedded (overview) screens run both the editor-chrome bridge
+  // (contains a literal "$&" in its escapeIdent helper) and
+  // appendContentSizeReporter, which used a plain-string second argument to
+  // String.replace("</body>", ...). String.replace treats "$&" in a string
+  // replacement as "insert the matched text", so it spliced a stray
+  // "</body>" into the middle of editor-chrome-bridge's own script and the
+  // HTML parser closed that <script> tag right there — truncating the bridge
+  // before it ever created the selection/hover overlays. Only reproduces
+  // embedded (isEmbeddedFrame) + editable (editMode, not interactMode),
+  // since that's the only combination that includes both scripts.
+  it("does not truncate the editor-chrome bridge script when embedded", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const sourceScript = '<script>const template = "</body>";</script>';
+    const content = `<!doctype html><html><head></head><body>${sourceScript}<div id="target">Click me</div></body></html>`;
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content={content}
+            contentKey="embedded-bridge-truncation"
+            screenId="screen-a"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+            embeddedFrame={{
+              viewportWidth: 400,
+              viewportHeight: 300,
+              displayWidth: 400,
+              displayHeight: 300,
+            }}
+          />,
+        ),
+      );
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const srcdoc = iframe?.srcdoc ?? "";
+
+      // The literal closer in the screen's own script stays intact, and the
+      // generated bridge follows that script rather than being nested inside it.
+      expect(srcdoc).toContain(sourceScript);
+      expect(
+        srcdoc.indexOf("agent-native:editor-chrome-ready"),
+      ).toBeGreaterThan(srcdoc.indexOf(sourceScript));
+      // The bridge's own closing handshake must survive intact, proving its
+      // <script> tag was never prematurely closed partway through.
+      expect(srcdoc).toContain("agent-native:editor-chrome-ready");
+      expect(srcdoc).toContain("data-agent-native-content-size-bridge");
     } finally {
       await act(async () => root.unmount());
       container.remove();

@@ -18,11 +18,9 @@ const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 const AUTH_DIR = process.env.E2E_AUTH_DIR
   ? path.resolve(process.env.E2E_AUTH_DIR)
   : path.join(import.meta.dirname, "e2e", ".auth");
-const E2E_DATABASE_URL = `file:${path.join(
-  import.meta.dirname,
-  "data",
-  "e2e.db",
-)}`;
+const E2E_DATABASE_URL =
+  process.env.E2E_DATABASE_URL ??
+  `file:${path.join(import.meta.dirname, "data", "e2e.db")}`;
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 
 export default defineConfig({

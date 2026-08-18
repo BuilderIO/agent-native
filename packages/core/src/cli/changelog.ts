@@ -23,6 +23,10 @@ import {
   CHANGELOG_HEADER,
   type ChangelogChangeType,
 } from "../changelog/parse.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
 
 const CHANGELOG_FILE = "CHANGELOG.md";
 const PENDING_DIR = "changelog";
@@ -74,11 +78,30 @@ function printUsage(): void {
       "",
       "Entries are user-facing notes. `add` writes a pending file under",
       `  ${PENDING_DIR}/; \`release\` rolls all pending files into ${CHANGELOG_FILE}.`,
+      "Generation requires changelog.enabled: true in agent-native.config.ts.",
     ].join("\n"),
   );
 }
 
-function cmdAdd(args: string[]): number {
+async function changelogGenerationEnabled(): Promise<boolean> {
+  const config = await loadResolvedAgentNativeConfig(
+    process.cwd(),
+    createAgentNativeConfigContext("serve", "cli"),
+  );
+  return config.changelog?.enabled === true;
+}
+
+async function requireChangelogGeneration(operation: "add" | "release") {
+  if (await changelogGenerationEnabled()) return true;
+  console.error(
+    `Changelog ${operation} is disabled by default. Set ` +
+      `changelog: { enabled: true } in agent-native.config.ts to enable it.`,
+  );
+  return false;
+}
+
+async function cmdAdd(args: string[]): Promise<number> {
+  if (!(await requireChangelogGeneration("add"))) return 1;
   const { flags, rest } = parseFlags(args);
   const summary = rest.join(" ").trim();
   if (!summary) {
@@ -120,7 +143,8 @@ function readPending(): { file: string; content: string }[] {
     }));
 }
 
-function cmdRelease(args: string[]): number {
+async function cmdRelease(args: string[]): Promise<number> {
+  if (!(await requireChangelogGeneration("release"))) return 1;
   const { flags } = parseFlags(args);
   const date = flags.date?.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? todayIso();
 
@@ -177,9 +201,9 @@ export async function runChangelog(args: string[]): Promise<number> {
   const rest = args.slice(1);
   switch (sub) {
     case "add":
-      return cmdAdd(rest);
+      return await cmdAdd(rest);
     case "release":
-      return cmdRelease(rest);
+      return await cmdRelease(rest);
     case "list":
       return cmdList();
     case undefined:

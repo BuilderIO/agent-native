@@ -17,10 +17,14 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "create-document",
+      "clone-creative-context-document",
       "delete-document",
       "get-document",
+      "list-trashed-documents",
       "list-documents",
       "move-document",
+      "permanently-delete-document",
+      "restore-document",
       "search-documents",
       "update-document",
     ],
@@ -34,6 +38,40 @@ export const parityMatrix: ParityRow[] = [
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "workspace.spaces-and-files-catalog",
+    surface: "workspace",
+    label:
+      "Provision, navigate, and delete Content spaces through Files and Workspaces with personal expansion state",
+    uiEntrypoints: [
+      "app/components/sidebar/DocumentSidebar.tsx",
+      "app/hooks/use-content-spaces.ts",
+    ],
+    durableEffect:
+      "Personal and organization spaces, user-created workspaces, their canonical Files databases, the personal Workspaces catalog, and each user's sidebar expansion state are stored and reconciled in SQL; deleting a user-created workspace atomically removes its catalog row and contents.",
+    uiImplementation:
+      "The app sidebar calls the shared space actions and renders the selected Files database through a saved sidebar view.",
+    status: "action-backed",
+    actions: [
+      "backfill-content-files",
+      "create-content-space",
+      "delete-content-space",
+      "ensure-content-spaces",
+      "get-content-sidebar-state",
+      "list-content-spaces",
+      "update-content-sidebar-state",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-spaces.db.test.ts",
+      "actions/content-files.db.test.ts",
+      "actions/content-sidebar-state.test.ts",
+    ],
   },
   {
     id: "sidebar.navigation-and-screen-context",
@@ -56,6 +94,28 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P1",
     testCoverage: "seeded",
     followUpPR: null,
+  },
+  {
+    id: "workspace.root-landing-resolver",
+    surface: "workspace",
+    label:
+      "Resolve the app root to the caller's last authorized page or a private welcome page",
+    uiEntrypoints: ["app/routes/_app._index.tsx", "app/lib/content-landing.ts"],
+    durableEffect:
+      "The root route restores the most recent authorized page when possible and otherwise converges on one private personal welcome page while preserving last-location state.",
+    uiImplementation:
+      "The index route invokes the shared landing resolver on first load, then navigates to the resolved page and records the landing document in application state.",
+    status: "action-backed",
+    actions: ["resolve-content-landing"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-landing.db.test.ts",
+      "app/lib/content-landing.test.ts",
+    ],
   },
   {
     id: "sidebar.chrome-state",
@@ -215,6 +275,7 @@ export const parityMatrix: ParityRow[] = [
       "create-content-database",
       "create-inline-content-database",
       "delete-content-database",
+      "describe-content-database",
       "get-content-database",
       "list-content-databases",
       "list-trashed-content-databases",
@@ -225,8 +286,37 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/content-database-lifecycle.db.test.ts"],
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "actions/list-content-databases.db.test.ts",
+      "server/plugins/agent-chat.spec.ts",
+      "../../packages/core/src/server/agent-chat/content-a2a-capabilities.spec.ts",
+    ],
     evalScenarioIds: ["database-source-scope"],
+  },
+  {
+    id: "database.table-query-page",
+    surface: "database",
+    label: "Query one constrained page while retaining database metadata",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible.",
+    status: "action-backed",
+    actions: ["query-content-database-items"],
+    exception:
+      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for the complete database contract.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "app/hooks/use-content-database.test.ts",
+    ],
   },
   {
     id: "database.form-submissions",
@@ -249,22 +339,26 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.rows",
     surface: "database",
-    label: "Add, duplicate, move, open, and delete database rows",
+    label: "Add, duplicate, move, open, edit, and remove database rows",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
     ],
     durableEffect:
-      "Database row backing documents and row ordering are created, duplicated, moved, edited, and deleted.",
+      "Database row memberships and ordering are created, duplicated, moved, edited, and removed without deleting the backing page; bounded migrations atomically update row bodies and properties through the same canonical data model.",
     uiImplementation:
-      "Row controls call row actions; selected-row duplicate/delete call bounded batch actions, while bulk property edits remain a later reliability slice.",
+      "Row controls call row actions; the editor and agent share stable Blocks identities for one-block edits; selected-row duplicate/removal call bounded batch actions, while bounded whole-database schema-and-body migrations use one validated, receipt-backed action instead of many partial writes.",
     status: "action-backed",
     actions: [
       "add-database-item",
-      "delete-database-items",
-      "delete-document",
+      "update-database-item",
+      "upsert-database-item-by-key",
+      "list-content-database-blocks",
+      "mutate-content-database-block",
+      "remove-database-items",
       "duplicate-database-items",
       "duplicate-database-item",
+      "migrate-content-database-rows",
       "move-database-item",
       "set-document-property",
     ],
@@ -275,9 +369,34 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
+      "actions/upsert-database-item-by-key.db.test.ts",
+      "actions/migrate-content-database-rows.db.test.ts",
+      "actions/content-database-block-actions.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
     evalScenarioIds: ["database-bulk-row-reliability"],
+  },
+  {
+    id: "database.private-preview-drafts",
+    surface: "database",
+    label: "Persist and reconcile a user's private database-page preview draft",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-documents.ts",
+    ],
+    durableEffect:
+      "A user's private preview draft is read, saved, conflict-checked, or deleted without changing the shared database page until the normal save flow applies it.",
+    uiImplementation:
+      "The database preview uses the shared draft actions to preserve in-progress body edits across hydration and conflict states.",
+    status: "action-backed",
+    actions: ["get-preview-document-draft", "update-preview-document-draft"],
+    exception:
+      "These per-user editor-state actions are intentionally hidden from agent tools because preview drafts are a private UI recovery mechanism.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/preview-document-draft.db.test.ts"],
   },
   {
     id: "database.properties-and-view-config",
@@ -342,6 +461,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-source",
       "list-builder-cms-models",
       "list-notion-database-sources",
+      "preview-content-database-source-attach",
       "refresh-content-database-source",
       "suggest-source-join-key",
     ],
@@ -360,22 +480,25 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "source-sync.builder-cms-review-and-write-gates",
     surface: "source-sync",
-    label: "Review, stage, validate, and execute Builder CMS source writes",
+    label:
+      "Review, stage, validate, cancel, and execute Builder CMS source writes",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
       "app/components/editor/database-sources/BuilderSourceReviewDialog.tsx",
     ],
     durableEffect:
-      "Builder source write mode, staged reviews, validation records, and bounded execution records are created through guarded actions.",
+      "Builder source write mode, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
     uiImplementation:
       "Builder source dialogs call review, write-mode, validation, staging, and execution actions.",
     status: "action-backed",
     actions: [
+      "cancel-prepared-builder-source-update",
       "execute-builder-source-batch",
       "execute-builder-source-execution",
       "prepare-builder-source-execution",
       "prepare-builder-source-review",
+      "preview-builder-source-review",
       "review-content-database-source-change-set",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
@@ -389,6 +512,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/builder-source-review-gates.db.test.ts",
+      "actions/cancel-prepared-builder-source-update.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
@@ -416,6 +540,28 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: ["actions/_database-source-utils.test.ts"],
+  },
+  {
+    id: "source-sync.builder-required-field-materialization",
+    surface: "source-sync",
+    label: "Add required Builder publishing fields to a connected collection",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect:
+      "Required Builder fields are materialized as editable Content properties in one local mutation.",
+    uiImplementation:
+      "Connected-source settings call the shared materialization action and refresh the database cache.",
+    status: "action-backed",
+    actions: ["materialize-builder-required-fields"],
+    exception:
+      "This bounded safe-model setup action is intentionally hidden from the agent tool list; the visible source settings surface invokes it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/materialize-builder-required-fields.test.ts"],
   },
   {
     id: "source-sync.builder-documents",
@@ -489,16 +635,24 @@ export const parityMatrix: ParityRow[] = [
       "UI reads/writes browser or Desktop folder handles around import/export actions.",
     status: "action-backed",
     actions: [
+      "connect-local-folder-source",
+      "disconnect-local-folder-source",
       "export-content-source",
       "import-content-source",
       "remove-local-file-source",
+      "resolve-local-folder-conflict",
+      "sync-local-folder-source",
+      "sync-manifest-local-folder-source",
     ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/_local-file-documents.test.ts"],
+    coverageRefs: [
+      "actions/_local-file-documents.test.ts",
+      "actions/local-folder-source.db.test.ts",
+    ],
     evalScenarioIds: ["local-file-source-truth"],
   },
   {

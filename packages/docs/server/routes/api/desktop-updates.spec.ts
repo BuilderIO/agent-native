@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockCreateError = vi.hoisted(() => vi.fn());
 const mockSetResponseHeaders = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockSendRedirect = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   createError: mockCreateError,
@@ -11,7 +12,7 @@ vi.mock("h3", () => ({
     event: { context?: { params?: Record<string, string> } },
     name: string,
   ) => event.context?.params?.[name],
-  sendRedirect: vi.fn(),
+  sendRedirect: mockSendRedirect,
   setResponseHeaders: mockSetResponseHeaders,
   setResponseStatus: mockSetResponseStatus,
 }));
@@ -103,6 +104,59 @@ describe("desktop update asset route", () => {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "public, max-age=30",
       },
+    });
+  });
+
+  it("serves updater metadata with durable stale-while-revalidate headers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              tag_name: "v1.0.0",
+              name: "v1.0.0",
+              published_at: "2026-01-01T00:00:00Z",
+              draft: false,
+              prerelease: false,
+              assets: [
+                {
+                  name: "latest-mac.yml",
+                  browser_download_url: "https://example.com/latest-mac.yml",
+                  size: 123,
+                },
+                {
+                  name: "Agent-Native-arm64.dmg",
+                  browser_download_url:
+                    "https://example.com/Agent-Native-arm64.dmg",
+                  size: 123,
+                },
+              ],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => "version: 1.0.0",
+        }),
+    );
+
+    const event = createEvent("latest-mac.yml");
+
+    await expect(handler(event as any)).resolves.toBe("version: 1.0.0");
+
+    expect(event.headers).toEqual({
+      "content-type": "application/x-yaml; charset=utf-8",
+      "cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "cdn-cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "netlify-cdn-cache-control":
+        "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
     });
   });
 });

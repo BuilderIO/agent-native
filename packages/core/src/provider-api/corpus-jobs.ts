@@ -284,9 +284,10 @@ export function createProviderCorpusJobAction(
       "Use this for broad provider searches, cross-source joins, transcript/message/ticket/issue/document scans, batch endpoint walks, and absence-sensitive questions that may exceed one tool call. " +
       "The job is generic: paginated-search walks any paginated provider endpoint; batch-search walks a supplied id/record list or staged dataset through any provider endpoint by injecting each batch into a query param or request body path. " +
       "Every provider request still goes through provider-api-request credentials, host allow-listing, SSRF blocking, secret redaction, and provider quota cooldown. " +
-      "When status is paused or quota_wait, call operation=continue with the jobId after the indicated time/budget. Report coverage counts, pagination status, and any remaining gaps.",
+      "When status is paused or quota_wait, call operation=continue with the jobId after the indicated time/budget. Report coverage counts, paginationComplete, and any remaining gaps; a max-pages stop is not exhaustive.",
     schema: ProviderCorpusJobSchema,
     http: false,
+    grounding: true,
     run: async (args) => runProviderCorpusJobAction(args, options),
   });
 }
@@ -1068,6 +1069,7 @@ function jobStatus(job: ProviderCorpusJobRecord) {
   const nextResumeAtIso = job.nextResumeAt
     ? new Date(job.nextResumeAt).toISOString()
     : null;
+  const coverage = paginationCoverage(job);
   return {
     job: jobSummary(job),
     source: jobSourceSummary(job),
@@ -1079,6 +1081,7 @@ function jobStatus(job: ProviderCorpusJobRecord) {
       totalHits: job.totalHits,
       storedHits: job.storedHits,
       truncatedHits: job.totalHits > job.storedHits,
+      ...coverage,
     },
     checkpoint: job.checkpoint,
     error: job.error,
@@ -1146,6 +1149,13 @@ function jobSummary(job: ProviderCorpusJobRecord) {
 }
 
 function nextAction(job: ProviderCorpusJobRecord): string {
+  const coverage = paginationCoverage(job);
+  if (job.mode === "paginated-search" && !coverage.paginationComplete) {
+    if (coverage.paginationStopReason === "max-pages") {
+      return `Pagination stopped at maxPages for this job. Start a new job with a larger pagination.maxPages before treating the results as exhaustive; stored hits are readable with operation="results", jobId="${job.id}".`;
+    }
+    return `Pagination coverage is incomplete${coverage.paginationStopReason ? ` (${coverage.paginationStopReason})` : ""}. Do not treat the stored hits as exhaustive; inspect the provider checkpoint or start a new bounded job before making coverage-sensitive claims. Stored hits are readable with operation="results", jobId="${job.id}".`;
+  }
   if (job.status === "completed") {
     return `Read all stored hits with operation="results", jobId="${job.id}".`;
   }
@@ -1162,6 +1172,32 @@ function nextAction(job: ProviderCorpusJobRecord): string {
     return 'Fix the request/configuration or start a new job; progress and stored hits are still inspectable with operation="results".';
   }
   return `Check status with operation="status", jobId="${job.id}".`;
+}
+
+function paginationCoverage(job: ProviderCorpusJobRecord): {
+  paginationComplete: boolean;
+  paginationStopReason: string | null;
+} {
+  const stopReason =
+    typeof job.checkpoint.stoppedReason === "string"
+      ? job.checkpoint.stoppedReason
+      : null;
+  if (job.mode !== "paginated-search") {
+    return {
+      paginationComplete: job.status === "completed",
+      paginationStopReason: stopReason,
+    };
+  }
+  return {
+    paginationComplete: [
+      "empty-page",
+      "no-next-cursor",
+      "repeated-cursor",
+      "short-page",
+      "single-page",
+    ].includes(stopReason ?? ""),
+    paginationStopReason: stopReason,
+  };
 }
 
 function extractItemsArray(

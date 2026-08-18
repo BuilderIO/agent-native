@@ -45,14 +45,15 @@ describe("isValidIanaTimeZone", () => {
 });
 
 describe("resolveAttendeeTimeZone", () => {
-  it("uses event start timezone for self", () => {
+  it("uses the browser timezone for self instead of the event timezone", () => {
     expect(
       resolveAttendeeTimeZone({
         attendee: { email: "me@example.com", self: true },
         accountEmail: "me@example.com",
         eventStartTimeZone: "America/Los_Angeles",
+        browserTimeZone: "America/New_York",
       }),
-    ).toBe("America/Los_Angeles");
+    ).toBe("America/New_York");
   });
 
   it("falls back to browser timezone for self when event has none", () => {
@@ -82,6 +83,15 @@ describe("resolveAttendeeTimeZone", () => {
         overrides: { "guest@example.com": "America/Chicago" },
       }),
     ).toBe("America/Chicago");
+  });
+
+  it("uses the event timezone for the organizer when their zone is unknown", () => {
+    expect(
+      resolveAttendeeTimeZone({
+        attendee: { email: "organizer@example.com", organizer: true },
+        eventStartTimeZone: "America/Halifax",
+      }),
+    ).toBe("America/Halifax");
   });
 
   it("returns null when timezone is unknown", () => {
@@ -120,9 +130,22 @@ describe("getAttendeeLocalTimeLabel", () => {
       attendee: { email: "me@example.com", self: true },
       accountEmail: "me@example.com",
       eventStartTimeZone: "America/New_York",
+      browserTimeZone: "America/New_York",
       startIso: "2024-06-15T18:30:00.000Z",
     });
     expect(label).toMatch(/2:30\s*PM/);
+  });
+
+  it("formats self time in the browser timezone instead of the event timezone", () => {
+    const label = getAttendeeLocalTimeLabel({
+      attendee: { email: "me@example.com", self: true },
+      accountEmail: "me@example.com",
+      eventStartTimeZone: "America/Halifax",
+      browserTimeZone: "America/Los_Angeles",
+      startIso: "2024-06-15T18:30:00.000Z",
+    });
+    expect(label).toMatch(/11:30\s*AM/);
+    expect(label).toMatch(/PDT|GMT-7/);
   });
 
   it("returns null when timezone cannot be resolved", () => {

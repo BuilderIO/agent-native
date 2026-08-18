@@ -49,7 +49,9 @@ export const handleAnalyticsTrack = defineEventHandler(async (event) => {
   } catch (err: any) {
     const message = err?.message || String(err);
     const invalidKey = /invalid analytics public key/i.test(message);
-    setResponseStatus(event, invalidKey ? 401 : 400);
+    const statusCode =
+      typeof err?.statusCode === "number" ? err.statusCode : undefined;
+    setResponseStatus(event, invalidKey ? 401 : (statusCode ?? 400));
     return { error: message };
   }
 });

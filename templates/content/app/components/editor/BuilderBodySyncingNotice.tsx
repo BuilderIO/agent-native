@@ -8,9 +8,16 @@ export function BuilderBodySyncingNotice({
   description: string;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-muted/35 px-4 py-5 text-sm">
+    <div
+      className="rounded-lg border border-dashed border-border bg-muted/35 px-4 py-5 text-sm"
+      role="status"
+      aria-live="polite"
+    >
       <div className="flex items-center gap-2 font-medium text-foreground">
-        <IconLoader2 className="size-4 animate-spin text-muted-foreground" />
+        <IconLoader2
+          className="size-4 animate-spin text-muted-foreground"
+          aria-hidden="true"
+        />
         {title}
       </div>
       <p className="mt-2 max-w-2xl leading-6 text-muted-foreground">

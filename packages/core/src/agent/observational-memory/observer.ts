@@ -68,6 +68,20 @@ export async function runObserver(
     threadId: options.threadId,
   });
   const startIndex = observedThrough + 1;
+  // The cursor is a position in whatever array the previous pass observed. The
+  // live agent loop passes the engine array, where each tool result is its own
+  // entry; other callers pass the store-derived array, which folds those into
+  // their tool-call parts and runs several times shorter. A cursor past the end
+  // of THIS array is a basis mismatch, not an up-to-date thread: the window can
+  // never become non-empty again, so the thread silently stops accruing memory.
+  // Measured in production — 17 of 19 threads carry a cursor above their stored
+  // message count, one at 57 against 9.
+  if (startIndex > options.messages.length) {
+    console.warn(
+      `[observational-memory] thread ${options.threadId}: cursor ${observedThrough} is past the end of this ${options.messages.length}-message window, so nothing can be observed on this basis.`,
+    );
+    return { observed: false, unobservedTokens: 0 };
+  }
   const unobserved = options.messages.slice(startIndex);
   if (unobserved.length === 0) {
     return { observed: false, unobservedTokens: 0 };

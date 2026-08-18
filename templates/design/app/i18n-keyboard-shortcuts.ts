@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 interface KeyboardShortcutLabels {
   title: string;
@@ -12,6 +12,10 @@ interface KeyboardShortcutLabels {
   hideUiDescription: string;
   undoDescription: string;
   redoDescription: string;
+  nudgeAmountTitle: string;
+  nudgeAmountSmall: string;
+  nudgeAmountBig: string;
+  nudgeAmountDescription: string;
 }
 
 interface KeyboardKeyLabels {
@@ -50,6 +54,11 @@ export const keyboardShortcutLabels = {
     hideUiDescription: "立即按下以快速隱藏面板並專注於工作",
     undoDescription: "逐步回復最近的設計變更",
     redoDescription: "還原剛才復原的設計變更",
+    nudgeAmountTitle: "微調距離",
+    nudgeAmountSmall: "小距離",
+    nudgeAmountBig: "大距離",
+    nudgeAmountDescription:
+      "方向鍵以小距離移動，Shift 方向鍵以大距離移動。在自動版面配置框架內，方向鍵改為調整圖層順序。",
   },
   "zh-CN": {
     title: "键盘快捷键",
@@ -63,6 +72,11 @@ export const keyboardShortcutLabels = {
     hideUiDescription: "立即按下以快速隐藏面板并专注于工作",
     undoDescription: "逐步撤销最近的设计更改",
     redoDescription: "恢复刚刚撤销的设计更改",
+    nudgeAmountTitle: "微调距离",
+    nudgeAmountSmall: "小距离",
+    nudgeAmountBig: "大距离",
+    nudgeAmountDescription:
+      "方向键以小距离移动，Shift 方向键以大距离移动。在自动布局框架内，方向键改为调整图层顺序。",
   },
   "es-ES": {
     title: "Atajos de teclado",
@@ -77,6 +91,11 @@ export const keyboardShortcutLabels = {
       "Púlsalo ahora para ocultar los paneles y concentrarte en tu trabajo",
     undoDescription: "Retrocede por el cambio de diseño más reciente",
     redoDescription: "Restaura el cambio de diseño que acabas de deshacer",
+    nudgeAmountTitle: "Cantidad de desplazamiento",
+    nudgeAmountSmall: "Desplazamiento pequeño",
+    nudgeAmountBig: "Desplazamiento grande",
+    nudgeAmountDescription:
+      "Las flechas mueven la cantidad pequeña y Mayús flecha la grande. Dentro de un marco de autodiseño, las flechas reordenan la capa.",
   },
   "fr-FR": {
     title: "Raccourcis clavier",
@@ -92,6 +111,11 @@ export const keyboardShortcutLabels = {
     undoDescription: "Revenez sur votre dernière modification de design",
     redoDescription:
       "Restaurez la modification de design que vous venez d’annuler",
+    nudgeAmountTitle: "Valeur de déplacement",
+    nudgeAmountSmall: "Petit déplacement",
+    nudgeAmountBig: "Grand déplacement",
+    nudgeAmountDescription:
+      "Les flèches déplacent de la petite valeur et Maj flèche de la grande. Dans un cadre en disposition automatique, les flèches réorganisent le calque.",
   },
   "de-DE": {
     title: "Tastenkürzel",
@@ -107,6 +131,11 @@ export const keyboardShortcutLabels = {
     undoDescription: "Mache die letzte Designänderung rückgängig",
     redoDescription:
       "Stelle die soeben rückgängig gemachte Designänderung wieder her",
+    nudgeAmountTitle: "Verschiebeschrittweite",
+    nudgeAmountSmall: "Kleiner Schritt",
+    nudgeAmountBig: "Großer Schritt",
+    nudgeAmountDescription:
+      "Pfeiltasten verschieben um den kleinen Wert, Umschalt Pfeil um den großen. In einem Auto-Layout-Rahmen ordnen die Pfeiltasten die Ebene neu an.",
   },
   "ja-JP": {
     title: "キーボードショートカット",
@@ -120,6 +149,11 @@ export const keyboardShortcutLabels = {
     hideUiDescription: "今すぐ押してパネルを隠し、作業に集中できます",
     undoDescription: "直前のデザイン変更を元に戻します",
     redoDescription: "元に戻したデザイン変更を復元します",
+    nudgeAmountTitle: "移動量",
+    nudgeAmountSmall: "小さい移動量",
+    nudgeAmountBig: "大きい移動量",
+    nudgeAmountDescription:
+      "矢印キーは小さい移動量、Shift 矢印キーは大きい移動量で移動します。オートレイアウトフレーム内では、矢印キーはレイヤーの順序を変更します。",
   },
   "ko-KR": {
     title: "키보드 단축키",
@@ -133,6 +167,11 @@ export const keyboardShortcutLabels = {
     hideUiDescription: "지금 눌러 패널을 빠르게 숨기고 작업에 집중하세요",
     undoDescription: "가장 최근 디자인 변경을 되돌립니다",
     redoDescription: "방금 실행 취소한 디자인 변경을 복원합니다",
+    nudgeAmountTitle: "이동 간격",
+    nudgeAmountSmall: "작은 이동",
+    nudgeAmountBig: "큰 이동",
+    nudgeAmountDescription:
+      "화살표 키는 작은 간격으로, Shift 화살표 키는 큰 간격으로 이동합니다. 오토 레이아웃 프레임 안에서는 화살표 키가 레이어 순서를 변경합니다.",
   },
   "pt-BR": {
     title: "Atalhos de teclado",
@@ -148,6 +187,11 @@ export const keyboardShortcutLabels = {
     undoDescription: "Desfaça a alteração de design mais recente",
     redoDescription:
       "Restaure a alteração de design que você acabou de desfazer",
+    nudgeAmountTitle: "Distância de deslocamento",
+    nudgeAmountSmall: "Deslocamento pequeno",
+    nudgeAmountBig: "Deslocamento grande",
+    nudgeAmountDescription:
+      "As setas movem pela distância pequena e Shift seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
   },
   "hi-IN": {
     title: "कीबोर्ड शॉर्टकट",
@@ -161,6 +205,11 @@ export const keyboardShortcutLabels = {
     hideUiDescription: "पैनल तुरंत छिपाकर अपने काम पर ध्यान देने के लिए इसे अभी दबाएँ",
     undoDescription: "सबसे हाल के डिज़ाइन बदलाव को वापस करें",
     redoDescription: "अभी वापस किए गए डिज़ाइन बदलाव को फिर से लागू करें",
+    nudgeAmountTitle: "नज की दूरी",
+    nudgeAmountSmall: "छोटी नज",
+    nudgeAmountBig: "बड़ी नज",
+    nudgeAmountDescription:
+      "ऐरो कुंजियाँ छोटी दूरी से और Shift ऐरो बड़ी दूरी से ले जाती हैं। ऑटो लेआउट फ़्रेम के अंदर ऐरो कुंजियाँ लेयर का क्रम बदलती हैं।",
   },
   "ar-SA": {
     title: "اختصارات لوحة المفاتيح",
@@ -174,6 +223,11 @@ export const keyboardShortcutLabels = {
     hideUiDescription: "اضغطه الآن لإخفاء اللوحات بسرعة والتركيز على عملك",
     undoDescription: "تراجع عن أحدث تغيير في التصميم",
     redoDescription: "استعد تغيير التصميم الذي تراجعت عنه للتو",
+    nudgeAmountTitle: "مقدار الإزاحة",
+    nudgeAmountSmall: "إزاحة صغيرة",
+    nudgeAmountBig: "إزاحة كبيرة",
+    nudgeAmountDescription:
+      "تحرّك مفاتيح الأسهم بالمقدار الصغير، وShift سهم بالمقدار الكبير. داخل إطار التخطيط التلقائي، تعيد مفاتيح الأسهم ترتيب الطبقة.",
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, KeyboardShortcutLabels>;
 
@@ -483,6 +537,13 @@ export function attachLocalizedKeyboardShortcuts<
         close: `${d.close}: ${labels.title}`,
         codeContext: edit.sections.codeConfidence,
         screenContext: layers.screens,
+        nudgeAmount: {
+          title: labels.nudgeAmountTitle,
+          small: labels.nudgeAmountSmall,
+          big: labels.nudgeAmountBig,
+          unit: "px",
+          description: labels.nudgeAmountDescription,
+        },
         keys: keyLabels,
         descriptions: {
           toggleUi: labels.hideUiDescription,

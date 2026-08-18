@@ -36,6 +36,37 @@ async function status(
 const COOKIE = "an_session=abc";
 
 describe("CSRF middleware", () => {
+  it("protects cookie-authenticated public MCP management routes", async () => {
+    expect(
+      await status(
+        { cookie: COOKIE, "content-type": "text/plain" },
+        "POST",
+        "/mcp/connect/token",
+      ),
+    ).toBe(403);
+  });
+
+  it("protects public MCP management routes under APP_BASE_PATH", async () => {
+    const originalBasePath = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/foo";
+
+    try {
+      expect(
+        await status(
+          { cookie: COOKIE, "content-type": "text/plain" },
+          "POST",
+          "/foo/mcp/connect/token",
+        ),
+      ).toBe(403);
+    } finally {
+      if (originalBasePath === undefined) {
+        delete process.env.APP_BASE_PATH;
+      } else {
+        process.env.APP_BASE_PATH = originalBasePath;
+      }
+    }
+  });
+
   it("rejects a cookie-carrying simple request under APP_BASE_PATH", async () => {
     const originalBasePath = process.env.APP_BASE_PATH;
     process.env.APP_BASE_PATH = "/foo";
@@ -96,6 +127,50 @@ describe("CSRF middleware", () => {
   it("ignores non-state-changing methods", async () => {
     expect(
       await status({ cookie: COOKIE, "sec-fetch-site": "same-site" }, "GET"),
+    ).not.toBe(403);
+  });
+
+  it("exempts integration webhooks (HMAC-verified, not cookie-authenticated)", async () => {
+    expect(
+      await status(
+        { cookie: COOKIE, "content-type": "text/plain" },
+        "POST",
+        "/_agent-native/integrations/slack/webhook",
+      ),
+    ).not.toBe(403);
+  });
+
+  // The remote-device relay lives under the HMAC-justified `/integrations/`
+  // exemption but authenticates on the session cookie, so it must not inherit
+  // it. Approving a browser-control operation is the state change at stake:
+  // without this, an attacker page can self-approve a click/type/navigate on
+  // the victim's paired Chrome using nothing but their ambient cookie.
+  for (const path of [
+    "/_agent-native/integrations/remote/computer/approvals",
+    "/_agent-native/integrations/remote/computer/commands",
+    "/_agent-native/integrations/remote/register",
+    "/_agent-native/integrations/remote/enqueue",
+  ]) {
+    it(`protects cookie-authenticated relay route ${path}`, async () => {
+      expect(
+        await status(
+          { cookie: COOKIE, "content-type": "text/plain" },
+          "POST",
+          path,
+        ),
+      ).toBe(403);
+    });
+  }
+
+  it("still lets the extension's own device-token relay calls through", async () => {
+    // The extension posts JSON with a bearer token from `chrome-extension://`,
+    // so it carries no cookie and trips neither branch of the check.
+    expect(
+      await status(
+        { "content-type": "application/json" },
+        "POST",
+        "/_agent-native/integrations/remote/poll",
+      ),
     ).not.toBe(403);
   });
 });

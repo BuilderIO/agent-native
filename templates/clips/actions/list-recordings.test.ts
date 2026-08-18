@@ -82,7 +82,84 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(),
 }));
 
-import action from "./list-recordings";
+import action, {
+  mergeViewCounts,
+  resolveListRecordingMedia,
+} from "./list-recordings";
+
+describe("list-recordings view counts", () => {
+  it("counts one view per logged session, not per viewer", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: 3 }],
+        [{ recordingId: "rec-1", count: 11 }],
+      ),
+    ).toEqual({ "rec-1": 11 });
+  });
+
+  it("falls back to counted viewers for pre-migration clips", () => {
+    expect(mergeViewCounts([{ recordingId: "rec-1", count: 5 }], [])).toEqual({
+      "rec-1": 5,
+    });
+  });
+
+  it("never reports fewer views than counted viewers", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: 9 }],
+        [{ recordingId: "rec-1", count: 2 }],
+      ),
+    ).toEqual({ "rec-1": 9 });
+  });
+
+  it("normalizes driver-provided string counts", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: "2" }],
+        [{ recordingId: "rec-1", count: "6" }],
+      ),
+    ).toEqual({ "rec-1": 6 });
+  });
+});
+
+describe("list-recordings editor media", () => {
+  it("coerces the editor media flag from GET query parameters", () => {
+    expect(action.schema.parse({ includeMedia: "true" }).includeMedia).toBe(
+      true,
+    );
+  });
+
+  it("keeps playable media out of normal library rows", () => {
+    expect(
+      resolveListRecordingMedia(
+        { id: "rec-1", videoUrl: "/api/video/rec-1", videoFormat: "mp4" },
+        false,
+      ),
+    ).toEqual({ videoUrl: null, videoFormat: null });
+  });
+
+  it("returns a same-origin media route for editor sources", () => {
+    expect(
+      resolveListRecordingMedia(
+        {
+          id: "rec-1",
+          videoUrl: "https://cdn.example.test/rec-1.webm",
+          videoFormat: "webm",
+        },
+        true,
+      ),
+    ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: "webm" });
+  });
+
+  it("drops unsupported media formats from editor rows", () => {
+    expect(
+      resolveListRecordingMedia(
+        { id: "rec-1", videoUrl: "/api/video/rec-1", videoFormat: "mov" },
+        true,
+      ),
+    ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: null });
+  });
+});
 
 describe("list-recordings shared view", () => {
   beforeEach(() => {

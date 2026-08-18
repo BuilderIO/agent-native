@@ -22,6 +22,7 @@ export {
   requireShareableResource,
   listShareableResources,
   type ShareableResourceRegistration,
+  type ShareEmailExtras,
 } from "./registry.js";
 
 export {
@@ -33,3 +34,8 @@ export {
   type AccessContext,
   type ResolvedAccess,
 } from "./access.js";
+
+export {
+  filterRecipientsByResourceAccess,
+  type FilterRecipientsInput,
+} from "./recipients.js";

@@ -120,3 +120,53 @@ describe("DesignExtensionsPanel source — postMessage origin/source hygiene", (
     expect(source).not.toMatch(/addEventListener\(\s*["']message["']/);
   });
 });
+
+describe("DesignExtensionsPanel source — extension discovery capability", () => {
+  const source = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "DesignExtensionsPanel.tsx",
+    ),
+    "utf8",
+  );
+
+  it("keeps extension discovery opt-in while installed extensions still render", () => {
+    expect(source).toContain("enableExtensionDiscovery = false");
+    expect(source).toContain(
+      "useAvailableExtensions(slotId, enableExtensionDiscovery)",
+    );
+    expect(source).toMatch(
+      /enableExtensionDiscovery \? \(\s*<CreateExtensionPopover/,
+    );
+    expect(source).toMatch(
+      /visibleInstallable = enableExtensionDiscovery\s*\?/,
+    );
+    expect(source).toMatch(
+      /visibleInstalls\.map\(\(install\) => \(\s*<EmbeddedExtension/,
+    );
+  });
+
+  it("hides extension-only source and plugin filters without opt-in", () => {
+    expect(source).toMatch(
+      /enableExtensionDiscovery \? \(\s*<ToolFilterMenu\s*label="Source"/,
+    );
+    expect(source).toMatch(
+      /\.\.\.\(enableExtensionDiscovery\s*\?\s*\[\{ value: "plugins" as const/,
+    );
+  });
+});
+
+describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
+  it("receives the DesignEditor screen-point resolver", () => {
+    const source = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../pages/DesignEditor.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /<AssetLibraryPanel[\s\S]*?resolveScreenPoint=\{resolveAssetScreenPoint\}/,
+    );
+  });
+});

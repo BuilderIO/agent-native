@@ -9,6 +9,7 @@ export const PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS = 2_400;
 type PublicDocumentPromptInput = {
   id: string;
   title: string;
+  description?: string;
   content: string;
   updatedAt: string | Date;
 };
@@ -44,6 +45,7 @@ ${fullDocumentGuidance}
 
 Document ID: ${doc.id}
 Title: ${doc.title}
+Description: ${doc.description || "(none)"}
 Updated at: ${doc.updatedAt}
 
 Markdown excerpt:
@@ -86,18 +88,25 @@ async function getPublicDocumentForEvent(event: H3Event) {
 
   const { getDb } = await import("../db/index.js");
   const { documents } = await import("../db/schema.js");
-  const { and, eq } = await import("drizzle-orm");
+  const { and, eq, isNull } = await import("drizzle-orm");
 
   const [doc] = await getDb()
     .select({
       id: documents.id,
       title: documents.title,
+      description: documents.description,
       content: documents.content,
       updatedAt: documents.updatedAt,
       visibility: documents.visibility,
     })
     .from(documents)
-    .where(and(eq(documents.id, id), eq(documents.visibility, "public")))
+    .where(
+      and(
+        eq(documents.id, id),
+        eq(documents.visibility, "public"),
+        isNull(documents.trashedAt),
+      ),
+    )
     .limit(1);
 
   return doc ?? null;

@@ -17,7 +17,7 @@ import { z } from "zod";
 const SERVER_NAME = "assets";
 
 function assetsMcpUrl(appUrl: string): string {
-  return `${appUrl.replace(/\/+$/, "")}/_agent-native/mcp`;
+  return `${appUrl.replace(/\/+$/, "")}/mcp`;
 }
 
 function sameEndpoint(a: string, b: string): boolean {

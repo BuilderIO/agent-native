@@ -507,6 +507,71 @@ export const PROVIDER_READERS = [
       "Templates define object allow-lists and property projections; core only documents the reader shape.",
   }),
   defineProviderReader({
+    providerId: "salesforce",
+    label: "Salesforce reader",
+    description:
+      "Normalized metadata for CRM object lookup through template-owned Salesforce integrations.",
+    implementationStatus: "template-owned",
+    credentialKeys: providerCredentialKeys("salesforce"),
+    requiredCredentialKeys: requiredCredentialKeys("salesforce"),
+    capabilities: [
+      {
+        capability: "search",
+        label: "CRM search",
+        description:
+          "Search Salesforce CRM records with provider-native SOQL or object filters.",
+      },
+      {
+        capability: "crm",
+        label: "CRM retrieval",
+        description:
+          "Read Salesforce standard and custom CRM objects when a template owns object mapping.",
+      },
+    ],
+    operations: [
+      operation(
+        "search",
+        "Search Salesforce CRM",
+        "Find CRM records matching text, SOQL, or provider-native filters.",
+        "template-owned",
+        [
+          ...searchParameters,
+          {
+            name: "objectType",
+            type: "string",
+            description:
+              "Optional Salesforce object API name such as Account, Contact, Opportunity, or a custom object.",
+          },
+        ],
+      ),
+      operation(
+        "get",
+        "Get Salesforce CRM object",
+        "Load one Salesforce CRM record by object API name and id.",
+        "template-owned",
+        [
+          ...getParameters,
+          {
+            name: "objectType",
+            type: "string",
+            required: true,
+            description:
+              "Salesforce object API name such as Account, Contact, Opportunity, or a custom object.",
+          },
+        ],
+      ),
+      operation(
+        "listRecent",
+        "List recent Salesforce CRM objects",
+        "List recently updated CRM records visible to the connected Salesforce user.",
+        "template-owned",
+        listRecentParameters,
+      ),
+    ],
+    notes:
+      "Templates define object allow-lists, field projections, and API-version selection; core only documents the reader shape.",
+  }),
+  defineProviderReader({
     providerId: "gmail",
     label: "Gmail reader",
     description:

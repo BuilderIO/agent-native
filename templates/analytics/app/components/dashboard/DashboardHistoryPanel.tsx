@@ -1,8 +1,9 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconHistory, IconLoader2, IconRotate } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,7 @@ interface DashboardHistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
+  onRestored?: () => void;
 }
 
 export function DashboardHistoryPanel({
@@ -54,11 +56,15 @@ export function DashboardHistoryPanel({
   open,
   onOpenChange,
   canRestore = true,
+  onRestored,
 }: DashboardHistoryPanelProps) {
   const t = useT();
-  const { data: revisions, isLoading } = useDashboardRevisions(
-    open ? dashboardId : null,
-  );
+  const {
+    data: revisions,
+    isLoading,
+    isError,
+    refetch,
+  } = useDashboardRevisions(open ? dashboardId : null);
   const restoreRevision = useRestoreDashboardRevision(dashboardId);
   const [pendingRestore, setPendingRestore] =
     useState<DashboardRevision | null>(null);
@@ -70,6 +76,7 @@ export function DashboardHistoryPanel({
         revisionId: revision.id,
       });
       toast.success(t("dashboard.historyRestored"));
+      onRestored?.();
       setPendingRestore(null);
       onOpenChange(false);
     } catch {
@@ -101,6 +108,13 @@ export function DashboardHistoryPanel({
                   className="animate-spin text-muted-foreground"
                 />
               </div>
+            ) : isError ? (
+              <ResourceLoadError
+                inline
+                message={t("sidebar.dashboardsLoadFailed")}
+                retryLabel={t("sidebar.retry")}
+                onRetry={() => void refetch()}
+              />
             ) : !revisions?.length ? (
               <div className="px-6 py-12 text-center text-xs text-muted-foreground">
                 {t("dashboard.historyEmpty")}
@@ -108,10 +122,7 @@ export function DashboardHistoryPanel({
             ) : (
               <div className="space-y-1">
                 {revisions.map((revision) => (
-                  <div
-                    key={revision.id}
-                    className="rounded-lg border border-border bg-card p-3"
-                  >
+                  <div key={revision.id} className="rounded-lg bg-card p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium">

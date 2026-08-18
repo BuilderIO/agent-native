@@ -1,6 +1,8 @@
 export interface CalendarEvent {
   id: string;
   title: string;
+  /** Client-facing provenance for a display label synthesized from an absent title. */
+  titleIsGenerated?: boolean;
   description: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
@@ -11,6 +13,8 @@ export interface CalendarEvent {
   location: string;
   allDay: boolean;
   source: "local" | "google" | "ical";
+  /** Stable feed/source identifier for non-Google inventory provenance. */
+  sourceId?: string;
   googleEventId?: string;
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
@@ -122,6 +126,8 @@ export interface CalendarEvent {
   updatedAt: string;
   /** Client-only: temp id preserved across optimistic→real swap to keep React keys stable */
   _tempId?: string;
+  /** Client-only: prior provider id retained while open UI state rebinds after replacement */
+  _replacedId?: string;
 }
 
 export interface CalendarEventDraft {
@@ -134,12 +140,15 @@ export interface CalendarEventDraft {
   endTimeZone?: string;
   location?: string;
   allDay?: boolean;
+  fullDay?: boolean;
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  outOfOfficeProperties?: CalendarEvent["outOfOfficeProperties"];
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
+  recurrence?: CalendarEvent["recurrence"];
   attachments?: CalendarEvent["attachments"];
   attendees?: CalendarEvent["attendees"];
   addGoogleMeet?: boolean;
@@ -322,6 +331,7 @@ export interface Settings {
   bookingPageTitle: string;
   bookingPageDescription: string;
   defaultEventDuration: number; // minutes
+  weekStart: import("./calendar-week.js").CalendarWeekStart;
 }
 
 export type ApolloPersonResult = {

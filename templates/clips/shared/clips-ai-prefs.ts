@@ -27,10 +27,18 @@ export type ClipsAiPrefs = {
 
 export type ClipsUserPrefs = ClipsAiPrefs & {
   defaultPlaybackSpeed?: string;
+  /** Activity emails (comments, replies, reactions) only — never share invites. */
   emailNotifications?: boolean;
-  displayName?: string;
   transcriptCleanupEnabled?: boolean;
+  /** Overrides the organization default visibility for new recordings. */
+  defaultRecordingVisibility?: ClipsDefaultVisibility;
 };
+
+/** Visibility applied to new recordings unless the creator picks another. */
+export type ClipsDefaultVisibility = "private" | "org" | "public";
+
+export const DEFAULT_CLIPS_RECORDING_VISIBILITY: ClipsDefaultVisibility =
+  "public";
 
 export function isIncludeFullVideoInAiEnabled(
   prefs: ClipsAiPrefs | Record<string, unknown> | null | undefined,

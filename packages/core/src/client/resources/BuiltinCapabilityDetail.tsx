@@ -232,7 +232,7 @@ function ToolsSummary({
   if (!enabled) {
     return (
       <span className="text-[12px] text-muted-foreground">
-        Disabled. Toggle it on to expose MCP tools to the agent.
+        Disabled. Toggle it on to expose agent tools.
       </span>
     );
   }
@@ -252,7 +252,7 @@ function ToolsSummary({
   }
   return (
     <span className="text-[12px] text-muted-foreground">
-      Enabled. Tools will appear after the MCP manager connects.
+      Enabled. Tools will appear after the agent integration manager connects.
     </span>
   );
 }

@@ -1,18 +1,19 @@
-import { useDbSync } from "@agent-native/core/client";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
-  getLocaleInitScript,
-  getThemeInitScript,
-  markAgentChatHomeHandoff,
-  navigateWithAgentChatViewTransition,
-  useCommandMenuShortcut,
-  useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  IconHierarchy2,
   IconMoon,
   IconScribble,
   IconShape2,
@@ -110,7 +111,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#71717A" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -152,7 +152,6 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
     (path: string) => {
-      if (path !== "/") markAgentChatHomeHandoff("plans");
       navigateWithAgentChatViewTransition(navigate, path);
       setCmdkOpen(false);
     },
@@ -175,6 +174,13 @@ function AppContent() {
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/recaps")}>
             {t("root.openRecaps")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => go("/settings/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconHierarchy2 size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
@@ -234,6 +240,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={sessionBypass}
+        documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
@@ -249,4 +256,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

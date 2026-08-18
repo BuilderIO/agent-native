@@ -29,8 +29,11 @@ const form = {
   ]),
 };
 
-const fsMock = vi.hoisted(() => ({
-  writeFileSync: vi.fn(),
+const uploadMock = vi.hoisted(() => ({
+  uploadFile: vi.fn(async (input: { data: Buffer }) => ({
+    url: "https://cdn.example.com/uploaded-export",
+    body: input.data.toString("utf8"),
+  })),
 }));
 
 const dbMock = vi.hoisted(() => {
@@ -55,17 +58,10 @@ const sharingMock = vi.hoisted(() => ({
   assertAccess: vi.fn(async () => ({ resource: form })),
 }));
 
-vi.mock("fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("fs")>();
-  return {
-    ...actual,
-    default: {
-      ...actual,
-      writeFileSync: fsMock.writeFileSync,
-    },
-    writeFileSync: fsMock.writeFileSync,
-  };
-});
+vi.mock("@agent-native/core/file-upload", () => uploadMock);
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "owner@example.com",
+}));
 
 vi.mock("../server/db/index.js", async () => ({
   getDb: dbMock.getDb,
@@ -82,27 +78,42 @@ describe("export-responses action", () => {
     dbMock.setResponses(rows);
   });
 
-  it("scrubs synthetic anonymous submitter emails from CSV exports", async () => {
-    await exportResponses.run({
+  it("uploads the export to file storage instead of writing to local disk", async () => {
+    const result = await exportResponses.run({
       form: "form_1",
-      output: "/tmp/forms-export.csv",
       format: "csv",
     });
 
-    const csv = String(fsMock.writeFileSync.mock.calls[0]?.[1] ?? "");
+    expect(uploadMock.uploadFile).toHaveBeenCalledOnce();
+    const call = uploadMock.uploadFile.mock.calls[0]?.[0];
+    expect(call.ownerEmail).toBe("owner@example.com");
+    expect(call.filename).toBe("export-form_1.csv");
+    expect(result).toContain("https://cdn.example.com/uploaded-export");
+  });
+
+  it("scrubs synthetic anonymous submitter emails from CSV exports", async () => {
+    await exportResponses.run({ form: "form_1", format: "csv" });
+
+    const csv = String(uploadMock.uploadFile.mock.calls[0]?.[0]?.data ?? "");
     expect(csv).not.toContain("anon-abc123@agent-native.com");
     expect(csv).toContain("real-user@example.com");
   });
 
   it("scrubs synthetic anonymous submitter emails from JSON exports", async () => {
-    await exportResponses.run({
-      form: "form_1",
-      output: "/tmp/forms-export.json",
-      format: "json",
-    });
+    await exportResponses.run({ form: "form_1", format: "json" });
 
-    const json = JSON.parse(String(fsMock.writeFileSync.mock.calls[0]?.[1]));
+    const json = JSON.parse(
+      String(uploadMock.uploadFile.mock.calls[0]?.[0]?.data ?? "{}"),
+    );
     expect(json[0].submitterEmail).toBeNull();
     expect(json[1].submitterEmail).toBe("real-user@example.com");
+  });
+
+  it("throws a clear error when no file storage provider is configured", async () => {
+    uploadMock.uploadFile.mockResolvedValueOnce(null as never);
+
+    await expect(
+      exportResponses.run({ form: "form_1", format: "csv" }),
+    ).rejects.toThrow(/file storage is not configured/);
   });
 });

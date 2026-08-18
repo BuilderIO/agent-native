@@ -49,9 +49,10 @@ function fireError(
 function fireRejection(
   listeners: Record<string, Array<(event: any) => void>>,
   reason: unknown,
+  event: Partial<PromiseRejectionEvent> = {},
 ) {
   for (const listener of listeners.unhandledrejection ?? []) {
-    listener({ reason });
+    listener({ reason, ...event });
   }
 }
 
@@ -78,12 +79,46 @@ describe("installErrorCapture auto-capture filtering", () => {
     dispose();
   });
 
+  it("drops stackless stale module loader failures", () => {
+    const { listeners } = installBrowser();
+    const send = vi.fn();
+
+    const dispose = installErrorCapture({ send });
+    fireError(listeners, {
+      message: "Importing a module script failed.",
+    });
+    const dynamicImportError = new TypeError(
+      "Failed to fetch dynamically imported module: /assets/route.js",
+    );
+    dynamicImportError.stack = "";
+    fireRejection(listeners, dynamicImportError);
+
+    expect(send).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it("drops browser extension injected-script fetch failures", () => {
     const { listeners } = installBrowser();
     const send = vi.fn();
     const extensionError = new TypeError("Failed to fetch");
     extensionError.stack =
       "TypeError: Failed to fetch\n    at ViJh (injectScriptAdjust.js:1:1)";
+
+    const dispose = installErrorCapture({ send });
+    fireRejection(listeners, extensionError);
+
+    expect(send).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("drops extension fetch failures with a destination suffix", () => {
+    const { listeners } = installBrowser();
+    const send = vi.fn();
+    const extensionError = new TypeError(
+      "Failed to fetch (api2.amplitude.com)",
+    );
+    extensionError.stack =
+      "TypeError: Failed to fetch (api2.amplitude.com)\n    at fetch (chrome-extension://test/frame_ant.js:1:1)";
 
     const dispose = installErrorCapture({ send });
     fireRejection(listeners, extensionError);
@@ -138,6 +173,27 @@ describe("installErrorCapture auto-capture filtering", () => {
       lineno: 36,
       colno: 1,
     });
+
+    expect(send).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("does not recapture prevented browser errors", () => {
+    const { listeners } = installBrowser();
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+
+    fireError(listeners, {
+      defaultPrevented: true,
+      message: "Failed to fetch dynamically imported module: /assets/route.js",
+    });
+    fireRejection(
+      listeners,
+      new Error(
+        "Failed to fetch dynamically imported module: /assets/route.js",
+      ),
+      { defaultPrevented: true },
+    );
 
     expect(send).not.toHaveBeenCalled();
     dispose();

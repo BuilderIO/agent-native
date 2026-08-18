@@ -3,6 +3,30 @@ export interface GoogleOAuthCredentials {
   clientSecret: string;
 }
 
+export interface GoogleOAuthCredentialKeyPair {
+  clientIdKey: string;
+  clientSecretKey: string;
+}
+
+export type ReadGoogleOAuthCredential = (
+  key: string,
+) => string | null | undefined | Promise<string | null | undefined>;
+
+export const GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS = {
+  clientIdKey: "GOOGLE_CLIENT_ID",
+  clientSecretKey: "GOOGLE_CLIENT_SECRET",
+} as const satisfies GoogleOAuthCredentialKeyPair;
+
+export const GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS = {
+  clientIdKey: "GOOGLE_LEGACY_CLIENT_ID",
+  clientSecretKey: "GOOGLE_LEGACY_CLIENT_SECRET",
+} as const satisfies GoogleOAuthCredentialKeyPair;
+
+export const GOOGLE_PROVIDER_CREDENTIAL_KEY_PAIRS = [
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS,
+] as const satisfies readonly GoogleOAuthCredentialKeyPair[];
+
 function readCredentialPair(
   clientIdKey: string,
   clientSecretKey: string,
@@ -11,6 +35,56 @@ function readCredentialPair(
   const clientSecret = process.env[clientSecretKey];
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
+}
+
+async function readInjectedCredentialPair(
+  readCredential: ReadGoogleOAuthCredential,
+  keys: GoogleOAuthCredentialKeyPair,
+): Promise<GoogleOAuthCredentials | null> {
+  const [clientId, clientSecret] = await Promise.all([
+    readCredential(keys.clientIdKey),
+    readCredential(keys.clientSecretKey),
+  ]);
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+/**
+ * Resolve Google provider credentials from an app-owned credential source.
+ *
+ * Templates pass their scoped secret reader so Core does not choose an app's
+ * secret store or request context. An optional fallback reader preserves
+ * deployments that still keep the same credential pair in environment vars.
+ * Each candidate pair is read atomically and de-duped by client id, which lets
+ * refresh paths retry tokens minted by a previous Google OAuth client without
+ * ever mixing an id and secret from different sources.
+ */
+export async function resolveGoogleProviderCredentialCandidatesWithReader(options: {
+  readCredential: ReadGoogleOAuthCredential;
+  fallbackReadCredential?: ReadGoogleOAuthCredential;
+  credentialKeyPairs?: readonly GoogleOAuthCredentialKeyPair[];
+}): Promise<GoogleOAuthCredentials[]> {
+  const pairs =
+    options.credentialKeyPairs ?? GOOGLE_PROVIDER_CREDENTIAL_KEY_PAIRS;
+  const candidates: GoogleOAuthCredentials[] = [];
+
+  for (const keys of pairs) {
+    const credentials =
+      (await readInjectedCredentialPair(options.readCredential, keys)) ??
+      (options.fallbackReadCredential
+        ? await readInjectedCredentialPair(options.fallbackReadCredential, keys)
+        : null);
+    if (
+      credentials &&
+      !candidates.some(
+        (candidate) => candidate.clientId === credentials.clientId,
+      )
+    ) {
+      candidates.push(credentials);
+    }
+  }
+
+  return candidates;
 }
 
 /**
@@ -32,13 +106,16 @@ export function hasGoogleSignInCredentials(): boolean {
 }
 
 export function resolveGoogleProviderCredentials(): GoogleOAuthCredentials | null {
-  return readCredentialPair("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET");
+  return readCredentialPair(
+    GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS.clientIdKey,
+    GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS.clientSecretKey,
+  );
 }
 
 export function resolveGoogleLegacyProviderCredentials(): GoogleOAuthCredentials | null {
   return readCredentialPair(
-    "GOOGLE_LEGACY_CLIENT_ID",
-    "GOOGLE_LEGACY_CLIENT_SECRET",
+    GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS.clientIdKey,
+    GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS.clientSecretKey,
   );
 }
 

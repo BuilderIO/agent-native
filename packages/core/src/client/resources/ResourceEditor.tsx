@@ -1,7 +1,4 @@
-import Link from "@tiptap/extension-link";
-import Placeholder from "@tiptap/extension-placeholder";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
+import { SharedRichEditor } from "@agent-native/toolkit/editor/SharedRichEditor";
 import React, {
   useState,
   useRef,
@@ -9,7 +6,6 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { Markdown } from "tiptap-markdown";
 
 import {
   CLAUDE_SONNET_MODEL_ID,
@@ -26,11 +22,6 @@ import {
   serializeFrontmatter,
 } from "../../resources/metadata.js";
 import { agentNativePath } from "../api-path.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 import { cn } from "../utils.js";
 import type { Resource } from "./use-resources.js";
 
@@ -257,483 +248,6 @@ function FrontmatterBar({
   );
 }
 
-// --- Slash Command Menu ---
-
-interface CommandItem {
-  title: string;
-  description: string;
-  icon: string;
-  action: (editor: any) => void;
-}
-
-const slashCommands: CommandItem[] = [
-  {
-    title: "Text",
-    description: "Plain text",
-    icon: "T",
-    action: (editor) => editor.chain().focus().setParagraph().run(),
-  },
-  {
-    title: "Heading 1",
-    description: "Large heading",
-    icon: "H1",
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 1 }).run(),
-  },
-  {
-    title: "Heading 2",
-    description: "Medium heading",
-    icon: "H2",
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 2 }).run(),
-  },
-  {
-    title: "Heading 3",
-    description: "Small heading",
-    icon: "H3",
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 3 }).run(),
-  },
-  {
-    title: "Bullet List",
-    description: "Unordered list",
-    icon: "•",
-    action: (editor) => editor.chain().focus().toggleBulletList().run(),
-  },
-  {
-    title: "Numbered List",
-    description: "Ordered list",
-    icon: "1.",
-    action: (editor) => editor.chain().focus().toggleOrderedList().run(),
-  },
-  {
-    title: "Code Block",
-    description: "Code snippet",
-    icon: "<>",
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
-  },
-  {
-    title: "Quote",
-    description: "Block quote",
-    icon: '"',
-    action: (editor) => editor.chain().focus().toggleBlockquote().run(),
-  },
-  {
-    title: "Divider",
-    description: "Horizontal rule",
-    icon: "—",
-    action: (editor) => editor.chain().focus().setHorizontalRule().run(),
-  },
-];
-
-function SlashMenu({ editor }: { editor: any }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [position, setPosition] = useState<{
-    top: number;
-    left: number;
-    flipUp: boolean;
-  } | null>(null);
-  const slashPosRef = useRef<number | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const filteredCommands = useMemo(
-    () =>
-      slashCommands.filter(
-        (cmd) =>
-          cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-          cmd.description.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [query],
-  );
-
-  const executeCommand = useCallback(
-    (cmd: CommandItem) => {
-      if (slashPosRef.current !== null) {
-        const { from } = editor.state.selection;
-        editor
-          .chain()
-          .focus()
-          .deleteRange({ from: slashPosRef.current, to: from })
-          .run();
-      }
-      cmd.action(editor);
-      setIsOpen(false);
-      setQuery("");
-      slashPosRef.current = null;
-    },
-    [editor],
-  );
-
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIndex((i) => (i + 1) % filteredCommands.length);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIndex(
-          (i) => (i - 1 + filteredCommands.length) % filteredCommands.length,
-        );
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (filteredCommands[selectedIndex]) {
-          executeCommand(filteredCommands[selectedIndex]);
-        }
-      } else if (e.key === "Escape") {
-        setIsOpen(false);
-        setQuery("");
-        slashPosRef.current = null;
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [isOpen, selectedIndex, filteredCommands, executeCommand, editor]);
-
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleTransaction = () => {
-      const { state } = editor;
-      const { from } = state.selection;
-      const textBefore = state.doc.textBetween(
-        Math.max(0, from - 20),
-        from,
-        "\n",
-      );
-
-      const slashMatch = textBefore.match(/\/([a-zA-Z0-9]*)$/);
-
-      if (slashMatch) {
-        const slashStart = from - slashMatch[0].length;
-        slashPosRef.current = slashStart;
-        setQuery(slashMatch[1]);
-        setSelectedIndex(0);
-
-        const coords = editor.view.coordsAtPos(from);
-        // Estimate menu height (~320px max) and check if it fits below
-        const menuHeight = 320;
-        const spaceBelow = window.innerHeight - coords.bottom;
-        const flipUp = spaceBelow < menuHeight && coords.top > menuHeight;
-
-        setPosition({
-          top: flipUp ? coords.top : coords.bottom + 4,
-          left: Math.min(coords.left, window.innerWidth - 240),
-          flipUp,
-        });
-        setIsOpen(true);
-      } else {
-        if (isOpen) {
-          setIsOpen(false);
-          setQuery("");
-          slashPosRef.current = null;
-        }
-      }
-    };
-
-    editor.on("transaction", handleTransaction);
-    return () => {
-      editor.off("transaction", handleTransaction);
-    };
-  }, [editor, isOpen]);
-
-  if (!isOpen || !position || filteredCommands.length === 0) return null;
-
-  return (
-    <div
-      ref={menuRef}
-      style={{
-        position: "fixed",
-        ...(position.flipUp
-          ? { bottom: window.innerHeight - position.top + 4 }
-          : { top: position.top }),
-        left: position.left,
-        zIndex: 9999,
-      }}
-      className="re-slash-menu"
-    >
-      <div className="py-1">
-        <div
-          style={{
-            padding: "4px 10px",
-            fontSize: 10,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            opacity: 0.5,
-          }}
-        >
-          Blocks
-        </div>
-        {filteredCommands.map((cmd, i) => (
-          <button
-            key={cmd.title}
-            onClick={() => executeCommand(cmd)}
-            onMouseEnter={() => setSelectedIndex(i)}
-            className={cn(
-              "re-slash-item",
-              i === selectedIndex && "re-slash-item--active",
-            )}
-          >
-            <span className="re-slash-icon">{cmd.icon}</span>
-            <span>
-              <span className="re-slash-title">{cmd.title}</span>
-              <span className="re-slash-desc">{cmd.description}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// --- Inline Bubble Toolbar ---
-
-function InlineBubbleToolbar({ editor }: { editor: any }) {
-  const [visible, setVisible] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-  const [showLinkInput, setShowLinkInput] = useState(false);
-  const [linkUrl, setLinkUrl] = useState("");
-  const toolbarRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!editor) return;
-    const update = () => {
-      const { from, to } = editor.state.selection;
-      if (from === to || !editor.isFocused) {
-        setVisible(false);
-        return;
-      }
-      const domSelection = window.getSelection();
-      if (!domSelection || domSelection.rangeCount === 0) {
-        setVisible(false);
-        return;
-      }
-      const range = domSelection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0) {
-        setVisible(false);
-        return;
-      }
-      // Use fixed positioning with viewport coordinates
-      setCoords({
-        top: rect.top - 8,
-        left: rect.left + rect.width / 2,
-      });
-      setVisible(true);
-    };
-    editor.on("selectionUpdate", update);
-    const onBlur = () => {
-      // Delay so clicks on toolbar buttons register before hiding
-      setTimeout(() => {
-        if (!editor.isFocused) setVisible(false);
-      }, 150);
-    };
-    editor.on("blur", onBlur);
-    return () => {
-      editor.off("selectionUpdate", update);
-      editor.off("blur", onBlur);
-    };
-  }, [editor]);
-
-  const handleSetLink = () => {
-    if (linkUrl.trim()) {
-      editor
-        .chain()
-        .focus()
-        .extendMarkRange("link")
-        .setLink({ href: linkUrl.trim() })
-        .run();
-    } else {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-    }
-    setShowLinkInput(false);
-    setLinkUrl("");
-  };
-
-  const toggleLink = () => {
-    if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-    const previousUrl = editor.getAttributes("link").href || "";
-    setLinkUrl(previousUrl);
-    setShowLinkInput(true);
-  };
-
-  const items = [
-    {
-      label: "B",
-      title: "Bold",
-      action: () => editor.chain().focus().toggleBold().run(),
-      isActive: () => editor.isActive("bold"),
-      style: { fontWeight: 700 } as React.CSSProperties,
-    },
-    {
-      label: "I",
-      title: "Italic",
-      action: () => editor.chain().focus().toggleItalic().run(),
-      isActive: () => editor.isActive("italic"),
-      style: { fontStyle: "italic" } as React.CSSProperties,
-    },
-    {
-      label: "S",
-      title: "Strikethrough",
-      action: () => editor.chain().focus().toggleStrike().run(),
-      isActive: () => editor.isActive("strike"),
-      style: { textDecoration: "line-through" } as React.CSSProperties,
-    },
-    {
-      label: "<>",
-      title: "Code",
-      action: () => editor.chain().focus().toggleCode().run(),
-      isActive: () => editor.isActive("code"),
-      style: { fontFamily: "monospace", fontSize: 11 } as React.CSSProperties,
-    },
-    { type: "divider" as const },
-    {
-      label: "H1",
-      title: "Heading 1",
-      action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-      isActive: () => editor.isActive("heading", { level: 1 }),
-    },
-    {
-      label: "H2",
-      title: "Heading 2",
-      action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-      isActive: () => editor.isActive("heading", { level: 2 }),
-    },
-    {
-      label: "H3",
-      title: "Heading 3",
-      action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-      isActive: () => editor.isActive("heading", { level: 3 }),
-    },
-    { type: "divider" as const },
-    {
-      label: "Link",
-      title: "Link",
-      action: toggleLink,
-      isActive: () => editor.isActive("link"),
-    },
-  ];
-
-  if (!visible) return null;
-
-  return (
-    <div
-      ref={toolbarRef}
-      className="re-bubble-toolbar"
-      onMouseDown={(e) => e.preventDefault()}
-      style={{
-        position: "fixed",
-        top: coords.top,
-        left: coords.left,
-        transform: "translate(-50%, -100%)",
-        zIndex: 9999,
-      }}
-    >
-      {showLinkInput ? (
-        <div
-          style={{ display: "flex", alignItems: "center", gap: 4, padding: 4 }}
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <input
-            autoFocus
-            type="url"
-            placeholder="Paste link..."
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSetLink();
-              if (e.key === "Escape") {
-                setShowLinkInput(false);
-                setLinkUrl("");
-              }
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              color: "white",
-              fontSize: 12,
-              width: 160,
-              padding: "2px 4px",
-            }}
-          />
-          <button
-            onClick={handleSetLink}
-            style={{
-              fontSize: 11,
-              color: "hsl(var(--primary))",
-              padding: "2px 6px",
-              fontWeight: 500,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            Apply
-          </button>
-        </div>
-      ) : (
-        <div
-          style={{ display: "flex", alignItems: "center", gap: 2 }}
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          {items.map((item, i) => {
-            if ("type" in item && item.type === "divider") {
-              return (
-                <div
-                  key={`d-${i}`}
-                  style={{
-                    width: 1,
-                    height: 16,
-                    background: "hsl(var(--border))",
-                    margin: "0 2px",
-                  }}
-                />
-              );
-            }
-            const { label, title, action, isActive, style } = item as {
-              label: string;
-              title: string;
-              action: () => void;
-              isActive: () => boolean;
-              style?: React.CSSProperties;
-            };
-            return (
-              <Tooltip key={title}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={action}
-                    className={cn(
-                      "re-bubble-btn",
-                      isActive() && "re-bubble-btn--active",
-                    )}
-                    style={style}
-                  >
-                    {label}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{title}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Visual Markdown Editor ---
-
 // --- Syntax-highlighted code editor (textarea + overlay) ---
 
 function highlightJson(text: string): string {
@@ -850,6 +364,12 @@ function SyntaxHighlightEditor({
   );
 }
 
+const RESOURCE_MARKDOWN_FEATURES = {
+  tables: false,
+  tasks: false,
+  image: false,
+};
+
 function VisualMarkdownEditor({
   content,
   onChange,
@@ -861,114 +381,22 @@ function VisualMarkdownEditor({
   resourcePath: string;
   readOnly?: boolean;
 }) {
-  const isSettingContent = useRef(false);
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-
-  // Parse frontmatter — strip it from tiptap content, re-prepend on save
   const parsed = useMemo(() => parseFrontmatter(content), [content]);
   const frontmatterRef = useRef(parsed);
   frontmatterRef.current = parsed;
+  const body = parsed?.body ?? content;
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        codeBlock: {},
-        link: false,
-        dropcursor: { color: "hsl(var(--ring))", width: 2 },
-      }),
-      Placeholder.configure({
-        placeholder: ({ node }) => {
-          if (node.type.name === "heading") {
-            const level = node.attrs.level;
-            if (level === 1) return "Heading 1";
-            if (level === 2) return "Heading 2";
-            return "Heading 3";
-          }
-          return "Type '/' for commands...";
-        },
-        showOnlyWhenEditable: true,
-        showOnlyCurrent: true,
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: { class: "re-link" },
-      }),
-      Markdown.configure({
-        html: true,
-        transformPastedText: true,
-        transformCopiedText: true,
-      }),
-    ],
-    content: parsed?.body ?? content,
-    editable: !readOnly,
-    editorProps: {
-      attributes: {
-        class: "re-prose",
-      },
+  const commitBody = useCallback(
+    (nextBody: string) => {
+      const frontmatter = frontmatterRef.current;
+      onChange(frontmatter ? frontmatter.raw + nextBody : nextBody);
     },
-    onUpdate: ({ editor }) => {
-      if (readOnly) return;
-      if (isSettingContent.current) return;
-      try {
-        const md = (editor.storage as any).markdown.getMarkdown();
-        // Re-prepend frontmatter if it existed
-        const fm = frontmatterRef.current;
-        const full = fm ? fm.raw + md : md;
-        onChangeRef.current(full);
-      } catch (err) {
-        console.error("Markdown serialization error:", err);
-      }
-    },
-  });
-
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    editor.setEditable(!readOnly);
-  }, [editor, readOnly]);
-
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const currentMd = (editor.storage as any).markdown.getMarkdown();
-    if (currentMd !== (parsed?.body ?? content)) {
-      if (editor.isFocused) return;
-      isSettingContent.current = true;
-      editor.commands.setContent(parsed?.body ?? content);
-      isSettingContent.current = false;
-    }
-  }, [content, editor, parsed]);
-
-  useEffect(() => {
-    return () => {
-      editor?.destroy();
-    };
-  }, [editor]);
-
-  if (!editor) return null;
-
-  const handleWrapperClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // If the click was on the wrapper (empty area), not on editor content, focus at end
-    const target = e.target as HTMLElement;
-    if (
-      target.classList.contains("re-editor-clickable") ||
-      target.classList.contains("re-editor-wrapper")
-    ) {
-      editor.chain().focus("end").run();
-    }
-  };
+    [onChange],
+  );
 
   return (
-    <div
-      className="re-editor-wrapper re-editor-clickable"
-      onClick={handleWrapperClick}
-      style={{
-        position: "relative",
-        minHeight: "100%",
-        cursor: readOnly ? "default" : "text",
-      }}
-    >
-      {parsed && (
+    <div className="re-editor-wrapper min-h-full">
+      {parsed ? (
         <FrontmatterBar
           resourcePath={resourcePath}
           frontmatter={parsed}
@@ -976,19 +404,21 @@ function VisualMarkdownEditor({
           onChange={(updated) => {
             if (readOnly) return;
             frontmatterRef.current = updated;
-            // Get current body and combine with updated frontmatter
-            try {
-              const md = (editor.storage as any).markdown.getMarkdown();
-              onChangeRef.current(updated.raw + md);
-            } catch {
-              // fallback
-            }
+            onChange(updated.raw + body);
           }}
         />
-      )}
-      {!readOnly && <InlineBubbleToolbar editor={editor} />}
-      {!readOnly && <SlashMenu editor={editor} />}
-      <EditorContent editor={editor} />
+      ) : null}
+      <SharedRichEditor
+        value={body}
+        onChange={commitBody}
+        editable={!readOnly}
+        interactive={!readOnly}
+        dialect="gfm"
+        features={RESOURCE_MARKDOWN_FEATURES}
+        placeholder="Type '/' for commands..."
+        editorClassName="re-prose"
+        ariaLabel="Resource markdown"
+      />
     </div>
   );
 }
@@ -1439,86 +869,4 @@ const editorStyles = `
   background: hsl(210 100% 52% / 0.2);
 }
 
-/* Bubble toolbar */
-.re-bubble-toolbar {
-  display: flex;
-  align-items: center;
-  background: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  padding: 3px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
-}
-.re-bubble-btn {
-  padding: 3px 6px;
-  border-radius: 4px;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  background: none;
-  border: none;
-  cursor: pointer;
-  line-height: 1;
-}
-.re-bubble-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
-}
-.re-bubble-btn--active {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
-}
-
-/* Slash command menu */
-.re-slash-menu {
-  background: hsl(var(--popover));
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  box-shadow: 0 4px 20px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.04);
-  min-width: 220px;
-  max-height: 320px;
-  overflow-y: auto;
-  color: hsl(var(--foreground));
-}
-.re-slash-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: hsl(var(--foreground));
-  font-size: 13px;
-}
-.re-slash-item:hover,
-.re-slash-item--active {
-  background: hsl(var(--accent));
-}
-.re-slash-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-  flex-shrink: 0;
-}
-.re-slash-title {
-  display: block;
-  font-weight: 500;
-  font-size: 13px;
-}
-.re-slash-desc {
-  display: block;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-}
 `;

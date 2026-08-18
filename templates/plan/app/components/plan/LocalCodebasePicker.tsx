@@ -1,4 +1,5 @@
-import { setClientAppState, useT } from "@agent-native/core/client";
+import { setClientAppState } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -107,8 +108,17 @@ export function LocalCodebasePicker() {
       if (removedCount > 0) {
         await queryClient.invalidateQueries({ queryKey: ["resources"] });
       }
+
+      const failedResult = results.find(
+        (result) => result.status === "rejected",
+      );
+      if (failedResult?.status === "rejected") {
+        throw failedResult.reason instanceof Error
+          ? failedResult.reason
+          : new Error(t("raw.localCodebase.codebaseSyncFailed"));
+      }
     },
-    [queryClient],
+    [queryClient, t],
   );
 
   useEffect(() => {
@@ -186,11 +196,12 @@ export function LocalCodebasePicker() {
       handle: chosen.handle,
       latest: null,
     };
-    if (active && active.id !== selection.id) {
-      await cleanupLocalResources(active);
-    }
-    setActive(selection);
+    setSyncState({ kind: "syncing" });
     try {
+      if (active && active.id !== selection.id) {
+        await cleanupLocalResources(active);
+      }
+      setActive(selection);
       await syncSelection(selection);
     } catch (err) {
       const message =
@@ -206,16 +217,28 @@ export function LocalCodebasePicker() {
 
   const clearSelection = useCallback(async () => {
     const previous = active;
-    await clearLocalCodebaseSelection();
-    setActive(null);
-    setSummary(null);
-    setSyncState({ kind: "idle" });
-    await syncAppState(null);
-    if (previous) {
-      await cleanupLocalResources(previous);
+    setSyncState({ kind: "syncing" });
+    try {
+      if (previous) {
+        await cleanupLocalResources(previous);
+      }
+      await clearLocalCodebaseSelection();
+      setActive(null);
+      setSummary(null);
+      await syncAppState(null);
+      setSyncState({ kind: "idle" });
+      toast(t("raw.localCodebase.codebaseUnlinked"));
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : t("raw.localCodebase.codebaseSyncFailed");
+      setSyncState({ kind: "error", message });
+      toast.error(t("raw.localCodebase.codebaseSyncFailed"), {
+        description: message,
+      });
     }
-    toast(t("raw.localCodebase.codebaseUnlinked"));
-  }, [active, cleanupLocalResources, syncAppState]);
+  }, [active, cleanupLocalResources, syncAppState, t]);
 
   const resync = useCallback(async () => {
     if (!active) return;
@@ -335,6 +358,20 @@ export function LocalCodebasePicker() {
               </TooltipContent>
             </Tooltip>
           </>
+        )}
+
+        {syncState.kind === "syncing" && (
+          <span
+            className={cn(
+              "inline-flex min-h-8 max-w-[280px] items-center gap-1.5 truncate text-xs",
+              statusClasses(syncState.kind),
+            )}
+          >
+            <IconRefresh className="size-3.5 shrink-0 animate-spin" />
+            <span className="truncate">
+              {t("raw.localCodebase.clearCodebase")}
+            </span>
+          </span>
         )}
 
         {syncState.kind === "error" && (

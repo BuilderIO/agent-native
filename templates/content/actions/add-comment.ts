@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 
 type Mention = { email: string; name: string };
 
@@ -43,7 +44,8 @@ function displayNameFromEmail(email: string): string {
 }
 
 export default defineAction({
-  description: "Add a comment to a document. For new threads, omit threadId.",
+  description:
+    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. For new threads, omit threadId.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
     content: z.string().optional().describe("Comment text (required)"),
@@ -76,7 +78,7 @@ export default defineAction({
     if (!documentId) throw new Error("--documentId is required");
     if (!content) throw new Error("--content is required");
 
-    const access = await assertAccess("document", documentId, "viewer");
+    const access = await assertAccess("document", documentId, "commenter");
     const ownerEmail = access.resource.ownerEmail as string;
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
@@ -115,6 +117,19 @@ export default defineAction({
       authorName: name,
     });
 
-    return { id, threadId };
+    const notified = await notifyDocumentComment({
+      documentId,
+      documentTitle: (access.resource.title as string | null) ?? "",
+      orgId: (access.resource.orgId as string | null) ?? null,
+      threadId,
+      ownerEmail,
+      authorEmail: email,
+      authorName: name,
+      content,
+      mentions,
+      isReply: Boolean(parentId ?? args.threadId),
+    });
+
+    return { id, threadId, notified };
   },
 });

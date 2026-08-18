@@ -4,6 +4,7 @@ const messages = {
     searchForms: "양식 검색",
     appearance: "모양",
     toggleTheme: "테마 전환",
+    openAgent: "에이전트 열기",
   },
   header: {
     settings: "설정",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "양식에 문의하기",
     allForms: "모든 양식",
     team: "팀",
+    agent: "에이전트",
   },
   settings: {
     title: "설정",
@@ -32,10 +34,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
   },
   agent: {
     emptyState: "양식에 대해 무엇이든 물어보세요",
@@ -86,6 +88,16 @@ const messages = {
     addOption: "옵션 추가",
     min: "최소",
     max: "맥스",
+    conditionalVisibility: "조건부 표시",
+    conditionalVisibilityDescription:
+      "이전 답변이 일치할 때만 이 필드를 표시합니다.",
+    conditionField: "이전 답변",
+    conditionOperator: "조건",
+    conditionEquals: "같음",
+    conditionNotEquals: "같지 않음",
+    conditionContains: "포함",
+    conditionValue: "답변",
+    conditionValuePlaceholder: "답변 입력...",
     fieldTypes: {
       text: "짧은 텍스트",
       email: "이메일",
@@ -139,6 +151,7 @@ const messages = {
     integrationsTab: "연동",
     settingsSaved: "설정이 저장되었습니다",
     integrationsSaved: "연동이 저장되었습니다",
+    saveFailed: "변경사항을 저장하지 못했습니다",
     formTitlePlaceholder: "양식 제목",
     addDescriptionPlaceholder: "설명 추가...",
     dragToReorder: "드래그하여 순서 변경",
@@ -189,6 +202,9 @@ const messages = {
       anonymousResponses: "익명 응답",
       anonymousResponsesDescription:
         "IP 주소, 응답자 신원 또는 출처 메타데이터를 저장하지 않습니다.",
+      emailNewResponses: "새 응답을 이메일로 받기",
+      emailNewResponsesDescription:
+        "응답이 제출될 때마다 양식 소유자 계정의 이메일 주소로 알림을 보냅니다.",
       saveSettings: "설정 저장",
     },
     integrations: {
@@ -203,7 +219,8 @@ const messages = {
         "제출 데이터가 포함된 JSON POST를 보냅니다. Zapier, Make, n8n 등과 함께 작동합니다.",
       googleSheetsBlurb:
         "모든 응답을 팀이 공유할 수 있는 스프레드시트에 반영합니다.",
-      googleSheetsHelp: "POST 데이터를 받는 Apps Script 웹 앱을 배포하세요",
+      googleSheetsHelp:
+        "배포된 Apps Script /exec URL을 사용하고 e.postData.contents의 JSON을 읽어 행을 추가하세요.",
       googleSheetsLabel: "Google 스프레드시트",
       webhookLabel: "Webhook",
       discordLabel: "Discord",
@@ -250,6 +267,8 @@ const messages = {
     duplicated: "양식이 중복되었습니다.",
     duplicateFailed: "양식을 복제하지 못했습니다.",
     movedToArchive: "양식이 아카이브로 이동됨",
+    movingToArchive: "양식을 아카이브로 이동하는 중…",
+    archiveFailed: "양식을 아카이브로 이동하지 못했습니다.",
     restored: "양식이 복원되었습니다.",
     permanentlyDeleted: "양식이 영구적으로 삭제되었습니다.",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

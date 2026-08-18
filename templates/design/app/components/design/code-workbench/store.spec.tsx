@@ -108,7 +108,8 @@ vi.mock("./model-registry", () => {
   return { modelRegistry };
 });
 
-const { WorkbenchProvider, useWorkbench } = await import("./store");
+const { languageForPath, WorkbenchProvider, useWorkbench } =
+  await import("./store");
 type WorkbenchApi = ReturnType<typeof useWorkbench>["api"];
 type WorkbenchState = ReturnType<typeof useWorkbench>["state"];
 
@@ -265,5 +266,23 @@ describe("WorkbenchProvider", () => {
     expect(harness.get().state.buffers[uri]?.dirty).toBe(false);
     expect(harness.get().state.buffers[uri]?.conflict).toBe(false);
     expect(harness.get().state.buffers[uri]?.savedVersionHash).toBe("v2");
+  });
+});
+
+describe("languageForPath", () => {
+  it.each([
+    ["src/App.js", "javascript"],
+    ["src/App.jsx", "javascript"],
+    ["src/App.mjs", "javascript"],
+    ["src/App.ts", "typescript"],
+    ["src/App.tsx", "typescript"],
+    ["src/App.vue", "html"],
+    ["src/App.svelte", "html"],
+    ["src/App.astro", "html"],
+    ["styles.scss", "css"],
+    ["README.mdx", "markdown"],
+    ["config.yaml", "yaml"],
+  ])("maps %s to Monaco's %s language", (path, language) => {
+    expect(languageForPath(path)).toBe(language);
   });
 });
