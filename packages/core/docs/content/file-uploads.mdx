@@ -17,6 +17,18 @@ The provider resolution order is:
 2. **Builder.io provider** — built-in, activates automatically when Builder.io is connected
 3. **No provider** — the upload is rejected and the chat renders a storage setup CTA; binary data is never persisted in SQL
 
+Among user-registered providers, the first one registered that reports
+itself configured wins. `registerFileUploadProvider()` is idempotent per
+`id`. Registering under an id that is already in use replaces the existing
+provider.
+
+The UI decides whether to show a storage-setup prompt using only the
+synchronous `isConfigured()` check, before an upload is attempted. The
+actual upload checks both `isConfigured()` and `isConfiguredForRequest()`.
+A provider that only reports itself configured through
+`isConfiguredForRequest()` stays invisible to the setup prompt even though
+uploads through it would succeed.
+
 <Diagram id="doc-block-hq5uvx" title="Provider resolution order" summary="uploadFile() picks the first configured provider in order. Without one, the upload fails closed so binary data is never persisted in SQL.">
 
 ```html
@@ -85,8 +97,24 @@ The provider resolution order is:
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
+    "status": "201",
     "description": "{ url, id?, provider } — the public URL and which provider handled it."
+  },
+  {
+    "status": "401",
+    "description": "No authenticated session."
+  },
+  {
+    "status": "413",
+    "description": "File exceeds the 25 MB upload ceiling."
+  },
+  {
+    "status": "415",
+    "description": "Blocked MIME type, such as an executable or script."
+  },
+  {
+    "status": "503",
+    "description": "No file upload provider is configured."
   }
 ]}>
 
@@ -163,6 +191,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -236,7 +266,6 @@ When `resumable` is present, callers that stream data in (like a recorder) call 
 
 ## What's next
 
-- [**Database**](/docs/server-database) — why binary blobs stay out of SQL and go through this provider abstraction instead
+- [**Database**](/docs/server-database) — the `getDb()`/schema pattern for persisting the URL `uploadFile()` returns
 - [**Security — Secrets Management**](/docs/security#secrets) — how `resolveSecret()` and the credential vault encrypt provider keys at rest
 - [**Onboarding**](/docs/onboarding) — registering a custom provider's setup step in the sidebar checklist
-- [**Deployment**](/docs/deployment) — connecting Builder.io or a custom provider in production
