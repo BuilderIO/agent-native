@@ -184,7 +184,7 @@ describe("view-screen", () => {
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {
     mockRows = [
-      { id: "deck_1", title: "Mine", ownerEmail: "alice@example.com" },
+      { id: "deck_1", title: "Mine", ownerEmail: "Alice@Example.com" },
       { id: "deck_2", title: "Theirs", ownerEmail: "bob@example.com" },
     ];
     navigationState = { view: "list", deckFilter: "created-by-me" };

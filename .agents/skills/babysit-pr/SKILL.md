@@ -87,6 +87,17 @@ clean until the final merge soak when only peer paths are dirty.
    explicitly asks for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
+## Latest-feedback handoff
+
+If the PR body or branch cites `/review-latest-feedback`, treat its start
+cursor, grouped reports, evidence links, and disposition table as part of the
+PR's review state. At the first tick, record that handoff. On every later tick
+before the merge gate, re-read the handoff and check for new Slack replies,
+GitHub feedback, and Sentry findings after its cursor using the configured
+connectors. A new actionable report resets the soak timer and needs a fix or a
+concise reply before merge. If a connector is unavailable, record it as
+unavailable in the recap rather than treating it as no findings.
+
 **Then proceed with PR checks:**
 
 1. Check for review comments and review summaries from humans and bots — **EVERY tick, with no exceptions.**
