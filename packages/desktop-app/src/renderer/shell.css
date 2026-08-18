@@ -1169,7 +1169,7 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.desktop-identity-gate__provider {
+.desktop-identity-gate__form .desktop-identity-gate__provider {
   display: flex;
   align-items: center;
   justify-content: center;
