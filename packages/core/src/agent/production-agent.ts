@@ -8363,6 +8363,42 @@ export function resolveAgentRequestReasoningEffort({
   );
 }
 
+export type AgentModelSelectionSource =
+  | "request"
+  | "configured"
+  | "stored"
+  | "default";
+
+function isConcreteModelSelection(
+  model: string | null | undefined,
+): model is string {
+  const normalized = typeof model === "string" ? model.trim() : "";
+  return normalized.length > 0 && normalized !== "auto";
+}
+
+/**
+ * Resolve the model before the engine boundary. `auto` is a UI sentinel, not
+ * a model to forward to the gateway, so it gives way to an AN org/user
+ * default, then the configured global engine default.
+ */
+export function resolveAgentModelSelection(options: {
+  requestModel?: string | null;
+  configuredModel?: string | null;
+  storedModel?: string | null;
+  defaultModel: string;
+}): { model: string; source: AgentModelSelectionSource } {
+  if (isConcreteModelSelection(options.requestModel)) {
+    return { model: options.requestModel, source: "request" };
+  }
+  if (isConcreteModelSelection(options.configuredModel)) {
+    return { model: options.configuredModel, source: "configured" };
+  }
+  if (isConcreteModelSelection(options.storedModel)) {
+    return { model: options.storedModel, source: "stored" };
+  }
+  return { model: options.defaultModel, source: "default" };
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -8806,29 +8842,25 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: bracket stored-model resolution (getStoredModelForEngine
     // settings read).
     workerStep("model_start");
+    const requestModelIsExplicit = isConcreteModelSelection(requestModel);
+    const configuredModelIsExplicit = isConcreteModelSelection(configuredModel);
     const storedModel =
-      requestModel == null && configuredModel == null
+      !requestModelIsExplicit && !configuredModelIsExplicit
         ? await getStoredModelForEngine(engine, { appId: options.appId })
         : undefined;
-    const modelCandidate =
-      requestModel ?? configuredModel ?? storedModel ?? engine.defaultModel;
+    const modelSelection = resolveAgentModelSelection({
+      requestModel,
+      configuredModel,
+      storedModel,
+      defaultModel: engine.defaultModel,
+    });
+    const modelCandidate = modelSelection.model;
     // DIAGNOSTIC-ONLY: stored-model resolution finished.
     workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
     let effectiveModel = model;
-    let modelSelectionSource:
-      | "request"
-      | "configured"
-      | "stored"
-      | "default"
-      | "experiment" =
-      requestModel != null
-        ? "request"
-        : configuredModel != null
-          ? "configured"
-          : storedModel != null
-            ? "stored"
-            : "default";
+    let modelSelectionSource: AgentModelSelectionSource | "experiment" =
+      modelSelection.source;
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;

@@ -51,6 +51,7 @@ import {
   resolveBackgroundNoProgressRepeat,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
+  resolveAgentModelSelection,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
@@ -166,6 +167,40 @@ describe("resolveAgentRequestReasoningEffort", () => {
         configuredEffort: "high",
       }),
     ).toBe("none");
+  });
+});
+
+describe("resolveAgentModelSelection", () => {
+  const defaultModel = "gpt-5-6-luna";
+
+  it("uses a manually selected request model first", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "gpt-5-6-terra",
+        storedModel: "gpt-5-6-sol",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "request" });
+  });
+
+  it("treats auto as a sentinel and uses the stored AN default", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "gpt-5-6-terra",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "stored" });
+  });
+
+  it("uses the single configured global default when no override exists", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "auto",
+        defaultModel,
+      }),
+    ).toEqual({ model: defaultModel, source: "default" });
   });
 });
 
