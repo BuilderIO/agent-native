@@ -16,7 +16,9 @@ Run a bounded, evidence-first sweep across the Agent-Native feedback sources.
 The goal is to resolve clear repo-owned bugs at the right seam, not to encode
 one report as a new global instruction. This skill can run from a cron or a
 worktree, but every run must leave an auditable disposition for every item it
-looked at.
+looked at. When several reports clearly describe the same underlying symptom,
+treat them as one similar-feedback cluster and leave one Builder thread for the
+cluster, with the representative report as its cursor anchor.
 
 ## Start cursor
 
@@ -44,6 +46,11 @@ cursor signals: prioritize recent open or unresolved items with no clear
 maintainer disposition, then deduplicate them against the Slack set. If a
 source cannot be read, record that source as unavailable; never report
 “nothing matched” for an unavailable source.
+
+Keep the cursor at the first unhandled parent, but fold older messages that are
+clearly the same symptom into that cluster instead of reopening a new thread for
+each duplicate. Continue to older messages only after the cluster is recorded
+and every grouped report has an auditable disposition.
 
 ## Required reading and tools
 
@@ -99,7 +106,10 @@ Never hard-code a rule for the wording or situation in one chat report. A
 single data point can justify a local regression test or a contained product
 fix, but it cannot by itself justify a global agent instruction, prompt rule,
 or behavior exception. Broaden guidance only when repeated evidence names an
-invariant and the shared owner is clear.
+invariant and the shared owner is clear. For repeated feedback that is the same
+underlying issue, handle it as one cluster with one Builder thread, not one
+thread per report; use separate threads only when the evidence shows different
+failure modes, surfaces, or owners.
 
 ## Investigation workflow
 
@@ -110,10 +120,11 @@ invariant and the shared owner is clear.
    their write sets are independent. Search recent Slack, Git history, merged
    PRs, GitHub issues, and Sentry fingerprints for repeats or an existing fix
    before opening a new path.
-3. For each concrete bug, establish the failing behavior first. Prefer a
-   focused regression test or a deterministic reproduction over a prose-only
-   diagnosis. Keep source, test, built, deployed, and observed-live claims
-   separate.
+3. For each concrete bug or similar-feedback cluster, establish the failing
+   behavior first. Read every grouped Slack thread and linked evidence before
+   dispatching. Prefer a focused regression test or a deterministic
+   reproduction over a prose-only diagnosis. Keep source, test, built,
+   deployed, and observed-live claims separate.
 4. Fix the owning boundary at the altitude selected above. Do not add a
    feedback-specific branch when a shared contract, action, registry, or
    deployment boundary explains the reports.
@@ -173,6 +184,11 @@ Unavailable or unverified: ...
 Keep each row succinct, but do not omit an item merely because no code
 changed. “Nothing matched” is valid only after each source was successfully
 queried and the cursor and filters are stated.
+
+When multiple source items were grouped into one similar-feedback cluster, name
+the representative item and list the grouped source links in that row. Record
+one Builder dispatch for the cluster, while preserving the disposition of every
+individual report.
 
 ## Related skills
 
