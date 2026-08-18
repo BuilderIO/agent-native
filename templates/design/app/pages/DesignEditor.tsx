@@ -36,6 +36,7 @@ import {
   setClientAppState,
   useReconciledState,
   useChangeVersion,
+  useChangeVersions,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import {
@@ -2301,7 +2302,6 @@ function DesignEditor() {
     return value === "save" || value === "share" ? value : null;
   }, [searchParams]);
   const queryClient = useQueryClient();
-  const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
   /**
    * Shell mode: the host drives the whole canvas over `design:init` and nothing
@@ -3210,7 +3210,7 @@ function DesignEditor() {
   // effect OR via this tab's OWN setActiveBreakpointMutation write (every
   // local breakpoint-bar handler seeds this ref immediately, before the
   // mutation even resolves). Without this, the UI's own write would bump
-  // `appStateVersion`, the effect would read back the exact value this tab
+  // targeted app-state counter, the effect would read back the exact value this tab
   // just wrote, and needlessly re-run every local state setter on every local
   // breakpoint chip click — this ref short-circuits that echo. Mirrors the
   // "ignoreSource" convention `useDbSync({ ignoreSource: getBrowserTabId() })`
@@ -4257,6 +4257,34 @@ function DesignEditor() {
     : isDesignData(designResult)
       ? designResult
       : null;
+  const activeBreakpointStateVersion = useChangeVersion(
+    id ? `app-state:design-active-breakpoint:${id}` : "",
+  );
+  const localhostConsentStateVersion = useChangeVersion(
+    id ? `app-state:design-localhost-write-consent-request:${id}` : "",
+  );
+  const designEditorCommandKeys = useMemo(
+    () =>
+      browserTabId
+        ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
+        : [designEditorCommandKey()],
+    [browserTabId],
+  );
+  const designEditorCommandVersion = useChangeVersions(
+    designEditorCommandKeys.map((key) => `app-state:${key}`),
+  );
+  const pendingNodeRewriteStateKeys = useMemo(
+    () =>
+      id
+        ? (design?.files.map((file) =>
+            designRepromptPendingStateKey(id, file.id),
+          ) ?? [])
+        : [],
+    [design?.files, id],
+  );
+  const pendingNodeRewriteStateVersion = useChangeVersions(
+    pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
+  );
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -5560,7 +5588,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, id, proposalFileIds]);
+  }, [pendingNodeRewriteStateVersion, id, proposalFileIds]);
   const pendingNodeRewriteByFile = useMemo(
     () =>
       new Map(
@@ -6729,9 +6757,8 @@ function DesignEditor() {
   // application state so the agent and UI agree on the active edit scope;
   // this effect is the UI half that was previously missing — the BreakpointBar
   // chip/viewport-width only ever changed from the UI's own chip clicks.
-  // Polls the same way the `design-editor-command` ("navigate") consumption
-  // effect above does: react to `appStateVersion` (bumped by useDbSync on ANY
-  // app-state write, including this tab's own), read the key, and apply it —
+  // React to the targeted active-breakpoint app-state counter, read the key,
+  // and apply it -
   // except this key is a durable "current scope" value (not a one-shot
   // command), so unlike that effect this one does NOT null the key out after
   // reading; it just dedupes against the last-applied breakpointId so the
@@ -6777,7 +6804,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, designBreakpoints, id, isSignedIn]);
+  }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
 
   // Agent→UI: open the write-consent dialog when the agent requests local file
   // write access via request-localhost-write-consent (granting stays human-only).
@@ -6821,7 +6848,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, canEditDesign, id]);
+  }, [localhostConsentStateVersion, canEditDesign, id]);
 
   // §6.4 — The active screen's primary-frame width (the BASE editing
   // context). Overrides written at a narrower active breakpoint apply below
@@ -7255,7 +7282,7 @@ function DesignEditor() {
       cancelled = true;
     };
   }, [
-    appStateVersion,
+    designEditorCommandVersion,
     applyDesignEditorCommand,
     browserTabId,
     canEditDesign,

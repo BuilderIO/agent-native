@@ -389,6 +389,52 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
   });
 
+  // OpenAI answers a `oneOf` anywhere in a function schema with
+  // "Invalid schema for function 'x': ... 'oneOf' is not permitted" and 400s
+  // the whole request before a token streams. Zod emits `oneOf` for every
+  // discriminated union, so this was 178k errors across 786 users over seven
+  // weeks from one action.
+  it("rewrites oneOf to anyOf so OpenAI does not reject the function schema", () => {
+    const action = defineAction({
+      description: "with a discriminated union",
+      schema: z.object({
+        operations: z.array(
+          z.discriminatedUnion("op", [
+            z.object({ op: z.literal("add"), panelId: z.string() }),
+            z.object({
+              op: z.literal("remove"),
+              panelIds: z.array(z.string()),
+            }),
+          ]),
+        ),
+      }),
+      run: async () => "ok",
+    });
+    const json = JSON.stringify(action.tool.parameters);
+    expect(json).not.toContain('"oneOf"');
+    expect(json).toContain('"anyOf"');
+  });
+
+  it("keeps every branch when rewriting a nested union", () => {
+    const action = defineAction({
+      description: "nested union",
+      schema: z.object({
+        outer: z.object({
+          inner: z.discriminatedUnion("kind", [
+            z.object({ kind: z.literal("a"), a: z.string() }),
+            z.object({ kind: z.literal("b"), b: z.string() }),
+            z.object({ kind: z.literal("c"), c: z.string() }),
+          ]),
+        }),
+      }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    const inner = params.properties.outer.properties.inner;
+    expect(inner.oneOf).toBeUndefined();
+    expect(inner.anyOf).toHaveLength(3);
+  });
+
   it("stores the original schema on the entry for downstream re-validation", () => {
     const schema = z.object({ x: z.string() });
     const action = defineAction({

@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.161.11
+
+### Patch Changes
+
+- 1e90670: Bound core client state retention and avoid repeating semantic route-state serialization on unrelated renders.
+
 ## 0.161.10
 
 ### Patch Changes
