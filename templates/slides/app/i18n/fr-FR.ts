@@ -547,6 +547,11 @@ const messages = {
     newSlide: "Nouvelle diapositive",
     closeAddSlides: "Fermer",
     describeThisSlide: "Décrivez cette diapositive",
+    cut: "Couper",
+    copy: "Copier",
+    paste: "Coller",
+    skipSlide: "Ignorer la diapositive",
+    unskipSlide: "Ne pas ignorer la diapositive",
   },
   presentation: {
     loadFailed: "Impossible de charger cette présentation.",

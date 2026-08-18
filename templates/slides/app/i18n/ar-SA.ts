@@ -543,6 +543,11 @@ const messages = {
     newSlide: "شريحة جديدة",
     closeAddSlides: "إغلاق",
     describeThisSlide: "صف هذه الشريحة",
+    cut: "قص",
+    copy: "نسخ",
+    paste: "لصق",
+    skipSlide: "تخطي الشريحة",
+    unskipSlide: "عدم تخطي الشريحة",
   },
   presentation: {
     loadFailed: "تعذّر تحميل هذا العرض التقديمي.",

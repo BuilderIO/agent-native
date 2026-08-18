@@ -26,8 +26,19 @@ import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
 
-function nativeSegmentsJson(fullText: string): string {
-  return JSON.stringify(buildCaptionSegmentsFromText(fullText));
+// web-speech and macos-native are both mic-only engines — see
+// transcription-engine.ts's file header. When a caller sends fullText with
+// no segments (word-level timings were never captured), there's no
+// per-line source to preserve, but for these two engines there's also no
+// ambiguity: every word came from the mic. Leaving source undefined here
+// falls through to resolveSpeaker's default and renders the whole thing as
+// "Them". Whisper mixes mic + system, so it has no safe single-speaker guess.
+function nativeSegmentsJson(
+  fullText: string,
+  engineSource?: "web-speech" | "macos-native" | "whisper",
+): string {
+  const source = engineSource && engineSource !== "whisper" ? "mic" : undefined;
+  return JSON.stringify(buildCaptionSegmentsFromText(fullText, null, source));
 }
 
 // Real transcript segments supplied by a caller that already has accurate
@@ -45,6 +56,11 @@ const segmentSchema = z
     text: z.string(),
     // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
+    // Diarized speaker for this segment, when the provider identifies one.
+    // Declared so zod keeps it: an undeclared key is stripped before the array
+    // is serialized, which would drop a provider's speaker labels on save and
+    // leave the transcript unable to tell its speakers apart on reload.
+    speaker: z.string().nullable().optional(),
   })
   .transform((s) => {
     if (s.endMs < s.startMs) {
@@ -74,7 +90,7 @@ export default defineAction({
       .array(segmentSchema)
       .optional()
       .describe(
-        "Real transcript segments with accurate timestamps (ms). When provided, stored verbatim instead of synthesizing timings from fullText.",
+        "Transcript segments with per-segment timings (ms) and the `mic`/`system` stream each came from. Stored verbatim when provided, instead of synthesizing timings from fullText. Timings are the engine's own where it reported them; the mic-only engines report none, so callers may send estimates to keep each segment's speaker.",
       ),
     overwriteReady: booleanParam
       .default(false)
@@ -97,7 +113,7 @@ export default defineAction({
     const segmentsJson =
       args.segments && args.segments.length > 0
         ? JSON.stringify(args.segments)
-        : nativeSegmentsJson(fullText);
+        : nativeSegmentsJson(fullText, args.source);
 
     const [current] = await db
       .select({

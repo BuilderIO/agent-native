@@ -150,6 +150,7 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -492,6 +493,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
@@ -650,6 +652,7 @@ function SortableRow({
       >
         {isRenaming ? (
           <input
+            ref={renameInputRef}
             autoFocus
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}

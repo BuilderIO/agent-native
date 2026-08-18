@@ -94,6 +94,34 @@ export function isContextOverflowMessage(message: string): boolean {
   );
 }
 
+/**
+ * The Builder gateway's own 500 envelope, which is the whole message: an
+ * apology sentence plus a correlation id, e.g. "Sorry, we ran into an issue
+ * processing your request. ERROR ID: 0f3c...". The apology prose varies; the
+ * correlation id does not, so that is what the predicate below anchors on.
+ */
+export const BUILDER_GATEWAY_INTERNAL_ERROR_CODE =
+  "builder_gateway_internal_error";
+
+const BUILDER_GATEWAY_ERROR_ID_PATTERN = /\berror id:\s*([0-9a-f]+)\b/i;
+const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
+
+/**
+ * The gateway attaches that envelope to an unhandled 500, and it arrives two
+ * ways: as an HTTP body, which is already retried because 500 is in the
+ * engine's retryable status set, and as an in-stream error frame after the
+ * gateway has already answered 200, where there is no status to read and the
+ * prose carries no keyword any other predicate here matches. Naming it is what
+ * makes the second path behave like the first instead of dying uncoded on the
+ * first attempt.
+ */
+export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
+  const match = BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message);
+  return (
+    match !== null && match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
+  );
+}
+
 /** The overflow codes a provider or gateway may report instead of prose. */
 export function isContextOverflowCode(code: string | undefined): boolean {
   const normalized = (code ?? "").toLowerCase();
@@ -250,6 +278,11 @@ export function classifyTerminalErrorCode(
     )
   ) {
     return "provider_network_error";
+  }
+  // Last, so a gateway 500 whose body happens to quote a more specific upstream
+  // failure keeps that classification instead of collapsing to this one.
+  if (isBuilderGatewayInternalErrorMessage(message)) {
+    return BUILDER_GATEWAY_INTERNAL_ERROR_CODE;
   }
   return undefined;
 }

@@ -528,6 +528,11 @@ const messages = {
     newSlide: "新しいスライド",
     closeAddSlides: "閉じる",
     describeThisSlide: "このスライドを説明してください",
+    cut: "切り取り",
+    copy: "コピー",
+    paste: "貼り付け",
+    skipSlide: "スライドをスキップ",
+    unskipSlide: "スキップを解除",
   },
   presentation: {
     loadFailed: "このプレゼンテーションを読み込めませんでした。",

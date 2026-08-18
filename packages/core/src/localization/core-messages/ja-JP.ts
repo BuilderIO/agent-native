@@ -282,6 +282,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "このモデルのプロバイダーがリクエストを拒否しました。別のモデルを選択して再試行してください。",
   "errorMessages.errorPrefix": "エラー：{{message}}",
+  "errorMessages.gatewayInternalError":
+    "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.inactivityTimeout":
@@ -354,6 +356,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
+  "message.threadNotFound":
+    "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
   "message.sentAt": "{{time}} に送信",

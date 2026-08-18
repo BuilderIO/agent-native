@@ -3713,6 +3713,44 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("auto-continues the Builder gateway internal-error envelope", async () => {
+    const message =
+      "Sorry, we ran into an issue processing your request. " +
+      "ERROR ID: bebaeb5da13441539790834b63ff955a";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "builder_gateway_internal_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway-internal",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "builder_gateway_internal_error",
+      recoverable: true,
+    });
+    // The correlation id is the only part support can act on, so it stays —
+    // just not as the whole sentence the user reads.
+    expect((err as AgentAutoContinueSignal).errorInfo?.details).toContain(
+      "bebaeb5da13441539790834b63ff955a",
+    );
+    expect((err as AgentAutoContinueSignal).errorInfo?.message).not.toContain(
+      "ERROR ID",
+    );
+  });
+
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -3814,6 +3852,53 @@ describe("SSE event processor error classification", () => {
       | undefined;
     expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+  });
+
+  it("does not auto-continue a breaker stop that preserved its underlying transient code", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The server's no-progress breaker keeps the gateway code and reference id
+    // so the failure stays diagnosable. Reading the code instead of the flag
+    // re-POSTs the exact chain the server just refused to continue.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 0f3c9ab21d7e\n\nThis failed 2 times in a row without making any progress, so I stopped instead of retrying again.",
+            errorCode: "builder_gateway_internal_error",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-no-progress-breaker",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "builder_gateway_internal_error",
+    );
   });
 
   it("does not auto-continue a repeat-guard stop whose message names a tool that matches the transient message sniff", async () => {

@@ -1,5 +1,243 @@
 # @agent-native/core
 
+## 0.161.9
+
+### Patch Changes
+
+- 3c54d4e: Add `setAgentNativeApiDisabled(reason)` for surfaces framed by a host with no
+  agent-native session, so the client stops calling `/_agent-native/*` instead of
+  401-ing on every poll. Action queries do not fire, action fetches and
+  application-state reads/writes throw `AgentNativeApiDisabledError`, session reads
+  resolve as signed out, and the runtime-config ping is skipped.
+- 3c54d4e: `sendToBuilderChat` accepts a `targetOrigin` for embedders that verified the
+  Builder parent through a handshake. `getBuilderParentOrigin()` requires
+  `?builder.*` params to trust a loopback parent, so those embeds previously fell
+  back to posting `"*"`.
+
+## 0.161.8
+
+### Patch Changes
+
+- adf5cb0: Prioritize a selected A2A receiver's declared local capabilities before cross-app delegation.
+
+## 0.161.7
+
+### Patch Changes
+
+- 8a867bc: Fix Cloudflare Pages builds for templates that import the PDF.js legacy entrypoint.
+
+## 0.161.6
+
+### Patch Changes
+
+- ff06749: fix stale home chat pointers so a missing local thread does not render a restore error
+- ff06749: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
+- c7ad22e: Fix Portal remote connector initialization so handoffs create remote run records and expose command failures in connector logs.
+- ff06749: Record what was sent when an agent run errors. An errored run's capture now
+  carries the failed request's model, payload bytes, tool count, and message
+  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
+  user content — so an oversized request and an upstream outage stop producing
+  identical, undiagnosable captures.
+- ff06749: Stop a background turn from retrying an identical failure forever. When two
+  consecutive server-driven continuation chunks end on the same terminal error
+  code having produced no assistant text and no tool calls, the chain now stops
+  and the run ends with one non-recoverable error that keeps the original error
+  code and the gateway's `ERROR ID:` reference. A different error, or the same
+  error after real progress, still chains as before.
+
+## 0.161.5
+
+### Patch Changes
+
+- 4c7c289: Keep scoped chat tabs isolated when navigating between resources so an older
+  resource's conversation cannot remain visible on the current resource.
+
+## 0.161.4
+
+### Patch Changes
+
+- e0b883d: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
+- e0b883d: Record what was sent when an agent run errors. An errored run's capture now
+  carries the failed request's model, payload bytes, tool count, and message
+  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
+  user content — so an oversized request and an upstream outage stop producing
+  identical, undiagnosable captures.
+
+## 0.161.3
+
+### Patch Changes
+
+- 1e7ce6a: Bound durable-event pruning to one atomic Postgres statement so interrupted serverless workers cannot leave idle transactions behind.
+- 1e7ce6a: Re-arm Neon idle-transaction cleanup and bound concurrent agent-run pruning.
+
+## 0.161.2
+
+### Patch Changes
+
+- 772f59a: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
+- 772f59a: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
+- 772f59a: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- 772f59a: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- 772f59a: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- 772f59a: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- 772f59a: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- 772f59a: Keep the gateway request id on agent-chat error captures, and create the
+  workspace connection tables at release time.
+
+  A Builder gateway error stop often arrives as one opaque user-facing sentence
+  carrying only an error id. The request id was captured only when the gateway
+  sent no message at all, so the errors that actually page had no key to join on
+  upstream. It now rides the stop event onto `EngineError` and out as a
+  `gatewayRequestId` tag (alongside `statusCode`) on the run-manager capture.
+
+  `workspace_connections`, `workspace_connection_grants`, and
+  `workspace_user_groups` existed only in their runtime `ensureTable` helpers.
+  Those are a no-op on a production serverless runtime by design, so
+  `workspace_user_groups` was never created in production and every read failed
+  with `relation "public.workspace_user_groups" does not exist`. They now have a
+  release migration.
+
+- 772f59a: Format the Portal reference table in the shared core documentation.
+- 772f59a: Redact nested callback parameters in desktop magic-link diagnostics.
+- 772f59a: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+- 772f59a: Keep approved agent actions valid across Dispatch history replay and scope them to the current turn.
+- 772f59a: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.161.1
+
+### Patch Changes
+
+- 71e1308: Name the Builder gateway's unhandled-500 envelope instead of letting it end a
+  turn as `unknown`.
+
+  The gateway can answer 200 and then emit an in-stream error frame whose whole
+  message is its own internal envelope ("Sorry, we ran into an issue processing
+  your request. ERROR ID: …"), with no code and no status. That matched no
+  classifier, so the turn died on the first attempt — no engine retry, no
+  continuation, `error_code = 'unknown'` in `agent_runs`, and Builder's internal
+  correlation id rendered as the assistant's answer. The identical body arriving
+  as an HTTP 500 was always retried.
+
+  `classifyTerminalErrorCode` now returns `builder_gateway_internal_error` for
+  that envelope, the engine marks it `providerRetryable` so the verdict survives
+  the Builder-credits message rewrite, and every predicate that lists `http_500`
+  lists it too. The chat now shows what broke and keeps the error id in the
+  details.
+
+## 0.161.0
+
+### Minor Changes
+
+- 2107a36: Let a hosted app pay for its own AI with Builder credits. `BUILDER_GATEWAY_TOKEN`
+  plus `BUILDER_GATEWAY_SPACE_ID` now select the Builder engine and back the
+  gateway lane (chat, web search, realtime voice, transcription, scheduled and
+  event automations), so an anonymous visitor can use AI on a deployed site
+  without connecting anything. An injected gateway token can never move a
+  customer's spend onto Builder credits: it steps aside for any other engine whose
+  credentials resolve. A Builder key pair the customer configured themselves is
+  unchanged and keeps winning, as does `AGENT_ENGINE_PREFER_BYO_KEY`. Where the
+  deployment pays, a rejected or missing credential reads as one line to the
+  visitor, with the real reason kept on the error code for the owner; that holds
+  for the gateway's own 402/403 on voice and realtime transcription, for the auto
+  provider chain rather than only an explicit Builder preference, for a gateway
+  whose transport dropped or whose stream stopped early, and at the point the chat
+  renders an error — where a message the deployment already chose for a visitor is
+  no longer re-expanded from its code back into owner instructions. Owner surfaces
+  keep the copy that says what to fix, the workspace/preview runtime included, even
+  though it carries the same injected token as the published site. No recovery
+  decision depends on what the error message says any more: the Builder engine
+  marks a retryable gateway rejection and an over-long prompt structurally, and
+  those verdicts reach the chat client too. So an overloaded provider retries the
+  same way whoever is paying — without turning a provider throttle into a chain of
+  background continuations against the limit that just rejected it — a truncated
+  stream is still continued from where it stopped instead of ending the turn, and a
+  conversation that outgrew the context window still gets its one automatic trim
+  and retry. A background or
+  scheduled run keeps the message the server chose for its failure rather than
+  restating it from the terminal reason, and an earlier transient error in the same
+  run can no longer stand in for the reason the run actually died. Pasted
+  `ANTHROPIC_API_KEY` values are now validated when saved.
+
+### Patch Changes
+
+- 2107a36: Preserve chat restore failures for recovery and distinguish missing threads from transient errors.
+- 2107a36: Keep the chat share popover interactive while it is open in the sidebar.
+
+## 0.160.2
+
+### Patch Changes
+
+- 831e915: Recover and index durable approval continuation scopes when clients omit a logical turn id.
+
+## 0.160.1
+
+### Patch Changes
+
+- d3702a5: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
+- d3702a5: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
+- d3702a5: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- d3702a5: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- d3702a5: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- d3702a5: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- d3702a5: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- d3702a5: Support moving existing local Code Agents chats to a paired Portal computer with their code snapshot and text transcript context.
+- d3702a5: Format the Portal reference table in the shared core documentation.
+- d3702a5: Redact nested callback parameters in desktop magic-link diagnostics.
+- d3702a5: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+- d3702a5: Keep approved agent actions valid across Dispatch history replay and scope them to the current turn.
+- d3702a5: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
+## 0.160.0
+
+### Minor Changes
+
+- 167be56: Let a hosted app pay for its own AI with Builder credits. `BUILDER_GATEWAY_TOKEN`
+  plus `BUILDER_GATEWAY_SPACE_ID` now select the Builder engine and back the
+  gateway lane (chat, web search, realtime voice, transcription, scheduled and
+  event automations), so an anonymous visitor can use AI on a deployed site
+  without connecting anything. An injected gateway token can never move a
+  customer's spend onto Builder credits: it steps aside for any other engine whose
+  credentials resolve. A Builder key pair the customer configured themselves is
+  unchanged and keeps winning, as does `AGENT_ENGINE_PREFER_BYO_KEY`. Where the
+  deployment pays, a rejected or missing credential reads as one line to the
+  visitor, with the real reason kept on the error code for the owner; that holds
+  for the gateway's own 402/403 on voice and realtime transcription, for the auto
+  provider chain rather than only an explicit Builder preference, for a gateway
+  whose transport dropped or whose stream stopped early, and at the point the chat
+  renders an error — where a message the deployment already chose for a visitor is
+  no longer re-expanded from its code back into owner instructions. Owner surfaces
+  keep the copy that says what to fix, the workspace/preview runtime included, even
+  though it carries the same injected token as the published site. No recovery
+  decision depends on what the error message says any more: the Builder engine
+  marks a retryable gateway rejection and an over-long prompt structurally, and
+  those verdicts reach the chat client too. So an overloaded provider retries the
+  same way whoever is paying — without turning a provider throttle into a chain of
+  background continuations against the limit that just rejected it — a truncated
+  stream is still continued from where it stopped instead of ending the turn, and a
+  conversation that outgrew the context window still gets its one automatic trim
+  and retry. A background or
+  scheduled run keeps the message the server chose for its failure rather than
+  restating it from the terminal reason, and an earlier transient error in the same
+  run can no longer stand in for the reason the run actually died. Pasted
+  `ANTHROPIC_API_KEY` values are now validated when saved.
+
+### Patch Changes
+
+- ed0666b: Allow token-authenticated remote device relay endpoints to reach their route-level device-token verifier.
+- ed0666b: Distinguish a retryable app load failure from an app that is genuinely gone. The chat-first app pane's error branch fell back to `appUnavailable`, rendering "This workspace app is no longer available." above a Retry button.
+- ed0666b: Bind workspace embed-session adoption to the existing target identity while allowing app-local organization ids.
+- ed0666b: Prevent email security scanners from consuming Electron magic-link sign-ins before the user confirms them.
+- ed0666b: Keep Electron magic-link verification behind an explicit POST confirmation so link scanners cannot consume the sign-in token.
+- ed0666b: Verify confirmed desktop magic links in the confirmation request so the one-time session cookie reaches the native callback reliably.
+- ed0666b: Add no-secret diagnostics around desktop magic-link issuance and verification so invalid-token failures can be isolated without logging the token.
+- ed0666b: Format the Portal reference table in the shared core documentation.
+- ed0666b: Redact nested callback parameters in desktop magic-link diagnostics.
+- ed0666b: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+- ed0666b: Add redacted diagnostics for desktop magic-link session-cookie handoff failures.
+
 ## 0.159.6
 
 ### Patch Changes

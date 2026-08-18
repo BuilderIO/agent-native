@@ -29,11 +29,23 @@ export const FULL_APP_BUILDING = defineFeatureFlag({
 
 export type DesignFusionAppStatus = "building" | "ready" | "error";
 
+/**
+ * How the linkage was established. `builder-host` (opened from builder.io's
+ * embedded Design tab) never provisions or deploys the container — Builder owns
+ * it, and Builder's chat session drives it. Absent means `design-app`.
+ */
+export type DesignFusionAppSource = "design-app" | "builder-host";
+
 export interface DesignFusionApp {
   /** Builder project id the app branch lives in. */
   projectId: string;
   /** Branch backing this design (one branch per design). */
   branchName: string;
+  source?: DesignFusionAppSource;
+  /** Builder organization owning the project. Set for `builder-host` designs. */
+  builderOrgId?: string;
+  /** Builder content id the tab was opened from, when there is one. */
+  contentId?: string;
   /** Builder visual-editor URL for the branch (progress/debugging). */
   editorUrl?: string;
   /** Container dev-server URL once the container is ready; iframe-able. */
@@ -94,10 +106,17 @@ export function readFusionApp(data: unknown): DesignFusionApp | null {
     app.status === "ready" || app.status === "error" ? app.status : "building";
   const str = (value: unknown): string | undefined =>
     typeof value === "string" && value ? value : undefined;
+  const source: DesignFusionAppSource | undefined =
+    app.source === "builder-host" || app.source === "design-app"
+      ? app.source
+      : undefined;
   return {
     projectId,
     branchName,
     status,
+    source,
+    builderOrgId: str(app.builderOrgId),
+    contentId: str(app.contentId),
     editorUrl: str(app.editorUrl),
     previewUrl: str(app.previewUrl),
     statusMessage: str(app.statusMessage),

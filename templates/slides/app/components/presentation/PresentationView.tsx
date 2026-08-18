@@ -202,7 +202,7 @@ export default function PresentationView({
   const safeSlides = useMemo(
     () =>
       (Array.isArray(slides) ? slides : [])
-        .filter(Boolean)
+        .filter((slide): slide is Slide => Boolean(slide) && !slide.skipped)
         .map((slide, index) => ({
           ...slide,
           id: slide.id || `slide-${index}`,
@@ -212,6 +212,27 @@ export default function PresentationView({
         })),
     [slides],
   );
+  // `startIndex` is a raw index into the full (unfiltered) deck.slides array —
+  // e.g. from the editor's current slide or a `?slide=N` deep link. Skipped
+  // slides are absent from safeSlides, so translate it to the nearest visible
+  // slide's position within safeSlides rather than clamping the raw index
+  // directly, which would land on the wrong slide whenever a skip precedes it.
+  const initialIndex = useMemo(() => {
+    const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
+    if (rawSlides.length === 0) return 0;
+    const clampedRaw = Math.max(0, Math.min(startIndex, rawSlides.length - 1));
+    for (let i = clampedRaw; i < rawSlides.length; i++) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    for (let i = clampedRaw - 1; i >= 0; i--) {
+      if (!rawSlides[i]?.skipped) {
+        return rawSlides.slice(0, i).filter((s) => !s?.skipped).length;
+      }
+    }
+    return 0;
+  }, [slides, startIndex]);
   const clampIndex = useCallback(
     (index: number) => {
       if (safeSlides.length === 0) return 0;
@@ -221,7 +242,7 @@ export default function PresentationView({
     [safeSlides.length],
   );
   const [currentIndex, setCurrentIndex] = useState(() =>
-    clampIndex(startIndex),
+    clampIndex(initialIndex),
   );
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [direction, setDirection] = useState<"next" | "prev">("next");
@@ -239,23 +260,35 @@ export default function PresentationView({
 
   const isShared = deckId.startsWith("__shared__/");
 
+  // `safeSlides` excludes skipped slides, so its index isn't the deck index
+  // DeckEditor's `?slide=N` param expects. Map back to the raw position so
+  // exiting/opening Presenter lands on the same slide it's currently showing.
+  const visibleRawIndices = useMemo(() => {
+    const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
+    const rawIndices: number[] = [];
+    rawSlides.forEach((slide, i) => {
+      if (!slide?.skipped) rawIndices.push(i);
+    });
+    return rawIndices;
+  }, [slides]);
+  const toRawIndex = useCallback(
+    (filteredIndex: number) =>
+      visibleRawIndices[filteredIndex] ?? filteredIndex,
+    [visibleRawIndices],
+  );
+
   // Exit handlers read these instead of closing over `currentIndex`/`deckId`/
   // `isShared` so the mount-only fullscreenchange listener still lands on the
   // right deck and slide even if this component is reused for a different
   // deck without remounting (e.g. an agent-driven navigation).
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
+  const visibleRawIndicesRef = useRef(visibleRawIndices);
+  visibleRawIndicesRef.current = visibleRawIndices;
   const deckIdRef = useRef(deckId);
   deckIdRef.current = deckId;
   const isSharedRef = useRef(isShared);
   isSharedRef.current = isShared;
-
-  useEffect(() => {
-    setCurrentIndex((prev) => clampIndex(prev));
-    setPrevIndex((prev) =>
-      prev !== null && prev >= safeSlides.length ? null : prev,
-    );
-  }, [clampIndex, safeSlides.length]);
 
   const clearTransitionTimer = useCallback(() => {
     if (transitionTimerRef.current !== null) {
@@ -266,14 +299,57 @@ export default function PresentationView({
 
   useEffect(() => clearTransitionTimer, [clearTransitionTimer]);
 
+  // One atomic effect handles both cases so they can't race each other:
+  // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
+  //   from initialIndex. This component is reused across deck navigation
+  //   (see the exit-handler refs above), so a new deck at the same `?slide=`
+  //   must still reset instead of inheriting the previous deck's position.
+  // - Otherwise, a skip toggle or reorder changed safeSlides without a new
+  //   deep link. A length-only clamp would silently swap in a different
+  //   slide at the same index, so follow the previously-shown slide's id to
+  //   its new position, falling back to a raw clamp only when it's gone.
+  const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
+  const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {
-    clearTransitionTimer();
-    queuedNavigationRef.current = null;
-    setCurrentIndex(clampIndex(startIndex));
-    setCurrentStep(0);
-    setPrevIndex(null);
-    setAnimating(false);
-  }, [clearTransitionTimer, clampIndex, startIndex]);
+    const prevKey = prevDeepLinkKeyRef.current;
+    const isDeepLinkChange =
+      prevKey.startIndex !== startIndex || prevKey.deckId !== deckId;
+    prevDeepLinkKeyRef.current = { startIndex, deckId };
+
+    if (isDeepLinkChange) {
+      prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
+      clearTransitionTimer();
+      queuedNavigationRef.current = null;
+      setCurrentIndex(clampIndex(initialIndex));
+      setCurrentStep(0);
+      setPrevIndex(null);
+      setAnimating(false);
+      return;
+    }
+
+    // Read the prior ids before overwriting the ref below — the lookup needs
+    // the slide order from before this update, not the one it's producing.
+    const activeId = prevSafeSlideIdsRef.current[currentIndexRef.current];
+    const newIds = safeSlides.map((s) => s.id);
+    const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
+    prevSafeSlideIdsRef.current = newIds;
+    setCurrentIndex(
+      followedIndex >= 0 ? followedIndex : clampIndex(currentIndexRef.current),
+    );
+    setPrevIndex((prev) =>
+      prev !== null && prev >= safeSlides.length ? null : prev,
+    );
+    if (followedIndex < 0) {
+      // The active slide is gone (e.g. just skipped) and we fell back to a
+      // different one — its reveal/transition state doesn't apply here.
+      clearTransitionTimer();
+      queuedNavigationRef.current = null;
+      setCurrentStep(0);
+      setPrevIndex(null);
+      setAnimating(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeSlides, startIndex, deckId]);
 
   const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
@@ -359,7 +435,10 @@ export default function PresentationView({
       const token = deckId.replace("__shared__/", "");
       navigate(`/share/${token}`);
     } else {
-      navigate(`/deck/${deckId}?slide=${currentIndexRef.current + 1}`);
+      const rawIndex =
+        visibleRawIndicesRef.current[currentIndexRef.current] ??
+        currentIndexRef.current;
+      navigate(`/deck/${deckId}?slide=${rawIndex + 1}`);
     }
   }, [navigate, deckId, isShared]);
 
@@ -405,13 +484,13 @@ export default function PresentationView({
   const openPresenterWindow = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
-    url.searchParams.set("slide", String(currentIndex + 1));
+    url.searchParams.set("slide", String(toRawIndex(currentIndex) + 1));
     window.open(
       url.toString(),
       `slides-presenter-${deckId}`,
       "width=1200,height=760",
     );
-  }, [currentIndex, deckId]);
+  }, [currentIndex, deckId, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -480,9 +559,10 @@ export default function PresentationView({
           const token = deckIdRef.current.replace("__shared__/", "");
           navigate(`/share/${token}`);
         } else {
-          navigate(
-            `/deck/${deckIdRef.current}?slide=${currentIndexRef.current + 1}`,
-          );
+          const rawIndex =
+            visibleRawIndicesRef.current[currentIndexRef.current] ??
+            currentIndexRef.current;
+          navigate(`/deck/${deckIdRef.current}?slide=${rawIndex + 1}`);
         }
       }
     };

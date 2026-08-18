@@ -291,6 +291,45 @@ describe("formatChatErrorText", () => {
   });
 });
 
+describe("Builder gateway internal-error envelope", () => {
+  const raw =
+    "Sorry, we ran into an issue processing your request. " +
+    "ERROR ID: bebaeb5da13441539790834b63ff955a";
+
+  it("replaces the apology with what actually broke and keeps the id", () => {
+    const normalized = normalizeChatError(
+      raw,
+      "builder_gateway_internal_error",
+    );
+    expect(normalized.message).not.toContain("ERROR ID");
+    expect(normalized.message).toContain("model gateway");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("has localizable copy", () => {
+    const normalized = normalizeChatError(
+      raw,
+      "builder_gateway_internal_error",
+    );
+    expect(
+      localizeKnownChatErrorText(normalized.message, (key, options) =>
+        key === "agentChat.errorMessages.gatewayInternalError"
+          ? "Interner Gateway-Fehler."
+          : String(options?.defaultValue ?? key),
+      ),
+    ).toBe("Interner Gateway-Fehler.");
+  });
+
+  it("leaves a visitor-rewritten message alone", () => {
+    expect(
+      normalizeChatError(
+        GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        "builder_gateway_internal_error",
+      ),
+    ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+  });
+});
+
 describe("localizeKnownChatErrorText", () => {
   it("localizes the normalized Builder authentication recovery message", () => {
     const normalized = normalizeChatError(

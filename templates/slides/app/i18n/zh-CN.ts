@@ -519,6 +519,11 @@ const messages = {
     newSlide: "新建幻灯片",
     closeAddSlides: "关闭",
     describeThisSlide: "描述这张幻灯片",
+    cut: "剪切",
+    copy: "复制",
+    paste: "粘贴",
+    skipSlide: "跳过幻灯片",
+    unskipSlide: "取消跳过幻灯片",
   },
   presentation: {
     loadFailed: "无法加载此演示文稿。",

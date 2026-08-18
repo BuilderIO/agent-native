@@ -20,6 +20,7 @@ describe("renderWithPlaywright lifecycle", () => {
     vi.useFakeTimers();
     const events: string[] = [];
     let evaluateCalls = 0;
+    let browserCaptureExpression: string | undefined;
     const page = {
       async route() {},
       async goto() {},
@@ -39,8 +40,11 @@ describe("renderWithPlaywright lifecycle", () => {
       async screenshot() {
         return new Uint8Array([1]);
       },
-      async evaluate() {
+      async evaluate(pageFunction: string | (() => unknown)) {
         evaluateCalls += 1;
+        if (typeof pageFunction === "string") {
+          browserCaptureExpression = pageFunction;
+        }
         if (evaluateCalls === 1) return new Promise(() => {});
         if (evaluateCalls === 2) return undefined;
         throw new Error("computed styles unavailable");
@@ -92,6 +96,10 @@ describe("renderWithPlaywright lifecycle", () => {
       ]),
     );
     expect(result.diagnostics).toEqual(expect.arrayContaining(result.warnings));
+    expect(browserCaptureExpression).toContain(
+      "const __name = (value) => value",
+    );
+    expect(browserCaptureExpression).toContain("captureRenderedWebsiteContext");
   });
 
   it("hydrates through the SSRF-safe network proxy without forwarding cookies", async () => {

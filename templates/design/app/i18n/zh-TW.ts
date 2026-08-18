@@ -1048,6 +1048,7 @@ const messages = {
     },
   },
   multiScreenCanvas: {
+    preparingLiveEditor: "正在準備即時編輯器…",
     addBreakpointToAllScreens: "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
     duplicate: "複製",
     fork: "分支",

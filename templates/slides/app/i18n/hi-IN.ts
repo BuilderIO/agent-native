@@ -526,6 +526,11 @@ const messages = {
     newSlide: "नई स्लाइड",
     closeAddSlides: "बंद करें",
     describeThisSlide: "इस स्लाइड का वर्णन करें",
+    cut: "काटें",
+    copy: "कॉपी करें",
+    paste: "चिपकाएं",
+    skipSlide: "स्लाइड छोड़ें",
+    unskipSlide: "स्लाइड न छोड़ें",
   },
   presentation: {
     loadFailed: "यह प्रस्तुति लोड नहीं हो सकी।",

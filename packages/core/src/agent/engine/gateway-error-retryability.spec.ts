@@ -238,6 +238,33 @@ describe("Builder gateway error retryability", () => {
         retryable: true,
       },
       {
+        // The regression: identical body, two arrival shapes. As an HTTP 500 it
+        // was always retried off the status; delivered in-stream after a 200
+        // there is no status, and the envelope's prose matches no keyword, so it
+        // died uncoded on the first attempt and showed Builder's internal
+        // correlation id to the user.
+        label: "in-stream gateway internal error envelope",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              error:
+                "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+            },
+          ]),
+        retryable: true,
+      },
+      {
+        label: "http 500 gateway internal error envelope",
+        response: () =>
+          jsonErrorResponse(500, {
+            message:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          }),
+        retryable: true,
+      },
+      {
         label: "in-stream credits limit",
         response: () =>
           jsonlResponse([

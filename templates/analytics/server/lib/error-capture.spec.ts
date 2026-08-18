@@ -254,6 +254,38 @@ describe("fingerprint", () => {
     );
   });
 
+  it("groups agent-chat failures that differ only by the opaque ERROR ID", () => {
+    // Real outage: 18 chat failures in one day rendered as 18 issues of
+    // count 1, because the gateway embeds a fresh hex id in every message.
+    // A per-occurrence grouping key makes an outage look like noise.
+    const frames = parseStack(
+      "EngineError: boom\n    at Fa (https://analytics.example.com/assets/production-agent.mjs:140:12)",
+    );
+    const withId = (id: string) =>
+      fingerprint(
+        "EngineError",
+        frames,
+        `Sorry, we ran into an issue processing your request. ERROR ID: ${id}`,
+      );
+    const ids = [
+      "a3f9c2d1",
+      "7b1e0c4da9f23188",
+      "0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f",
+    ];
+    expect(new Set(ids.map(withId)).size).toBe(1);
+    // Still a different issue from another EngineError through the same frame.
+    expect(withId("a3f9c2d1")).not.toBe(
+      fingerprint("EngineError", frames, "Builder gateway timed out"),
+    );
+  });
+
+  it("keeps hex-shaped words that are not ids in their own group", () => {
+    // No digit, so it is a word and not an id.
+    expect(fingerprint("Error", [], "decade decade")).not.toBe(
+      fingerprint("Error", [], "deadbeef facade"),
+    );
+  });
+
   it("falls back to a normalized message when there is no usable stack", () => {
     // Numbers/urls/uuids are normalized so "id 1" and "id 2" group together.
     expect(fingerprint("Error", [], "Failed to load id 1")).toBe(

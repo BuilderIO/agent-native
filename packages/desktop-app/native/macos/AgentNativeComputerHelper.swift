@@ -7,8 +7,32 @@ private struct HelperFailure: Error, CustomStringConvertible {
 }
 
 private final class PhantomCursorView: NSView {
-    var showsClickPulse = false {
+    static let panelWidth: CGFloat = 70
+    static let panelHeight: CGFloat = 45
+    static let labelGap: CGFloat = 2
+
+    var labelOnLeft = false {
         didSet { needsDisplay = true }
+    }
+
+    var labelAbove = false {
+        didSet { needsDisplay = true }
+    }
+
+    var pointerOriginX: CGFloat = 1 {
+        didSet { needsDisplay = true }
+    }
+
+    var pointerTipY: CGFloat = 44 {
+        didSet { needsDisplay = true }
+    }
+
+    var preferredLabelWidth: CGFloat {
+        let label = "Agent" as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+        ]
+        return label.size(withAttributes: attributes).width + 12
     }
 
     override var isOpaque: Bool { false }
@@ -17,32 +41,62 @@ private final class PhantomCursorView: NSView {
         NSColor.clear.setFill()
         dirtyRect.fill()
 
-        let hotspot = NSBezierPath(ovalIn: NSRect(x: 0, y: 24, width: 13, height: 13))
-        NSColor(calibratedRed: 0.35, green: 0.42, blue: 1.0, alpha: 0.2).setFill()
-        hotspot.fill()
-
-        if showsClickPulse {
-            let pulse = NSBezierPath(ovalIn: NSRect(x: -2, y: 22, width: 17, height: 17))
-            NSColor(calibratedRed: 0.35, green: 0.42, blue: 1.0, alpha: 0.7).setStroke()
-            pulse.lineWidth = 1.5
-            pulse.stroke()
-        }
-
+        let pointerOriginY = pointerTipY - 44
         let pointer = NSBezierPath()
-        pointer.move(to: NSPoint(x: 3, y: 35))
-        pointer.line(to: NSPoint(x: 3, y: 7))
-        pointer.line(to: NSPoint(x: 11, y: 15))
-        pointer.line(to: NSPoint(x: 16, y: 4))
-        pointer.line(to: NSPoint(x: 20, y: 6))
-        pointer.line(to: NSPoint(x: 14, y: 17))
-        pointer.line(to: NSPoint(x: 27, y: 17))
+        pointer.move(to: NSPoint(x: pointerOriginX, y: pointerOriginY + 44))
+        pointer.line(to: NSPoint(x: pointerOriginX, y: pointerOriginY + 27))
+        pointer.line(to: NSPoint(x: pointerOriginX + 5, y: pointerOriginY + 31))
+        pointer.line(to: NSPoint(x: pointerOriginX + 9, y: pointerOriginY + 24))
+        pointer.line(to: NSPoint(x: pointerOriginX + 12, y: pointerOriginY + 26))
+        pointer.line(to: NSPoint(x: pointerOriginX + 8, y: pointerOriginY + 32))
+        pointer.line(to: NSPoint(x: pointerOriginX + 16, y: pointerOriginY + 32))
         pointer.close()
 
-        NSColor.white.setFill()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.26)
+        shadow.shadowBlurRadius = 1
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
         pointer.fill()
-        NSColor(calibratedWhite: 0.05, alpha: 0.82).setStroke()
-        pointer.lineWidth = 1.3
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.white.setStroke()
+        pointer.lineWidth = 1.1
         pointer.stroke()
+
+        let label = "Agent" as NSString
+        let labelFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+        ]
+        let labelSize = label.size(withAttributes: labelAttributes)
+        let labelWidth = labelSize.width + 12
+        let labelRect = NSRect(
+            x: labelOnLeft
+                ? max(0, pointerOriginX - labelWidth - PhantomCursorView.labelGap)
+                : 17,
+            y: labelAbove
+                ? min(max(pointerTipY + 2, 0), PhantomCursorView.panelHeight - 20)
+                : 5,
+            width: labelWidth,
+            height: 20
+        )
+        let labelPath = NSBezierPath(roundedRect: labelRect, xRadius: 2, yRadius: 2)
+        NSGraphicsContext.saveGraphicsState()
+        let labelShadow = NSShadow()
+        labelShadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.22)
+        labelShadow.shadowBlurRadius = 2
+        labelShadow.shadowOffset = NSSize(width: 0, height: -1)
+        labelShadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
+        labelPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        label.draw(
+            at: NSPoint(x: labelRect.minX + 6, y: labelRect.minY + 3),
+            withAttributes: labelAttributes
+        )
     }
 }
 
@@ -55,14 +109,21 @@ private final class PhantomCursorOverlay {
 
     func show(at quartzPoint: CGPoint, click: Bool) {
         onMain { [self] in
-            guard let origin = appKitOrigin(for: quartzPoint) else { return }
+            guard let placement = placement(for: quartzPoint) else { return }
             removeTimers()
 
             let view: PhantomCursorView
             if let existingView = panel?.contentView as? PhantomCursorView {
                 view = existingView
             } else {
-                view = PhantomCursorView(frame: NSRect(x: 0, y: 0, width: 32, height: 40))
+                view = PhantomCursorView(
+                    frame: NSRect(
+                        x: 0,
+                        y: 0,
+                        width: PhantomCursorView.panelWidth,
+                        height: PhantomCursorView.panelHeight
+                    )
+                )
                 let nextPanel = NSPanel(
                     contentRect: view.frame,
                     styleMask: [.borderless, .nonactivatingPanel],
@@ -80,9 +141,40 @@ private final class PhantomCursorOverlay {
                 panel = nextPanel
             }
 
-            view.showsClickPulse = click
+            let pointerWidth: CGFloat = 17
+            view.labelOnLeft = placement.appKitPoint.x
+                + pointerWidth
+                + PhantomCursorView.labelGap
+                + view.preferredLabelWidth
+                > placement.screen.frame.maxX
+            view.labelAbove = placement.appKitPoint.y - 44 < placement.screen.frame.minY
+            _ = click
+            let desiredOriginX = view.labelOnLeft
+                ? placement.appKitPoint.x
+                    - view.preferredLabelWidth
+                    - PhantomCursorView.labelGap
+                : placement.appKitPoint.x - 1
+            let originX = min(
+                max(desiredOriginX, placement.screen.frame.minX),
+                placement.screen.frame.maxX - PhantomCursorView.panelWidth
+            )
+            // Keep the arrow tip on the action point. The display clips only
+            // the artwork that naturally extends past a physical edge.
+            view.pointerOriginX = max(placement.appKitPoint.x - originX, 1)
+
+            let desiredOriginY = view.labelAbove
+                ? placement.appKitPoint.y - 22
+                : placement.appKitPoint.y - 44
+            let originY = min(
+                max(desiredOriginY, placement.screen.frame.minY),
+                placement.screen.frame.maxY - PhantomCursorView.panelHeight
+            )
+            view.pointerTipY = min(max(placement.appKitPoint.y - originY, 0), 44)
             panel?.alphaValue = 1
-            panel?.setFrameOrigin(origin)
+            panel?.setFrameOrigin(NSPoint(
+                x: originX,
+                y: originY
+            ))
             panel?.orderFrontRegardless()
 
             fadeTimer = Timer.scheduledTimer(withTimeInterval: visibleDuration, repeats: false) { [weak self] _ in
@@ -125,21 +217,26 @@ private final class PhantomCursorOverlay {
         }
     }
 
-    private func appKitOrigin(for quartzPoint: CGPoint) -> NSPoint? {
+    private struct CursorPlacement {
+        let appKitPoint: NSPoint
+        let screen: NSScreen
+    }
+
+    private func placement(for quartzPoint: CGPoint) -> CursorPlacement? {
         let screens = NSScreen.screens
         guard !screens.isEmpty else { return nil }
 
         // Accessibility and NSScreen frames are both logical points. Derive a
         // shared top-left space instead of mixing them with display pixels.
-        let globalTop = screens.map(\.frame.maxY).max() ?? 0
-        let appKitPoint = NSPoint(x: quartzPoint.x, y: globalTop - quartzPoint.y)
-        guard screens.contains(where: { $0.frame.insetBy(dx: -0.5, dy: -0.5).contains(appKitPoint) }) else {
-            return nil
-        }
-        return NSPoint(
-            x: appKitPoint.x - 3,
-            y: appKitPoint.y - 35
-        )
+        let referenceScreen = screens.first(where: {
+            $0.frame.minX == 0 && $0.frame.minY == 0
+        }) ?? screens[0]
+        let referenceTop = referenceScreen.frame.maxY
+        let appKitPoint = NSPoint(x: quartzPoint.x, y: referenceTop - quartzPoint.y)
+        guard let screen = screens.first(where: {
+            $0.frame.insetBy(dx: -0.5, dy: -0.5).contains(appKitPoint)
+        }) else { return nil }
+        return CursorPlacement(appKitPoint: appKitPoint, screen: screen)
     }
 }
 
