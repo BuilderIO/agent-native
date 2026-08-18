@@ -129,13 +129,17 @@ describe("loadCreativeContextPrecedent", () => {
 
 describe("designPrecedentDirectives", () => {
   it("prefers cloning a prior design over reading code", () => {
-    const directives = designPrecedentDirectives("ctx-1", [
-      match({
-        kind: "design-project",
-        artifactKey: "design:design:dsn_123",
-        designResourceId: "dsn_123",
-      }),
-    ]).join("\n");
+    const directives = designPrecedentDirectives(
+      "ctx-1",
+      [
+        match({
+          kind: "design-project",
+          artifactKey: "design:design:dsn_123",
+          designResourceId: "dsn_123",
+        }),
+      ],
+      "dsn_target",
+    ).join("\n");
 
     expect(directives).toContain("clone-creative-context-design-native");
     expect(directives).toContain("ctx-1");
@@ -148,11 +152,17 @@ describe("designPrecedentDirectives", () => {
     expect(directives).toContain(
       "delete-design on every clone you did not keep",
     );
+    expect(directives).toContain("dsn_target");
+    expect(directives).toContain("navigate");
     expect(directives).not.toContain("get-context-item");
   });
 
   it("falls back to reading pinned versions when nothing is clonable", () => {
-    const directives = designPrecedentDirectives("ctx-1", [match()]).join("\n");
+    const directives = designPrecedentDirectives(
+      "ctx-1",
+      [match()],
+      "dsn_target",
+    ).join("\n");
 
     expect(directives).toContain("get-context-item");
     expect(directives).not.toContain("clone-creative-context-design-native");

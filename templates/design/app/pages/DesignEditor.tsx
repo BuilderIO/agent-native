@@ -5062,8 +5062,9 @@ function DesignEditor() {
           selectedContextId: contextId,
           pinnedPackId: null,
         })
-        .catch(() => {
+        .catch((error) => {
           toast.error(t("creativeContext.stateSaveFailed"));
+          throw error;
         });
     },
     [creativeContextState, t],
@@ -6165,6 +6166,7 @@ function DesignEditor() {
                     ? designPrecedentDirectives(
                         precedent.contextId,
                         precedent.matches,
+                        id,
                       )
                     : []),
                 ]
@@ -32840,7 +32842,7 @@ function DesignEditor() {
           const precedent = shouldExploreVariants
             ? null
             : await (async () => {
-                await creativeContextPersistRef.current;
+                await creativeContextPersistRef.current?.catch(() => {});
                 return loadCreativeContextPrecedent(
                   (await readCreativeContextState()).selectedContextId,
                 );
@@ -32863,6 +32865,7 @@ function DesignEditor() {
                       ? designPrecedentDirectives(
                           precedent.contextId,
                           precedent.matches,
+                          id,
                         )
                       : []),
                   ]

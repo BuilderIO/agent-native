@@ -141,6 +141,7 @@ export async function loadCreativeContextPrecedent(
 function cloneDirectives(
   contextId: string,
   matches: CreativeContextPrecedentMatch[],
+  designId: string,
 ): string[] {
   const clonable = matches.filter((match) => match.designResourceId);
   if (!clonable.length) return [];
@@ -169,6 +170,11 @@ function cloneDirectives(
     "Keep every data-agent-native-locked subtree unchanged; the server rejects edits to locked layers.",
     "After the edit, run take-design-screenshot at the cloned artboard size and confirm the result still reads as the same family as the precedent. If the layout shifted, fix it before summarizing.",
     "If the cloned artifact is the wrong format for this request (a different aspect ratio or surface entirely), abandon the clone and generate fresh rather than deforming it.",
+    'clone-creative-context-design-native creates a brand-new design project - it does not fill design "' +
+      designId +
+      '", the empty design this generation is targeting. Once the kept clone is finished, call navigate with view "editor" and designId set to the clone\'s id so the user lands on the finished result, then call delete-design on "' +
+      designId +
+      '" so the untouched placeholder is not left behind as an orphaned duplicate.',
   ];
 }
 
@@ -199,6 +205,7 @@ function nativeCodeDirectives(
 export function designPrecedentDirectives(
   contextId: string,
   matches: CreativeContextPrecedentMatch[],
+  designId: string,
 ): string[] {
   if (!matches.length) return [];
   const titles = matches
@@ -208,7 +215,7 @@ export function designPrecedentDirectives(
         delimitUntrustedReference(match.title) + " (" + match.kind + ")",
     )
     .join(", ");
-  const reuse = cloneDirectives(contextId, matches);
+  const reuse = cloneDirectives(contextId, matches, designId);
   const evidence = reuse.length ? reuse : nativeCodeDirectives(matches);
   return [
     'The user picked Creative Context "' +

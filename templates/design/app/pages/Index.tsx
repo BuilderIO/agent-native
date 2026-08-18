@@ -222,8 +222,9 @@ export default function Index() {
           selectedContextId: contextId,
           pinnedPackId: null,
         })
-        .catch(() => {
+        .catch((error) => {
           toast.error(t("creativeContext.stateSaveFailed"));
+          throw error;
         });
     },
     [creativeContextState, t],
@@ -491,7 +492,10 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      await creativeContextPersistRef.current;
+      // The rejection already surfaced its own toast in handleCreativeContextChange;
+      // swallow it here so a flaky context save can't block generation, but
+      // only after letting it settle instead of racing it.
+      await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
