@@ -118,32 +118,62 @@ describe("WorkspaceAppCard", () => {
   });
 
   it("opens mounted workspace apps at their published URL", async () => {
-    await act(async () => {
-      root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <WorkspaceAppCard
-              app={{
-                id: "feedback-leaderboard",
-                name: "Feedback leaderboard",
-                path: "/feedback-leaderboard",
-                url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
-                status: "ready",
-              }}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
-      );
+    const originalParent = window.parent;
+    const originalTop = window.top;
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
     });
 
-    expect(
-      container.querySelector(
-        'a[href="https://agent-workspace.builder.io/feedback-leaderboard/leaderboard"]',
-      ),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('button[aria-label="Open Feedback leaderboard"]'),
-    ).toBeNull();
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <TooltipProvider>
+              <WorkspaceAppCard
+                app={{
+                  id: "feedback-leaderboard",
+                  name: "Feedback leaderboard",
+                  path: "/feedback-leaderboard",
+                  url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+                  status: "ready",
+                }}
+              />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+
+      const openButton = container.querySelector<HTMLButtonElement>(
+        ".app-open-actions__primary",
+      );
+      expect(openButton).not.toBeNull();
+      expect(openButton?.textContent).toContain("Open app");
+      expect(
+        container.querySelector(
+          'a[href="https://agent-workspace.builder.io/feedback-leaderboard/leaderboard"]',
+        ),
+      ).toBeNull();
+
+      await act(async () => openButton?.click());
+      expect(topWindow.location.href).toBe(
+        "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+      );
+    } finally {
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: originalParent,
+      });
+      Object.defineProperty(window, "top", {
+        configurable: true,
+        value: originalTop,
+      });
+    }
   });
 
   it("keeps pinning in the app open menu", async () => {

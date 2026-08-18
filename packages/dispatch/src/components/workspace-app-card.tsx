@@ -28,8 +28,9 @@ import { cn } from "../lib/utils";
 import {
   isPathMountedWorkspaceApp,
   isWorkspaceSsoApp,
-  workspaceAppHref,
+  navigateToWorkspaceApp,
   workspaceAppDirectHref,
+  workspaceAppHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
@@ -340,7 +341,9 @@ function WorkspaceAppOpenActions({
       name={app.name}
       href={href}
       showNewTabOption
-      {...(openDirectly ? {} : { onOpen: () => navigate(appRoute) })}
+      onOpen={() =>
+        openDirectly ? navigateToWorkspaceApp(href) : navigate(appRoute)
+      }
       menuItems={
         onTogglePinned
           ? [

@@ -110,6 +110,7 @@ import {
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
+  navigateToWorkspaceApp,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
   workspaceAppRoute,
@@ -1466,7 +1467,7 @@ export function Layout({
           ? workspaceAppDirectHref(registration, "/")
           : null;
       if (directHref) {
-        window.location.assign(directHref);
+        navigateToWorkspaceApp(directHref);
         return;
       }
       navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
