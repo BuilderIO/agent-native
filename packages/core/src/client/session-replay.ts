@@ -1543,6 +1543,18 @@ function isDefinitiveReplayUploadClientError(status: number): boolean {
 }
 
 const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
+// A hung upload never settles, so `state.flushing` stays set, every later flush
+// early-returns while still queueing rrweb events, and the queue grows until the
+// session ends. Time the request out so the failure is observable and the lock
+// is released.
+const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
+
+function replayUploadSignal(): AbortSignal | undefined {
+  return typeof AbortSignal !== "undefined" &&
+    typeof AbortSignal.timeout === "function"
+    ? AbortSignal.timeout(REPLAY_UPLOAD_TIMEOUT_MS)
+    : undefined;
+}
 
 function isTransientReplayUploadClientError(status: number): boolean {
   return status === 401 || status === 403 || status === 404;
@@ -1561,6 +1573,7 @@ async function sendReplayUpload(
       body,
       keepalive: canUseKeepalive,
       headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      signal: replayUploadSignal(),
     });
     if (!response.ok) {
       throw new ReplayUploadHttpError(response.status);
@@ -1579,6 +1592,7 @@ async function sendReplayUpload(
       ...upload.headers,
       "X-Agent-Native-Analytics-Key": options.publicKey,
     },
+    signal: replayUploadSignal(),
   });
   if (!response.ok) {
     throw new ReplayUploadHttpError(response.status);

@@ -1088,7 +1088,7 @@ function DocumentEditorBody({
       // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
       if (autoSync) {
         const status = queryClient.getQueryData<DocumentSyncStatus>(
-          documentSyncStatusQueryKey(documentId, { autoSync }),
+          documentSyncStatusQueryKey(documentId),
         );
         if (status?.pageId && !status.hasConflict) {
           try {
@@ -1100,7 +1100,7 @@ function DocumentEditorBody({
               flushOpenEditor: false,
             });
             queryClient.setQueryData(
-              documentSyncStatusQueryKey(documentId, { autoSync }),
+              documentSyncStatusQueryKey(documentId),
               next,
             );
           } catch {

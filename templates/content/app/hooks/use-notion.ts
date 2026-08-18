@@ -64,20 +64,16 @@ export function invalidateDocumentQueries(
   queryClient.invalidateQueries({
     queryKey: documentSyncStatusQueryKey(documentId),
   });
-  queryClient.invalidateQueries({
-    queryKey: documentSyncStatusQueryKey(documentId, { autoSync: true }),
-  });
 }
 
-export function documentSyncStatusQueryKey(
-  documentId: string,
-  options?: { autoSync?: boolean },
-) {
-  const normalizedDocumentId = documentId.trim();
+// `autoSync` only decides how often to refetch, so keying on it split one
+// document's status across two cache entries and two independent poll loops —
+// the toolbar polling at 2s while the sync bar polled the same action at 30s.
+export function documentSyncStatusQueryKey(documentId: string) {
   return [
     "action",
     "refresh-notion-sync-status",
-    { documentId: normalizedDocumentId, autoSync: !!options?.autoSync },
+    { documentId: documentId.trim() },
   ] as const;
 }
 
@@ -129,7 +125,7 @@ export function useDocumentSyncStatus(
   const autoSync = !!options?.autoSync;
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
-      ? documentSyncStatusQueryKey(normalizedDocumentId, options)
+      ? documentSyncStatusQueryKey(normalizedDocumentId)
       : ["action", "refresh-notion-sync-status", null],
     queryFn: () => {
       if (!normalizedDocumentId) throw new Error("documentId is required");

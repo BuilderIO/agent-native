@@ -1082,9 +1082,10 @@ describe("poll handler", () => {
         owner: "test@example.com",
       }),
     ]);
-    expect(executedSql()).not.toContain(
-      "application_state WHERE key = ? AND updated_at > ?",
-    );
+    // The extension-marker scan is bounded by the same watermark clause, so
+    // match on the key argument rather than the SQL text: this asserts the
+    // screen-refresh scan did not run, not that no bounded scan ran.
+    expect(executedBoundedScanKeys()).not.toContain("__screen_refresh__");
   });
 
   it("scopes the durable sync_events query so unrelated-owner noise cannot crowd a page ahead of the caller's own, global, and resource-scoped events", async () => {
@@ -1417,6 +1418,19 @@ function scopedSyncEventsRows(
       version: row.version,
       event_json: JSON.stringify(row.event),
     }));
+}
+
+/** Key arguments of every `WHERE key = ? AND updated_at > ?` scan executed. */
+function executedBoundedScanKeys(): string[] {
+  return mockExecute.mock.calls
+    .filter(
+      ([query]) =>
+        typeof query !== "string" &&
+        (query?.sql ?? "").includes(
+          "application_state WHERE key = ? AND updated_at > ?",
+        ),
+    )
+    .map(([query]) => String((query as { args?: unknown[] })?.args?.[0] ?? ""));
 }
 
 function executedSql(): string {
