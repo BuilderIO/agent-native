@@ -195,6 +195,13 @@ function isPublicBookingPath(pathname: string): boolean {
   );
 }
 
+function isAgentNativeDesktop(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /AgentNativeDesktop/i.test(navigator.userAgent)
+  );
+}
+
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
@@ -227,11 +234,12 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Calendar aggressively refetches on focus because external
-          // calendar events can change without a DB sync event (e.g. Google
-          // Calendar webhooks with a processing delay).
+          // Chrome gets one focus refresh because external calendar events can
+          // change without a DB sync event (e.g. delayed Google webhooks).
+          // Desktop already has the shell's focus-aware DB sync, and repeated
+          // webview focus events otherwise duplicate the events request.
           // request-storm-allow: one user-driven focus refresh for provider data.
-          refetchOnWindowFocus: true,
+          refetchOnWindowFocus: !isAgentNativeDesktop(),
           // Flat retry: calendar data fetches don't need the auth-aware
           // retry function — auth errors surface through the booking flow.
           retry: 1,

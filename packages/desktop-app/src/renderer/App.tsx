@@ -228,6 +228,9 @@ export default function App() {
 
   const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const runtimeStatusByAppRef = useRef(
+    new Map<string, DesktopAppRuntimeStatus["state"]>(),
+  );
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const findInputRef = useRef<HTMLInputElement>(null);
@@ -796,7 +799,13 @@ export default function App() {
     const appConfigApi = window.electronAPI?.appConfig;
     if (!appConfigApi?.onRuntimeStatus) return;
     return appConfigApi.onRuntimeStatus((status) => {
-      if (status.appId === activeSidebarAppId && status.state === "running") {
+      const previousState = runtimeStatusByAppRef.current.get(status.appId);
+      runtimeStatusByAppRef.current.set(status.appId, status.state);
+      if (
+        status.appId === activeSidebarAppId &&
+        status.state === "running" &&
+        previousState !== "running"
+      ) {
         setRefreshKey((key) => key + 1);
       }
     });
@@ -994,7 +1003,7 @@ export default function App() {
                 urlOpenNonce={tab.urlOpenNonce}
                 urlPath={tab.urlPath}
                 urlOpenSoft={tab.urlOpenSoft}
-                refreshKey={isActive ? refreshKey : 0}
+                refreshKey={refreshKey}
                 onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
                 onAppsChanged={handleAppsChanged}
               />

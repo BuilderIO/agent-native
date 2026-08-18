@@ -27,6 +27,7 @@ import {
 } from "react";
 
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
+import { shouldReloadActiveWebview } from "./webview-refresh.js";
 
 const IS_DEV = window.location.protocol !== "file:";
 
@@ -485,15 +486,25 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);
     useEffect(() => {
-      if (refreshKey > 0 && refreshKey !== prevRefreshKey.current) {
-        prevRefreshKey.current = refreshKey;
-        const wv = webviewRef.current;
-        if (wv && isActive && !app.placeholder) {
-          try {
-            wv.reloadIgnoringCache();
-          } catch {
-            wv.reload();
-          }
+      const previousRefreshKey = prevRefreshKey.current;
+      prevRefreshKey.current = refreshKey;
+      if (
+        !shouldReloadActiveWebview({
+          previousRefreshKey,
+          refreshKey,
+          isActive,
+          isPlaceholder: app.placeholder ?? false,
+        })
+      ) {
+        return;
+      }
+
+      const wv = webviewRef.current;
+      if (wv) {
+        try {
+          wv.reloadIgnoringCache();
+        } catch {
+          wv.reload();
         }
       }
     }, [refreshKey, isActive, app.placeholder]);
@@ -565,16 +576,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
         if (wv) {
-          // Try focusing immediately, then retry — the webview needs a
-          // moment after becoming visible (visibility: hidden → visible)
-          // and the sidebar click may have stolen focus.
-          wv.focus();
-          const t1 = setTimeout(() => wv.focus(), 80);
-          const t2 = setTimeout(() => wv.focus(), 250);
-          return () => {
-            clearTimeout(t1);
-            clearTimeout(t2);
-          };
+          // Focus once after the slot becomes visible. Repeated focus calls
+          // trigger focus-aware data refreshes in embedded apps.
+          const frame = requestAnimationFrame(() => {
+            if (document.activeElement !== wv) wv.focus();
+          });
+          return () => cancelAnimationFrame(frame);
         }
       }
     }, [isActive, app.placeholder, error]);
@@ -650,13 +657,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     return (
       <div
         className={`webview-slot${isActive ? " webview-slot--active" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
-        onClick={() => {
-          // Re-focus the webview when clicking the content area so
-          // keyboard shortcuts (Tab, etc.) route into the app.
-          if (isActive && !app.placeholder && !error) {
-            webviewRef.current?.focus();
-          }
-        }}
       >
         {app.placeholder && <PlaceholderScreen app={app} />}
 
