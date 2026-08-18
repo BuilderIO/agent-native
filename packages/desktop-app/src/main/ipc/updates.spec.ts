@@ -268,6 +268,8 @@ describe("desktop updates", () => {
       state: "downloaded",
       version: "1.1.0",
     });
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
     await installHandler?.();
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
   });

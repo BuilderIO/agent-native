@@ -350,6 +350,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
         ? installingUpdateForRetry
         : null;
       updateInstallInFlight = false;
+      updateQuitOwned = false;
       installingUpdateForRetry = null;
       if (retryUpdate) {
         pendingDownloadedUpdate = retryUpdate;
@@ -358,6 +359,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
           err,
         );
         broadcastUpdateStatus(retryUpdate);
+        completeDeferredQuitIfRequested();
         return;
       }
       pendingDownloadedUpdate = null;
@@ -365,6 +367,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
         state: "error",
         message: err?.message ?? String(err),
       });
+      completeDeferredQuitIfRequested();
     });
   }
 
