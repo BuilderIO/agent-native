@@ -139,6 +139,49 @@ function isRecurringCalendarEvent(event: CalendarEvent): boolean {
   return Boolean(event.recurringEventId || event.recurrence?.length);
 }
 
+function moveEventTimes({
+  start,
+  end,
+  targetDate,
+  allDay,
+  timezone,
+}: {
+  start: string;
+  end: string;
+  targetDate: Date;
+  allDay: boolean;
+  timezone: string;
+}) {
+  const originalStart = parseISO(start);
+  const originalEnd = parseISO(end);
+  const newStart = allDay
+    ? new Date(originalStart)
+    : toZonedTime(originalStart, timezone);
+  const newEnd = allDay
+    ? new Date(originalEnd)
+    : toZonedTime(originalEnd, timezone);
+
+  newStart.setFullYear(
+    targetDate.getFullYear(),
+    targetDate.getMonth(),
+    targetDate.getDate(),
+  );
+  newEnd.setFullYear(
+    targetDate.getFullYear(),
+    targetDate.getMonth(),
+    targetDate.getDate(),
+  );
+
+  return {
+    start: allDay
+      ? newStart.toISOString()
+      : fromZonedTime(newStart, timezone).toISOString(),
+    end: allDay
+      ? newEnd.toISOString()
+      : fromZonedTime(newEnd, timezone).toISOString(),
+  };
+}
+
 function updateScopePayload(scope: UpdateEventScope | undefined): {
   scope?: UpdateEventScope;
 } {
@@ -1004,52 +1047,39 @@ export default function CalendarView() {
     if (!event) return;
 
     if (calendarDraftIdFromEventId(eventId)) {
-      const originalStart = parseISO(event.start);
-      const originalEnd = parseISO(event.end);
-      const newStart = new Date(originalStart);
-      const newEnd = new Date(originalEnd);
-      newStart.setFullYear(
-        newDate.getFullYear(),
-        newDate.getMonth(),
-        newDate.getDate(),
-      );
-      newEnd.setFullYear(
-        newDate.getFullYear(),
-        newDate.getMonth(),
-        newDate.getDate(),
-      );
+      const times = moveEventTimes({
+        start: event.start,
+        end: event.end,
+        targetDate: newDate,
+        allDay: event.allDay,
+        timezone: calendarTimezone,
+      });
       updateDraftEvent(eventId, {
-        start: newStart.toISOString(),
-        end: newEnd.toISOString(),
+        start: times.start,
+        end: times.end,
       });
       return;
     }
 
     const oldStartISO = event.start;
     const oldEndISO = event.end;
-    const originalStart = parseISO(event.start);
-    const originalEnd = parseISO(event.end);
-    const newStart = new Date(originalStart);
-    const newEnd = new Date(originalEnd);
-
-    newStart.setFullYear(
-      newDate.getFullYear(),
-      newDate.getMonth(),
-      newDate.getDate(),
-    );
-    newEnd.setFullYear(
-      newDate.getFullYear(),
-      newDate.getMonth(),
-      newDate.getDate(),
-    );
+    const times = moveEventTimes({
+      start: event.start,
+      end: event.end,
+      targetDate: newDate,
+      allDay: event.allDay,
+      timezone: calendarTimezone,
+    });
+    const newStart = parseISO(times.start);
+    const newEnd = parseISO(times.end);
 
     // Guard against a zero/negative duration reaching the server (e.g. a
     // DST transition collapsing a short event's start/end onto each other).
     if (newEnd.getTime() <= newStart.getTime()) return;
 
     const updates = {
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
+      start: times.start,
+      end: times.end,
     };
     const isRecurring = isRecurringCalendarEvent(event);
     const guestNotification = await promptGuestNotification({
