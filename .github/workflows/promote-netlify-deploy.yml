@@ -35,11 +35,6 @@ on:
           - analytics
           - factory
           - fw
-      ref:
-        description: Branch to promote (use main for the latest production branch)
-        required: true
-        type: string
-        default: main
       clear_others:
         description: Cancel other sites' queued (not in-progress) production deploys to free build slots
         required: false
@@ -73,7 +68,6 @@ jobs:
           TARGET: ${{ inputs.site }}
           CLEAR_OTHERS: ${{ inputs.clear_others }}
           REBUILD: ${{ inputs.rebuild }}
-          REF: ${{ inputs.ref }}
         with:
           script: |
             const fs = require('fs');
@@ -86,11 +80,7 @@ jobs:
             }
 
             const target = process.env.TARGET;
-            const ref = process.env.REF?.trim();
-            if (!ref) {
-              core.setFailed('A Git branch is required.');
-              return;
-            }
+            const ref = 'main';
             const targets = target === 'all'
               ? Object.entries(sites)
               : [[target, sites[target]]];
