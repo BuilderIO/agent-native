@@ -214,6 +214,24 @@ describe("runAutomatedEvals deterministic scorers", () => {
     });
   });
 
+  it("error_recovery: failures + a truncated run scores 0, not the 1 it scored when truncations were stored as completed", async () => {
+    store.getTraceSummary.mockResolvedValue(
+      summary({ toolCalls: 2, successfulTools: 1, failedTools: 1 }),
+    );
+    runStore.getRunById.mockResolvedValue({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "truncated",
+      startedAt: 0,
+    });
+    const r = byCriteria(await runAutomatedEvals("run-1"));
+    expect(r.error_recovery.score).toBe(0);
+    expect(r.error_recovery.metadata).toMatchObject({
+      hadErrors: true,
+      runStatus: "truncated",
+    });
+  });
+
   it("error_recovery: failures but a completed run still scores 1 (recovered)", async () => {
     store.getTraceSummary.mockResolvedValue(
       summary({ toolCalls: 2, successfulTools: 1, failedTools: 1 }),

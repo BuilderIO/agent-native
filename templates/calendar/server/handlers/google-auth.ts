@@ -4,8 +4,9 @@ import {
   getSession,
   isElectron,
   getAppUrl,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
   resolveGoogleSignInCredentials,
-  resolveGoogleProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
@@ -49,6 +50,7 @@ type CalendarOAuthStateOptions = {
   owner?: string;
   orgId?: string;
   desktop?: boolean;
+  mobile?: boolean;
   addAccount?: boolean;
   app?: string;
   returnUrl?: string;
@@ -68,15 +70,16 @@ function getCalendarOAuthStateOrgId(
 
 async function resolveCalendarOAuthCredentials(event: H3Event) {
   const session = await getSession(event).catch(() => null);
-  const { clientId, clientSecret } = await runWithRequestContext(
+  const [credentials] = await runWithRequestContext(
     { userEmail: session?.email, orgId: session?.orgId },
-    async () => ({
-      clientId: await resolveSecret("GOOGLE_CLIENT_ID"),
-      clientSecret: await resolveSecret("GOOGLE_CLIENT_SECRET"),
-    }),
+    () =>
+      resolveGoogleProviderCredentialCandidatesWithReader({
+        readCredential: resolveSecret,
+        fallbackReadCredential: (key) => process.env[key],
+        credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+      }),
   );
-  if (clientId && clientSecret) return { clientId, clientSecret };
-  return resolveGoogleProviderCredentials();
+  return credentials ?? null;
 }
 
 function isCalendarConnectRequest(
@@ -243,6 +246,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const orgId = session?.orgId;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const credentials = calendarConnect
@@ -277,6 +281,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       owner,
       orgId,
       desktop,
+      mobile,
       addAccount: calendarConnect,
       app: OAUTH_STATE_APP_ID,
       returnUrl,
@@ -307,6 +312,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
     let desktop = false;
+    let mobile = false;
     let flowId: string | undefined;
     try {
       const query = getQuery(event);
@@ -315,6 +321,7 @@ export const handleGoogleCallback = defineEventHandler(
         getAppUrl(event, "/_agent-native/google/callback"),
       );
       desktop = state.desktop ?? false;
+      mobile = state.mobile ?? false;
       flowId = state.flowId;
 
       const googleError = query.error as string | undefined;
@@ -356,6 +363,7 @@ export const handleGoogleCallback = defineEventHandler(
           {
             hasProductionSession,
             desktop,
+            ...(mobile ? { mobile: true } : {}),
             trackSignup: {
               authProvider: "google",
               authUserId: identity.id,
@@ -371,6 +379,7 @@ export const handleGoogleCallback = defineEventHandler(
         return oauthCallbackResponse(event, identity.email, {
           sessionToken,
           desktop,
+          mobile,
           returnUrl,
           flowId,
           appName: "Calendar",
@@ -396,11 +405,14 @@ export const handleGoogleCallback = defineEventHandler(
         addAccount || (owner !== undefined && email !== owner);
       const sessionOwner = isAddAccount ? (owner ?? email) : email;
       const shouldCreateSession =
-        !isAddAccount || (desktop && flowId && sessionOwner);
+        !isAddAccount ||
+        (desktop && flowId && sessionOwner) ||
+        (mobile && sessionOwner);
       const { sessionToken } = shouldCreateSession
         ? await createOAuthSession(event, sessionOwner, {
             hasProductionSession,
             desktop,
+            ...(mobile ? { mobile: true } : {}),
           })
         : { sessionToken: undefined };
 
@@ -412,6 +424,7 @@ export const handleGoogleCallback = defineEventHandler(
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
+        mobile,
         addAccount: isAddAccount,
         flowId,
         appName: "Calendar",
@@ -432,6 +445,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     const q = getQuery(event);
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
     if (!(await resolveCalendarOAuthCredentials(event))) {
       return missingCredentialsResponse(
@@ -454,6 +468,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         owner: session.email,
         orgId: session.orgId,
         desktop,
+        mobile,
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
@@ -479,6 +494,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
 export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
     let desktop = false;
+    let mobile = false;
     let flowId: string | undefined;
     try {
       const session = await getSession(event);
@@ -488,6 +504,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
       desktop = state.desktop ?? false;
+      mobile = state.mobile ?? false;
       flowId = state.flowId;
 
       const googleError = query.error as string | undefined;
@@ -528,10 +545,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         session?.orgId ?? stateOrgId,
       );
       const { sessionToken } =
-        desktop && flowId
+        (desktop && flowId) || mobile
           ? await createOAuthSession(event, ownerEmail, {
               hasProductionSession: !!session?.email,
               desktop,
+              ...(mobile ? { mobile: true } : {}),
             })
           : { sessionToken: undefined };
 
@@ -542,6 +560,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       return oauthCallbackResponse(event, addedEmail, {
         sessionToken,
         desktop,
+        mobile,
         addAccount: true,
         flowId,
         appName: "Calendar",

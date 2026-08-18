@@ -14,7 +14,7 @@ Agent Teams는 핵심 실행 관리자에서 실행됩니다. 이벤트 스트�
 ## 정신 모델 {#mental-model}
 
 - **기본 채팅** — 오케스트레이터. 귀하의 요청을 읽으십시오, 대표자. 무거운 일 자체를 하는 경우는 거의 없습니다.
-- **하위 에이전트** — 자체 스레드, 자체 시스템 프롬프트, 자체 도구 세트를 사용하여 실행됩니다. 각각은 [workspace](/docs/workspace)의 "사용자 지정 에이전트" 프로필에 매핑됩니다.
+- **하위 에이전트** — 자체 스레드, 자체 시스템 프롬프트, 자체 도구 세트를 사용하여 실행됩니다. 각각은 [에이전트 리소스](/docs/agent-resources)의 "사용자 지정 에이전트" 프로필에 매핑됩니다.
 - **칩** — 기본 채팅에 인라인으로 표시되는 풍부한 미리보기 카드로 하위 에이전트의 현재 단계, 스트리밍 출력 및 최종 요약을 보여줍니다. 기본적으로 축소되어 있습니다. 클릭하면 전체 대화로 확장됩니다.
 - **양방향 메시징** — 주 에이전트는 실행 중인 하위 에이전트에게 후속 조치를 보낼 수 있습니다. 하위 에이전트는 모호한 지점에 도달하면 메시지를 다시 보낼 수 있습니다.
 
@@ -105,7 +105,7 @@ Agent Teams는 핵심 실행 관리자에서 실행됩니다. 이벤트 스트�
 
 사용자가 채팅 작성기에 `@agent-name`를 입력합니다. 작업 영역 하위 에이전트 드롭다운이 나타납니다. 하나를 선택하면 칩이 삽입됩니다. 제출 시 주 에이전트는 해당 하위 에이전트에게 메시지를 위임합니다.
 
-사용자 정의 에이전트는 YAML 머리말이 포함된 Markdown 파일인 `agents/<slug>.md`의 작업 공간에 있습니다. 형식은 [Custom Agents](/docs/workspace#custom-agents)를 참조하세요.
+사용자 정의 에이전트는 YAML 머리말이 포함된 Markdown 파일인 `agents/<slug>.md`의 작업 공간에 있습니다. 형식은 [Custom Agents](/docs/agent-resources#custom-agents)를 참조하세요.
 
 ### 2. 주 대리인이 자동으로 위임 {#auto-delegate}
 
@@ -247,7 +247,7 @@ interface AgentTask {
 
 ## 맞춤형 에이전트 프로필 {#profiles}
 
-하위 에이전트는 사용자 지정 에이전트 프로필(`@mention` 드롭다운에 표시되고 위임 대상 역할을 하는 작업 공간의 `agents/<slug>.md`에 있는 Markdown 파일)에 매핑됩니다. [Workspace — Custom Agents](/docs/workspace#custom-agents)는 전체 형식(머리말, `tools`, `delegate-default`, 모델 재정의)을 소유하고 있습니다.
+하위 에이전트는 사용자 지정 에이전트 프로필(`@mention` 드롭다운에 표시되고 위임 대상 역할을 하는 작업 공간의 `agents/<slug>.md`에 있는 Markdown 파일)에 매핑됩니다. [에이전트 리소스 — Custom Agents](/docs/agent-resources#custom-agents)는 전체 형식(머리말, `tools`, `delegate-default`, 모델 재정의)을 소유하고 있습니다.
 
 ## 대표단 깊이 가드 {#depth-guard}
 
@@ -326,6 +326,6 @@ AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # 하위 대리인은 허용되지만 하위
 
 ## 다음 단계
 
-- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — 프로필 형식
+- [**에이전트 리소스 — Custom Agents**](/docs/agent-resources#custom-agents) — 프로필 형식
 - [**A2A Protocol**](/docs/a2a-protocol) — when the "sub-agent" lives in a different app entirely
-- [**Actions**](/docs/actions) — 하위 에이전트가 호출하는 도구
+- [**Actions**](/docs/actions-overview) — 하위 에이전트가 호출하는 도구

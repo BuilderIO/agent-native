@@ -1,4 +1,6 @@
-import { callAction, useSession, useT } from "@agent-native/core/client";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -128,11 +130,11 @@ export default function InviteAcceptRoute() {
               {t("inviteRoute.signInDescription")}
             </p>
             <Button
-              onClick={() =>
-                navigate(
-                  `/login?next=${encodeURIComponent(`/invite/${token}`)}`,
-                )
-              }
+              onClick={() => {
+                window.location.href = buildSignInReturnHref({
+                  returnTo: `/invite/${token}`,
+                });
+              }}
               className="bg-primary hover:bg-primary/90"
             >
               {t("inviteRoute.signIn")}

@@ -23,14 +23,17 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
-const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayCredentials = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
-vi.mock("./credential-provider.js", () => ({
+// Real `gatewayLaneUnavailableMessage`: which audience the setup-required copy
+// is written for is under test here, so that decision must not be stubbed.
+vi.mock("./credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
-  resolveBuilderCredentials: (...args: unknown[]) =>
-    resolveBuilderCredentials(...args),
+  resolveBuilderGatewayCredentials: (...args: unknown[]) =>
+    resolveBuilderGatewayCredentials(...args),
   getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
@@ -55,6 +58,7 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
 }));
 
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
@@ -73,6 +77,36 @@ import {
   resolveRealtimeVoiceReasoningEffort,
   resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
+
+/**
+ * The deploy-lane predicate treats any of these as "preview/hosted workspace",
+ * which turns the visitor path off, so they are cleared around visitor
+ * assertions and restored for the owner assertions that follow.
+ */
+const FUSION_RUNTIME_FLAGS = [
+  "FUSION_ENVIRONMENT",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+] as const;
+
+function clearFusionRuntimeFlags(): Record<string, string | undefined> {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    previous[key] = process.env[key];
+    delete process.env[key];
+  }
+  return previous;
+}
+
+function restoreFusionRuntimeFlags(
+  previous: Record<string, string | undefined>,
+): void {
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    const value = previous[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 type Handler = (event: ReturnType<typeof fakeEvent>) => Promise<unknown>;
 
@@ -220,7 +254,7 @@ async function issueToolCapability(
   const event = sessionEvent(undefined, headers);
   await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
   const capability = event.responseHeaders[REALTIME_VOICE_CAPABILITY_HEADER];
-  expect(capability).toMatch(/^[a-f0-9]{32}$/);
+  expect(capability).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   return capability;
 }
 
@@ -229,6 +263,13 @@ function withToolCapability(
   headers: Record<string, string> = {},
 ): Record<string, string> {
   return { ...headers, [REALTIME_VOICE_CAPABILITY_HEADER]: capability };
+}
+
+/** Mirrors the browser client, which adopts the re-issued capability whenever
+ * a tool search widens the manifest. */
+function adoptCapability(current: string, result: unknown): string {
+  const next = (result as { capability?: unknown } | null)?.capability;
+  return typeof next === "string" ? next : current;
 }
 
 beforeEach(() => {
@@ -240,7 +281,7 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
-  resolveBuilderCredentials.mockResolvedValue({
+  resolveBuilderGatewayCredentials.mockResolvedValue({
     privateKey: null,
     publicKey: null,
     userId: null,
@@ -321,7 +362,7 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(403);
     expect(getSession).not.toHaveBeenCalled();
-    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(resolveBuilderGatewayCredentials).not.toHaveBeenCalled();
     expect(resolveSecret).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
@@ -363,7 +404,7 @@ describe("realtime voice inline preferences", () => {
 
 describe("realtime voice session route", () => {
   it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -395,6 +436,11 @@ describe("realtime voice session route", () => {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "chat-history",
+        description: "Search previous conversations",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
         name: "tool-search",
         description: "Discover tools",
         inputSchema: { type: "object", properties: {} },
@@ -412,20 +458,21 @@ describe("realtime voice session route", () => {
     const request = JSON.parse(String(init.body));
     expect(
       request.session.tools
-        .slice(0, 5)
+        .slice(0, 6)
         .map((tool: { name: string }) => tool.name),
     ).toEqual([
       "navigate",
       "set-url-path",
       "set-search-params",
       "view-screen",
+      "chat-history",
       "tool-search",
     ]);
     expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
   });
 
   it("caps tools to the Builder realtime gateway contract", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -456,7 +503,7 @@ describe("realtime voice session route", () => {
   });
 
   it("packs tools within the Builder realtime session byte budget", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -492,7 +539,7 @@ describe("realtime voice session route", () => {
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -600,8 +647,9 @@ describe("realtime voice session route", () => {
     expect(event.responseHeaders).toMatchObject({
       "Content-Type": "application/sdp",
       "Cache-Control": "no-store",
-      [REALTIME_VOICE_CAPABILITY_HEADER]:
-        expect.stringMatching(/^[a-f0-9]{32}$/),
+      [REALTIME_VOICE_CAPABILITY_HEADER]: expect.stringMatching(
+        /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/,
+      ),
     });
     expect(resolveSecret).toHaveBeenCalledWith("OPENAI_API_KEY");
     expect(getInstructions).toHaveBeenCalledWith(
@@ -643,7 +691,7 @@ describe("realtime voice session route", () => {
           },
           turn_detection: {
             type: "semantic_vad",
-            create_response: true,
+            create_response: false,
             interrupt_response: true,
           },
         },
@@ -662,6 +710,8 @@ describe("realtime voice session route", () => {
     expect(realtimeSession.instructions).toContain(
       "The current view is the calendar.",
     );
+    expect(realtimeSession.instructions).toContain("chat-history");
+    expect(realtimeSession.instructions).toContain("finish or correct");
   });
 
   it("never returns the API key on missing/upstream failures", async () => {
@@ -697,8 +747,40 @@ describe("realtime voice session route", () => {
     });
   });
 
+  it("answers a credits-site visitor with the one line, and its owner with the fix", async () => {
+    const { handlers } = mount();
+    resolveSecret.mockResolvedValue(null);
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
+    // runtime, so an inherited flag would take the owner path and let the visitor
+    // assertions below pass against the wrong branch. Restored in the `finally`
+    // so the owner pass that follows still runs in the inherited runtime.
+    const fusionFlags = clearFusionRuntimeFlags();
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({
+        error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        code: "realtime_voice_setup_required",
+      });
+      expect(visitorEvent.statusCode).toBe(409);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("OpenAI API key");
+  });
+
   it("uses Builder managed realtime automatically when connected", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -747,8 +829,65 @@ describe("realtime voice session route", () => {
     });
   });
 
+  // The pre-flight gate above only fires when nothing resolves. On a credits
+  // deployment the injected pair does resolve, so what a visitor actually
+  // reaches is the gateway's own rejection — which used to arrive verbatim,
+  // status code and upstream sentence included.
+  it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
+    resolveBuilderGatewayCredentials.mockResolvedValue({
+      privateKey: "btk-site-token",
+      publicKey: "space-public-test",
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      // A fresh Response per call: both passes below read the body, and a shared
+      // instance would leave the second one with an already-consumed stream.
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: "credits exhausted",
+                code: "credits-limit-reached",
+              },
+            }),
+            {
+              status: 402,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      ),
+    );
+    const { handlers } = mount();
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
+    // runtime, so an inherited flag would take the owner path and let the visitor
+    // assertions below pass against the wrong branch. Restored in the `finally`
+    // so the owner pass that follows still runs in the inherited runtime.
+    const fusionFlags = clearFusionRuntimeFlags();
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({ error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+      expect(visitorEvent.statusCode).toBe(402);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("rejected the realtime session (402)");
+    expect(ownerResult.error).toContain("credits exhausted");
+  });
+
   it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -778,7 +917,7 @@ describe("realtime voice session route", () => {
 
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -859,7 +998,7 @@ describe("realtime voice tool route", () => {
     });
     const { handlers } = mount({ actions, executeTool });
     const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
-    const capability = await issueToolCapability(handlers);
+    let capability = await issueToolCapability(handlers);
 
     const beforeSearch = toolEvent(
       {
@@ -884,7 +1023,8 @@ describe("realtime voice tool route", () => {
       },
       withToolCapability(capability),
     );
-    expect(await handler(search)).toEqual({
+    const searchResult = await handler(search);
+    expect(searchResult).toEqual({
       callId: "call_search",
       status: "completed",
       output: JSON.stringify({
@@ -899,7 +1039,9 @@ describe("realtime voice tool route", () => {
           parameters: actions["rare-action"]!.tool.parameters,
         },
       ],
+      capability: expect.any(String),
     });
+    capability = adoptCapability(capability, searchResult);
 
     const discovered = toolEvent(
       {
@@ -994,7 +1136,7 @@ describe("realtime voice tool route", () => {
     }
   });
 
-  it("keeps an actively used capability alive with sliding expiration", async () => {
+  it("keeps a discovered tool callable for the rest of a long voice session", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"));
     try {
@@ -1008,40 +1150,28 @@ describe("realtime voice tool route", () => {
       }));
       const { handlers } = mount({ actions, executeTool });
       const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
-      const capability = await issueToolCapability(handlers);
-      const headers = withToolCapability(capability);
+      let capability = await issueToolCapability(handlers);
 
-      await handler(
-        toolEvent(
-          {
-            name: "tool-search",
-            args: { query: "rare" },
-            callId: "call_search_sliding",
-          },
-          headers,
+      capability = adoptCapability(
+        capability,
+        await handler(
+          toolEvent(
+            {
+              name: "tool-search",
+              args: { query: "rare" },
+              callId: "call_search_long",
+            },
+            withToolCapability(capability),
+          ),
         ),
       );
 
-      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS - 1);
-      expect(
-        await handler(
-          toolEvent(
-            { name: "rare-action", args: {}, callId: "call_refresh" },
-            headers,
-          ),
-        ),
-      ).toEqual({
-        callId: "call_refresh",
-        status: "completed",
-        output: "done",
-      });
-
-      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS - 1);
+      vi.advanceTimersByTime(60 * 60 * 1_000);
       expect(
         await handler(
           toolEvent(
             { name: "rare-action", args: {}, callId: "call_still_live" },
-            headers,
+            withToolCapability(capability),
           ),
         ),
       ).toEqual({
@@ -1052,6 +1182,28 @@ describe("realtime voice tool route", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("verifies a capability minted by a different server instance", async () => {
+    const executeTool = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "done",
+    }));
+    const minting = mount({ executeTool });
+    const serving = mount({ executeTool });
+    const capability = await issueToolCapability(minting.handlers);
+
+    const event = toolEvent(
+      { name: "navigate", args: {}, callId: "call_cross_instance" },
+      withToolCapability(capability),
+    );
+    expect(
+      await serving.handlers.get(REALTIME_VOICE_TOOL_PATH)!(event),
+    ).toEqual({
+      callId: "call_cross_instance",
+      status: "completed",
+      output: "done",
+    });
   });
 
   it("retains bounded discoveries across sequential specific searches", async () => {
@@ -1069,20 +1221,23 @@ describe("realtime voice tool route", () => {
     });
     const { handlers } = mount({ actions, executeTool });
     const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
-    const capability = await issueToolCapability(handlers);
+    let capability = await issueToolCapability(handlers);
 
     for (const [query, callId] of [
       ["first", "search_first"],
       ["second", "search_second"],
     ] as const) {
-      await handler(
-        toolEvent(
-          {
-            name: "tool-search",
-            args: { query },
-            callId,
-          },
-          withToolCapability(capability),
+      capability = adoptCapability(
+        capability,
+        await handler(
+          toolEvent(
+            {
+              name: "tool-search",
+              args: { query },
+              callId,
+            },
+            withToolCapability(capability),
+          ),
         ),
       );
     }

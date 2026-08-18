@@ -27,6 +27,9 @@ describe("buildExtensionHtml", () => {
     expect(EXTENSION_IFRAME_CSP).not.toContain("frame-ancestors *");
     expect(EXTENSION_FRAME_ANCESTORS).toContain("https://*.agent-native.com");
     expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://agent-workspace.builder.io",
+    );
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
       "https://*.claudemcpcontent.com",
     );
     expect(EXTENSION_FRAME_ANCESTORS).toContain(
@@ -72,6 +75,21 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("_appendActionQuery(path, params)");
   });
 
+  it("hides x-cloak content until Alpine boots", () => {
+    // Extension content is a body snippet, so it cannot supply this rule
+    // itself. Without it an `x-cloak` overlay covers the whole extension
+    // until the deferred Alpine CDN script resolves — and forever if it
+    // never does.
+    const html = buildExtensionHtml(
+      '<div x-cloak class="fixed inset-0">Alerts</div>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("[x-cloak] { display: none !important; }");
+  });
+
   it("routes extension navigate calls through the app-state command endpoint", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 
@@ -80,11 +98,29 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("method: 'PUT'");
   });
 
+  it("exposes server-side connector helpers without copying credentials into the iframe", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("var mcp = {");
+    expect(html).toContain("appAction('list-mcp-tools', params)");
+    expect(html).toContain("appAction('call-mcp-tool'");
+    expect(html).toContain("var providerApi = {");
+    expect(html).toContain("appAction('provider-api-catalog'");
+    expect(html).not.toContain("appAction('provider-api-request'");
+    expect(html).not.toContain("request: function(params)");
+    expect(html).toContain("mcp: mcp");
+    expect(html).toContain("providerApi: providerApi");
+    expect(html).not.toContain("accessToken");
+    expect(html).not.toContain("clientSecret");
+  });
+
   it("exposes a chat bridge helper to extension code", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 
     expect(html).toContain("function sendToChat(message, options)");
     expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("submit: options.submit === true");
+    expect(html).not.toContain("submit: options.submit !== false");
     expect(html).toContain("sendToChat: sendToChat");
     expect(html).toContain("send: sendToChat");
     expect(html).toContain("window.sendToAgentChat = sendToChat");
@@ -141,6 +177,8 @@ describe("buildExtensionHtml", () => {
     // Refuse the old unpinned-major form.
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
+    expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
+    expect(html).toContain("recordCrossOriginIframes: true");
   });
 
   it("adds default canvas padding with a full-bleed escape hatch", () => {
@@ -196,6 +234,22 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
       for (const sandbox of sandboxMatches) {
         expect(sandbox).not.toContain("allow-same-origin");
       }
+    });
+  }
+});
+
+describe("extension chat submission policy (CI guard)", () => {
+  const HOST_SUBMISSION_GUARDS = [
+    ["ExtensionViewer.tsx", "submit: message.submit === true"],
+    ["EmbeddedExtension.tsx", "submit: (message as any).submit === true"],
+    ["InlineExtensionFrame.tsx", "submit: (message as any).submit === true"],
+  ] as const;
+
+  for (const [file, guard] of HOST_SUBMISSION_GUARDS) {
+    it(`${file} requires explicit submission opt-in`, () => {
+      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      expect(text).toContain(guard);
+      expect(text).not.toContain(guard.replace("=== true", "!== false"));
     });
   }
 });

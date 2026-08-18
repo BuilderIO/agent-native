@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  dataSourceOAuthReturnPath,
+  focusedDataSourceFromSearchParams,
   getConfiguredDataSources,
   isSourceConfigured,
   isSourceLocallyConfigured,
   isSourceReady,
+  shouldOfferWorkspaceOAuthReconnect,
+  shouldShowWorkspaceOAuthAdminNotice,
+  shouldShowWorkspaceOAuthSetup,
   type DataSourceStatusResponse,
   type EnvKeyStatus,
 } from "./data-source-status";
@@ -156,5 +161,145 @@ describe("data source status", () => {
     expect(isSourceReady(hubspot!, status, envStatus)).toBe(true);
     expect(isSourceLocallyConfigured(hubspot!, status, envStatus)).toBe(false);
     expect(getConfiguredDataSources(envStatus, status)).toContain(hubspot);
+  });
+
+  it("offers shared HubSpot OAuth for setup and grants, but not when ready or local", () => {
+    const hubspot = dataSources.find((source) => source.id === "hubspot")!;
+
+    expect(
+      shouldShowWorkspaceOAuthSetup(
+        hubspot,
+        {
+          kind: "ready",
+          label: "Ready via workspace",
+          providerId: "hubspot",
+          providerLabel: "HubSpot",
+        },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowWorkspaceOAuthSetup(
+        hubspot,
+        {
+          kind: "needs_credentials",
+          label: "Not connected",
+          providerId: "hubspot",
+          providerLabel: "HubSpot",
+        },
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowWorkspaceOAuthSetup(
+        hubspot,
+        {
+          kind: "needs_credentials",
+          label: "Not connected",
+          providerId: "hubspot",
+          providerLabel: "HubSpot",
+        },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      shouldShowWorkspaceOAuthSetup(
+        hubspot,
+        {
+          kind: "needs_grant",
+          label: "Available in workspace",
+          providerId: "hubspot",
+          providerLabel: "HubSpot",
+        },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      shouldShowWorkspaceOAuthSetup(
+        hubspot,
+        {
+          kind: "local_credentials",
+          label: "Configured in this app",
+          providerId: "hubspot",
+          providerLabel: "HubSpot",
+        },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("explains org-managed HubSpot setup to members instead of silently hiding it", () => {
+    const hubspot = dataSources.find((source) => source.id === "hubspot")!;
+
+    expect(shouldShowWorkspaceOAuthAdminNotice(hubspot, false, false)).toBe(
+      true,
+    );
+    expect(shouldShowWorkspaceOAuthAdminNotice(hubspot, true, false)).toBe(
+      false,
+    );
+    expect(shouldShowWorkspaceOAuthAdminNotice(hubspot, false, true)).toBe(
+      false,
+    );
+    expect(
+      shouldShowWorkspaceOAuthAdminNotice(hubspot, false, false, false, true),
+    ).toBe(false);
+    expect(
+      shouldShowWorkspaceOAuthAdminNotice(hubspot, false, false, true, false),
+    ).toBe(false);
+  });
+
+  it("offers OAuth recovery to admins only after a ready connection fails testing", () => {
+    const hubspot = dataSources.find((source) => source.id === "hubspot")!;
+    const readyStatus = {
+      kind: "ready" as const,
+      label: "Ready via workspace",
+      providerId: "hubspot",
+      providerLabel: "HubSpot",
+    };
+
+    expect(
+      shouldOfferWorkspaceOAuthReconnect(hubspot, readyStatus, true, true),
+    ).toBe(true);
+    expect(
+      shouldOfferWorkspaceOAuthReconnect(hubspot, readyStatus, true, false),
+    ).toBe(false);
+    expect(
+      shouldOfferWorkspaceOAuthReconnect(hubspot, readyStatus, false, true),
+    ).toBe(false);
+  });
+
+  it("focuses a provider-specific setup link and preserves the Ask return", () => {
+    const resolution = focusedDataSourceFromSearchParams(
+      new URLSearchParams("source=HubSpot&returnTo=ask"),
+    );
+    expect(resolution.status).toBe("found");
+    const focused =
+      resolution.status === "found" ? resolution.source : undefined;
+
+    expect(focused?.id).toBe("hubspot");
+    expect(dataSourceOAuthReturnPath(focused, true)).toBe(
+      "/data-sources?source=hubspot&returnTo=ask",
+    );
+    expect(dataSourceOAuthReturnPath(undefined, false)).toBe("/data-sources");
+  });
+
+  it("focuses legacy PostgreSQL links and preserves unknown source ids without throwing", () => {
+    expect(
+      focusedDataSourceFromSearchParams(new URLSearchParams("source=postgres")),
+    ).toMatchObject({
+      status: "found",
+      source: { id: "postgresql" },
+    });
+    expect(
+      focusedDataSourceFromSearchParams(
+        new URLSearchParams("source=not-a-real-source"),
+      ),
+    ).toEqual({
+      status: "unknown",
+      requestedId: "not-a-real-source",
+    });
+    expect(focusedDataSourceFromSearchParams(new URLSearchParams())).toEqual({
+      status: "none",
+    });
   });
 });

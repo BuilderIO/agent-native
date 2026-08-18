@@ -95,8 +95,8 @@ describe("AgentConversationMessageView", () => {
     expect(container.textContent).not.toContain("generate-design");
   });
 
-  it("renders native inline extension tool UI", () => {
-    act(() => {
+  it("renders native inline extension tool UI", async () => {
+    await act(async () => {
       root.render(
         <AgentConversationMessageView
           message={{
@@ -127,12 +127,19 @@ describe("AgentConversationMessageView", () => {
         />,
       );
     });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
 
     expect(
       container.querySelector('[data-testid="conversation-inline-extension"]'),
     ).toBeTruthy();
     expect(container.textContent).toContain("Knobs");
     expect(container.textContent).not.toContain("render inline extension");
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("my-3");
+    expect(surface?.className).toContain("border");
   });
 
   it("opens markdown links in a new external window", () => {

@@ -6,6 +6,14 @@ search: "generative UI inline extension render-inline-extension create-extension
 
 # Generative UI
 
+<Callout tone="info">
+
+**Developer page.** This page is for developers building agent-generated inline UI. For the end-user experience of chat, see [Using Your Agent](/docs/using-your-agent).
+
+</Callout>
+
+Ask for something like "give me sliders to tune these thresholds" or "let me pick from these options," and the agent writes and renders that control directly inside the chat transcript — no page reload, no separate app.
+
 Generative UI is the chat-native path for interactive surfaces the agent creates
 at runtime. Instead of replying with only prose or a static table, the agent can
 render a sandboxed Alpine.js/Tailwind mini-app directly inside the transcript:
@@ -214,12 +222,17 @@ Generated UI can send a visible prompt or result back into the current app chat:
 `agentNative.chat.send(message, options)` is also available as
 `sendToAgentChat(message, options)`.
 
+For generated extensions, chat messages are draft-only unless `submit: true` is
+passed explicitly. Use that opt-in only from a user-triggered Apply or Submit
+action. Do not call either helper from polling, refresh, or error handlers; use
+`agentNative.ui.output` or application state for passive results.
+
 Options:
 
 | Option        | Default | Effect                                           |
 | ------------- | ------- | ------------------------------------------------ |
 | `context`     | none    | hidden context appended to the submitted message |
-| `submit`      | `true`  | `false` pre-fills/reviews instead of auto-submit |
+| `submit`      | `false` | `true` auto-submits; `false` pre-fills/reviews   |
 | `openSidebar` | `true`  | opens the agent sidebar when the message is sent |
 
 This is the same app chat bridge used by normal UI components, so generated
@@ -262,4 +275,4 @@ template actions that resolve credentials server-side.
 - [Native Chat UI](/docs/native-chat-ui) — typed first-party React widgets for
   action results.
 - [MCP Apps](/docs/mcp-apps) — inline app routes in external MCP hosts.
-- [Actions](/docs/actions) — the app/API surface generated UI should call.
+- [Actions](/docs/actions-overview) — the app/API surface generated UI should call.

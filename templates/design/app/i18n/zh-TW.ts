@@ -1,15 +1,20 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 import {
   attachLocalizedKeyboardShortcuts,
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { responsiveInteractOverrides } from "../i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",
     commandAppearance: "外觀",
+    openAgent: "開啟代理",
     toggleTheme: "切換主題",
   },
   navigation: {
@@ -18,16 +23,16 @@ const messages = {
     templates: "範本",
     designSystems: "設計系統",
     setupDesignSystem: "設定設計系統",
+    agent: "代理",
     settings: "設定",
     openNavigation: "開啟導覽",
     expandSidebar: "展開側邊欄",
     collapseSidebar: "收起側邊欄",
   },
   settings: {
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     languageTitle: "語言",
     languageDescription: "選取 Design 的介面語言。",
     languageLabel: "介面語言",
@@ -40,6 +45,58 @@ const messages = {
     notFoundSignIn: "登入",
     notFoundBackToDesigns: "返回設計",
     teamCreateOrgDescription: "設定團隊，與同事共用設計。",
+  },
+  review: {
+    comments: "評論",
+    commentsTab: "評論 · {{count}}",
+    commentsTitle: "審閱評論",
+    commentNumber: "審閱評論 {{count}}",
+    thisScreen: "目前畫面",
+    allScreens: "所有畫面",
+    signInToComment: "登入後評論",
+    panelTitle: "意見回饋",
+    placeholder: "留下意見…",
+    commentingOn: "正在評論 {{name}}",
+    emptyState: "目前沒有審閱評論。",
+    clickToPin: "點選任意位置以固定意見",
+    escToExit: "按 Esc 退出",
+    newComment: "新增評論",
+    commentMode: "評論",
+    sendToAgent: "傳送給代理",
+    sendingToAgent: "正在傳送給代理…",
+    enterToPost: "按 Enter 發布 · 按 Shift Enter 換行",
+    post: "發布",
+    posting: "正在發布…",
+    postFailed: "無法發布這則評論",
+    loading: "正在載入評論",
+    replyPlaceholder: "回覆此討論串…",
+    reply: "回覆",
+    cancelReply: "取消回覆",
+    replyFailed: "無法發布這則回覆",
+    resolve: "解決",
+    resolving: "正在解決…",
+    resolveFailed: "無法解決此討論串",
+    deleteComment: "刪除評論",
+    moreActions: "更多操作",
+    resolved: "已解決",
+    reviewer: "審閱者",
+    applyFeedback: "套用意見 ({{count}})",
+    applyingFeedback: "正在套用意見…",
+    applyFeedbackFailed: "無法套用審閱意見",
+    sendToAgentFailed: "無法將此討論串傳送給代理",
+    shareLinkDescription:
+      "任何取得此連結的人都能檢視設計。已登入的審閱者可以評論。",
+    presentComments: "評論",
+    presentCommentMode: "評論模式",
+    closeComments: "關閉評論",
+    status: {
+      draft: "草稿",
+      in_review: "審閱中",
+      approved: "已核准",
+      changes_requested: "已要求變更",
+      change: "變更審閱狀態",
+      saveFailed: "無法更新審閱狀態",
+    },
   },
   chat: {
     emptyState: "描述要建立的設計",
@@ -79,7 +136,8 @@ const messages = {
     pageHelpDescription:
       "編輯您選取的任何版式、間距、大小、邊框和填充。頁面預設如下。",
     sections: {
-      page: "頁面",
+      page: "畫面",
+      canvas: "畫布",
       typography: "版式",
       flexLayout: "彈性布局",
       autoLayout: "自動布局",
@@ -134,6 +192,9 @@ const messages = {
       shadow: "陰影",
       filter: "濾鏡",
       addLayer: "新增圖層",
+      addFill: "新增填色",
+      addStroke: "新增外框",
+      addEffect: "新增效果",
       removeLayer: "移除圖層",
       showLayer: "顯示圖層",
       hideLayer: "隱藏圖層",
@@ -352,8 +413,13 @@ const messages = {
       dotted: "點線",
       double: "雙線",
     },
+    exportPreview: {
+      rendering: "正在產生預覽…",
+      failed: "無法產生預覽",
+    },
     framePresets: {
       title: "外框",
+      applyToFrame: "調整為預設尺寸",
       categories: {
         phone: "手機",
         tablet: "平板",
@@ -368,7 +434,42 @@ const messages = {
   },
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
+    ...responsiveInteractOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
+    commenterRoleLabel: "評論者",
+    commenterRoleDescription: "可以檢視並新增審閱評論",
+    nodeRewrite: {
+      composerTitle: "詢問或變更所選內容",
+      send: "傳送",
+      autoHint: "描述變更或提出問題",
+      willPreview: "將顯示變更預覽供你確認",
+      willAsk: "將在不變更設計的情況下詢問代理",
+      modeAuto: "自動",
+      modePreview: "預覽變更",
+      modeAsk: "詢問代理",
+      modeRegenerate: "重新生成",
+      agentModeOptions: "選擇代理行為",
+      pendingReview: "檢視變更 · {{count}}",
+      pendingReviewMenu: "待檢視的變更",
+      reviewCandidate: "檢視變更",
+      regenerate: "重新生成…",
+      sending: "正在重新生成…",
+      sent: "已傳送重新生成要求",
+      sendFailed: "無法傳送重新生成要求",
+      previewTitle: "已重新生成所選內容",
+      variants: "重新生成方案",
+      variantNumber: "方案 {{count}}：{{summary}}",
+      candidatePosition: "第 {{current}} 個，共 {{total}} 個",
+      previousCandidate: "上一個結果",
+      nextCandidate: "下一個結果",
+      refinePlaceholder: "繼續調整此結果…",
+      refine: "調整結果",
+      refinementSent: "已傳送調整要求",
+      refinementFailed: "無法傳送調整要求",
+      accept: "接受",
+      reject: "拒絕",
+      resolveFailed: "無法處理此提案",
+    },
     autoLayoutSuggestion: {
       menuLabel: "建議自動版面配置…",
       title: "建議自動版面配置",
@@ -568,12 +669,51 @@ const messages = {
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
       figmaPasteRestLabel: "透過 Figma API 匯入",
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
+      figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
+      figmaPasteImagesNeedToken:
+        "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+      figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
+      figmaHydrationDialogDescription:
+        "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
+      figmaHydrationConnectAndLoad: "連結並載入圖片",
+      figmaHydrationSuccess: "圖片載入成功",
+      figmaHydrationSuccessDescription:
+        "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
+      figmaHydrationRecommended: "Recommended",
+      figmaHydrationFigTitle: "Have the original .fig file?",
+      figmaHydrationFigOption:
+        "Fastest — pulls every image straight from the file. No token, no rate limits.",
+      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationOrToken: "Or fetch from Figma",
+      figmaHydrationTokenDescription:
+        'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
+      figmaHydrationRateLimit:
+        "Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.",
+      figmaHydrationFigSuccessDescription:
+        "{{count}} image{{plural}} filled in from the .fig file.",
+      figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
+      figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
+        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
+      figUploadDescriptionShort:
+        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
+      figmaPasteBodyUnlimited:
+        "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
+      figmaPasteBodyImages:
+        "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      rateLimitTitle: "Figma 已暫停此匯入",
+      rateLimitLowSeat:
+        "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
+      rateLimitGeneric: "Figma 對此匯入進行了速率限制。配額將自動重設。",
+      rateLimitRetryIn: "請在 {{time}} 後重試。",
+      rateLimitAlternatives: "無配額替代方案：",
+      rateLimitUsePaste: "從 Figma 貼上 — 無限制",
+      rateLimitUseFig: "上傳 .fig — 無限制",
+      rateLimitUpgrade: "查看 Figma 方案選項 →",
       htmlTitle: "匯入 HTML",
       htmlDescription:
         "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -601,7 +741,8 @@ const messages = {
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
-        figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
+        figFileTooLarge:
+          "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
       },
     },
     generationMayHaveStopped:
@@ -631,6 +772,7 @@ const messages = {
     tools: {
       move: "移動",
       frame: "畫框",
+      screen: "畫面",
       rect: "矩形",
       line: "線條",
       arrow: "箭頭",
@@ -739,6 +881,12 @@ const messages = {
       rollback: "回復",
       keep: "保留",
       selectorMissing: "選取的元素已不在此畫面中。",
+      clientRenderedShell:
+        "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
+      snapshotNotLoaded:
+        "此畫面的原始碼尚未載入，因此未寫入此編輯。請等待畫面完成載入後再試一次。",
+      selectorAmbiguous:
+        "此元素是原始碼中 {{count}} 個相同實例之一，因此未寫入此變更。請要求代理將範圍限定至此實例。",
       status: {
         runtime: "已套用即時樣式",
         queued: "正在寫入來源補丁",
@@ -748,16 +896,18 @@ const messages = {
       },
     },
     pendingVisualStyles: {
-      applyAria: "套用待處理的視覺樣式編輯",
+      applyAria: "套用設計更新",
       applyButton: "套用樣式",
       previewLabel: "待處理的視覺預覽",
-      applyWithAgent: "用 Design 代理套用",
+      applyDesignUpdates: "套用設計更新",
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
+      agentHandoffFailedToast:
+        "無法連線到代理。預覽已保留，您可以重試或複製提示。",
       verifiedToast: "已驗證來源與執行階段結構",
       conflictToast:
         "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
@@ -766,13 +916,24 @@ const messages = {
       copiedToast: "樣式提示已複製",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
-      leaveTitle: "離開前要套用樣式嗎？",
+      leaveTitle: "離開前要套用設計更新嗎？",
       leaveDescriptionOne:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它。",
       leaveDescriptionOther:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它們。",
       stay: "留在這裡",
       leave: "不套用並離開",
+    },
+    addLocalhostScreen: {
+      title: "從您的應用程式新增畫面",
+      description: "選擇一個路由做為新畫面，或輸入路徑。",
+      searchPlaceholder: "搜尋路由…",
+      noRoutes: "找不到符合的路由",
+      useCustomPath: "新增「{{path}}」",
+      viewportDesktop: "桌面版",
+      viewportMobile: "行動版",
+      added: "已新增畫面",
+      addFailed: "無法新增畫面",
     },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",
@@ -805,6 +966,8 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfExportError: "無法匯出 PDF",
+      pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
@@ -834,7 +997,11 @@ const messages = {
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       reactSourceAnchorsLoading:
-        "React 原始碼錨點仍在載入中。請等本機應用程式完成渲染後再試一次。",
+        "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
+      reactSourceAnchorsUnavailable:
+        "此應用程式未向編輯器提供原始碼位置，因此無法將此圖層對應到特定行。請讓代理程式完成此變更。",
+      designStateLiveScreen:
+        "即時畫面無法預覽設計狀態 — 其內容是執行中的應用程式，而非文件。",
     },
   },
   layersPanel: {
@@ -881,6 +1048,8 @@ const messages = {
     },
   },
   multiScreenCanvas: {
+    preparingLiveEditor: "正在準備即時編輯器…",
+    addBreakpointToAllScreens: "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
     duplicate: "複製",
     fork: "分支",
     fullView: "互動",
@@ -928,12 +1097,15 @@ const messages = {
     decideDescription: "用判斷力繼續推進。",
   },
   promptDialog: {
+    ...designTemplateFeatureOverrides["zh-TW"].promptDialog,
     assetsTitle: "Assets",
     assetsImagePicker: "Assets圖片選取器",
     loadingAssetsPicker: "載入 Assets 選取器",
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    attachmentsTooLarge:
+      "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
     failedToSubmitPrompt: "無法提交提示",
     skipPrompt: "略過提示",
     designSystem: "Design系統",
@@ -961,6 +1133,7 @@ const messages = {
     escToExit: "Esc 退出",
     tellAgentWhatToChange: "告訴代理要更改什麼...",
     changesSaveWhenReconnected: "重新連線時將儲存更改",
+    changesDiscarded: "部分變更因檔案已不存在而無法儲存，已被捨棄。",
     offline: "離線",
     saving: "儲存...",
     clearedAllAnnotations: "已清除所有批注",
@@ -1031,6 +1204,9 @@ const messages = {
     newDesign: "新Design",
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",
+    createdBy: "建立者",
+    allAuthors: "所有作者",
+    me: "我",
     openingDesign: "正在開啟設計...",
     skipToEditor: "直接進入編輯器",
     failedToCreateDesign: "無法建立設計",
@@ -1067,9 +1243,8 @@ const messages = {
   },
   templatesPage: {
     ...designTemplateFeatureOverrides["zh-TW"].templatesPage,
-    title: "行銷範本",
-    description:
-      "用於發布、廣告、簡報、活動和 PDF 講義的尺寸可編輯的入門設計。",
+    title: "範本",
+    description: "從正確的尺寸與預設值開始，再用提示調整未鎖定的內容。",
     brand: "品牌: {{title}}",
     useTemplate: "使用範本",
     socialSquare: "社交廣場",
@@ -1098,17 +1273,25 @@ const messages = {
     figmaCreateSuccess: "由Figma建立的設計系統",
     figmaCreateError: "無法建立設計系統",
     backToDesignSystems: "返回設計系統",
+    otherSources: "其他",
+    otherSourcesDescription: "從網站、程式碼、檔案或現有設計系統連接。",
+    chooseSourcePrompt: "選擇一個來源進行設定",
     continue: "繼續生成",
+    starting: "正在啟動…",
+    githubIndexStarted: "GitHub 索引已開始",
     title: "設定您的設計系統",
     description:
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
     figmaParsingTitle: "正在啟動 Builder DSI 索引...",
     figmaParsingDescription: "Builder 會擷取權杖、元件、資產和使用指引",
+    figmaDecodeFailed: "解碼失敗：{{error}}",
     uploadFig: "連接 Figma .fig 檔案",
     figmaSaveLocalCopy: "上傳 Figma 本機副本：File -> Save local copy",
     websiteUrl: "網站 URL",
     add: "新增",
     githubRepository: "GitHub 儲存庫",
+    githubRef: "分支、標籤或提交（選用）",
+    githubPaths: "檔案或資料夾，以逗號分隔（選用）",
     privateRepoPrefix: "私人倉庫需要一個細粒度的權杖，另存為",
     privateRepoSuffix: "具有內容讀取權限。",
     localCodeFiles: "連接程式碼檔案",
@@ -1151,6 +1334,8 @@ const messages = {
       enterGithub: "在新增之前輸入 GitHub 儲存庫 URL。",
       githubUrl:
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
+      githubIndex:
+        "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
     sections: {
@@ -1271,6 +1456,7 @@ const messages = {
       logos: "標誌",
       assets: "資產",
       savedCount: "已儲存 {{count}} 個",
+      namedTokens: "具名代幣",
       colorLabels: {
         primary: "基本的",
         secondary: "中學",

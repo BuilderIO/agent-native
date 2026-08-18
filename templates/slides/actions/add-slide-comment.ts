@@ -8,6 +8,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -16,7 +17,7 @@ function displayNameFromEmail(email: string): string {
 
 export default defineAction({
   description:
-    "Add a comment to a slide. Omit threadId to start a new thread; provide threadId to reply.",
+    "Add a comment to a slide. Inline Markdown supports emphasis, inline code, links, and line breaks; headings are flattened. Omit threadId to start a new thread; provide threadId to reply.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -33,7 +34,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const { deckId, slideId, content, quotedText, parentId } = args;
-    await assertAccess("deck", deckId, "viewer");
+    await assertAccess("deck", deckId, "commenter");
 
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
@@ -56,6 +57,16 @@ export default defineAction({
       authorName,
     });
 
-    return { id, threadId };
+    const notified = await notifyDeckComment({
+      deckId,
+      slideId,
+      threadId,
+      authorEmail,
+      authorName,
+      content,
+      isReply: Boolean(parentId ?? args.threadId),
+    });
+
+    return { id, threadId, notified };
   },
 });

@@ -10,7 +10,15 @@
  * largest rendered element so a thumbnail's transform: scale(0.25)
  * doesn't shrink the captured pixels.
  */
+import { appBasePath } from "@agent-native/core/client/api-path";
+
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
+import { importExportModule } from "./dynamic-import";
+
+/** Same-origin URL that re-serves a remote image, bypassing its missing CORS. */
+export function imageProxyUrl(src: string): string {
+  return `${appBasePath()}/api/image-proxy?url=${encodeURIComponent(src)}`;
+}
 
 /**
  * Cross-origin <img> elements without an explicit `crossOrigin="anonymous"`
@@ -20,8 +28,15 @@ import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
  * setting the attribute and re-assigning the same src. This is the root
  * cause of the "blank images in exported PDF" bug Rochkind reported.
  */
-export async function preloadImagesWithCors(root: HTMLElement): Promise<void> {
+export async function preloadImagesWithCors(
+  root: HTMLElement,
+): Promise<() => void> {
   const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  // The slide DOM is the live editor canvas. Anything rewritten here would
+  // otherwise be picked up by the next save and persisted into the deck, so
+  // every mutation is recorded and undone once the capture is done.
+  const restores: Array<() => void> = [];
+
   await Promise.all(
     imgs.map(async (img) => {
       const src = img.currentSrc || img.src;
@@ -34,30 +49,59 @@ export async function preloadImagesWithCors(root: HTMLElement): Promise<void> {
         isCrossOrigin = false;
       }
       if (!isCrossOrigin) return;
+
+      const originalCrossOrigin = img.getAttribute("crossorigin");
+      const originalSrc = img.getAttribute("src");
+      const restore = () => {
+        if (originalCrossOrigin === null) img.removeAttribute("crossorigin");
+        else img.setAttribute("crossorigin", originalCrossOrigin);
+        if (originalSrc === null) img.removeAttribute("src");
+        else img.setAttribute("src", originalSrc);
+      };
+
       if (img.crossOrigin === "anonymous") {
         // Already CORS-enabled; just make sure it's decoded.
         try {
           await img.decode();
+          return;
         } catch {
-          /* ignore */
+          // coercion-ok: a failed direct load is the signal to try the proxy,
+          // and the proxy attempt below reports its own failure.
         }
-        return;
+      } else {
+        img.crossOrigin = "anonymous";
+        // Re-set src to retrigger the load with the new CORS attribute.
+        img.src = src;
+        restores.push(restore);
+        try {
+          await img.decode();
+          return;
+        } catch {
+          // coercion-ok: same as above — this is the CORS probe, not the
+          // final outcome.
+        }
       }
+
+      // The host does not send Access-Control-Allow-Origin, and no client-side
+      // flag can override that. Re-serve the image from our own origin so the
+      // canvas stays clean instead of rasterizing a blank rect.
+      if (!restores.includes(restore)) restores.push(restore);
       img.crossOrigin = "anonymous";
-      // Re-set src to retrigger the load with the new CORS attribute.
-      img.src = src;
+      img.src = imageProxyUrl(src);
       try {
         await img.decode();
       } catch (err) {
-        // Server didn't return Access-Control-Allow-Origin. The screenshot
-        // will be blank for this image — log so the user can swap the host.
         console.warn(
-          `[export-pdf] CORS-tainted image likely caused blank render: ${src}`,
+          `[export-pdf] image could not be loaded for export: ${src}`,
           err,
         );
       }
     }),
   );
+
+  return () => {
+    for (const restore of restores) restore();
+  };
 }
 
 export function findSlideExportSource(
@@ -79,12 +123,19 @@ export function findSlideExportSource(
   }
 
   // A given slide can appear multiple times (sidebar thumbnail + active
-  // editor canvas); pick the one with the largest natural width so we
-  // capture full-resolution pixels even when the visible copy is scaled
-  // down via CSS transform.
-  return candidates.reduce((best, el) =>
-    el.offsetWidth > best.offsetWidth ? el : best,
-  );
+  // editor canvas). Rank on the *rendered* width, not `offsetWidth`:
+  // `offsetWidth` ignores CSS transforms, so a sidebar thumbnail shrunk by
+  // `scale()` reports the same 960 as the canvas it mirrors. That tie left
+  // the strict `>` below returning `candidates[0]` — document order, i.e.
+  // the thumbnail — so exports captured the low-fidelity copy.
+  // `getBoundingClientRect().width` sees through the transform and picks the
+  // real canvas; `offsetWidth` only breaks a genuine rendered-width tie.
+  return candidates.reduce((best, el) => {
+    const elWidth = el.getBoundingClientRect().width;
+    const bestWidth = best.getBoundingClientRect().width;
+    if (elWidth !== bestWidth) return elWidth > bestWidth ? el : best;
+    return el.offsetWidth > best.offsetWidth ? el : best;
+  });
 }
 
 export async function exportDeckAsPdf(
@@ -99,8 +150,8 @@ export async function exportDeckAsPdf(
   // JPEG (vs PNG) keeps a typical 8-slide deck under ~10 MB instead of
   // ~100 MB — at 0.92 quality the difference is invisible on slide content.
   const [{ domToJpeg }, { jsPDF }] = await Promise.all([
-    import("modern-screenshot"),
-    import("jspdf"),
+    importExportModule(() => import("modern-screenshot")),
+    importExportModule(() => import("jspdf")),
   ]);
 
   // Web fonts (Poppins) must finish loading before capture — otherwise
@@ -131,23 +182,39 @@ export async function exportDeckAsPdf(
     // Force CORS-enabled re-fetch on every cross-origin <img> before
     // capture — otherwise the canvas tainting check inside modern-screenshot
     // produces a blank rect for the image.
-    await preloadImagesWithCors(source);
+    const restoreImages = await preloadImagesWithCors(source);
 
-    const dataUrl = await domToJpeg(source, {
-      width: dims.width,
-      height: dims.height,
-      scale: 2, // 2x for crisp text
-      backgroundColor: "#000000",
-      quality: 0.92,
-      // Pair with the in-DOM CORS preload above. modern-screenshot's
-      // internal image fetcher needs no-cache so re-issued requests don't
-      // get served the original tainted (no-CORS) response from the HTTP
-      // cache, and an anonymous-CORS request mode so the response itself
-      // is usable on a clean canvas.
-      fetch: {
-        requestInit: { cache: "no-cache", mode: "cors", credentials: "omit" },
-      },
-    });
+    let dataUrl: string;
+    try {
+      dataUrl = await domToJpeg(source, {
+        width: dims.width,
+        height: dims.height,
+        scale: 2, // 2x for crisp text
+        // guard:allow-raw-color — a PDF page has no theme to follow.
+        backgroundColor: "#000000",
+        quality: 0.92,
+        // Pair with the in-DOM CORS preload above. modern-screenshot's
+        // internal image fetcher needs no-cache so re-issued requests don't
+        // get served the original tainted (no-CORS) response from the HTTP
+        // cache, and an anonymous-CORS request mode so the response itself
+        // is usable on a clean canvas.
+        //
+        // `same-origin` rather than `omit`: images the preload rewrote to
+        // /api/image-proxy are same-origin and that route needs the session
+        // cookie, so omitting credentials would 401 exactly the images this
+        // is meant to rescue. Cross-origin requests still go out anonymously,
+        // which is what CORS mode requires.
+        fetch: {
+          requestInit: {
+            cache: "no-cache",
+            mode: "cors",
+            credentials: "same-origin",
+          },
+        },
+      });
+    } finally {
+      restoreImages();
+    }
 
     if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
     pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);

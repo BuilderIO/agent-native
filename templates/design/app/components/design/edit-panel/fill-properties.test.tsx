@@ -28,9 +28,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ElementInfo } from "../types";
 import { baseFillLayerSourceProps, FillProperties } from "./fill-properties";
 
-vi.mock("@agent-native/core/client", () => ({
-  cn: (...inputs: Array<string | false | null | undefined>) =>
-    inputs.filter(Boolean).join(" "),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

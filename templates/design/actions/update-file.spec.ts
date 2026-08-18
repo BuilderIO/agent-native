@@ -204,6 +204,7 @@ vi.mock("../server/db/index.js", () => {
 });
 
 import { hasCollabState, applyText } from "@agent-native/core/collab";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
@@ -249,6 +250,30 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(await hasCollabState(FILE_ID)).toBe(false);
   });
 
+  it("preserves a URL-backed screen across a rejected route-plus-subtree write and reload", async () => {
+    const routeUrl = "http://localhost:8210/dashboard";
+    const corruptingWrite =
+      `${routeUrl}<section data-agent-native-node-id="group">` +
+      "<p>Nested layer</p></section>";
+    seedFile(routeUrl);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: corruptingWrite,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(routeUrl),
+      } as never),
+    ).rejects.toThrow(/DESIGN_HTML_INTEGRITY/);
+
+    // The next load reads the same persisted row; neither SQL nor a newly
+    // seeded collab document may retain the rejected layer fragment.
+    const reloadedContent = designFilesStore.rows.get(FILE_ID)!.content;
+    expect(reloadedContent).toBe(routeUrl);
+    expect(reloadedContent).not.toContain("data-agent-native-node-id");
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
   it("1. no expectedVersionHash provided at all: content write proceeds exactly as before", async () => {
     const next = buildDoc(" changed-");
     const result = await updateFileAction.run({
@@ -268,14 +293,21 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
     const staleHash = sourceContentHash(buildDoc()); // pre-live-edit hash
 
-    await expect(
-      updateFileAction.run({
+    let rejection: unknown = null;
+    try {
+      await updateFileAction.run({
         id: FILE_ID,
         content: buildDoc(" caller-stale-"),
         syncCollab: true,
         expectedVersionHash: staleHash,
-      } as never),
-    ).rejects.toThrow(/changed since it was read/);
+      } as never);
+    } catch (error) {
+      rejection = error;
+    }
+    expect((rejection as Error)?.message).toMatch(/changed since it was read/);
+    // Typed 409, not a bare 500: the framework returns it verbatim (no Sentry
+    // capture, no error log) and the client rebases instead of a retry storm.
+    expect((rejection as { statusCode?: number })?.statusCode).toBe(409);
 
     // Not skipped: no skippedStaleMirror flag could have been produced since
     // the call threw. The SQL row must remain untouched by the rejected call.
@@ -596,5 +628,31 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     // make.
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
     expect(liveText).toContain("mirror-state-plus-mine-");
+  });
+
+  it("12. delete-race after the access lookup: inner missing-file guard returns 404 (not a bare 500) so the outbox drops it", async () => {
+    // The row exists for the access lookup, then a concurrent delete removes it
+    // before the write-lock reread. assertAccess runs in exactly that window,
+    // so clear the store there to reach the inner missing-file guard.
+    vi.mocked(assertAccess).mockImplementationOnce(async () => {
+      designFilesStore.rows.clear();
+      return { role: "editor", resource: {} } as never;
+    });
+
+    let rejection: unknown = null;
+    try {
+      await updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" delete-race-"),
+        syncCollab: true,
+      } as never);
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect((rejection as Error)?.message).toMatch(/file not found/i);
+    // 404, not a bare 500 — otherwise the save-outbox retries the gone file
+    // forever (the orphan-storm this fix prevents).
+    expect((rejection as { statusCode?: number })?.statusCode).toBe(404);
   });
 });

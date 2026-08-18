@@ -9,20 +9,43 @@ const useSessionMock = vi.fn();
 vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
+vi.mock("@agent-native/toolkit/ui/sonner", () => ({
+  Toaster: (props: { richColors?: boolean; position?: string }) => (
+    <div
+      data-testid="toolkit-toaster"
+      data-rich-colors={String(Boolean(props.richColors))}
+      data-position={props.position}
+    />
+  ),
+}));
 
+import { encodeContinuation } from "../shared/sign-in-journey.js";
 import { AppProviders } from "./app-providers.js";
 
 let container: HTMLDivElement;
 let root: Root;
 let originalLocation: Location;
+let originalParent: Window;
+let originalFetch: typeof window.fetch;
+let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  originalDocumentTitle = document.title;
+  document.title = "";
   replaceMock = vi.fn();
+  originalFetch = window.fetch;
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: vi
+      .fn()
+      .mockRejectedValue(new Error("configuration probe unavailable")),
+  });
   originalLocation = window.location;
+  originalParent = window.parent;
   Object.defineProperty(window, "location", {
     configurable: true,
     value: {
@@ -43,6 +66,15 @@ afterEach(() => {
     configurable: true,
     value: originalLocation,
   });
+  Object.defineProperty(window, "parent", {
+    configurable: true,
+    value: originalParent,
+  });
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: originalFetch,
+  });
+  document.title = originalDocumentTitle;
   vi.clearAllMocks();
 });
 
@@ -64,9 +96,34 @@ function renderProviders(props: {
   });
 }
 
+// `RequireSession` branches on `useSession().status`, not just `isLoading` —
+// every mock here must supply a status or the gate can neither redirect nor
+// hold the fallback consistently with the real hook.
+const SIGNED_OUT_SESSION = {
+  session: null,
+  isLoading: false,
+  status: "unauthenticated" as const,
+};
+
 describe("AppProviders session gate", () => {
+  it("uses Toolkit's theme-aware toaster by default", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+
+    const toaster = container.querySelector('[data-testid="toolkit-toaster"]');
+    expect(toaster?.getAttribute("data-rich-colors")).toBe("true");
+    expect(toaster?.getAttribute("data-position")).toBe("bottom-left");
+  });
+
   it("renders public paths directly without resolving or redirecting a session", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ isPublicPath: true });
 
@@ -78,25 +135,99 @@ describe("AppProviders session gate", () => {
   });
 
   it("gates private paths and redirects signed-out visitors after hydration", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({});
 
     expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
     expect(useSessionMock).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
-      "/_agent-native/sign-in?return=%2Finbox",
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
     );
   });
 
   it("allows token-authenticated private surfaces to bypass the session gate", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ sessionBypass: true });
 
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
+    expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("applies theme updates only when they come from the embedding parent", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const parent = {} as Window;
+    const unrelated = {} as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parent,
+    });
+
+    renderProviders({ isPublicPath: true });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: unrelated,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: parent,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBe("dark");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:theme-change", {
+          detail: {
+            type: "agent-native-theme-update",
+            theme: "light",
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("repairs structured route titles before they reach the browser tab", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    document.title = "Manage agent";
+
+    renderProviders({ isPublicPath: true });
+
+    act(() => {
+      document.title = '[{"id":"automation-1","status":"success"}]';
+    });
+
+    await vi.waitFor(() => expect(document.title).toBe("Manage agent"));
   });
 });

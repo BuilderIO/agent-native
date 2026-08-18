@@ -28,6 +28,7 @@ import type {
 import {
   IconFlowGrid,
   IconFlowHorizontal,
+  IconFlowNormal,
   IconFlowVertical,
   IconGap,
   IconPaddingHorizontal,
@@ -431,7 +432,7 @@ export function AutoLayoutMatrix({
                   disabled={disabled}
                   onClick={() => selectFlow("normal")}
                 >
-                  <IconFlowNormal />
+                  <IconFlowNormal className="size-4" />
                 </FlowButton>
                 <FlowButton
                   label={copy.vertical}
@@ -439,7 +440,7 @@ export function AutoLayoutMatrix({
                   disabled={disabled}
                   onClick={() => selectFlow("vertical")}
                 >
-                  <IconFlowVertical className="size-3.5" />
+                  <IconFlowVertical className="size-4" />
                 </FlowButton>
                 <FlowButton
                   label={copy.horizontal}
@@ -447,7 +448,7 @@ export function AutoLayoutMatrix({
                   disabled={disabled}
                   onClick={() => selectFlow("horizontal")}
                 >
-                  <IconFlowHorizontal className="size-3.5" />
+                  <IconFlowHorizontal className="size-4" />
                 </FlowButton>
                 <FlowButton
                   label={"Grid" /* i18n-ignore design inspector label */}
@@ -455,7 +456,7 @@ export function AutoLayoutMatrix({
                   disabled={disabled}
                   onClick={() => selectFlow("grid")}
                 >
-                  <IconFlowGrid className="size-3.5" />
+                  <IconFlowGrid className="size-4" />
                 </FlowButton>
               </div>
               {/* Swap axis: flips between horizontal/vertical flex flow
@@ -1853,7 +1854,7 @@ function CheckMini() {
       <path
         d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -1879,27 +1880,10 @@ function ChevronDownMini() {
       <path
         d="M1.5 3 L4 5.5 L6.5 3"
         stroke="currentColor"
-        strokeWidth="1.2"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-/** Normal / free-flow layout glyph — loosely placed small rects. */
-function IconFlowNormal() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={14}
-      height={14}
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <rect x="4" y="4" width="6" height="6" rx="1.5" />
-      <rect x="14" y="6" width="6" height="6" rx="1.5" />
-      <rect x="6" y="14" width="6" height="6" rx="1.5" />
     </svg>
   );
 }
@@ -1913,7 +1897,7 @@ function IconResizeToFitMini() {
       height={16}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -1935,7 +1919,7 @@ function IconSlidersMini() {
       height={16}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -1957,7 +1941,7 @@ function IconPaddingLinked() {
       height={16}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -1977,7 +1961,7 @@ function IconPaddingUnlinked() {
       height={16}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -2004,11 +1988,12 @@ function IconPaddingLeftMini({ className }: { className?: string }) {
 
 type PaddingSide = "top" | "right" | "bottom" | "left";
 
+/** Inset line for each side, matching IconPaddingHorizontal/Vertical. */
 const PADDING_EDGE: Record<PaddingSide, [number, number, number, number]> = {
-  top: [4, 4, 20, 4],
-  right: [20, 4, 20, 20],
-  bottom: [4, 20, 20, 20],
-  left: [4, 4, 4, 20],
+  top: [8, 7.5, 16, 7.5],
+  right: [16.5, 8, 16.5, 16],
+  bottom: [8, 16.5, 16, 16.5],
+  left: [7.5, 8, 7.5, 16],
 };
 
 function PaddingSideGlyph({
@@ -2030,72 +2015,49 @@ function PaddingSideGlyph({
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <rect x="4" y="4" width="16" height="16" rx="2" opacity="0.4" />
-      <line x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth="3" />
+      <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} />
     </svg>
   );
 }
 
-/** Distribute horizontal spacing (space-between on main/cross axis). */
+/** Distribute spacing (space-between) along each axis. */
 function IconDistributeH() {
   return (
     <svg
-      viewBox="0 0 14 14"
+      viewBox="0 0 24 24"
       width={14}
       height={14}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.2"
+      strokeWidth="1.5"
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* left edge line */}
-      <line x1="1.5" y1="2" x2="1.5" y2="12" />
-      {/* right edge line */}
-      <line x1="12.5" y1="2" x2="12.5" y2="12" />
-      {/* center block */}
-      <rect
-        x="4.5"
-        y="4"
-        width="5"
-        height="6"
-        rx="1"
-        fill="currentColor"
-        stroke="none"
-        opacity="0.5"
-      />
+      <line x1="3" y1="4" x2="3" y2="20" />
+      <line x1="21" y1="4" x2="21" y2="20" />
+      <rect x="8" y="7" width="8" height="10" rx="1" />
     </svg>
   );
 }
 
-/** Distribute vertical spacing (space-between on cross/main axis). */
 function IconDistributeV() {
   return (
     <svg
-      viewBox="0 0 14 14"
+      viewBox="0 0 24 24"
       width={14}
       height={14}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.2"
+      strokeWidth="1.5"
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* top edge line */}
-      <line x1="2" y1="1.5" x2="12" y2="1.5" />
-      {/* bottom edge line */}
-      <line x1="2" y1="12.5" x2="12" y2="12.5" />
-      {/* center block */}
-      <rect
-        x="4"
-        y="4.5"
-        width="6"
-        height="5"
-        rx="1"
-        fill="currentColor"
-        stroke="none"
-        opacity="0.5"
-      />
+      <line x1="4" y1="3" x2="20" y2="3" />
+      <line x1="4" y1="21" x2="20" y2="21" />
+      <rect x="7" y="8" width="10" height="8" rx="1" />
     </svg>
   );
 }

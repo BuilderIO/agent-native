@@ -7,7 +7,7 @@ description: "Dictée vocale dans l'outil de composition de chat de l'agent : f
 
 Chaque application native d'agent dispose d'un microphone dans l'éditeur de chat. Cliquez dessus, parlez et vos mots seront transcrits dans l'invite. Utile sur mobile, utile pour les invites longues, utile lorsque vos mains sont sur autre chose.
 
-Le framework gère tout cela automatiquement. Les utilisateurs connectés à Builder obtiennent par défaut Gemini Flash-Lite hébergé sur Builder ; sinon, les utilisateurs peuvent apporter leur propre clé de fournisseur ou recourir à la reconnaissance vocale du navigateur.
+Le framework gère tout cela automatiquement. Les utilisateurs connectés à Builder (offre gratuite disponible) obtiennent par défaut Gemini Flash-Lite hébergé sur Builder ; sinon, les utilisateurs peuvent apporter leur propre clé de fournisseur ou recourir à la reconnaissance vocale du navigateur.
 
 ## Mode vocal en temps réel {#realtime-speech-mode}
 
@@ -19,7 +19,7 @@ Le modèle vocal utilise les mêmes outils Agent Native authentifiés que le cha
 
 Le bouton vocal du compositeur enregistre l'audio dans le navigateur, puis sélectionne un fournisseur :
 
-1. **Builder Gemini Flash-Lite (par défaut lorsque Builder est connecté).** Le navigateur POSTe l'audio sur `/_agent-native/transcribe-voice`, qui passe par proxy via Builder.io à l'aide de Gemini Flash-Lite. Aucune clé Google API requise.
+1. **Builder Gemini Flash-Lite (par défaut lorsque Builder est connecté).** Le navigateur POSTe l'audio sur `/_agent-native/transcribe-voice`, qui passe par proxy via Builder.io (offre gratuite disponible) à l'aide de Gemini Flash-Lite. Aucune clé Google API requise.
 2. **Fournisseurs cloud BYOK.** Les utilisateurs peuvent choisir Google Gemini, Groq Whisper ou OpenAI Whisper dans les paramètres. La route résout les secrets chiffrés à l'échelle de l'utilisateur avant les informations d'identification de déploiement partagées.
 3. **Browser Web Speech API (repli).** Si aucun fournisseur de serveur n'est disponible, le compositeur peut utiliser la reconnaissance vocale intégrée du navigateur. Fonctionne dans les navigateurs basés sur Chromium (Chrome, Edge, Arc) et Safari. Moins précis ; diffuse en direct.
 
@@ -77,7 +77,7 @@ L'itinéraire est **de même origine uniquement** : les POST intersites sont re
 
 ## Activation des fournisseurs {#enabling-providers}
 
-Builder est le chemin le plus simple : connectez Builder.io à partir des paramètres et le fournisseur par défaut devient Builder Gemini Flash-Lite. Pour les fournisseurs BYOK, ajoutez la clé correspondante dans Paramètres → Clés API.
+Builder est le chemin le plus simple : connectez Builder.io (offre gratuite disponible) à partir des paramètres et le fournisseur par défaut devient Builder Gemini Flash-Lite. Pour les fournisseurs BYOK, ajoutez la clé correspondante dans Paramètres → Clés API.
 
 ### Par utilisateur (recommandé pour SaaS)
 

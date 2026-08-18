@@ -5,6 +5,7 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -14,11 +15,25 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 
 export const GOOGLE_DOCS_PROVIDER = "google-docs";
+export const GOOGLE_DRIVE_READONLY_SCOPE =
+  "https://www.googleapis.com/auth/drive.readonly";
 export const GOOGLE_DOCS_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
+  GOOGLE_DRIVE_READONLY_SCOPE,
+  "https://www.googleapis.com/auth/presentations.readonly",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
+
+export function hasGoogleDriveExportScope(scope?: string): boolean {
+  const grantedScopes = new Set(
+    (scope ?? "").split(/\s+/).filter((value) => value.length > 0),
+  );
+  return (
+    grantedScopes.has("https://www.googleapis.com/auth/drive") ||
+    grantedScopes.has(GOOGLE_DRIVE_READONLY_SCOPE)
+  );
+}
 
 interface GoogleDocsTokens {
   access_token: string;
@@ -34,39 +49,11 @@ interface GoogleUserInfo {
   verified_email?: boolean;
 }
 
-interface GoogleOAuthCredentials {
-  clientId: string;
-  clientSecret: string;
-}
-
-async function readCredentialPair(
-  clientIdKey: string,
-  clientSecretKey: string,
-): Promise<GoogleOAuthCredentials | null> {
-  const [clientId, clientSecret] = await Promise.all([
-    resolveSecret(clientIdKey),
-    resolveSecret(clientSecretKey),
-  ]);
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
-}
-
-async function resolveGoogleProviderCredentialCandidates(
-  owner?: string,
-): Promise<GoogleOAuthCredentials[]> {
-  const resolve = async () => {
-    const primary = await readCredentialPair(
-      "GOOGLE_CLIENT_ID",
-      "GOOGLE_CLIENT_SECRET",
-    );
-    const legacy = await readCredentialPair(
-      "GOOGLE_LEGACY_CLIENT_ID",
-      "GOOGLE_LEGACY_CLIENT_SECRET",
-    );
-    if (!primary) return legacy ? [legacy] : [];
-    if (!legacy || legacy.clientId === primary.clientId) return [primary];
-    return [primary, legacy];
-  };
+async function resolveGoogleDocsProviderCredentialCandidates(owner?: string) {
+  const resolve = () =>
+    resolveGoogleProviderCredentialCandidatesWithReader({
+      readCredential: resolveSecret,
+    });
   return owner
     ? runWithRequestContext({ userEmail: owner }, resolve)
     : await resolve();
@@ -77,7 +64,7 @@ async function getOAuthCredentials(owner?: string): Promise<{
   clientSecret: string;
 }> {
   const credentials = (
-    await resolveGoogleProviderCredentialCandidates(owner)
+    await resolveGoogleDocsProviderCredentialCandidates(owner)
   )[0];
   if (!credentials) {
     throw new Error(
@@ -90,7 +77,9 @@ async function getOAuthCredentials(owner?: string): Promise<{
 export async function isGoogleDocsOAuthConfigured(
   owner?: string,
 ): Promise<boolean> {
-  return (await resolveGoogleProviderCredentialCandidates(owner)).length > 0;
+  return (
+    (await resolveGoogleDocsProviderCredentialCandidates(owner)).length > 0
+  );
 }
 
 function isPermanentGoogleRefreshError(error: string | undefined): boolean {
@@ -159,7 +148,7 @@ async function refreshGoogleDocsToken(
   }
 
   const credentialCandidates =
-    await resolveGoogleProviderCredentialCandidates(owner);
+    await resolveGoogleDocsProviderCredentialCandidates(owner);
   let data: {
     access_token?: string;
     expires_in?: number;

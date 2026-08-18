@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
 import { getSetting } from "@agent-native/core/settings";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   getUsageSummary,
   usageBillingForEngine,
@@ -84,10 +85,27 @@ export interface RecentUsageMetric {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costCents: number;
+  prompt: string | null;
+  promptSource: "thread" | "thread-preview" | "not-captured" | "unavailable";
+  threadId: string | null;
+  runId: string | null;
+  taskId: string | null;
+  sourcePlatform: string | null;
+  sourceId: string | null;
+}
+
+export type UsageMetricsScope = "me" | "workspace";
+
+export interface UsageUserOption {
+  email: string;
+  role: string | null;
 }
 
 export interface DispatchUsageMetrics {
   billing: UsageBillingMode;
+  viewScope: UsageMetricsScope;
+  selectedUserEmail: string | null;
+  availableUsers: UsageUserOption[];
   sinceMs: number;
   sinceDays: number;
   generatedAt: number;
@@ -148,6 +166,148 @@ function nullableNumberField(
   if (value == null) return null;
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function nullableStringField(
+  row: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = row[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+type ParsedThreadData =
+  | { status: "absent"; value: null }
+  | { status: "invalid"; value: null }
+  | { status: "parsed"; value: Record<string, unknown> };
+
+function parseJson(value: unknown): ParsedThreadData {
+  if (typeof value !== "string" || !value.trim()) {
+    return { status: "absent", value: null };
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object"
+      ? { status: "parsed", value: parsed as Record<string, unknown> }
+      : { status: "invalid", value: null };
+  } catch {
+    return { status: "invalid", value: null };
+  }
+}
+
+function textFromPromptContent(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const item = part as Record<string, unknown>;
+      return item.type === "text" && typeof item.text === "string"
+        ? item.text.trim()
+        : "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function truncatePrompt(value: string, maxLength = 360): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function firstUserPrompt(threadData: unknown): string | null {
+  const parsed = parseJson(threadData);
+  if (parsed.status !== "parsed") return null;
+  const messages = parsed.value.messages;
+  if (!Array.isArray(messages)) return null;
+
+  for (const entry of messages) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const message =
+      record.message && typeof record.message === "object"
+        ? (record.message as Record<string, unknown>)
+        : record;
+    const role = typeof message.role === "string" ? message.role : "";
+    if (role !== "user" && role !== "human") continue;
+    const text = textFromPromptContent(message.content);
+    if (text) return truncatePrompt(text);
+  }
+  return null;
+}
+
+interface ThreadPromptRow {
+  id?: unknown;
+  preview?: unknown;
+  thread_data?: unknown;
+}
+
+async function hydrateRecentPrompts(
+  rows: Array<Record<string, unknown>>,
+): Promise<RecentUsageMetric[]> {
+  const threadIds = [
+    ...new Set(
+      rows
+        .map((row) => nullableStringField(row, "thread_id"))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const threads = new Map<string, ThreadPromptRow>();
+  let threadQueryUnavailable = false;
+
+  if (threadIds.length > 0) {
+    try {
+      const result = await getDbExec().execute({
+        sql: `SELECT id, preview, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
+        args: threadIds,
+      });
+      for (const row of result.rows as ThreadPromptRow[]) {
+        const id = typeof row.id === "string" ? row.id : "";
+        if (id) threads.set(id, row);
+      }
+    } catch {
+      threadQueryUnavailable = true;
+    }
+  }
+
+  return rows.map((row) => {
+    const threadId = nullableStringField(row, "thread_id");
+    const thread = threadId ? threads.get(threadId) : undefined;
+    const prompt = thread ? firstUserPrompt(thread.thread_data) : null;
+    const preview =
+      typeof thread?.preview === "string" ? thread.preview.trim() : "";
+    const promptSource = prompt
+      ? "thread"
+      : preview
+        ? "thread-preview"
+        : threadQueryUnavailable && threadId
+          ? "unavailable"
+          : "not-captured";
+
+    return {
+      id: numberField(row, "id"),
+      createdAt: numberField(row, "created_at"),
+      ownerEmail: stringField(row, "owner_email"),
+      app: stringField(row, "app") || "unattributed",
+      label: stringField(row, "label") || "chat",
+      model: stringField(row, "model") || "unknown",
+      inputTokens: numberField(row, "input_tokens"),
+      outputTokens: numberField(row, "output_tokens"),
+      cacheReadTokens: numberField(row, "cache_read_tokens"),
+      cacheWriteTokens: numberField(row, "cache_write_tokens"),
+      costCents: numberField(row, "cost_cents_x100") / 100,
+      prompt: prompt ?? (preview ? truncatePrompt(preview) : null),
+      promptSource,
+      threadId,
+      runId: nullableStringField(row, "run_id"),
+      taskId: nullableStringField(row, "task_id"),
+      sourcePlatform: nullableStringField(row, "source_platform"),
+      sourceId: nullableStringField(row, "source_id"),
+    } satisfies RecentUsageMetric;
+  });
 }
 
 function labelForKey(value: string): string {
@@ -292,8 +452,8 @@ function usageScope(
   }
   const placeholders = memberEmails.map(() => "?").join(", ");
   return {
-    where: `created_at >= ? AND owner_email IN (${placeholders})`,
-    args: [sinceMs, ...memberEmails],
+    where: `created_at >= ? AND LOWER(owner_email) IN (${placeholders})`,
+    args: [sinceMs, ...memberEmails.map((email) => email.toLowerCase())],
   };
 }
 
@@ -306,8 +466,34 @@ function threadScope(
   }
   const placeholders = memberEmails.map(() => "?").join(", ");
   return {
-    where: `updated_at >= ? AND owner_email IN (${placeholders})`,
-    args: [sinceMs, ...memberEmails],
+    where: `updated_at >= ? AND LOWER(owner_email) IN (${placeholders})`,
+    args: [sinceMs, ...memberEmails.map((email) => email.toLowerCase())],
+  };
+}
+
+function ownerScope(
+  sinceMs: number,
+  ownerEmail: string,
+): {
+  where: string;
+  args: unknown[];
+} {
+  return {
+    where: "created_at >= ? AND LOWER(owner_email) = ?",
+    args: [sinceMs, ownerEmail.toLowerCase()],
+  };
+}
+
+function ownerThreadScope(
+  sinceMs: number,
+  ownerEmail: string,
+): {
+  where: string;
+  args: unknown[];
+} {
+  return {
+    where: "updated_at >= ? AND LOWER(owner_email) = ?",
+    args: [sinceMs, ownerEmail.toLowerCase()],
   };
 }
 
@@ -381,7 +567,7 @@ async function loadChatStats(
   );
 }
 
-async function assertCanViewMetrics(): Promise<{
+async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
   viewerEmail: string;
   orgId: string | null;
   role: string | null;
@@ -389,40 +575,75 @@ async function assertCanViewMetrics(): Promise<{
   const viewerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
   const role = await getViewerOrgRole(orgId, viewerEmail);
-  if (isEnvAdmin(viewerEmail) || role === "owner" || role === "admin") {
+  if (
+    viewScope === "me" ||
+    isEnvAdmin(viewerEmail) ||
+    role === "owner" ||
+    role === "admin"
+  ) {
     return { viewerEmail, orgId, role };
   }
   if (!orgId) {
     return { viewerEmail, orgId, role };
   }
-  throw new Error(
+  throw new ForbiddenError(
     "Only organization owners and admins can view workspace usage metrics.",
   );
 }
 
 export async function listDispatchUsageMetrics(input: {
   sinceDays?: number;
+  scope?: UsageMetricsScope;
+  userEmail?: string | null;
 }): Promise<DispatchUsageMetrics> {
-  const { viewerEmail, orgId, role } = await assertCanViewMetrics();
+  const viewScope: UsageMetricsScope =
+    input.scope === "me" ? "me" : "workspace";
+  const { viewerEmail, orgId, role } = await assertCanViewMetrics(viewScope);
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const sinceMs = Date.now() - sinceDays * DAY_MS;
   const billing = usageBillingForEngine(await detectUsageEngineName());
 
   await initializeUsageMetricsTable(sinceMs);
 
-  const rawMembers = orgId
-    ? await listOrgMembers(orgId)
-    : await listSignedInUsers();
+  const rawMembers =
+    viewScope === "me"
+      ? [{ email: viewerEmail, role, joinedAt: null }]
+      : orgId
+        ? await listOrgMembers(orgId)
+        : await listSignedInUsers();
   const members =
-    orgId && rawMembers.length === 0
+    viewScope === "workspace" && orgId && rawMembers.length === 0
       ? [{ email: viewerEmail, role, joinedAt: null }]
       : rawMembers;
-  const memberEmails = orgId ? members.map((member) => member.email) : [];
+  const requestedUserEmail = input.userEmail?.trim() || null;
+  const selectedUserEmail =
+    viewScope === "me"
+      ? viewerEmail
+      : requestedUserEmail
+        ? (members.find(
+            (member) =>
+              member.email.toLowerCase() === requestedUserEmail.toLowerCase(),
+          )?.email ?? null)
+        : null;
+  if (viewScope === "workspace" && requestedUserEmail && !selectedUserEmail) {
+    throw new ForbiddenError(
+      "The selected user is not available in this workspace.",
+    );
+  }
+  const memberEmails = selectedUserEmail
+    ? [selectedUserEmail]
+    : orgId
+      ? members.map((member) => member.email)
+      : [];
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );
-  const usage = usageScope(sinceMs, memberEmails);
-  const threads = threadScope(sinceMs, memberEmails);
+  const usage = selectedUserEmail
+    ? ownerScope(sinceMs, selectedUserEmail)
+    : usageScope(sinceMs, memberEmails);
+  const threads = selectedUserEmail
+    ? ownerThreadScope(sinceMs, selectedUserEmail)
+    : threadScope(sinceMs, memberEmails);
 
   const [apps, totalsRows, byApp, byUserBase, byLabel, byModel, chatStats] =
     await Promise.all([
@@ -564,33 +785,27 @@ export async function listDispatchUsageMetrics(input: {
   const recentRows = await queryRows<Record<string, unknown>>(
     `SELECT id, created_at, owner_email, app, label, model,
         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-        cost_cents_x100
+        cost_cents_x100, thread_id, run_id, task_id, source_platform, source_id
       FROM token_usage
       WHERE ${usage.where}
       ORDER BY created_at DESC
       LIMIT 50`,
     usage.args,
   );
-  const recent = recentRows.map((row) => ({
-    id: numberField(row, "id"),
-    createdAt: numberField(row, "created_at"),
-    ownerEmail: stringField(row, "owner_email"),
-    app: stringField(row, "app") || "unattributed",
-    label: stringField(row, "label") || "chat",
-    model: stringField(row, "model") || "unknown",
-    inputTokens: numberField(row, "input_tokens"),
-    outputTokens: numberField(row, "output_tokens"),
-    cacheReadTokens: numberField(row, "cache_read_tokens"),
-    cacheWriteTokens: numberField(row, "cache_write_tokens"),
-    costCents: numberField(row, "cost_cents_x100") / 100,
-  }));
+  const recent = await hydrateRecentPrompts(recentRows);
 
   const appUsageByKey = new Map(
     byApp.map((bucket) => [normalizeAppKey(bucket.key), bucket]),
   );
   const accessUsers = members.length || byUserMap.size;
-  const accessModel = orgId ? "workspace" : "solo";
-  const accessLabel = orgId ? "Workspace members" : "Signed-in users";
+  const accessModel =
+    viewScope === "me" ? "solo" : orgId ? "workspace" : "solo";
+  const accessLabel =
+    viewScope === "me"
+      ? "Your account"
+      : orgId
+        ? "Workspace members"
+        : "Signed-in users";
   const appAccess = apps.map((app) => {
     const usageBucket = appUsageByKey.get(normalizeAppKey(app.id));
     return {
@@ -622,6 +837,11 @@ export async function listDispatchUsageMetrics(input: {
 
   return {
     billing,
+    viewScope,
+    selectedUserEmail,
+    availableUsers: members
+      .map(({ email, role }) => ({ email, role }))
+      .sort((a, b) => a.email.localeCompare(b.email)),
     sinceMs,
     sinceDays,
     generatedAt: Date.now(),

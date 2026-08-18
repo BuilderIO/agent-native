@@ -52,6 +52,24 @@ export const CODE_MAX_FILES = 20;
 /** Maximum total bytes accepted in import-code. */
 export const CODE_MAX_TOTAL_BYTES = 500 * 1024;
 
+export interface CodeAnalysisFile {
+  filename: string;
+  content: string;
+}
+
+export interface CodeAnalysisResult {
+  source: "code";
+  fileCount: number;
+  filesAnalyzed: string[];
+  colors: Record<string, string>;
+  cssCustomProperties: Record<string, string>;
+  fonts: CodeAnalysisState["fonts"];
+  spacing: CodeAnalysisState["spacing"];
+  borderRadius: CodeAnalysisState["borderRadius"];
+  stylingFramework: CodeAnalysisState["stylingFramework"];
+  rawExtracts: CodeAnalysisState["rawExtracts"];
+}
+
 /** Regex for hex colors (3-8 digit, including alpha). */
 export const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{3,4}){1,2}\b/g;
 
@@ -131,10 +149,21 @@ export interface UrlExtractionResult {
   googleFonts?: string[];
   ogImage?: string;
   favicon?: string;
+  stylesheetUrls?: string[];
+  stylesheetFailures?: { url: string; error: string }[];
 }
 
 export interface GitHubFetchOptions {
   token?: string | null;
+  /** Branch, tag, or commit to read from. */
+  ref?: string;
+}
+
+export interface GitHubRepoReference {
+  owner: string;
+  repo: string;
+  ref?: string;
+  subpath?: string;
 }
 
 export interface GitHubJsonResult<T = unknown> {
@@ -189,37 +218,93 @@ export function validateUrl(url: string): void {
 // GitHub helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a GitHub URL or "org/repo" shorthand into owner + repo. */
-export function parseOwnerRepo(raw: string): {
-  owner: string;
-  repo: string;
-} {
+/** Parse a GitHub URL or "org/repo" shorthand, retaining an optional ref/path. */
+export function parseGitHubRepoReference(raw: string): GitHubRepoReference {
   const cleaned = raw
     .trim()
     .replace(/[?#].*$/, "")
     .replace(/\/+$/, "");
+  if (!cleaned) throw new Error("GitHub repository reference cannot be empty.");
 
   const sshMatch = cleaned.match(
     /^(?:ssh:\/\/)?git@github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/,
   );
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
+  if (sshMatch) return { owner: sshMatch[1], repo: sshMatch[2] };
 
   const shorthand = cleaned.match(/^([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
-  if (shorthand) {
-    return { owner: shorthand[1], repo: shorthand[2] };
+  if (shorthand) return { owner: shorthand[1], repo: shorthand[2] };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(cleaned);
+  } catch {
+    throw new Error(
+      "Could not parse GitHub owner/repo from URL. " +
+        'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
+    );
   }
-  const urlMatch = cleaned.match(
-    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
-  );
-  if (urlMatch) {
-    return { owner: urlMatch[1], repo: urlMatch[2] };
+  if (parsed.hostname.toLowerCase() !== "github.com") {
+    throw new Error("GitHub repository URL must use github.com.");
   }
-  throw new Error(
-    "Could not parse GitHub owner/repo from URL. " +
-      'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
+
+  const parts = parsed.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    });
+  const owner = parts[0];
+  const repo = parts[1]?.replace(/\.git$/, "");
+  if (!owner || !repo) {
+    throw new Error(
+      "Could not parse GitHub owner/repo from URL. " +
+        'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
+    );
+  }
+
+  const kind = parts[2];
+  if ((kind === "tree" || kind === "blob") && parts[3]) {
+    return {
+      owner,
+      repo,
+      ref: parts[3],
+      ...(parts.length > 4 ? { subpath: parts.slice(4).join("/") } : {}),
+    };
+  }
+  return { owner, repo };
+}
+
+/** Parse a GitHub URL or "org/repo" shorthand into owner + repo. */
+export function parseOwnerRepo(raw: string): { owner: string; repo: string } {
+  const { owner, repo } = parseGitHubRepoReference(raw);
+  return { owner, repo };
+}
+
+export function canonicalGitHubRepoUrl(raw: string): string {
+  const { owner, repo } = parseGitHubRepoReference(raw);
+  return `https://github.com/${owner}/${repo}`;
+}
+
+function githubContentsUrl(
+  owner: string,
+  repo: string,
+  path: string,
+  ref?: string,
+): URL {
+  const encodedPath = path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const url = new URL(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`,
   );
+  if (ref?.trim()) url.searchParams.set("ref", ref.trim());
+  return url;
 }
 
 /** Fetch a path from the GitHub Contents API as JSON. Returns null on error. */
@@ -241,9 +326,9 @@ export async function fetchGitHubJsonResult<T = unknown>(
   path: string,
   options: GitHubFetchOptions = {},
 ): Promise<GitHubJsonResult<T>> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  validateUrl(url);
-  const res = await ssrfSafeFetch(url, {
+  const url = githubContentsUrl(owner, repo, path, options.ref);
+  validateUrl(url.toString());
+  const res = await ssrfSafeFetch(url.toString(), {
     headers: githubHeaders("application/vnd.github.v3+json", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
@@ -283,9 +368,9 @@ export async function fetchGitHubRaw(
   path: string,
   options: GitHubFetchOptions = {},
 ): Promise<string | null> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  validateUrl(url);
-  const res = await ssrfSafeFetch(url, {
+  const url = githubContentsUrl(owner, repo, path, options.ref);
+  validateUrl(url.toString());
+  const res = await ssrfSafeFetch(url.toString(), {
     headers: githubHeaders("application/vnd.github.v3.raw", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
@@ -804,6 +889,43 @@ export function analyzeCodeFile(
   }
 }
 
+/** Analyze the bounded code-file payload accepted by the import-code actions. */
+export function analyzeCodeFiles(
+  files: CodeAnalysisFile[],
+): CodeAnalysisResult {
+  const truncated = files.slice(0, CODE_MAX_FILES);
+  let totalBytes = 0;
+  const accepted: CodeAnalysisFile[] = [];
+  for (const file of truncated) {
+    const size = new TextEncoder().encode(file.content).byteLength;
+    if (totalBytes + size > CODE_MAX_TOTAL_BYTES) break;
+    totalBytes += size;
+    accepted.push(file);
+  }
+
+  const state = createCodeAnalysisState();
+  const filesAnalyzed: string[] = [];
+  for (const file of accepted) {
+    filesAnalyzed.push(file.filename);
+    analyzeCodeFile(state, file.filename, file.content);
+  }
+
+  return {
+    source: "code",
+    fileCount: accepted.length,
+    filesAnalyzed,
+    colors: Object.fromEntries(Object.entries(state.colors).slice(0, 60)),
+    cssCustomProperties: Object.fromEntries(
+      Object.entries(state.cssCustomProperties).slice(0, 80),
+    ),
+    fonts: state.fonts.slice(0, 20),
+    spacing: state.spacing,
+    borderRadius: state.borderRadius,
+    stylingFramework: state.stylingFramework,
+    rawExtracts: state.rawExtracts,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Document analysis helpers (import-document)
 // ---------------------------------------------------------------------------
@@ -916,116 +1038,369 @@ export function suggestionsForType(
 // URL scraping helpers (import-from-url)
 // ---------------------------------------------------------------------------
 
-/** Fetch and extract design tokens from a URL's HTML. */
-export async function extractDesignTokensFromUrl(
-  rawUrl: string,
-): Promise<UrlExtractionResult> {
-  const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
-  validateUrl(url);
+const URL_FETCH_TIMEOUT = 10_000;
+const MAX_URL_HTML_CHARS = 1_000_000;
+const MAX_URL_STYLESHEETS = 10;
+const MAX_URL_STYLESHEET_CHARS = 256 * 1024;
+const MAX_URL_STYLESHEET_TOTAL_CHARS = 512 * 1024;
 
-  const response = await ssrfSafeFetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (compatible; AgentNative/1.0; +https://agent-native.com)",
-    },
-    signal: AbortSignal.timeout(10000),
-  });
-  const html = await response.text();
+interface FetchedStylesheet {
+  url: string;
+  content: string;
+}
 
-  const result: UrlExtractionResult = { url };
+interface StylesheetFetchResult {
+  fetched: FetchedStylesheet[];
+  urls: string[];
+  failures: { url: string; error: string }[];
+}
 
-  // Title
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    result.pageTitle = titleMatch[1].trim();
-  }
+function normalizeUrlInput(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) throw new Error("Website URL is required");
+  const candidate = /^[a-z][a-z\d+.-]*:/i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  return new URL(candidate).href;
+}
 
-  // Meta description
-  const descMatch = html.match(
-    /<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i,
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function readHtmlAttribute(tag: string, attribute: string): string | undefined {
+  const match = tag.match(
+    new RegExp(
+      `\\b${attribute}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
+      "i",
+    ),
   );
-  if (descMatch) {
-    result.metaDescription = descMatch[1];
-  }
+  const value = match?.[1] ?? match?.[2] ?? match?.[3];
+  return value === undefined ? undefined : decodeHtmlAttribute(value.trim());
+}
 
-  // Meta theme-color
-  const themeColorMatch = html.match(
-    /<meta[^>]*name=["']theme-color["'][^>]*content=["']([^"']+)["']/i,
-  );
-  if (themeColorMatch) {
-    result.themeColor = themeColorMatch[1];
+function resolveHttpUrl(
+  value: string | undefined,
+  baseUrl: string,
+):
+  | { kind: "missing" }
+  | { kind: "resolved"; url: string }
+  | { kind: "invalid"; value: string } {
+  if (!value) return { kind: "missing" };
+  try {
+    const parsed = new URL(value, baseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { kind: "missing" };
+    }
+    return { kind: "resolved", url: parsed.href };
+  } catch {
+    return { kind: "invalid", value };
   }
+}
 
-  // CSS custom properties
-  const cssVarMatches = html.matchAll(/--([\w-]+)\s*:\s*([^;}\n]+)/g);
-  const cssVars: Record<string, string> = {};
-  for (const match of cssVarMatches) {
-    cssVars[`--${match[1]}`] = match[2].trim();
+function readMetaContent(
+  html: string,
+  attribute: string,
+  value: string,
+): string | undefined {
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (readHtmlAttribute(tag, attribute)?.toLowerCase() !== value) continue;
+    const content = readHtmlAttribute(tag, "content");
+    if (content !== undefined) return content;
   }
-  if (Object.keys(cssVars).length > 0) {
-    const entries = Object.entries(cssVars).slice(0, 50);
-    result.cssCustomProperties = Object.fromEntries(entries);
-  }
+  return undefined;
+}
 
-  // Inline colors (hex, rgb)
-  const colorMatches = new Set<string>();
-  const hexPattern = /#[0-9a-fA-F]{3,8}\b/g;
-  let hexMatch;
-  while ((hexMatch = hexPattern.exec(html)) !== null) {
-    colorMatches.add(hexMatch[0]);
+function extractStylesheetUrls(html: string, baseUrl: string): string[] {
+  const urls = new Set<string>();
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    const rel = readHtmlAttribute(tag, "rel");
+    if (
+      !rel?.split(/\s+/).some((token) => token.toLowerCase() === "stylesheet")
+    ) {
+      continue;
+    }
+    const resolved = resolveHttpUrl(readHtmlAttribute(tag, "href"), baseUrl);
+    if (resolved.kind === "resolved") urls.add(resolved.url);
   }
-  const rgbPattern =
-    /rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\)/g;
-  let rgbMatch;
-  while ((rgbMatch = rgbPattern.exec(html)) !== null) {
-    colorMatches.add(rgbMatch[0]);
-  }
-  if (colorMatches.size > 0) {
-    result.colors = [...colorMatches].slice(0, 30);
-  }
+  return [...urls];
+}
 
-  // @font-face
-  const fontFaceMatches = html.matchAll(/@font-face\s*\{([^}]+)\}/g);
+function extractInlineCss(html: string): string {
+  const parts: string[] = [];
+  for (const match of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    parts.push(match[1]);
+  }
+  for (const match of html.matchAll(/<[a-z][^>]*>/gi)) {
+    const style = readHtmlAttribute(match[0], "style");
+    if (style) parts.push(style);
+  }
+  return parts.join("\n");
+}
+
+function extractFontFaces(
+  content: string,
+): { family?: string; src?: string }[] {
   const fonts: { family?: string; src?: string }[] = [];
-  for (const match of fontFaceMatches) {
+  for (const match of content.matchAll(/@font-face\s*\{([^}]+)\}/g)) {
     const block = match[1];
-    const familyMatch = block.match(/font-family\s*:\s*["']?([^"';]+)["']?/);
+    const familyMatch = block.match(/font-family\s*:\s*["']?([^"';]+)/);
     const srcMatch = block.match(/src\s*:\s*([^;]+)/);
     fonts.push({
       family: familyMatch?.[1]?.trim(),
       src: srcMatch?.[1]?.trim()?.slice(0, 200),
     });
   }
-  if (fonts.length > 0) {
-    result.fontFaces = fonts.slice(0, 20);
+  return fonts;
+}
+
+function extractGoogleFontUrls(content: string): string[] {
+  return [
+    ...content.matchAll(/fonts\.googleapis\.com\/css2?\?[^"'>\s)]+/g),
+  ].map((match) => match[0]);
+}
+
+function addColorMatches(content: string, colors: Set<string>): void {
+  for (const match of content.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) {
+    colors.add(match[0]);
+  }
+  for (const match of content.matchAll(
+    /\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\([^)]*\)/gi,
+  )) {
+    colors.add(match[0]);
+  }
+}
+
+async function readBoundedResponseText(
+  response: Response,
+  maxChars: number,
+  label: string,
+): Promise<string> {
+  const contentLength = Number.parseInt(
+    response.headers.get("content-length") ?? "",
+    10,
+  );
+  if (Number.isFinite(contentLength) && contentLength > maxChars) {
+    throw new Error(`${label} exceeds the ${maxChars}-character limit`);
   }
 
-  // Google Fonts
-  const googleFontMatches = html.matchAll(
-    /fonts\.googleapis\.com\/css2?\?[^"'>\s]+/g,
-  );
-  const googleFonts: string[] = [];
-  for (const match of googleFontMatches) {
-    googleFonts.push(match[0]);
+  if (!response.body) {
+    const text = await response.text();
+    if (text.length > maxChars) {
+      throw new Error(`${label} exceeds the ${maxChars}-character limit`);
+    }
+    return text;
   }
-  if (googleFonts.length > 0) {
-    result.googleFonts = googleFonts;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        text += decoder.decode();
+        break;
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+      if (text.length > maxChars) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error(`${label} exceeds the ${maxChars}-character limit`);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return text;
+}
+
+async function fetchStylesheets(
+  pageUrl: string,
+  html: string,
+): Promise<StylesheetFetchResult> {
+  const discovered = extractStylesheetUrls(html, pageUrl);
+  const fetched: FetchedStylesheet[] = [];
+  const urls: string[] = [];
+  const failures: { url: string; error: string }[] = [];
+  let totalChars = 0;
+
+  for (const stylesheetUrl of discovered.slice(0, MAX_URL_STYLESHEETS)) {
+    if (totalChars >= MAX_URL_STYLESHEET_TOTAL_CHARS) {
+      failures.push({
+        url: stylesheetUrl,
+        error: `Skipped because the ${MAX_URL_STYLESHEET_TOTAL_CHARS}-character stylesheet budget was reached`,
+      });
+      continue;
+    }
+
+    try {
+      const response = await ssrfSafeFetch(
+        stylesheetUrl,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; AgentNative/1.0; +https://agent-native.com)",
+          },
+          signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),
+        },
+        { maxRedirects: 3 },
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const remainingChars = MAX_URL_STYLESHEET_TOTAL_CHARS - totalChars;
+      const content = await readBoundedResponseText(
+        response,
+        Math.min(MAX_URL_STYLESHEET_CHARS, remainingChars),
+        `Stylesheet ${stylesheetUrl}`,
+      );
+      totalChars += content.length;
+      fetched.push({ url: stylesheetUrl, content });
+      urls.push(stylesheetUrl);
+    } catch (error) {
+      failures.push({
+        url: stylesheetUrl,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (discovered.length > MAX_URL_STYLESHEETS) {
+    failures.push({
+      url: pageUrl,
+      error: `Skipped ${discovered.length - MAX_URL_STYLESHEETS} stylesheet(s) after the ${MAX_URL_STYLESHEETS}-stylesheet limit`,
+    });
+  }
+
+  return { fetched, urls, failures };
+}
+
+/** Fetch and extract design tokens from a URL's HTML and linked CSS. */
+export async function extractDesignTokensFromUrl(
+  rawUrl: string,
+): Promise<UrlExtractionResult> {
+  const url = normalizeUrlInput(rawUrl);
+  validateUrl(url);
+
+  const response = await ssrfSafeFetch(
+    url,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; AgentNative/1.0; +https://agent-native.com)",
+      },
+      signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),
+    },
+    { maxRedirects: 3 },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
+  }
+  const html = await readBoundedResponseText(
+    response,
+    MAX_URL_HTML_CHARS,
+    `Website ${url}`,
+  );
+  const pageUrl = response.url || url;
+
+  const result: UrlExtractionResult = { url };
+
+  // Title
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch) {
+    result.pageTitle = titleMatch[1].trim();
+  }
+
+  const metaDescription = readMetaContent(html, "name", "description");
+  if (metaDescription !== undefined) {
+    result.metaDescription = metaDescription;
+  }
+  const themeColor = readMetaContent(html, "name", "theme-color");
+  if (themeColor !== undefined) {
+    result.themeColor = themeColor;
+  }
+
+  const inlineCss = extractInlineCss(html);
+  const pageCss = parseCss(inlineCss);
+  const stylesheetResult = await fetchStylesheets(pageUrl, html);
+  const stylesheetCssVars: Record<string, string> = {};
+  const fonts = extractFontFaces(inlineCss);
+  const googleFonts = new Set(extractGoogleFontUrls(html));
+  const colorMatches = new Set<string>();
+  addColorMatches(html, colorMatches);
+
+  for (const stylesheet of stylesheetResult.fetched) {
+    const parsed = parseCss(stylesheet.content);
+    Object.assign(stylesheetCssVars, parsed.cssCustomProperties);
+    fonts.push(...extractFontFaces(stylesheet.content));
+    for (const fontUrl of extractGoogleFontUrls(stylesheet.content)) {
+      googleFonts.add(fontUrl);
+    }
+    addColorMatches(stylesheet.content, colorMatches);
+  }
+
+  const cssVars = {
+    ...stylesheetCssVars,
+    ...(pageCss.cssCustomProperties ?? {}),
+  };
+  if (Object.keys(cssVars).length > 0) {
+    const entries = Object.entries(cssVars).slice(0, 50);
+    result.cssCustomProperties = Object.fromEntries(entries);
+  }
+
+  if (colorMatches.size > 0) {
+    result.colors = [...colorMatches].slice(0, 30);
+  }
+
+  if (fonts.length > 0) {
+    const seenFonts = new Set<string>();
+    result.fontFaces = fonts
+      .filter((font) => {
+        const key = `${font.family ?? ""}\u0000${font.src ?? ""}`;
+        if (seenFonts.has(key)) return false;
+        seenFonts.add(key);
+        return true;
+      })
+      .slice(0, 20);
+  }
+
+  if (googleFonts.size > 0) {
+    result.googleFonts = [...googleFonts];
   }
 
   // OG image
-  const ogImageMatch = html.match(
-    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
-  );
-  if (ogImageMatch) {
-    result.ogImage = ogImageMatch[1];
+  const ogImage = readMetaContent(html, "property", "og:image");
+  if (ogImage) {
+    const resolved = resolveHttpUrl(ogImage, pageUrl);
+    result.ogImage = resolved.kind === "resolved" ? resolved.url : ogImage;
   }
 
   // Favicon
-  const faviconMatch = html.match(
-    /<link[^>]*rel=["'](?:icon|shortcut icon)["'][^>]*href=["']([^"']+)["']/i,
-  );
-  if (faviconMatch) {
-    result.favicon = faviconMatch[1];
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    const rel = readHtmlAttribute(tag, "rel");
+    if (!rel?.split(/\s+/).some((token) => token.toLowerCase() === "icon")) {
+      continue;
+    }
+    const href = readHtmlAttribute(tag, "href");
+    if (href && !/^data:/i.test(href)) {
+      const resolved = resolveHttpUrl(href, pageUrl);
+      result.favicon = resolved.kind === "resolved" ? resolved.url : href;
+    }
+    break;
+  }
+
+  if (stylesheetResult.urls.length > 0) {
+    result.stylesheetUrls = stylesheetResult.urls;
+  }
+  if (stylesheetResult.failures.length > 0) {
+    result.stylesheetFailures = stylesheetResult.failures;
   }
 
   return result;

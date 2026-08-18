@@ -1,5 +1,6 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { AvailabilityConfig, DaySchedule } from "@shared/api";
+import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -21,6 +22,14 @@ import {
   useUpdateAvailability,
 } from "@/hooks/use-availability";
 import { useDbStatus } from "@/hooks/use-db-status";
+import {
+  DEFAULT_TIME_SLOT,
+  addTimeSlot,
+  getEditableTimeSlots,
+  removeTimeSlot,
+  setDayEnabled,
+  updateTimeSlot,
+} from "@/lib/availability-schedule";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 type DayName = keyof AvailabilityConfig["weeklySchedule"];
@@ -37,7 +46,7 @@ const DAYS: { key: DayName }[] = [
 
 const DEFAULT_SCHEDULE: DaySchedule = {
   enabled: false,
-  slots: [{ start: "09:00", end: "17:00" }],
+  slots: [{ ...DEFAULT_TIME_SLOT }],
 };
 
 export default function AvailabilitySettings() {
@@ -93,17 +102,36 @@ export default function AvailabilitySettings() {
   function updateDay(day: DayName, updates: Partial<DaySchedule>) {
     setSchedule((prev) => ({
       ...prev,
-      [day]: { ...prev[day], ...updates },
+      [day]:
+        typeof updates.enabled === "boolean"
+          ? setDayEnabled(prev[day], updates.enabled)
+          : { ...prev[day], ...updates },
     }));
   }
 
-  function updateDaySlot(day: DayName, field: "start" | "end", value: string) {
+  function updateDaySlot(
+    day: DayName,
+    slotIndex: number,
+    field: "start" | "end",
+    value: string,
+  ) {
     setSchedule((prev) => ({
       ...prev,
-      [day]: {
-        ...prev[day],
-        slots: [{ ...prev[day].slots[0], [field]: value }],
-      },
+      [day]: updateTimeSlot(prev[day], slotIndex, field, value),
+    }));
+  }
+
+  function addDaySlot(day: DayName) {
+    setSchedule((prev) => ({
+      ...prev,
+      [day]: addTimeSlot(prev[day]),
+    }));
+  }
+
+  function removeDaySlot(day: DayName, slotIndex: number) {
+    setSchedule((prev) => ({
+      ...prev,
+      [day]: removeTimeSlot(prev[day], slotIndex),
     }));
   }
 
@@ -181,7 +209,7 @@ export default function AvailabilitySettings() {
           </div>
           {DAYS.map(({ key }) => {
             const day = schedule[key];
-            const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
+            const slots = getEditableTimeSlots(day);
             return (
               <div
                 key={key}
@@ -198,26 +226,60 @@ export default function AvailabilitySettings() {
                 </div>
 
                 {day.enabled ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="time"
-                      value={slot.start}
-                      onChange={(e) =>
-                        updateDaySlot(key, "start", e.target.value)
-                      }
-                      className="w-28 sm:w-32"
-                    />
-                    <span className="text-muted-foreground">
-                      {t("bookingLinks.to")}
-                    </span>
-                    <Input
-                      type="time"
-                      value={slot.end}
-                      onChange={(e) =>
-                        updateDaySlot(key, "end", e.target.value)
-                      }
-                      className="w-28 sm:w-32"
-                    />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    {slots.map((slot, slotIndex) => (
+                      <div
+                        key={`${key}-${slotIndex}`}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <Input
+                          type="time"
+                          value={slot.start}
+                          onChange={(e) =>
+                            updateDaySlot(
+                              key,
+                              slotIndex,
+                              "start",
+                              e.target.value,
+                            )
+                          }
+                          className="w-28 sm:w-32"
+                        />
+                        <span className="text-muted-foreground">
+                          {t("bookingLinks.to")}
+                        </span>
+                        <Input
+                          type="time"
+                          value={slot.end}
+                          onChange={(e) =>
+                            updateDaySlot(key, slotIndex, "end", e.target.value)
+                          }
+                          className="w-28 sm:w-32"
+                        />
+                        {slots.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeDaySlot(key, slotIndex)}
+                          >
+                            <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                            {t("eventForm.delete")}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2"
+                      onClick={() => addDaySlot(key)}
+                    >
+                      <IconPlus className="mr-1.5 h-3.5 w-3.5" />
+                      {t("bookingLinks.add")}
+                    </Button>
                   </div>
                 ) : (
                   <span className="text-sm text-muted-foreground">

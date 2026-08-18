@@ -752,6 +752,42 @@ describe("poll handler", () => {
         }),
       ]),
     );
+
+    // The marker can advance while the table-wide MAX stays ahead of it due
+    // to clock skew between action and web processes. Its own max probe must
+    // still make the marker row visible.
+    appStateTs = 3_000;
+    actionMarkerTs = 2_600;
+    actionMarkerRows.push({
+      session_id: "test@example.com",
+      value: JSON.stringify({
+        source: "action",
+        actionName: "update-project",
+        owner: "test@example.com",
+      }),
+      updated_at: 2_600,
+    });
+    vi.setSystemTime(102_500);
+    const ahead = await handler({ query: { since: String(next.version) } });
+    expect(ahead.events).toEqual([
+      expect.objectContaining({ key: "update-project", source: "action" }),
+    ]);
+
+    actionMarkerTs = 2_700;
+    actionMarkerRows.push({
+      session_id: "test@example.com",
+      value: JSON.stringify({
+        source: "action",
+        actionName: "rename-project",
+        owner: "test@example.com",
+      }),
+      updated_at: 2_700,
+    });
+    vi.setSystemTime(103_500);
+    const skewed = await handler({ query: { since: String(ahead.version) } });
+    expect(skewed.events).toEqual([
+      expect.objectContaining({ key: "rename-project", source: "action" }),
+    ]);
   });
 
   it("emits existing action markers on cold start instead of baselining past them", async () => {
@@ -1185,6 +1221,79 @@ describe("poll handler", () => {
     });
     const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
     expect(syncQuery.args).toEqual([1_000, "test@example.com", "org-1", 1_001]);
+  });
+
+  // ─── Idle cost ────────────────────────────────────────────────────────────
+  // The legacy watermark scan used to read `application_state` four separate
+  // times per check whether or not anything had changed, and that cost repeats
+  // per app per connected client. These two tests pin the marker gate: one
+  // independent max probes when nothing moved, the full read the moment it
+  // does. The action marker has its own watermark, so it must stay independent
+  // from the table-wide max under cross-process clock skew.
+
+  /** Serves the legacy watermark scan with a settable application_state max. */
+  function mockLegacyScan(appStateMax: () => number): void {
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql: string = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        // Marker reads (`WHERE key = ?`) share the table's max here; the gate
+        // must not depend on them being lower.
+        return { rows: [{ max_ts: appStateMax() }] };
+      }
+      if (sql.includes("MAX(updated_at)")) return { rows: [{ max_ts: 0 }] };
+      if (sql.includes("FROM application_state")) return { rows: [] };
+      return { rows: [] };
+    });
+  }
+
+  function applicationStateReads(): string[] {
+    return mockExecute.mock.calls
+      .map(([query]) =>
+        typeof query === "string" ? query : (query?.sql ?? ""),
+      )
+      .filter((sql: string) => sql.includes("application_state"));
+  }
+
+  it("keeps independent application_state max probes when nothing changed", async () => {
+    mockLegacyScan(() => 5_000);
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    // First poll seeds the watermarks; the throttle defers the scan itself.
+    await handler({ query: { since: "0" } });
+    vi.setSystemTime(102_000);
+    mockExecute.mockClear();
+
+    await handler({ query: { since: "1" } });
+
+    const reads = applicationStateReads();
+    expect(reads).toHaveLength(2);
+    expect(reads.every((sql) => sql.includes("MAX(updated_at)"))).toBe(true);
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("still reads the changed rows once the application_state max advances", async () => {
+    let max = 5_000;
+    mockLegacyScan(() => max);
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await handler({ query: { since: "0" } });
+    max = 6_000;
+    vi.setSystemTime(102_000);
+    mockExecute.mockClear();
+
+    await handler({ query: { since: "1" } });
+
+    expect(executedSql()).toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+    expect(applicationStateReads().length).toBeGreaterThan(1);
   });
 });
 

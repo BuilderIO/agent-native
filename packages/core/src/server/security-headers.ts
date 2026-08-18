@@ -57,6 +57,10 @@ import { createHash } from "node:crypto";
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
 
 import {
+  isMcpProtocolPath,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "../mcp/route-paths.js";
+import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
@@ -101,8 +105,10 @@ function isMcpEndpointRequest(event: any): boolean {
   const pathname =
     event?.url?.pathname ??
     String(event?.node?.req?.url ?? event?.path ?? "/").split("?")[0];
+  const normalizedPathname = pathname.replace(/\/+$/, "");
   return (
-    pathname === "/_agent-native/mcp" || pathname.endsWith("/_agent-native/mcp")
+    isMcpProtocolPath(normalizedPathname) ||
+    normalizedPathname.endsWith(MCP_PUBLIC_ROUTE_PREFIX)
   );
 }
 

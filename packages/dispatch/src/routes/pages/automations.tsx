@@ -1,13 +1,18 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 import {
-  PromptComposer,
-  sendToAgentChat,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { IconPlus, IconSettingsAutomation } from "@tabler/icons-react";
+  IconFileSearch,
+  IconListDetails,
+  IconPlus,
+  IconSettingsAutomation,
+} from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { AutomationRunHistoryDialog } from "../../components/automation-run-history-dialog";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -16,14 +21,25 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Switch } from "../../components/ui/switch";
 import {
   automationIdentity,
+  automationLastCheck,
   automationLastRun,
   automationNextRun,
+  automationScopeLabel,
   automationStatus,
   automationTarget,
+  automationTroubleshootPath,
+  belongsToDispatch,
   sortAutomations,
   type AutomationStatusTone,
 } from "../../lib/automation-display";
@@ -171,13 +187,28 @@ function CreateAutomationButton() {
 }
 
 export default function AutomationsRoute() {
+  const [view, setView] = useState<"dispatch" | "all">("dispatch");
+  const [detailsTarget, setDetailsTarget] =
+    useState<DispatchAutomationItem | null>(null);
   const automationsQuery = useAutomations();
   const toggleAutomation = useToggleAutomation();
   const automations = automationsQuery.data ?? [];
-  const ordered = useMemo(() => sortAutomations(automations), [automations]);
-  const enabledCount = automations.filter((item) => item.enabled).length;
-  const errorCount = automations.filter(
-    (item) => item.enabled && item.lastStatus === "error",
+  const visibleAutomations = useMemo(
+    () =>
+      view === "all"
+        ? automations
+        : automations.filter((item) => belongsToDispatch(item)),
+    [automations, view],
+  );
+  const ordered = useMemo(
+    () => sortAutomations(visibleAutomations),
+    [visibleAutomations],
+  );
+  const enabledCount = visibleAutomations.filter((item) => item.enabled).length;
+  const errorCount = visibleAutomations.filter(
+    (item) =>
+      item.enabled &&
+      (item.lastStatus === "error" || item.lastStatus === "skipped"),
   ).length;
   const pendingToggleIdentity = toggleAutomation.isPending
     ? toggleAutomation.variables
@@ -188,7 +219,7 @@ export default function AutomationsRoute() {
   return (
     <DispatchShell
       title="Automations"
-      description="See scheduled and event-triggered jobs, pause them, or ask the agent to create one."
+      description="See scheduled and event-triggered jobs, inspect their checks and past runs, pause them, or ask the agent to create one."
     >
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -199,10 +230,29 @@ export default function AutomationsRoute() {
               {errorCount > 0 ? ` · ${errorCount} errors` : ""}
             </span>
           </div>
-          <CreateAutomationButton />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Select
+              value={view}
+              onValueChange={(value) => {
+                if (value === "dispatch" || value === "all") setView(value);
+              }}
+            >
+              <SelectTrigger
+                className="h-8 w-[10.5rem] text-xs"
+                aria-label="Automation view"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dispatch">Dispatch automations</SelectItem>
+                <SelectItem value="all">All apps</SelectItem>
+              </SelectContent>
+            </Select>
+            <CreateAutomationButton />
+          </div>
         </div>
 
-        <div className="divide-y rounded-lg border bg-card">
+        <div className="divide-y rounded-lg bg-card">
           {automationsQuery.isLoading && ordered.length === 0 ? (
             Array.from({ length: 4 }).map((_, index) => (
               <div key={index} className="px-4 py-3">
@@ -234,22 +284,48 @@ export default function AutomationsRoute() {
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                       <span>Last {automationLastRun(item)}</span>
                       <span>Next {automationNextRun(item)}</span>
+                      <span>{automationScopeLabel(item)}</span>
+                      {item.lastCheck ? (
+                        <span>Checked {automationLastCheck(item)}</span>
+                      ) : null}
                     </div>
                     {item.lastError ? (
-                      <div className="mt-1 truncate text-xs text-destructive">
-                        {item.lastError}
+                      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-destructive">
+                        <span className="min-w-0 break-words">
+                          {item.lastError}
+                        </span>
+                        <Link
+                          to={automationTroubleshootPath(item)}
+                          className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
+                          aria-label={`Troubleshoot ${item.name} in Thread Debug`}
+                        >
+                          <IconFileSearch size={13} aria-hidden="true" />
+                          Troubleshoot in Thread Debug
+                        </Link>
                       </div>
                     ) : null}
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <Badge
-                      variant={
-                        status.tone === "danger" ? "destructive" : "outline"
-                      }
-                      className="h-5"
-                    >
-                      {status.label}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant={
+                          status.tone === "danger" ? "destructive" : "outline"
+                        }
+                        className="h-5"
+                      >
+                        {status.label}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setDetailsTarget(item)}
+                      >
+                        <IconListDetails size={14} />
+                        Details
+                      </Button>
+                    </div>
                     <Switch
                       checked={!!item.enabled}
                       disabled={!canUpdate || isToggling}
@@ -268,12 +344,20 @@ export default function AutomationsRoute() {
             })
           ) : (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-              No automations yet. Create one here, or ask Dispatch to set up a
-              scheduled or event-triggered job.
+              {view === "all"
+                ? "No automations yet. Create one here, or ask Dispatch to set up a scheduled or event-triggered job."
+                : "No Dispatch automations yet. Switch to All apps to inspect workspace automations."}
             </div>
           )}
         </div>
       </section>
+      <AutomationRunHistoryDialog
+        automation={detailsTarget}
+        open={detailsTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailsTarget(null);
+        }}
+      />
     </DispatchShell>
   );
 }

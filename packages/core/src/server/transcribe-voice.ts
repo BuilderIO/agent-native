@@ -38,7 +38,8 @@ import {
 } from "../voice/index.js";
 import { getSession } from "./auth.js";
 import {
-  resolveHasBuilderPrivateKey,
+  gatewayLaneUnavailableMessage,
+  resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -49,10 +50,10 @@ const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
-const OPENAI_MODEL = "whisper-1";
+const OPENAI_MODEL = "gpt-transcribe";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI audio upload hard limit.
 // Hard cap for the dictation-cleanup text path (`sanitizeTranscriptText`
 // below). This endpoint has no `task` field — it's always the Hold-Fn
 // dictation cleanup pass — but a long session (many minutes across
@@ -64,6 +65,7 @@ const MAX_TRANSCRIPT_CHARS = 150_000;
 // Public Builder transcription model id. The Builder gateway maps this to
 // Gemini 3.1 Flash-Lite.
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
+const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
 
 // Gemini Flash Lite BYOK path when GEMINI_API_KEY is configured.
 // Gemini accepts inline audio; we just give it the bytes and a "transcribe
@@ -186,8 +188,8 @@ export function createTranscribeVoiceHandler() {
       requestContext.userEmail
         ? runWithRequestContext(requestContext, fn)
         : fn();
-    const hasBuilderPrivateKey = async () =>
-      withRequestContext(() => resolveHasBuilderPrivateKey());
+    const hasBuilderCredential = async () =>
+      withRequestContext(() => resolveHasBuilderGatewayCredential());
     const transcribeWithBuilderForRequest = (
       opts: Parameters<typeof transcribeWithBuilder>[0],
     ) => withRequestContext(() => transcribeWithBuilder(opts));
@@ -259,7 +261,7 @@ export function createTranscribeVoiceHandler() {
         instructions: voiceGuidance,
         contextPack: voiceContext,
         providerPref,
-        hasBuilderPrivateKey,
+        hasBuilderCredential,
         withRequestContext,
         resolveApiKey,
         clientAbortSignal: clientAbort,
@@ -324,10 +326,12 @@ export function createTranscribeVoiceHandler() {
         providerPref === "builder-gemini"
           ? "Builder Gemini Flash-Lite"
           : "Builder";
-      if (!(await hasBuilderPrivateKey())) {
+      if (!(await hasBuilderCredential())) {
         setResponseStatus(event, 400);
         return {
-          error: `${label} is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.`,
+          error: gatewayLaneUnavailableMessage(
+            `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`,
+          ),
         };
       }
       try {
@@ -346,10 +350,14 @@ export function createTranscribeVoiceHandler() {
         const message = (err as Error)?.message ?? String(err);
         if (message.includes("credits exhausted")) {
           setResponseStatus(event, 402);
-          return { error: message };
+          return { error: gatewayLaneUnavailableMessage(message) };
         }
         setResponseStatus(event, 502);
-        return { error: `${label} transcription failed: ${message}` };
+        return {
+          error: gatewayLaneUnavailableMessage(
+            `${label} transcription failed: ${message}`,
+          ),
+        };
       }
     }
 
@@ -384,7 +392,7 @@ export function createTranscribeVoiceHandler() {
     // ── Builder Gemini Flash-Lite path ─────────────────────────────────
     // First-priority in auto mode when Builder is connected. This lets users
     // try Gemini 3.1 Flash-Lite without bringing their own Google key.
-    if (providerPref !== "openai" && (await hasBuilderPrivateKey())) {
+    if (providerPref !== "openai" && (await hasBuilderCredential())) {
       try {
         const result = await transcribeWithBuilderForRequest({
           audioBytes,
@@ -400,7 +408,7 @@ export function createTranscribeVoiceHandler() {
         // a specific upgrade prompt.
         if (message.includes("credits exhausted")) {
           setResponseStatus(event, 402);
-          return { error: message };
+          return { error: gatewayLaneUnavailableMessage(message) };
         }
         builderError = message;
       }
@@ -477,9 +485,11 @@ export function createTranscribeVoiceHandler() {
     if (!provider) {
       setResponseStatus(event, builderError ? 502 : 400);
       return {
-        error: builderError
-          ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-          : "No voice transcription provider configured. Connect Builder.io or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+        error: gatewayLaneUnavailableMessage(
+          builderError
+            ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+            : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+        ),
       };
     }
 
@@ -497,8 +507,8 @@ export function createTranscribeVoiceHandler() {
 }
 
 /**
- * Posts the audio to a Whisper-compatible OpenAI-style endpoint (Groq or
- * OpenAI itself) and returns `{ text }` / `{ error }` shaped like the
+ * Posts the audio to an OpenAI-style transcription endpoint (Groq or OpenAI)
+ * and returns `{ text }` / `{ error }` shaped like the
  * other branches in `createTranscribeVoiceHandler`. Hoisted so the
  * strict-Groq preference path and the auto fallback chain share one
  * implementation.
@@ -538,7 +548,16 @@ async function callWhisperCompat({
   );
   form.append("model", provider.model);
   form.append("response_format", "json");
-  if (language) form.append("language", language);
+  if (language) {
+    if (provider.name === "openai") {
+      form.append(
+        "languages[]",
+        language.split("-")[0]?.toLowerCase() ?? language,
+      );
+    } else {
+      form.append("language", language);
+    }
+  }
   if (instructions) form.append("prompt", instructions);
 
   const controller = new AbortController();
@@ -586,7 +605,7 @@ async function cleanupTranscriptText({
   instructions,
   contextPack,
   providerPref,
-  hasBuilderPrivateKey,
+  hasBuilderCredential,
   withRequestContext,
   resolveApiKey,
   clientAbortSignal,
@@ -596,7 +615,7 @@ async function cleanupTranscriptText({
   instructions?: string;
   contextPack?: VoiceContextPack;
   providerPref?: string;
-  hasBuilderPrivateKey: () => Promise<boolean>;
+  hasBuilderCredential: () => Promise<boolean>;
   withRequestContext: <T>(fn: () => Promise<T>) => Promise<T>;
   resolveApiKey: (key: string) => Promise<string | undefined>;
   clientAbortSignal?: AbortSignal;
@@ -611,22 +630,33 @@ async function cleanupTranscriptText({
   }
 
   if (providerPref === "builder" || providerPref === "builder-gemini") {
-    if (!(await hasBuilderPrivateKey())) {
+    if (!(await hasBuilderCredential())) {
       setResponseStatus(event, 400);
       return {
-        error:
-          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.",
+        error: gatewayLaneUnavailableMessage(
+          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.",
+        ),
       };
     }
     try {
       const cleaned = await withRequestContext(() =>
-        cleanupWithBuilder({ text: original, instructions, clientAbortSignal }),
+        cleanupWithBuilder({
+          text: original,
+          instructions,
+          clientAbortSignal,
+          model:
+            providerPref === "builder-gemini"
+              ? BUILDER_GEMINI_TRANSCRIPTION_MODEL
+              : undefined,
+        }),
       );
       return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
-        error: `Builder.io cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+        error: gatewayLaneUnavailableMessage(
+          `Builder.io cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+        ),
       };
     }
   }
@@ -683,7 +713,7 @@ async function cleanupTranscriptText({
     }
   }
 
-  if (await hasBuilderPrivateKey()) {
+  if (await hasBuilderCredential()) {
     try {
       const cleaned = await withRequestContext(() =>
         cleanupWithBuilder({ text: original, instructions, clientAbortSignal }),
@@ -691,6 +721,22 @@ async function cleanupTranscriptText({
       if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through to BYOK providers, then raw text.
+    }
+  }
+
+  const openaiKey = await resolveApiKey("OPENAI_API_KEY");
+  if (openaiKey) {
+    try {
+      const cleaned = await cleanupWithChatProvider({
+        provider: "openai",
+        text: original,
+        apiKey: openaiKey,
+        instructions,
+        clientAbortSignal,
+      });
+      if (cleaned) return { text: finalizeText(cleaned) };
+    } catch {
+      // Fall through.
     }
   }
 
@@ -725,22 +771,6 @@ async function cleanupTranscriptText({
     }
   }
 
-  const openaiKey = await resolveApiKey("OPENAI_API_KEY");
-  if (openaiKey) {
-    try {
-      const cleaned = await cleanupWithChatProvider({
-        provider: "openai",
-        text: original,
-        apiKey: openaiKey,
-        instructions,
-        clientAbortSignal,
-      });
-      if (cleaned) return { text: finalizeText(cleaned) };
-    } catch {
-      // Fall through.
-    }
-  }
-
   return { text: finalizeText(original) };
 }
 
@@ -748,10 +778,12 @@ async function cleanupWithBuilder({
   text,
   instructions,
   clientAbortSignal,
+  model,
 }: {
   text: string;
   instructions?: string;
   clientAbortSignal?: AbortSignal;
+  model?: string;
 }): Promise<string> {
   const engine = createBuilderEngine();
   const controller = new AbortController();
@@ -761,7 +793,7 @@ async function cleanupWithBuilder({
   let terminalError: string | undefined;
   try {
     for await (const event of engine.stream({
-      model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+      model: model ?? BUILDER_CLEANUP_MODEL,
       systemPrompt: buildCleanupSystemPrompt(instructions),
       messages: [
         {

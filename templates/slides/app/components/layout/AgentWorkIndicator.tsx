@@ -1,6 +1,9 @@
-import { focusAgentChat, useT } from "@agent-native/core/client";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
 
 export function isAgentSidebarVisible() {
   const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
@@ -49,24 +52,42 @@ function useAgentSidebarVisible() {
 export function AgentWorkIndicator() {
   const t = useT();
   const [running, setRunning] = useState(false);
+  const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarVisible = useAgentSidebarVisible();
 
   useEffect(() => {
+    const clearStopDebounce = () => {
+      if (stopDebounceRef.current !== null) {
+        clearTimeout(stopDebounceRef.current);
+        stopDebounceRef.current = null;
+      }
+    };
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (typeof detail?.isRunning === "boolean") {
-        setRunning(detail.isRunning);
+        clearStopDebounce();
+        if (detail.isRunning) {
+          setRunning(true);
+        } else {
+          stopDebounceRef.current = setTimeout(() => {
+            stopDebounceRef.current = null;
+            setRunning(false);
+          }, CHAT_STOP_DEBOUNCE_MS);
+        }
       }
     };
     window.addEventListener("agentNative.chatRunning", handler);
-    return () => window.removeEventListener("agentNative.chatRunning", handler);
+    return () => {
+      clearStopDebounce();
+      window.removeEventListener("agentNative.chatRunning", handler);
+    };
   }, []);
 
   if (!running || sidebarVisible) return null;
 
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 md:bottom-5">
-      <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-lg border border-border bg-popover/95 px-3 py-2 text-popover-foreground shadow-xl shadow-black/20 backdrop-blur">
+      <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-lg border border-border bg-popover/95 px-3 py-2 text-popover-foreground shadow-xl shadow-black/20">
         <div className="flex min-w-0 items-center gap-2">
           <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-[#609FF8]" />
           <span className="truncate text-sm font-medium">

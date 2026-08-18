@@ -58,6 +58,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async (args) => {
     return listSessionRecordings(resolveScope(), args);
   },

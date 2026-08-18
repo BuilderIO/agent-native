@@ -1,15 +1,18 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   FindTimeBusyBlock,
   FindTimeResult,
   FindTimeSlot,
 } from "@shared/api";
+import { getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconAlertCircle,
   IconCalendarTime,
   IconChevronLeft,
   IconChevronRight,
   IconLoader2,
+  IconX,
   IconUsers,
 } from "@tabler/icons-react";
 import {
@@ -30,11 +33,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSettings } from "@/hooks/use-settings";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import { cn } from "@/lib/utils";
 
@@ -187,6 +192,8 @@ export function FindTimePanel({
   isTakeover = false,
 }: FindTimePanelProps) {
   const t = useT();
+  const { data: settings } = useSettings();
+  const weekStartsOn = getWeekStartsOn(settings?.weekStart);
   const [anchorDate, setAnchorDate] = useState(() => parseDateOnly(date));
 
   useEffect(() => {
@@ -219,7 +226,10 @@ export function FindTimePanel({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [isTakeover]);
 
-  const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
+  const weekStart = useMemo(
+    () => startOfWeek(anchorDate, { weekStartsOn }),
+    [anchorDate, weekStartsOn],
+  );
   const days = useMemo(
     () =>
       eachDayOfInterval({
@@ -662,9 +672,11 @@ export function FindTimeTakeover({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-find-time-takeover
-        className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-[-50%] translate-y-[-50%] flex-col gap-0 overflow-hidden border-0 p-0 shadow-xl sm:rounded-none"
+        hideClose
+        overlayClassName="z-[310]"
+        className="z-[320] flex h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-[-50%] translate-y-[-50%] flex-col gap-0 overflow-hidden border-0 p-0 shadow-xl sm:rounded-none"
       >
-        <header className="flex h-14 shrink-0 items-center border-b border-border px-4 pr-12 md:px-6">
+        <header className="flex h-14 shrink-0 items-center border-b border-border px-4 md:px-6">
           <div className="min-w-0">
             <DialogTitle className="truncate text-base">
               {dialogTitle}
@@ -678,6 +690,17 @@ export function FindTimeTakeover({
               {subtitle || t("findTime.takeoverDescription")}
             </DialogDescription>
           </div>
+          <DialogClose asChild>
+            <button
+              type="button"
+              aria-label={t("eventDialog.close")}
+              title={t("eventDialog.close")}
+              className="ml-auto flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <IconX className="h-4 w-4" />
+              <span>{t("eventDialog.close")}</span>
+            </button>
+          </DialogClose>
         </header>
         <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
           <FindTimePanel

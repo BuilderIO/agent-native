@@ -1,4 +1,5 @@
-import { agentNativePath, callAction } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useState, useCallback, useEffect, useRef } from "react";
 
 import {
@@ -103,12 +104,25 @@ function save(prefs: CalendarViewPreferences) {
   } catch {}
 }
 
+const REFRESH_INTERVAL_MS = 2_000;
+// Bounds the refresh fetch so a hung request can't stall the self-rescheduling
+// setTimeout loop forever.
+const REFRESH_ABORT_MS = Math.max(10_000, REFRESH_INTERVAL_MS * 4);
+
 async function readAppStatePreferences(): Promise<CalendarViewPreferences | null> {
-  const res = await fetch(
-    agentNativePath(
-      `/_agent-native/application-state/${CALENDAR_VIEW_PREFERENCES_KEY}`,
-    ),
-  );
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), REFRESH_ABORT_MS);
+  let res: Response;
+  try {
+    res = await fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${CALENDAR_VIEW_PREFERENCES_KEY}`,
+      ),
+      { signal: controller.signal },
+    );
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`${res.status}`);
   return normalizeCalendarViewPreferences(await res.json());
@@ -140,6 +154,11 @@ export function useViewPreferences() {
     let timeout: number | undefined;
 
     async function refresh() {
+      if (document.hidden) {
+        if (!cancelled)
+          timeout = window.setTimeout(refresh, REFRESH_INTERVAL_MS);
+        return;
+      }
       try {
         const remote = await readAppStatePreferences();
         if (!cancelled && remote) {
@@ -181,13 +200,24 @@ export function useViewPreferences() {
         // Preferences are a UI convenience; keep the local copy if app-state
         // is temporarily unavailable.
       } finally {
-        if (!cancelled) timeout = window.setTimeout(refresh, 2_000);
+        if (!cancelled)
+          timeout = window.setTimeout(refresh, REFRESH_INTERVAL_MS);
       }
     }
+
+    function handleVisibilityChange() {
+      if (!document.hidden && timeout) {
+        window.clearTimeout(timeout);
+        timeout = undefined;
+        void refresh();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     void refresh();
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (timeout) window.clearTimeout(timeout);
     };
   }, []);

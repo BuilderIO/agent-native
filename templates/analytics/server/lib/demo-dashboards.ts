@@ -1,12 +1,8 @@
 import { createHash } from "node:crypto";
 
-import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 
+import { queueDashboardCollabSync } from "./dashboard-collab-sync";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard, upsertDashboard } from "./dashboards-store";
 
@@ -187,23 +183,6 @@ function applyDemoMetadata(
   };
 }
 
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    if (await hasCollabState(docId)) {
-      await applyText(docId, configStr, "content", "agent");
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // SQL is the source of truth; collab can seed lazily later.
-  }
-}
-
 async function readDemoState(email: string): Promise<DemoDashboardState> {
   return normalizeState(await getUserSetting(email, DEMO_DASHBOARD_STATE_KEY));
 }
@@ -277,7 +256,7 @@ export async function ensureDemoDashboardsForUser(
       // SQL is the source of truth and collab state can seed lazily. Do not
       // hold first-open installation (and the whole app shell) behind a remote
       // collab read/write that may be slow or temporarily unavailable.
-      void syncToCollab(dashboardId, config);
+      queueDashboardCollabSync(dashboardId, config, "agent");
       archivedAt = row.archivedAt;
       created = !existing;
     }

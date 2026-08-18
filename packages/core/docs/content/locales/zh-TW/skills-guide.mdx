@@ -124,6 +124,8 @@ Skills 位於 `.agents/skills/<name>/SKILL.md`，包含針對代理的詳細指�
 
 **完整詳細資訊如下：** [App-backed skills — full details](#app-backed-skills-full) 中介紹了應用程式支援的 skills 的機制（清單格式、CLI 指令、市場轉接器、自動更新哈希）。
 
+`app-skill` 套件也會產生標準 Agent Plugin 檔案。使用 `agent-native plugin import <path> --into <workspace> --yes` 匯入 Skills 和遠端 Streamable HTTP MCP 伺服器；套件標頭會被忽略，stdio 和 SSE 伺服器會回報後略過。
+
 </Callout>
 
 ## 建立自訂 skills {#creating-skills}
@@ -137,7 +139,7 @@ Skills 位於 `.agents/skills/<name>/SKILL.md`，包含針對代理的詳細指�
 在以下情況下不要建立技能：
 
 - 該指導已存在於另一項技能中 - 請擴充功能它
-- 該指導是一次性的 - 將其放入 `AGENTS.md` 或工作區記憶中
+- 該指導是一次性的 - 將其放入 `AGENTS.md` 或代理記憶中
 
 ## 技能格式 {#skill-format}
 
@@ -295,11 +297,11 @@ Agent-Native 執行時從 `.agents/skills/` 讀取 skills。 Claude 程式碼獨
 
 </Callout>
 
-如果這些知識適用於在應用程式中工作的*每個人*（“總是更喜歡 CTE 而不是子查詢”），那麼它就是一項技能或共用的 `LEARNINGS.md`。如果它是關於*這個特定使用者*（“史蒂夫喜歡簡潔的答案”），它就屬於 `memory/MEMORY.md`。完整治療請參見[Workspace Memory](/docs/workspace#memory)。
+如果這些知識適用於在應用程式中工作的*每個人*（“總是更喜歡 CTE 而不是子查詢”），那麼它就是一項技能或共用的 `LEARNINGS.md`。如果它是關於*這個特定使用者*（“史蒂夫喜歡簡潔的答案”），它就屬於 `memory/MEMORY.md`。完整治療請參見[代理資源 — 記憶](/docs/agent-resources#memory)。
 
 ## Skills 與 SQL 資源 {#skills-vs-resources}
 
-本頁將 skill 描述為 `.agents/skills/<name>/SKILL.md` 中的檔案。[Workspace](/docs/workspace#skills) 則將同一個 skill 描述為路徑為 `skills/<slug>/SKILL.md`、範圍為 workspace/shared/personal 的 SQL 資源。兩者是從不同角度描述同一概念：Code 模式直接讀寫檔案；App 模式將其儲存為資源列，因此無需檔案系統也能運作。無論採用哪種方式，都請依本頁格式編寫內容。
+本頁將 skill 描述為 `.agents/skills/<name>/SKILL.md` 中的檔案。[代理資源](/docs/agent-resources#skills) 則將同一個 skill 描述為路徑為 `skills/<slug>/SKILL.md`、範圍為 workspace/shared/personal 的 SQL 資源。兩者是從不同角度描述同一概念：Code 模式直接讀寫檔案；App 模式將其儲存為資源列，因此無需檔案系統也能運作。無論採用哪種方式，都請依本頁格式編寫內容。
 
 ## 應用程式支援的 skills — 完整詳細資訊 {#app-backed-skills-full}
 
@@ -313,7 +315,7 @@ Agent-Native 執行時從 `.agents/skills/` 讀取 skills。 Claude 程式碼獨
   "id": "assets",
   "hosted": {
     "url": "https://assets.agent-native.com",
-    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://assets.agent-native.com/mcp"
   },
   "mcp": { "serverName": "agent-native-assets" },
   "skills": [
@@ -424,6 +426,6 @@ Claude 相容性連結（`CLAUDE.md` 和 `.claude/skills`），因此 Claude 程
 ## 接下來 {#whats-next}
 
 - [**編寫代理指令**](/docs/writing-agent-instructions) — 編寫 skill 描述，並在 AGENTS.md、skills 和記憶之間拆分指引
-- [**Workspace**](/docs/workspace#skills) — App 模式下 skills 作為 SQL 資源儲存的位置
+- [**代理資源**](/docs/agent-resources#skills) — App 模式下 skills 作為 SQL 資源儲存的位置
 - [**代理提及**](/docs/agent-mentions) — 在聊天中呼叫 skill 的 `/` 指令觸發器
 - [**Plan 外掛與市場**](/docs/plan-plugin) — 真實應用程式支援的 skill 的端對端安裝和自動更新流程

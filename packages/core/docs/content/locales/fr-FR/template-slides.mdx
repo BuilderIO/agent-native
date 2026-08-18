@@ -450,6 +450,6 @@ Agent skills qui explique les modèles lorsque l'agent doit modifier le code :
 
 `templates/slides/AGENTS.md` est le routeur court que l'agent lit à chaque conversation. Il pointe vers le skills sous `.agents/skills/` et expose les règles de base, le contrat d'état d'application et l'indice de compétences. Les modèles de diapositives HTML exacts pour chaque mise en page sont disponibles dans `.agents/skills/create-deck/SKILL.md` : mettez à jour cette compétence chaque fois que vous ajoutez ou modifiez un modèle de mise en page de diapositive.
 
-#### Itinéraires API
+#### Actions et itinéraires API
 
-Dans les cas où actions ne convient pas (téléchargement de fichiers, streaming), le modèle expose un petit ensemble de points de terminaison REST : `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. Voir `templates/slides/server/routes/api/`.
+La création, la modification et la suppression des présentations et des diapositives utilisent des actions partagées telles que `create-deck`, `add-slide`, `update-slide` et `delete-deck`, appelables par l’agent et l’interface. Les itinéraires REST sous `templates/slides/server/routes/api/` sont réservés aux téléchargements, au streaming, aux exportations et aux autres flux propres aux itinéraires.

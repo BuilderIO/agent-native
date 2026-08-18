@@ -1,1 +1,1 @@
-export { requestUserInfo, type UserInfo } from "@agent-native/core/client";
+export { requestUserInfo, type UserInfo } from "@agent-native/core/client/host";

@@ -43,7 +43,7 @@ export default async (nitroApp: any): Promise<void> => {
     required: true,
     title: "Image and video generation",
     description:
-      "Connect Builder for managed image generation, or add OpenAI/Gemini keys manually. Gemini is required for video generation.",
+      "Connect Builder (free tier available) for managed image generation, or add OpenAI/Gemini keys manually. Gemini is required for video generation.",
     methods: [
       {
         id: "builder",

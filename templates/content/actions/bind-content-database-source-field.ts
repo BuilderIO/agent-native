@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,7 +8,10 @@ import type {
   BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
 } from "../shared/api.js";
-import { serializePropertyValue } from "../shared/properties.js";
+import {
+  serializePropertyValue,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -71,41 +74,93 @@ export default defineAction({
 
     // ── Unbind ────────────────────────────────────────────────────────────
     if (args.propertyId === null) {
-      if (field.propertyId) {
-        const sourceRows = await db
-          .select({ documentId: schema.contentDatabaseSourceRows.documentId })
-          .from(schema.contentDatabaseSourceRows)
-          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
-        const sourceDocumentIds = sourceRows
-          .map((row) => row.documentId)
-          .filter((id): id is string => Boolean(id));
-        if (sourceDocumentIds.length > 0) {
-          await db
-            .delete(schema.documentPropertyValues)
-            .where(
-              and(
-                eq(schema.documentPropertyValues.propertyId, field.propertyId),
-                inArray(
-                  schema.documentPropertyValues.documentId,
-                  sourceDocumentIds,
-                ),
-              ),
-            );
+      await db.transaction(async (tx) => {
+        const [lockedDatabase] = await tx
+          .update(schema.contentDatabases)
+          .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+          .where(
+            and(
+              eq(schema.contentDatabases.id, database.id),
+              eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          )
+          .returning({ id: schema.contentDatabases.id });
+        if (!lockedDatabase) throw new Error("Database is no longer active.");
+
+        const [lockedField] = await tx
+          .select()
+          .from(schema.contentDatabaseSourceFields)
+          .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+        if (
+          !lockedField ||
+          lockedField.sourceId !== source.id ||
+          lockedField.mappingType === "title" ||
+          lockedField.mappingType === "system" ||
+          lockedField.writeOwner === "derived"
+        ) {
+          throw new Error(
+            "Source field changed or was deleted before it could be unbound.",
+          );
         }
-      }
-      await db
-        .update(schema.contentDatabaseSourceFields)
-        .set({
-          propertyId: null,
-          localFieldKey: field.sourceFieldKey,
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
-      await db
-        .update(schema.contentDatabaseSources)
-        .set({ updatedAt: now })
-        .where(eq(schema.contentDatabaseSources.id, source.id));
-      return getContentDatabaseResponse(database.id);
+        if (lockedField.propertyId) {
+          const sourceRows = await tx
+            .select({
+              documentId: schema.contentDatabaseSourceRows.documentId,
+            })
+            .from(schema.contentDatabaseSourceRows)
+            .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+          const sourceDocumentIds = sourceRows
+            .map((row) => row.documentId)
+            .filter((id): id is string => Boolean(id));
+          if (sourceDocumentIds.length > 0) {
+            await tx
+              .delete(schema.documentPropertyValues)
+              .where(
+                and(
+                  eq(
+                    schema.documentPropertyValues.propertyId,
+                    lockedField.propertyId,
+                  ),
+                  inArray(
+                    schema.documentPropertyValues.documentId,
+                    sourceDocumentIds,
+                  ),
+                ),
+              );
+          }
+        }
+        const [updatedField] = await tx
+          .update(schema.contentDatabaseSourceFields)
+          .set({
+            propertyId: null,
+            localFieldKey: lockedField.sourceFieldKey,
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id))
+          .returning({ id: schema.contentDatabaseSourceFields.id });
+        if (!updatedField) {
+          throw new Error(
+            "Source field was deleted before its unbinding could be saved.",
+          );
+        }
+        const [updatedSource] = await tx
+          .update(schema.contentDatabaseSources)
+          .set({ updatedAt: now })
+          .where(
+            and(
+              eq(schema.contentDatabaseSources.id, source.id),
+              eq(schema.contentDatabaseSources.databaseId, database.id),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSources.id });
+        if (!updatedSource) {
+          throw new Error(
+            "Source was deleted before its field unbinding could be saved.",
+          );
+        }
+      });
+      return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
     }
 
     // ── Bind to an existing column ─────────────────────────────────────────
@@ -120,6 +175,9 @@ export default defineAction({
       );
     if (!property) {
       throw new Error("Target column does not belong to this database.");
+    }
+    if (property.systemRole) {
+      throw new Error("System properties cannot be bound to source fields.");
     }
     // The auto-created "Source" tag is internal row-tagging, never a writable
     // bind target.
@@ -180,23 +238,6 @@ export default defineAction({
       );
     }
 
-    await db
-      .update(schema.contentDatabaseSourceFields)
-      .set({
-        propertyId: property.id,
-        localFieldKey: property.id,
-        mappingType: "property",
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSourceFields.id, field.id));
-    await db
-      .update(schema.contentDatabaseSources)
-      .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
-
-    // Backfill the column with this source's per-row values. A federated
-    // secondary's rows carry no local document (the read path overlays them),
-    // so only materialize for document-backed sources.
     let federationRole: string | null = null;
     try {
       const parsed = JSON.parse(source.metadataJson ?? "{}") as {
@@ -206,58 +247,196 @@ export default defineAction({
     } catch {
       federationRole = null;
     }
-    if (federationRole !== "secondary") {
-      const sourceRows = await db
-        .select({
-          databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
-          documentId: schema.contentDatabaseSourceRows.documentId,
-          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    await db.transaction(async (tx) => {
+      // Share the database-row lock used by stable-key upserts. This makes the
+      // claim check and source binding one atomic ownership transition: either
+      // the property remains caller-managed, or binding fails before backfill.
+      const [lockedDatabase] = await tx
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.documentId, database.documentId),
+            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .returning({ id: schema.contentDatabases.id });
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+
+      const [lockedProperty] = await tx
+        .update(schema.documentPropertyDefinitions)
+        .set({
+          updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
         })
-        .from(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
-      const itemValues = sourceFieldPropertyValuesFromRows(
-        sourceRows,
-        field.sourceFieldKey,
-        property.type,
-      );
-      // Clear this column's values for ALL of this source's rows first — not
-      // just the rows that now have a value — so a row whose new bound field is
-      // empty doesn't keep showing a stale/previous value. Then write the
-      // non-empty ones. (This source owns these documents' values for the row-
-      // union, so clearing them is safe.)
-      const sourceDocumentIds = sourceRows
-        .map((row) => row.documentId)
-        .filter((id): id is string => Boolean(id));
-      if (sourceDocumentIds.length > 0) {
-        await db
-          .delete(schema.documentPropertyValues)
-          .where(
-            and(
-              eq(schema.documentPropertyValues.propertyId, property.id),
-              inArray(
-                schema.documentPropertyValues.documentId,
-                sourceDocumentIds,
-              ),
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, property.id),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              database.ownerEmail,
             ),
-          );
+          ),
+        )
+        .returning();
+      if (
+        !lockedProperty ||
+        lockedProperty.type !== property.type ||
+        lockedProperty.systemRole !== property.systemRole ||
+        lockedProperty.name !== property.name
+      ) {
+        throw new Error(
+          "Target column changed or was deleted before the source field could be bound.",
+        );
       }
-      if (itemValues.length > 0) {
-        for (const chunk of chunks(itemValues, 200)) {
-          await db.insert(schema.documentPropertyValues).values(
-            chunk.map((row) => ({
-              id: nanoid(),
-              ownerEmail: database.ownerEmail,
-              documentId: row.documentId,
-              propertyId: property.id,
-              valueJson: serializePropertyValue(row.value),
-              createdAt: now,
-              updatedAt: now,
-            })),
-          );
+
+      const [lockedField] = await tx
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+      if (
+        !lockedField ||
+        lockedField.sourceId !== source.id ||
+        lockedField.mappingType === "title" ||
+        lockedField.mappingType === "system" ||
+        lockedField.writeOwner === "derived"
+      ) {
+        throw new Error(
+          "Source field changed or was deleted before it could be bound.",
+        );
+      }
+      if (
+        lockedField.propertyId &&
+        lockedField.propertyId !== lockedProperty.id
+      ) {
+        throw new Error(
+          "This source field is already bound to another column. Unbind it first.",
+        );
+      }
+      const [lockedConflictingField] = await tx
+        .select({ id: schema.contentDatabaseSourceFields.id })
+        .from(schema.contentDatabaseSourceFields)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, source.id),
+            eq(
+              schema.contentDatabaseSourceFields.propertyId,
+              lockedProperty.id,
+            ),
+            ne(schema.contentDatabaseSourceFields.id, lockedField.id),
+          ),
+        );
+      if (lockedConflictingField) {
+        throw new Error(
+          "This source already feeds this column from another field. Unbind it first.",
+        );
+      }
+
+      const [activeClaim] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, property.id),
+          ),
+        )
+        .limit(1);
+      if (activeClaim) {
+        throw new Error(
+          "A property with active stable-key claims cannot be bound to a source field.",
+        );
+      }
+
+      const [updatedField] = await tx
+        .update(schema.contentDatabaseSourceFields)
+        .set({
+          propertyId: property.id,
+          localFieldKey: property.id,
+          mappingType: "property",
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id))
+        .returning({ id: schema.contentDatabaseSourceFields.id });
+      if (!updatedField) {
+        throw new Error(
+          "Source field was deleted before its binding could be saved.",
+        );
+      }
+      const [updatedSource] = await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, source.id),
+            eq(schema.contentDatabaseSources.databaseId, database.id),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (!updatedSource) {
+        throw new Error(
+          "Source was deleted before its field binding could be saved.",
+        );
+      }
+
+      // Backfill the column with this source's per-row values. A federated
+      // secondary's rows carry no local document (the read path overlays them),
+      // so only materialize for document-backed sources.
+      if (federationRole !== "secondary") {
+        const sourceRows = await tx
+          .select({
+            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+            documentId: schema.contentDatabaseSourceRows.documentId,
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+        const itemValues = sourceFieldPropertyValuesFromRows(
+          sourceRows,
+          lockedField.sourceFieldKey,
+          lockedProperty.type as DocumentPropertyType,
+        );
+        // Clear this column's values for ALL of this source's rows first — not
+        // just the rows that now have a value — so a row whose new bound field is
+        // empty doesn't keep showing a stale/previous value. Then write the
+        // non-empty ones. (This source owns these documents' values for the row-
+        // union, so clearing them is safe.)
+        const sourceDocumentIds = sourceRows
+          .map((row) => row.documentId)
+          .filter((id): id is string => Boolean(id));
+        if (sourceDocumentIds.length > 0) {
+          await tx
+            .delete(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.propertyId, property.id),
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  sourceDocumentIds,
+                ),
+              ),
+            );
+        }
+        if (itemValues.length > 0) {
+          for (const chunk of chunks(itemValues, 200)) {
+            await tx.insert(schema.documentPropertyValues).values(
+              chunk.map((row) => ({
+                id: nanoid(),
+                ownerEmail: database.ownerEmail,
+                documentId: row.documentId,
+                propertyId: property.id,
+                valueJson: serializePropertyValue(row.value),
+                createdAt: now,
+                updatedAt: now,
+              })),
+            );
+          }
         }
       }
-    }
+    });
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
 });

@@ -1,12 +1,16 @@
 import {
-  deleteClientAppState,
-  readClientAppState,
+  SIDEBAR_STATE_CHANGE_EVENT,
   removeAgentChatContextItem,
   setAgentChatContextItem,
-  setClientAppState,
+  type AgentSidebarStateChangeDetail,
   useAgentChatContext,
-} from "@agent-native/core/client";
-import { useCallback, useEffect } from "react";
+} from "@agent-native/core/client/agent-chat";
+import {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
+import { useCallback, useEffect, useState } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -14,6 +18,7 @@ const DASHBOARD_CONTEXT_KEY = "analytics-selected-dashboard";
 const DASHBOARD_PANEL_CONTEXT_KEY = "analytics-selected-dashboard-panel";
 const SELECTED_OBJECT_STATE_KEY = "selected-object";
 const SELECTED_OBJECT_SOURCE_FIELD = "__agentNativeSelectedObjectSource";
+const CONTEXT_PUBLISH_DELAY_MS = 250;
 
 export interface DashboardChatContextArgs {
   id: string | null | undefined;
@@ -120,10 +125,22 @@ function parsePanelSelection(
   }
 }
 
+function isAgentSidebarOpenInDocument(): boolean {
+  if (typeof document === "undefined") return false;
+  return Boolean(
+    document.querySelector(
+      '.agent-sidebar-panel[data-agent-sidebar-state="open"]',
+    ),
+  );
+}
+
 export function useDashboardChatContext(
   args: DashboardChatContextArgs,
 ): DashboardChatContextResult {
   const { id, kind, title, panelCount, canEdit } = args;
+  const [isAgentSidebarOpen, setIsAgentSidebarOpen] = useState(
+    isAgentSidebarOpenInDocument,
+  );
   const { items } = useAgentChatContext();
   const panelContext = items.find(
     (item) => item.key === DASHBOARD_PANEL_CONTEXT_KEY,
@@ -132,7 +149,9 @@ export function useDashboardChatContext(
     ? parsePanelSelection(panelContext.context)
     : null;
   const selectedPanelId =
-    id && panelSelection?.dashboardId === id ? panelSelection.panelId : null;
+    isAgentSidebarOpen && id && panelSelection?.dashboardId === id
+      ? panelSelection.panelId
+      : null;
   const hasSelectedPanel = selectedPanelId !== null;
 
   const selectPanelForChat = useCallback(
@@ -141,6 +160,7 @@ export function useDashboardChatContext(
       options: SelectDashboardPanelOptions = {},
     ) => {
       if (!id) return;
+      if (options.openSidebar !== true && !isAgentSidebarOpen) return;
       const displayDashboardTitle = title?.trim() || id;
       const displayPanelTitle = panel.panelTitle.trim() || panel.panelId;
       const contextLines = [
@@ -166,7 +186,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         title: displayPanelTitle,
         context: contextLines.join("\n"),
-        openSidebar: options.openSidebar ?? true,
+        openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
       setClientAppState(
@@ -191,59 +211,84 @@ export function useDashboardChatContext(
         },
       ).catch(() => {});
     },
-    [id, kind, title],
+    [id, isAgentSidebarOpen, kind, title],
   );
 
   useEffect(() => {
+    const handleSidebarStateChange = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (typeof detail?.open === "boolean") {
+        setIsAgentSidebarOpen(detail.open);
+      }
+    };
+
+    window.addEventListener(
+      SIDEBAR_STATE_CHANGE_EVENT,
+      handleSidebarStateChange,
+    );
+    return () =>
+      window.removeEventListener(
+        SIDEBAR_STATE_CHANGE_EVENT,
+        handleSidebarStateChange,
+      );
+  }, []);
+
+  // Dashboard metadata lands in pieces — title first, then panel count, then
+  // the access role. Publishing each piece costs a round-trip and a sync event
+  // that invalidates every mounted query, so only the settled value is sent.
+  useEffect(() => {
     if (!id) return;
     const displayTitle = title?.trim() || id;
-
-    setAgentChatContextItem({
-      key: DASHBOARD_CONTEXT_KEY,
-      title: `Dashboard: ${displayTitle}`,
-      context: dashboardContext({
-        id,
-        kind,
-        title: displayTitle,
-        panelCount,
-        canEdit,
-      }),
-      openSidebar: false,
-      focus: false,
-    });
-
-    return () => {
-      removeAgentChatContextItem({
+    const timer = setTimeout(() => {
+      setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
+        title: `Dashboard: ${displayTitle}`,
+        context: dashboardContext({
+          id,
+          kind,
+          title: displayTitle,
+          panelCount,
+          canEdit,
+        }),
         openSidebar: false,
+        focus: false,
       });
-    };
+    }, CONTEXT_PUBLISH_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [canEdit, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
     const displayTitle = title?.trim() || id;
-    setClientAppState(
-      SELECTED_OBJECT_STATE_KEY,
-      {
-        type: "dashboard",
-        id,
-        kind,
-        title: displayTitle,
-        panelCount,
-        canEdit,
-        [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-      },
-      {
-        keepalive: true,
-        requestSource: TAB_ID,
-      },
-    ).catch(() => {});
+    const timer = setTimeout(() => {
+      setClientAppState(
+        SELECTED_OBJECT_STATE_KEY,
+        {
+          type: "dashboard",
+          id,
+          kind,
+          title: displayTitle,
+          panelCount,
+          canEdit,
+          [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+        },
+        {
+          keepalive: true,
+          requestSource: TAB_ID,
+        },
+      ).catch(() => {});
+    }, CONTEXT_PUBLISH_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [canEdit, hasSelectedPanel, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id) return;
     return () => {
+      removeAgentChatContextItem({
+        key: DASHBOARD_CONTEXT_KEY,
+        openSidebar: false,
+      });
       removeAgentChatContextItem({
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,

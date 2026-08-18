@@ -96,8 +96,6 @@ Cuando abres la aplicación, la bandeja de entrada del teclado y la vista del hi
 
 Demostración en vivo: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Google puede mostrar una advertencia:** La demostración alojada utiliza la aplicación compartida de Google de Agent-Native para el acceso a Gmail, por lo que Google puede pedirle que confirme antes de continuar. Ejecútelo localmente para utilizar su propio cliente Google OAuth.
-
 Cuando abres la aplicación por primera vez:
 
 1. Haga clic en **Configuración** en la barra lateral.
@@ -349,7 +347,7 @@ Rutas en el UI:
 
 El correo es tuyo para cambiarlo. Todo lo importante se encuentra en unos cuantos lugares: empieza por ahí.
 
-**Agregar una capacidad de agente.** Agregue un nuevo archivo en `templates/mail/actions/` usando `defineAction`. Su acción se convierte en una herramienta de agente, un comando CLI (`pnpm action <name>`) y una superficie de enlace frontal escrita a través de `useActionQuery`/`useActionMutation`. Mire `templates/mail/actions/star-email.ts` para ver un ejemplo breve o `templates/mail/actions/manage-automations.ts` para uno con múltiples sub-actions. Consulte los documentos de [actions](/docs/actions) para conocer el patrón completo.
+**Agregar una capacidad de agente.** Agregue un nuevo archivo en `templates/mail/actions/` usando `defineAction`. Su acción se convierte en una herramienta de agente, un comando CLI (`pnpm action <name>`) y una superficie de enlace frontal escrita a través de `useActionQuery`/`useActionMutation`. Mire `templates/mail/actions/star-email.ts` para ver un ejemplo breve o `templates/mail/actions/manage-automations.ts` para uno con múltiples sub-actions. Consulte los documentos de [actions](/docs/actions-overview) para conocer el patrón completo.
 
 **Cambiando el UI.** Las rutas están en `templates/mail/app/routes/` y los componentes en `templates/mail/app/components/email/` y `templates/mail/app/components/layout/`. La aplicación utiliza primitivas shadcn/ui de `app/components/ui/` y Tabler Icons; cúmplalas.
 
@@ -361,7 +359,7 @@ El correo es tuyo para cambiarlo. Todo lo importante se encuentra en unos cuanto
 
 **Cambio de métodos abreviados de teclado.** Los controladores de combinaciones de teclas se encuentran en `templates/mail/app/components/email/`: busque `useHotkeys` o `addEventListener("keydown"` para encontrar dónde está cableada cada tecla.
 
-Pídale al agente que realice cualquiera de estos cambios por usted. El agente puede editar su propia fuente; consulte [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Realice estos cambios en su repositorio y flujo de desarrollo. El agente integrado solo puede ayudar a editar el código fuente cuando el host concede intencionalmente herramientas de escritura de repository/workspace; de lo contrario, trabaja mediante actions y datos. Consulte [Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## Qué sigue
 
@@ -369,4 +367,4 @@ Pídale al agente que realice cualquiera de estos cambios por usted. El agente p
 - [**Primeros pasos**](/docs/getting-started) — los fundamentos del marco: acciones, estado de la aplicación y sincronización en directo
 - [**Calendario**](/docs/template-calendar) — una plantilla de dominio relacionada que cubre programación y reservas
 - [**Automatizaciones**](/docs/automations) — el motor basado en eventos sobre el que se construyen las reglas de clasificación automática de Mail
-- [**Acciones**](/docs/actions) — el sistema de acciones que invocan el chat, los atajos y las automatizaciones
+- [**Acciones**](/docs/actions-overview) — el sistema de acciones que invocan el chat, los atajos y las automatizaciones

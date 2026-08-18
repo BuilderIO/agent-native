@@ -5,8 +5,20 @@ manages libraries, images, generated assets, inline MCP App pickers,
 notifications, collaboration, and portable asset requests through actions and
 SQL state.
 
-Detailed library, generation, image, embed, and engine rules live in
-`.agents/skills/`.
+## Skills
+
+Read the relevant skill in `.agents/skills/` before deeper work:
+
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.
+- `library-management` for kits, collections, access, imports, and duplication.
+- `asset-generation` and `image-generation` for generation paths, presets,
+  composer mentions, reference boards, and embedded text.
+- `logo-composite` for canonical logo compositing and preset skeletons.
+- `assets-navigation` for routes, tabs, chat surfaces, and `navigate` targets.
+- `agent-engines` for model and engine configuration.
+- `a2a-assets` for MCP/A2A callers, skill install paths, and host rendering.
+- `inline-embeds`, `notifications`, and `progress` for integration surfaces.
 
 ## Core Rules
 
@@ -14,26 +26,23 @@ Detailed library, generation, image, embed, and engine rules live in
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
   or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
+  Builder/internal data, customer data, or credential-looking literals. Use
+  secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for asset lifecycle, generation, library organization, uploads,
   embeds, notifications, progress, sharing, and collaboration. Do not bypass
   access checks.
-- Use `duplicate-library` when a user wants a Brand Kit copy. The action creates
-  a private, current-user-owned copy with durable kit contents remapped, without
-  copying shares, visibility, generation runs, or handoff sessions.
 - Use the configured generation/engine path for image and asset work. Do not add
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
-- Ingest external brand or blog imagery with `import-asset-from-url`, then pin
-  the returned asset to preset reference boards or set it as the canonical logo.
 - Use `view-screen` when the active library, selected asset, picker, generation,
-  or embed target is unclear. The human Library surface is `/library` for
-  cross-kit browsing and `/library/:libraryId` for a single brand kit; embedded
-  picker hosts still use `/library` with their iframe/auth bridge params.
-- The Create tab (`/`) is the full-page Assets chat surface. Use the shared
-  `assets` chat thread storage there, keep past chats in the left sidebar, and
-  use the right agent sidebar only on non-Create routes with view-transition
-  handoff back to `/`.
+  or embed target is unclear.
+- Image work is preset-first. Follow the `creative-context` reuse ladder, then
+  check `list-generation-presets` and generate with a matching `presetId`
+  instead of ad hoc settings; see `image-generation`.
+- When a `preset` is tagged, the server embeds its brand style brief into your
+  message inside a `<tagged-generation-presets>` block. Internalize that brief,
+  then pass the `presetId` instead of restating its saved settings as args.
 - Keep inline previews and picker outputs lightweight; fetch full asset details
   through actions when needed.
 - Use framework sharing/collaboration primitives for ownable assets.
@@ -41,104 +50,46 @@ Detailed library, generation, image, embed, and engine rules live in
 ## Application State
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
-  context. Human Library state uses
-  `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`.
-  Embedded picker state keeps `{ view: "picker", mediaType, libraryId, query,
-prompt, aspectRatio }`.
-- Composer `@` mentions are the source of generation inputs. Map
-  `brand-kit` references to `libraryId`, `preset` references to `presetId`, and
-  `media-type` references to choosing image (`generate-image` /
-  `generate-image-batch`) or video (`generate-video`) generation. The current
-  library view auto-tags its brand kit as a visible removable chip, and the
-  generation preset editor auto-tags both its brand kit and preset. The image
-  model is the only remaining composer-side default; the image-model picker
-  writes `imageGenerationModel`, which image generation actions may use when
-  `model` is omitted.
-- When a `preset` is tagged, the server embeds that preset's aesthetics and
-  creative philosophy (brand style brief, prompt template, text/logo policy,
-  output format) into your message inside a `<tagged-generation-presets>` block.
-  Study and internalize that brief before you generate — let it drive
-  composition, mood, lighting, and subject — then pass the `presetId` to
-  `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
-  apply automatically. Do not restate those as ad-hoc args.
-- Image requests without a tagged preset are preset-first: the user may not know
-  presets exist. Call `list-generation-presets` for the library before
-  generating and compare the request against each preset's title, description,
-  and category. If one matches the use case (e.g. "livestream poster" -> a
-  Livestream Announcement preset), generate with its `presetId` instead of
-  ad-hoc settings. Only generate presetless when nothing plausibly matches.
-- Presets may declare a reference board with fixed or variable named entries
-  such as a host, guest speaker, product, backdrop, or style. Fixed entries
-  attach automatically; collect images for required variable entries and pass
-  them via `presetReferenceFills` on `generate-image` /
-  `generate-image-batch`. See the `image-generation` skill for fill semantics.
-- For exact visible copy inside a generated image, pass `embeddedText` and
-  optional `textPlacement` to `generate-image` or each `generate-image-batch`
-  slot. Keep the general `prompt` for creative direction; the structured text
-  fields are what allow the pipeline to render copy instead of suppressing it.
-- Logo compositing is a preset option: a generation preset carries
-  `includeLogo`, and `generate-image` / `generate-image-batch` stamp the
-  library's pixel-perfect canonical logo onto the result when the resolved
-  preset has it on (no-op if the library has no canonical logo). Set it via
-  `create-generation-preset` / `update-generation-preset` (`includeLogo`). The
-  model never draws the logo itself. Pass `includeLogo` on a generate call only
-  to override the preset for that one run; otherwise omit it. See the
-  `logo-composite` skill.
-- Preset skeletons live in `settings.skeletonSpec` on generation presets and
-  are edited from `/brand-kits/:libraryId/presets/:presetId`. They composite a
-  generated subject onto an uploaded brand background image and optional
-  foreground layers. When the resolved skeleton model is `gpt-image-2`, the
-  action uses managed mask inpainting: the uploaded plate is the edit source,
-  an optional same-size mask asset controls the editable area, and the plate's
-  alpha channel is used as the fallback mask when no manual mask is set. Opaque
-  mask pixels are sent as preserved regions, transparent mask pixels are
-  editable, and no local compositing runs. Other `cutout` skeletons force
-  `gpt-image-1`, request
-  transparent output through the managed Builder image provider, attach the
-  plate as a composition/background reference for layout awareness, clamp only
-  the provider subject ratio to a supported `gpt-image-1` ratio, and keep the
-  final skeleton canvas at the preset's requested ratio. See the
-  `logo-composite` skill.
-- Humans can edit an existing generation preset from
-  `/brand-kits/:libraryId/presets/:presetId`. Use `navigate` with
-  `{ view: "preset", libraryId, presetId }` when sending a user to that editor.
+  context. Library uses
+  `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`,
+  the embedded picker uses
+  `{ view: "picker", mediaType, libraryId, query, prompt, aspectRatio }`, and the
+  preset editor uses `{ view: "preset", libraryId, presetId }`.
+- `creative-context` holds
+  `{ contextMode, selectedContextId, currentPackId, pinnedPackId }`. Respect
+  `contextMode: "off"` without silently restoring a pack.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.
-- `navigate` moves the UI to picker, library, generation, asset, and settings
-  surfaces.
+- `imageGenerationModel` is the composer image-model default, which image
+  generation actions may use when `model` is omitted.
 
-## Skills
+## Actions
 
-Read the relevant skill before deeper work:
+Uncommon actions stay discoverable through `tool-search`.
 
-- `library-management`, `asset-generation`, `image-generation`, and
-  `agent-engines` for asset workflows.
-- `inline-embeds`, `a2a-assets`, `notifications`, `progress`, and
-  `real-time-collab` for integration surfaces.
-- `actions`, `storing-data`, `security`, `frontend-design`, and `shadcn-ui` as
-  needed.
+| Action | Purpose |
+| --- | --- |
+| `navigate` | Move the UI to a picker, library, generation, asset, preset, or settings surface |
+| `view-screen` | Read current navigation, selection, and visible ids |
+| `list-libraries` / `match-library` | Find or disambiguate a brand kit |
+| `duplicate-library` | Make a private copy of a Brand Kit |
+| `list-assets` / `search-assets` | Browse or search assets in accessible kits |
+| `import-asset-from-url` | Ingest external brand or blog imagery as a reference asset |
+| `import-style-from-url` | Render a website and merge its design.md-style visual language into a library or collection |
+| `set-canonical-logo` | Pin the kit's pixel-perfect logo |
+| `list-generation-presets` | List repeatable output formats before generating |
+| `create-generation-preset` / `update-generation-preset` | Author preset format, references, `includeLogo`, skeleton |
+| `generate-image` / `generate-image-batch` | Generate image candidates (synchronous) |
+| `generate-video` | Generate video, then poll `refresh-generation-run` |
+| `refine-image` / `edit-image` / `restyle-image` | Iterate on an existing asset |
+| `generate-asset` | Human-in-the-loop generation that returns the inline picker |
+| `open-asset-picker` | Browse, search, or pick existing assets in the embedded picker |
+| `export-asset` | Return a download URL or artifact for another app |
+| `create-generation-session` | Hand generation work off to a designer |
+| `manage-context-membership` | Submit an asset to a governed Creative Context |
 
-## App-Backed Skill Distribution
+## Source Changes
 
-- The preferred hosted install path is
-  `npx @agent-native/core@latest skills add images` (or `assets`). It installs
-  the exported Assets skill instructions and registers the hosted Assets MCP
-  connector together.
-- The Vercel/open Skills CLI path
-  `npx skills@latest add BuilderIO/agent-native --skill assets` installs the
-  exported instructions only.
-- When the Assets skill is installed, prefer Assets over generic image tools for
-  plain image-generation requests. Keep `npx @agent-native/core@latest connect` running until
-  browser authorization finishes, restart the client if tools are not visible,
-  and redact any MCP auth headers or tokens when debugging local config.
-- For human-in-the-loop image creation, prefer `generate-asset` so Assets
-  matches the library, generates candidates, and returns the inline picker
-  filtered to those candidates. Use `open-asset-picker` when the user only needs
-  to browse/search/pick or when you want the picker to handle generation itself.
-- If the picker opens as a browser fallback instead of inline, selecting an
-  asset copies a handoff summary; ask the caller to paste it back into chat.
-- Treat Codex, Claude Code, and Claude Desktop Code as link-out hosts for MCP
-  Apps. Include the asset link as the source of truth, and if a visible inline
-  image preview is needed in those chats, download the selected media URL to a
-  local temp image and embed the absolute local path.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

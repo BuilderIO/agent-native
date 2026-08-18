@@ -245,6 +245,56 @@ Isso significa que os usuários que instalaram a extensão claude-in-chrome ter�
 
 Os servidores MCP (Model Context Protocol) oferecem novas habilidades ao seu agente, como conectar-se ao Zapier, Cloudflare, Composio ou às ferramentas internas da sua empresa. Uma vez conectado, o agente pode usar essas ferramentas exatamente como as integradas.
 
+Os IDs de preset são `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`, `webflow`, `paypal`, `box`, `netlify` e `zapier`.
+
+O diretório diferencia endpoints que aceitam o fluxo OAuth genérico de provedores
+que exigem um cliente aprovado pelo provedor ou um aplicativo OAuth pré-registrado.
+Essas entradas continuam visíveis para descoberta e apontam para as instruções
+oficiais, mas não exibem um botão enganoso de conexão com um clique. Extensões
+isoladas usam `agentNative.mcp.listTools`, `agentNative.mcp.callTool` e
+`agentNative.providerApi.catalog(...)`/`agentNative.providerApi.docs(...)` por
+meio das ações do host para descobrir dados conectados; elas nunca recebem
+URLs de conexão, tokens de acesso nem tokens de atualização. A chamada bruta
+`provider-api-request` é intencionalmente restrita ao host e ao agente: expor
+requisições arbitrárias de método/caminho a extensões compartilhadas
+transformaria uma extensão em um proxy de escrita autenticado. Em vez disso,
+as extensões devem usar `agentNative.mcp.callTool(...)` ou uma ação de
+aplicativo criada especificamente para operações de provedor com escopo
+limitado.
+
+Extensões de arquivo local devem permitir explicitamente `list-mcp-tools`,
+`call-mcp-tool` e qualquer ação de provedor compatível que usem em
+`extension.json`. Os helpers de descoberta também estão disponíveis em
+`agentNative.connectors.mcp` e `agentNative.connectors.providerApi`.
+
+### Atlassian / Jira
+
+O preset Atlassian usa o endpoint OAuth 2.1 do Atlassian Rovo MCP,
+`https://mcp.atlassian.com/v1/mcp/authv2`, e disponibiliza ferramentas do Jira
+e do Confluence. A criação de tickets no Jira exige as permissões da Atlassian
+que autorizam gravações no Jira; o usuário continua vendo apenas os projetos e
+conteúdos permitidos pela sua conta da Atlassian.
+
+Administradores de organizações da Atlassian podem controlar se um cliente
+OAuth tem permissão para se conectar. Antes da conexão, talvez um administrador
+precise adicionar a origem HTTPS real do aplicativo à lista de domínios
+confiáveis em **Atlassian Administration → Rovo → Rovo MCP server → Domains** e
+ativar as permissões necessárias de **Read**, **Write** e **Search** em
+**Permissions**. O domínio deve ser o host em que o aplicativo Agent-Native é
+executado; não copie `https://builder.io/**` para outra implantação, a menos que
+essa seja a origem real dela. Consulte o [guia de configuração do Rovo MCP](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)
+e os [controles administrativos](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/) da Atlassian.
+
+O catálogo fornece o endpoint e as orientações de configuração. O formulário
+genérico de configurações armazena o endpoint e cabeçalhos criptografados
+opcionais, mas não substitui o fluxo interativo de consentimento OAuth da
+Atlassian. Use um cliente ou runtime MCP compatível com OAuth quando a Atlassian
+exigir OAuth interativo. Se o provedor ou runtime aceitar um token Bearer
+estático, siga o processo aprovado de gerenciamento de segredos e nunca cole
+tokens em prompts ou configurações versionadas.
+
 ### Como conectar um servidor MCP remoto
 
 1. **Nome do servidor** — um rótulo curto para sua própria referência (por exemplo, "zapier", "slack-tools").
@@ -263,7 +313,7 @@ Dois escopos são suportados:
 
 Adiciona e remove hot-reload no gerenciador MCP em execução - sem reinicialização do processo e sem reinicialização do servidor. As novas ferramentas `mcp__<scope>-<name>__*` aparecem para o agente na próxima mensagem e podem ser pesquisadas via `tool-search`.
 
-HTTPS URLs são aceitos em todos os lugares; `http://` simples só é permitido para `localhost` durante o desenvolvimento. A autenticação opcional entra como um token de portador enviado via `Authorization: Bearer …` em cada solicitação.
+HTTPS URLs são aceitos em todos os lugares; `http://` simples só é permitido para `localhost` durante o desenvolvimento. A autenticação opcional entra como um token de portador enviado via `Authorization: Bearer …` em cada solicitação. Provedores que aceitam somente OAuth, incluindo Atlassian Rovo MCP, exigem o fluxo OAuth do provedor em vez de um cabeçalho estático.
 
 Nos bastidores, esses servidores são mantidos na tabela `settings` da estrutura sob a chave `u:<email>:mcp-servers-remote` (Pessoal) ou `o:<orgId>:mcp-servers-remote` (Equipe) e mesclados com `mcp.config.json` na inicialização.
 
@@ -292,7 +342,9 @@ O Dispatch é o hub convencional: ele já coordena todos os aplicativos.
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">servidores MCP no escopo da organização</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -454,7 +506,7 @@ Use isso para criar dicas de integração "claude-in-chrome detectadas — seu a
 
 Falhas individuais do servidor MCP nunca desativam o agente:
 
-- Um `command` configurado incorretamente → o servidor é ignorado, seu erro aparece em `/mcp/status` em `errors.<server-id>` e todos os outros servidores continuam funcionando.
+- Um `command` configurado incorretamente → o servidor é ignorado, seu erro aparece em `/_agent-native/mcp/status` em `errors.<server-id>` e todos os outros servidores continuam funcionando.
 - O MCP SDK está faltando no `node_modules` → todas as funcionalidades do MCP são ignoradas com um aviso; o bate-papo do agente continua funcionando sem nenhuma ferramenta MCP.
 - Executando em um tempo de execução de borda → O cliente MCP é autônomo.
 

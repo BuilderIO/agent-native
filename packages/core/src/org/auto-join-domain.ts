@@ -1,5 +1,9 @@
 import { getDbExec } from "../db/client.js";
-import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import { getUserSetting } from "../settings/user-settings.js";
+import { createTtlCache } from "../shared/ttl-cache.js";
+import { setActiveOrgId } from "./active-org.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -10,13 +14,52 @@ export interface AutoJoinDomainResult {
   activeOrgId: string | null;
 }
 
+/**
+ * Negative cache for "no org has this email domain as its `allowed_domain`".
+ *
+ * `resolveOrgContext` calls this function on EVERY authenticated request for
+ * any account that holds no membership in a domain-matched org — which is every
+ * solo user and every user in a team org that never configured domain matching.
+ * The probe finds nothing, changes no state, and runs again on the next
+ * request: production showed 318k of these, ~64% of all authenticated requests,
+ * with no fixed point because not-joining an org is not a state the user can
+ * leave.
+ *
+ * Keyed on the DOMAIN, not the email, so one entry covers every account at that
+ * domain. Only a SUCCESSFUL zero-row read is cached — a failed probe stays on
+ * the uncached path so an unreadable `organizations` table never masquerades as
+ * "no matching org". Invalidated whenever `allowed_domain` is written, so
+ * correctness does not rest on the TTL.
+ */
+const NO_DOMAIN_MATCH_TTL_MS = 60_000;
+const noDomainMatchCache = createTtlCache<true>({
+  ttlMs: NO_DOMAIN_MATCH_TTL_MS,
+  maxEntries: 512,
+});
+
+/**
+ * Call after any write that could make a domain start matching an org —
+ * `organizations.allowed_domain` updates and org creation. Clears every domain
+ * rather than one: the caller knows which org changed, not which domains a
+ * stale negative was recorded for.
+ */
+export function invalidateDomainMatchCache(): void {
+  noDomainMatchCache.clear();
+}
+
+/** Test seam — the cache is module state, so suites must be able to clear it. */
+export function __resetDomainMatchCacheForTests(): void {
+  noDomainMatchCache.clear();
+}
+
 export interface AutoJoinDomainOptions {
   /**
    * The signup hook should not clobber an org selected by an invite flow, but
    * request-time org resolution may need to move an existing account from a
-   * personal workspace into its newly matched company org.
+   * personal workspace into its newly matched company org. `"never"` joins
+   * without touching `active-org-id` — the caller decides activation itself.
    */
-  activateJoinedOrg?: "if-missing" | "always";
+  activateJoinedOrg?: "if-missing" | "always" | "never";
 }
 
 /**
@@ -49,6 +92,15 @@ export async function autoJoinDomainMatchingOrgs(
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return { joined: [], activeOrgId: null };
 
+  // `org/handlers.ts` REFUSES to set `allowed_domain` to a free provider, so no
+  // org can ever match `gmail.com` — every consumer-email account was probing
+  // for a row that is structurally impossible to exist.
+  if (isFreeEmailProvider(domain)) return { joined: [], activeOrgId: null };
+
+  if (noDomainMatchCache.get(domain)) {
+    return { joined: [], activeOrgId: null };
+  }
+
   const db = getDbExec();
 
   let matches: Array<{ orgId: string }> = [];
@@ -71,11 +123,16 @@ export async function autoJoinDomainMatchingOrgs(
     }));
   } catch {
     // Template without org tables (or `allowed_domain` column not yet
-    // migrated). Not fatal — return empty.
+    // migrated). Not fatal — return empty. Deliberately NOT cached: this branch
+    // cannot tell "no org matches" from "the table was unreadable", and caching
+    // it would let one blip answer every later request for a minute.
     return { joined: [], activeOrgId: null };
   }
 
-  if (matches.length === 0) return { joined: [], activeOrgId: null };
+  if (matches.length === 0) {
+    noDomainMatchCache.set(domain, true);
+    return { joined: [], activeOrgId: null };
+  }
 
   const joined: AutoJoinDomainResult["joined"] = [];
   for (const m of matches) {
@@ -85,6 +142,7 @@ export async function autoJoinDomainMatchingOrgs(
         args: [nanoid(), m.orgId, email, Date.now()],
       });
       joined.push({ orgId: m.orgId });
+      invalidateMemberOrgCaches();
     } catch {
       // Race with a parallel join (e.g. user accepted an invite to the
       // same org milliseconds earlier). The unique constraint keeps the
@@ -96,13 +154,17 @@ export async function autoJoinDomainMatchingOrgs(
   // one, unless the caller is request-time org resolution intentionally moving
   // an existing account into its newly matched company org.
   let activeOrgId: string | null = null;
-  if (joined[0]) {
+  if (joined[0] && options.activateJoinedOrg !== "never") {
     try {
       const existing = await getUserSetting(email, "active-org-id");
       const hasActive = Boolean(existing?.orgId);
       if (options.activateJoinedOrg === "always" || !hasActive) {
         activeOrgId = joined[0].orgId;
-        await putUserSetting(email, "active-org-id", { orgId: activeOrgId });
+        await setActiveOrgId(
+          email,
+          activeOrgId,
+          "auto-joined domain-matched org",
+        );
       }
     } catch {
       // settings table missing — not fatal.

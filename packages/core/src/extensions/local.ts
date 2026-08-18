@@ -322,6 +322,7 @@ async function readLocalExtensionFolder(options: {
     icon: typeof manifest.icon === "string" ? manifest.icon : null,
     createdAt,
     updatedAt,
+    archivedAt: null,
     hiddenAt: null,
     hiddenBy: null,
     ownerEmail: "local-files",

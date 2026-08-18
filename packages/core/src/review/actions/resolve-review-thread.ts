@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { assertReviewableResourceAccess } from "../registry.js";
-import { getReviewCommentById, resolveReviewThread } from "../store.js";
+import {
+  getReviewCommentById,
+  getReviewThreadRoot,
+  resolveReviewThread,
+} from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
 
 const schema = z.object({
@@ -10,10 +14,12 @@ const schema = z.object({
   resourceId: z.string().min(1),
   threadId: z.string().optional(),
   commentId: z.string().optional(),
+  resolutionNote: z.string().trim().min(1).max(2_000).optional(),
 });
 
 export default defineAction({
-  description: "Resolve an inline comment or review thread.",
+  description:
+    "Resolve an inline comment or review thread. An optional resolution note supports inline Markdown without headings.",
   schema,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
@@ -52,11 +58,33 @@ export default defineAction({
         resourceType: args.resourceType,
         resourceId: args.resourceId,
       },
+      args.resolutionNote,
     );
     if (updatedCount < 1) {
       throw new Error("Review thread not found");
     }
-    return { threadId, resolved: true as const, updatedCount };
+    const comment = await getReviewThreadRoot(
+      threadId,
+      {
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+      },
+      {
+        userEmail: actionCtx?.userEmail ?? null,
+        orgId: actionCtx?.orgId ?? null,
+      },
+      { bypassScope: true },
+    );
+    if (!comment) {
+      throw new Error("Resolved review thread could not be verified");
+    }
+    return {
+      threadId,
+      resolved: true as const,
+      updatedCount,
+      resolutionNote: comment.resolutionNote ?? null,
+      comment,
+    };
   },
   audit: {
     target: (args) => ({

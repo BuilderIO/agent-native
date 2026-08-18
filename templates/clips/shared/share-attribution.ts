@@ -21,6 +21,10 @@ export const CLIP_SHARE_REF = "clip_share";
 export const REF_PARAM = "ref";
 export const VIA_PARAM = "via";
 
+/** Marker used only when `/r/:id` falls back to the public share route. */
+export const DASHBOARD_REDIRECT_PARAM = "dashboard_redirect";
+export const DASHBOARD_REDIRECT_VALUE = "1";
+
 /**
  * Append `ref=clip_share` (and `via=<ownerId>` when a non-PII owner id is
  * known) to an absolute share/embed URL, preserving any existing query params.
@@ -46,6 +50,19 @@ export type ShareAttribution = {
   ref: string | undefined;
   via: string | undefined;
 };
+
+/**
+ * Keep only non-sensitive attribution state when a share page redirects to
+ * sign-in. Passwords and capability tokens must never enter auth URLs.
+ */
+export function buildShareContinuationQuery(
+  attribution: ShareAttribution,
+): string {
+  const params = new URLSearchParams();
+  if (attribution.ref) params.set(REF_PARAM, attribution.ref);
+  if (attribution.via) params.set(VIA_PARAM, attribution.via);
+  return params.toString();
+}
 
 /**
  * Read `ref`/`via` from a query string (e.g. `window.location.search`). Falls

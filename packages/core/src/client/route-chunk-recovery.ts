@@ -33,10 +33,12 @@ export function isRouteModuleReloadMessage(value: unknown): boolean {
 
 export function isDynamicImportFailureMessage(value: unknown): boolean {
   if (typeof value !== "string") return false;
+  const message = value.toLowerCase();
   return (
-    value.includes("Failed to fetch dynamically imported module") ||
-    value.includes("error loading dynamically imported module") ||
-    value.includes("Importing a module script failed")
+    message.includes("failed to fetch dynamically imported module") ||
+    message.includes("error loading dynamically imported module") ||
+    message.includes("importing a module script failed") ||
+    message.includes("failed to fetch dynamically imported")
   );
 }
 
@@ -188,17 +190,39 @@ function recoverToIntendedNavigation(
   state: RouteChunkRecoveryState,
 ): boolean {
   const target = getFreshIntendedNavigation(state, win.location.href);
-  if (!target) return false;
+  const sameCurrentTarget =
+    !target &&
+    state.intendedHref === win.location.href &&
+    Date.now() - state.intendedAt <= INTENDED_NAV_MAX_AGE_MS
+      ? state.intendedHref
+      : null;
+  const recoveryTarget = target ?? sameCurrentTarget;
+  if (!recoveryTarget) return false;
   state.recovering = true;
-  state.recoveryHref = target;
-  // Desktop webviews stay open across many deploys; a forced navigation here
-  // reads as a random tab reload. Leave the current view alive instead.
-  if (isAgentNativeDesktop(win)) return true;
+  state.recoveryHref = recoveryTarget;
+  // Keep the desktop shell mounted, but replace only the route that failed to
+  // load. A current-page reload remains suppressed below when there is no
+  // intended cross-route destination to recover.
+  if (isAgentNativeDesktop(win)) {
+    hardNavigate(win, recoveryTarget);
+    return true;
+  }
   try {
-    win.history.replaceState(win.history.state, "", target);
+    win.history.replaceState(win.history.state, "", recoveryTarget);
   } catch {}
-  hardNavigate(win, target);
+  hardNavigate(win, recoveryTarget);
   return true;
+}
+
+function recoverFromDynamicImportFailure(
+  win: Window,
+  state: RouteChunkRecoveryState,
+  message: string,
+): boolean {
+  if (!isDynamicImportFailureMessage(message)) return false;
+  state.routeModuleFailureAt = Date.now();
+  if (recoverToIntendedNavigation(win, state)) return true;
+  return reloadForStaleChunk(win);
 }
 
 function patchHistoryMethod(
@@ -290,16 +314,17 @@ export function installRouteChunkRecovery(
   win.addEventListener("unhandledrejection", (event) => {
     const reason = (event as PromiseRejectionEvent).reason;
     const message = String(reason?.message || reason || "");
-    if (!isDynamicImportFailureMessage(message)) return;
-    state.routeModuleFailureAt = Date.now();
-    if (recoverToIntendedNavigation(win, state)) {
+    if (recoverFromDynamicImportFailure(win, state, message)) {
       event.preventDefault();
-      return;
     }
-    // No fresh cross-route target — the current route's own chunk went stale.
-    // Reload once (guarded) to fetch fresh assets instead of leaving the user
-    // on a broken view.
-    if (reloadForStaleChunk(win)) {
+  });
+
+  win.addEventListener("error", (event) => {
+    const errorEvent = event as ErrorEvent;
+    const message = String(
+      errorEvent.error?.message || errorEvent.message || "",
+    );
+    if (recoverFromDynamicImportFailure(win, state, message)) {
       event.preventDefault();
     }
   });

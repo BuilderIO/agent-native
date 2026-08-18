@@ -1,0 +1,12 @@
+---
+title: "Contexte et connaissances"
+description: "Construisez des surfaces de contexte pour l'agent en respectant les couches moteur, accès aux données et présentation réutilisable."
+---
+
+# Contexte et connaissances
+
+Core conserve l'état applicatif, l'accès limité et le moteur Context X-Ray. Toolkit fournit la présentation réutilisable ; l'app conserve ses données de domaine, sa taxonomie et ses règles de sélection.
+
+Le moteur Context X-Ray reste dans Core. Utilisez la présentation Toolkit pour afficher un contexte cohérent, mais gardez état et décisions d'accès dans Core et les actions. [Context awareness](/docs/context-awareness) expose navigation, sélection et objet actif à l'agent ; [Resources](/docs/toolkit-resources) couvre fichiers et pièces jointes.
+
+Le contexte ne remplace jamais les contrôles d'accès. Préservez les vérifications de ressources et de secrets avant de récupérer des connaissances fournisseur.

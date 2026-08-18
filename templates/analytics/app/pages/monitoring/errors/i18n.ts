@@ -1,9 +1,4 @@
-/**
- * Self-contained i18n for the Error capture feature. English is the source of
- * truth; other locales fall back to English per key. Do NOT move these into the
- * shared app i18n — this feature owns its copy.
- */
-import { useLocale } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
 
 const MESSAGES = {
   "en-US": {

@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
+import { notifyReviewComment } from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
@@ -43,7 +45,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Create an inline comment, annotation, or review thread for a resource.",
+    "Create an inline comment, annotation, or review thread for a resource. Body text supports inline Markdown without headings.",
   schema,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
@@ -51,7 +53,7 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "viewer",
+      "commenter",
     );
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
@@ -60,7 +62,7 @@ export default defineAction({
     const resolutionTarget =
       args.resolutionTarget ?? (mentions.length > 0 ? "human" : "agent");
 
-    return insertReviewComment({
+    const comment = await insertReviewComment({
       resourceType: args.resourceType,
       resourceId: args.resourceId,
       targetId: args.targetId ?? null,
@@ -68,7 +70,7 @@ export default defineAction({
       anchor: args.anchor ?? null,
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
-      authorName: args.authorName ?? actionCtx?.userEmail ?? null,
+      authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
       createdBy: actorKindFromContext(actionCtx),
       resolutionTarget,
       mentions,
@@ -77,6 +79,8 @@ export default defineAction({
       visibility: normalizeReviewVisibility(access.visibility),
       metadata: args.metadata,
     });
+
+    return { ...comment, notified: await notifyReviewComment(comment) };
   },
   audit: {
     target: (args, result) => {

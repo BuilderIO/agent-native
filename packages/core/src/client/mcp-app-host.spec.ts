@@ -226,6 +226,19 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(false);
   });
 
+  it("does not mistake an ordinary inline browser frame for an MCP App", () => {
+    const parent = parentWindow();
+    setParent(parent);
+    setTestUrl("http://localhost:3000/design/design_1");
+    _resetMcpAppHostForTests();
+    _resetEmbedAuthForTests();
+
+    expect(sendMcpAppHostMessage({ message: "Apply these design edits" })).toBe(
+      false,
+    );
+    expect(parent.postMessage).not.toHaveBeenCalled();
+  });
+
   it("resolves false when the wrapper does not respond", async () => {
     vi.useFakeTimers();
     setParent(parentWindow());

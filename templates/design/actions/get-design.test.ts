@@ -4,10 +4,13 @@ const mocks = vi.hoisted(() => {
   const selectChain = {
     from: vi.fn(),
     where: vi.fn(),
+    orderBy: vi.fn(),
   };
   selectChain.from.mockReturnValue(selectChain);
+  selectChain.where.mockReturnValue(selectChain);
 
   return {
+    asc: vi.fn((column) => ({ asc: column })),
     eq: vi.fn((left, right) => ({ left, right })),
     getDb: vi.fn(() => ({
       select: vi.fn(() => selectChain),
@@ -23,6 +26,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  asc: mocks.asc,
   eq: mocks.eq,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -30,7 +34,11 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
-    designFiles: { designId: "designFiles.designId" },
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      createdAt: "designFiles.createdAt",
+    },
   },
 }));
 
@@ -40,7 +48,8 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
-    mocks.selectChain.where.mockReset();
+    mocks.selectChain.orderBy.mockReset();
+    mocks.asc.mockClear();
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -65,7 +74,7 @@ describe("get-design", () => {
         updatedAt: "2026-06-29T00:00:00.000Z",
       },
     });
-    mocks.selectChain.where.mockResolvedValue([
+    mocks.selectChain.orderBy.mockResolvedValue([
       {
         id: "file_123",
         filename: "index.html",
@@ -105,6 +114,26 @@ describe("get-design", () => {
     expect(result.data).not.toContain("bridgeToken");
     expect(result.data).not.toContain("previewToken");
     expect(result.data).not.toContain("example-private-bridge-token");
+  });
+
+  it("returns files in a stable order so a design lays itself out the same way twice", async () => {
+    // Heap order is not stable across writes, and this array feeds the overview
+    // screen stack plus each screen's index within its layout group.
+    await action.run({ id: "design_123" });
+
+    expect(mocks.selectChain.orderBy).toHaveBeenCalledWith(
+      { asc: "designFiles.createdAt" },
+      { asc: "designFiles.id" },
+    );
+  });
+
+  it("returns an explicit not-found error for a deleted or inaccessible design", async () => {
+    mocks.resolveAccess.mockResolvedValueOnce(null);
+
+    await expect(action.run({ id: "missing-design" })).rejects.toMatchObject({
+      message: "Design not found",
+      statusCode: 404,
+    });
   });
 
   it("returns only the read-only preview token to an editor", async () => {

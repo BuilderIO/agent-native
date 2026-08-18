@@ -115,6 +115,7 @@ describe("import-design-tokens", () => {
 :root {
   --color-accent: #2563eb;
   --radius-lg: 16px;
+  --text-body-size-medium: 1rem;
 }
 Heading font: Inter
 Primary color: #f97316
@@ -136,6 +137,11 @@ Primary color: #f97316
         expect.objectContaining({
           cssVar: "--font-heading-font",
           value: "Inter",
+          type: "typography",
+        }),
+        expect.objectContaining({
+          cssVar: "--text-body-size-medium",
+          value: "1rem",
           type: "typography",
         }),
       ]),
@@ -191,6 +197,36 @@ Primary color: #f97316
         }),
       ]),
     );
+  });
+
+  it("keeps motion and elevation tokens instead of dropping them", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.css",
+          content:
+            ":root { --duration-fast: 120ms; --ease-out-soft: cubic-bezier(0.2, 0, 0, 1); --elevation-card: 0 1px 2px rgba(0,0,0,0.2); }",
+        },
+        {
+          filename: "design.md",
+          content:
+            "Transition duration: 200ms\nElevation raised: 0 4px 12px\nRelease notes: v2 shipped",
+        },
+      ],
+    });
+
+    const byVar = new Map(result.tokens.map((t) => [t.cssVar, t.type]));
+    expect(byVar.get("--duration-fast")).toBe("motion");
+    expect(byVar.get("--ease-out-soft")).toBe("motion");
+    expect(byVar.get("--elevation-card")).toBe("shadow");
+    // The design.md lines previously matched no bucket and were discarded.
+    expect(byVar.get("--motion-transition-duration")).toBe("motion");
+    expect(byVar.get("--shadow-elevation-raised")).toBe("shadow");
+    // "Release notes" matches the motion label pattern on "ease"; only the
+    // value guard keeps prose from becoming a token.
+    expect(result.tokens.filter((t) => /release/i.test(t.cssVar))).toEqual([]);
   });
 
   it("can extract tokens from the current design files", async () => {

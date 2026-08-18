@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
+  GENERIC_NO_DATA_FALLBACK_MESSAGE,
+  hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
@@ -9,18 +12,44 @@ import {
   hasIncompleteDataEvidence,
   hasRequestedSourceRecordEvidence,
   hasOverstatedCoverageConfidenceClaim,
+  isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
+  looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
+  registerGroundingActions,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
+
+// These tests exercise the predicates, not the derivation: the agent-chat
+// plugin is what reads `grounding: true` off the shipped action definitions.
+registerGroundingActions([
+  "account-deep-dive",
+  "bigquery",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "gong-calls",
+  "gong-native-insights",
+  "hubspot-deals",
+  "hubspot-records",
+  "jira-search",
+  "list-error-issues",
+  "list-session-recordings",
+  "prometheus",
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-agent-native-analytics",
+  "query-staged-dataset",
+  "slack-messages",
+]);
 
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
     expect(hasDataQueryAttempt([{ name: "gong-calls" }])).toBe(true);
+    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(true);
     expect(hasDataQueryAttempt([{ name: "slack-messages" }])).toBe(true);
   });
 
@@ -30,6 +59,17 @@ describe("real data action classification", () => {
 
   it("treats account deep dives as real source evidence", () => {
     expect(hasDataQueryAttempt([{ name: "account-deep-dive" }])).toBe(true);
+  });
+
+  it("treats first-party observability reads as grounded incident evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        { name: "list-session-recordings" },
+        { name: "list-error-issues" },
+        { name: "get-session-replay-summary" },
+        { name: "get-session-replay-timeline" },
+      ]),
+    ).toBe(true);
   });
 
   it("treats connected MCP provider tools as real source evidence", () => {
@@ -185,6 +225,22 @@ describe("analytics data request classification", () => {
     expect(looksLikeAnalyticsDataRequest(text)).toBe(true);
   });
 
+  it("strips tagged and legacy A2A transport hints before classifying intent", () => {
+    const request =
+      "Choose one useful current customer metric and return its value.";
+    const transportHint =
+      "If you create a dashboard, return a concise answer instead of full transcripts.";
+    const tagged = `${request}\n\n<a2a-caller-hint>\n${transportHint}\n</a2a-caller-hint>`;
+    const legacy = `${request}\n\n[Note: this request comes from another app via A2A. ${transportHint}]`;
+
+    for (const text of [tagged, legacy]) {
+      expect(stripInjectedAnalyticsGuardContext(text)).toBe(request);
+      expect(looksLikeCoverageSensitiveAnalyticsRequest(text)).toBe(false);
+      expect(looksLikeDashboardConstructionRequest(text)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(text)).toBe(true);
+    }
+  });
+
   it("respects explicit real-data markers", () => {
     expect(
       looksLikeAnalyticsDataRequest(
@@ -197,6 +253,15 @@ describe("analytics data request classification", () => {
     expect(looksLikeAnalyticsDataRequest("fix the dashboard layout")).toBe(
       false,
     );
+  });
+
+  it("keeps greetings and general math questions out of the guard", () => {
+    expect(looksLikeAnalyticsDataRequest("How's it going?")).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "For n = 3, 4, and 5 points in the plane, what is the maximum number of unit-distance pairs?",
+      ),
+    ).toBe(false);
   });
 
   it("does not reject source-record analysis just because it mentions integrations", () => {
@@ -517,6 +582,55 @@ describe("metadata and data-dictionary questions (should NOT force a provider ca
       ),
     ).toBe(true);
   });
+
+  it("flags provider payment questions as live analytics requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("what were our Stripe payments last week?"),
+    ).toBe(true);
+  });
+
+  it("does not flag payment connection setup as a live analytics request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("how do I connect Stripe payments?"),
+    ).toBe(false);
+  });
+
+  it("does not classify provider configuration help as a live analytics request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "How do I configure revenue reports in Stripe?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Can you check my Stripe payment settings?",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("isGenericNoDataFallback", () => {
+  it("matches the exact canned fallback sentence", () => {
+    expect(isGenericNoDataFallback(GENERIC_NO_DATA_FALLBACK_MESSAGE)).toBe(
+      true,
+    );
+  });
+
+  it("matches case-insensitively and ignores surrounding whitespace", () => {
+    expect(
+      isGenericNoDataFallback(
+        `  ${GENERIC_NO_DATA_FALLBACK_MESSAGE.toUpperCase()}  `,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match unrelated safe no-data responses", () => {
+    expect(
+      isGenericNoDataFallback(
+        "I can't retrieve this data right now because BigQuery credentials are not configured.",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("safe no-data analytics responses", () => {
@@ -534,6 +648,14 @@ describe("safe no-data analytics responses", () => {
         "Which data source should I use for signups: GA4 or BigQuery?",
       ),
     ).toBe(true);
+  });
+
+  it("does not let the generic guard fallback bypass a source-query retry", () => {
+    expect(
+      isSafeNoDataAnalyticsResponse(
+        "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
+      ),
+    ).toBe(false);
   });
 
   it("blocks unsupported metric claims", () => {
@@ -712,6 +834,120 @@ describe("incomplete evidence detection", () => {
     expect(
       hasOverstatedCoverageConfidenceClaim(
         "Partial coverage: I found 0 matches in the 200 calls inspected; this is a defensible interim read.",
+      ),
+    ).toBe(false);
+  });
+
+  it("treats a Company A template clone for Company B as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a new dashboard for Company B using the Company A User Usage Analytics dashboard as a template",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Use the same source data as Company A, filter for Company B",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Replicate the DevRel Leaderboard dashboard for the sales team",
+      ),
+    ).toBe(true);
+  });
+
+  it("still treats a plain numeric analytics question as a data request, not construction", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "What was our conversion rate last week?",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts dashboard reference and inspection actions as construction progress", () => {
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-sql-dashboard", content: '{"id":"company-a-analysis"}' },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        {
+          name: "get-explorer-dashboard",
+          content: '{"id":"company-a-explorer"}',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "search-dashboard-references", content: "[]" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-extension", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(hasDashboardConstructionAttempt([{ name: "bigquery" }])).toBe(false);
+    expect(hasDashboardConstructionAttempt([])).toBe(false);
+  });
+
+  it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
+    // update-dashboard/mutate-dashboard/create-extension/update-extension can
+    // all author brand-new SQL or extension content, so calling them with no
+    // prior inspection/clone step must not be enough to bypass the real-data
+    // guard for an invented dashboard or extension.
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "mutate-dashboard", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "create-extension", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "update-extension", content: "{}" },
+      ]),
+    ).toBe(false);
+    // But it's fine alongside a real inspection/clone step.
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-extension", content: "{}" },
+        { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-sql-dashboard", content: "{}" },
+        { name: "create-extension", content: "{}" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("still blocks inventing metrics without a data query", () => {
+    expect(draftClaimsAnalyticsMetrics("Company B has 12,450 users")).toBe(
+      true,
+    );
+    expect(
+      draftClaimsAnalyticsMetrics("Company B signups increased last week"),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Company B had zero signups last week"),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "I've cloned the Company A extension for Company B. What org id should I filter on?",
       ),
     ).toBe(false);
   });

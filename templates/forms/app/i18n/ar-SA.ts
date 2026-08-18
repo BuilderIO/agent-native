@@ -4,6 +4,7 @@ const messages = {
     searchForms: "بحث في النماذج",
     appearance: "المظهر",
     toggleTheme: "تبديل السمة",
+    openAgent: "فتح الوكيل",
   },
   header: {
     settings: "الإعدادات",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "اسأل Forms",
     allForms: "كل النماذج",
     team: "الفريق",
+    agent: "الوكيل",
   },
   settings: {
     title: "الإعدادات",
@@ -31,10 +33,10 @@ const messages = {
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    agentTitle: "إعدادات الوكيل",
+    agentTitle: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    openAgentSettings: "فتح إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "إدارة الوكيل",
   },
   agent: {
     emptyState: "اسألني أي شيء عن نماذجك",
@@ -85,6 +87,16 @@ const messages = {
     addOption: "إضافة خيار",
     min: "دقيقة",
     max: "الأعلى",
+    conditionalVisibility: "الظهور المشروط",
+    conditionalVisibilityDescription:
+      "أظهر هذا الحقل فقط عندما تتطابق إجابة سابقة.",
+    conditionField: "الإجابة السابقة",
+    conditionOperator: "الشرط",
+    conditionEquals: "تساوي",
+    conditionNotEquals: "لا تساوي",
+    conditionContains: "تتضمن",
+    conditionValue: "الإجابة",
+    conditionValuePlaceholder: "أدخل إجابة...",
     fieldTypes: {
       text: "نص قصير",
       email: "بريد إلكتروني",
@@ -137,6 +149,7 @@ const messages = {
     integrationsTab: "التكاملات",
     settingsSaved: "تم حفظ الإعدادات",
     integrationsSaved: "تم حفظ التكاملات",
+    saveFailed: "فشل حفظ التغييرات",
     formTitlePlaceholder: "عنوان النموذج",
     addDescriptionPlaceholder: "أضف وصفا...",
     dragToReorder: "اسحب لإعادة الترتيب",
@@ -195,6 +208,9 @@ const messages = {
       anonymousResponses: "ردود مجهولة الهوية",
       anonymousResponsesDescription:
         "عدم الاحتفاظ بعناوين IP أو هوية المجيب أو بيانات المصدر الوصفية.",
+      emailNewResponses: "أرسل لي بريدًا إلكترونيًا عند وصول ردود جديدة",
+      emailNewResponsesDescription:
+        "إرسال إشعار إلى البريد الإلكتروني لحساب مالك النموذج عند إرسال أي رد.",
       saveSettings: "حفظ الإعدادات",
     },
     integrations: {
@@ -208,7 +224,8 @@ const messages = {
       webhookHelp:
         "يرسل POST بصيغة JSON مع بيانات الرد. يعمل مع Zapier وMake وn8n وغيرها.",
       googleSheetsBlurb: "انسخ كل رد إلى جدول بيانات يمكن لفريقك مشاركته.",
-      googleSheetsHelp: "انشر تطبيق ويب Apps Script يستقبل بيانات POST",
+      googleSheetsHelp:
+        "استخدم عنوان Apps Script /exec منشورًا يقرأ JSON من e.postData.contents ويضيف الصف.",
       googleSheetsLabel: "جداول بيانات Google",
       webhookLabel: "Webhook",
       discordLabel: "Discord",
@@ -260,6 +277,8 @@ const messages = {
     duplicated: "النموذج مكرر",
     duplicateFailed: "فشل في تكرار النموذج",
     movedToArchive: "تم نقل النموذج إلى الأرشيف",
+    movingToArchive: "جارٍ نقل النموذج إلى الأرشيف…",
+    archiveFailed: "تعذر نقل النموذج إلى الأرشيف",
     restored: "تمت استعادة النموذج",
     permanentlyDeleted: "تم حذف النموذج نهائيًا",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",
