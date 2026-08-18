@@ -20,6 +20,9 @@ export default defineAction({
       .describe(
         "Fetch each ready app's /.well-known/agent-card.json with a short non-throwing timeout and include agentCardUrl, agentCardReachable, a2aEndpointUrl, agentName, and agentSkillsCount. Defaults to true for agent calls; UI polling should pass false. Pending Builder apps are not probed.",
       ),
+    includeArchived: httpBoolean
+      .default(false)
+      .describe("Include archived workspace apps in the result."),
     audience: z
       .enum(["all", "internal", "public"])
       .default("all")
