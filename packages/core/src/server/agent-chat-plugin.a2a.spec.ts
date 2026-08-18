@@ -38,6 +38,22 @@ describe("delegated A2A recoverable artifact checkpoints", () => {
     vi.unstubAllEnvs();
   });
 
+  it("does not use the global secret when organization secret lookup fails", async () => {
+    vi.stubEnv("A2A_SECRET", "global-a2a-secret");
+    vi.doMock("../org/context.js", () => ({
+      getOrgA2ASecret: vi.fn(async () => {
+        throw new Error("organization secret store unavailable");
+      }),
+    }));
+
+    await expect(
+      resolveA2ARecoverableArtifactSecret("org-qa"),
+    ).resolves.toBeUndefined();
+
+    vi.doUnmock("../org/context.js");
+    vi.unstubAllEnvs();
+  });
+
   it("serializes status writes and flushes the latest checkpoint", async () => {
     let releaseFirst!: () => void;
     let releaseSecond!: () => void;

@@ -342,13 +342,6 @@ async function resolveManagedSlackDmExecutionContext(
     incoming.platformContext.identityVerificationFailed = true;
     return deniedContext();
   }
-  if (
-    linkedOwner &&
-    profile.email &&
-    linkedOwner.toLowerCase() !== profile.email.toLowerCase()
-  ) {
-    linkedOwner = null;
-  }
   const candidates = [profile.email, linkedOwner].filter(
     (email, index, values): email is string =>
       !!email && values.indexOf(email) === index,

@@ -757,6 +757,55 @@ describe("managed Slack execution identity", () => {
     );
   });
 
+  it("uses an explicitly linked in-org owner when the verified Slack email is outside the org", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("member@example.test");
+    mocks.isOrgMember.mockImplementation(
+      async (_orgId, email) => email === "member@example.test",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "outside@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-LINKED",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(
+      resolveDispatchExecutionContext(incoming),
+    ).resolves.toMatchObject({
+      ownerEmail: "member@example.test",
+      orgId: "org-managed",
+      principalType: "user",
+    });
+    expect(mocks.isOrgMember).toHaveBeenNthCalledWith(
+      1,
+      "org-managed",
+      "outside@example.test",
+    );
+    expect(mocks.isOrgMember).toHaveBeenNthCalledWith(
+      2,
+      "org-managed",
+      "member@example.test",
+    );
+  });
+
   it("keeps a managed channel on its service principal even when Alice is verified", async () => {
     mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
       managedSlackInstallation(),
