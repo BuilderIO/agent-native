@@ -1634,7 +1634,10 @@ export function processEvent(
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {
-          part.approval = { approvalKey };
+          part.approval = {
+            approvalKey,
+            ...(ev.askId ? { askId: ev.askId } : {}),
+          };
         }
       }
     }

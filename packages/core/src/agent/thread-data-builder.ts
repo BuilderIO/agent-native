@@ -33,7 +33,7 @@ interface ContentPart {
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
 }
 
 interface BuildAssistantMessageOptions {
@@ -235,7 +235,10 @@ export function buildAssistantMessage(
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
-        part.approval = { approvalKey: event.approvalKey };
+        part.approval = {
+          approvalKey: event.approvalKey,
+          ...(event.askId ? { askId: event.askId } : {}),
+        };
       }
       continue;
     }
