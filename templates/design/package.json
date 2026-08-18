@@ -35,7 +35,6 @@
     "h3": "catalog:",
     "html2canvas": "^1.4.1",
     "isbot": "^5",
-    "jose": "^6.2.8",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "kiwi-schema": "^0.5.0",
