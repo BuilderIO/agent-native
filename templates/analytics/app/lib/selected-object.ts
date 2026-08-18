@@ -41,6 +41,7 @@ export async function clearSelectedDashboardObjectIfOwned(
       requestSource: TAB_ID,
     });
   } catch {
+    // coercion-ok: best-effort cleanup must not break Ask navigation when state APIs fail.
     // Best effort only; stale context is safer than clearing another tab's state.
   }
 }
