@@ -117,11 +117,20 @@ export type ApprovalContextValue = {
     approvalKey: string,
     resolution: ApprovalResolution,
     toolCallId?: string,
+    /**
+     * Identifies the specific `approval_required` ask being resolved. A
+     * remount that replays the SAME ask (e.g. a chat repository refresh)
+     * omits nothing new here, so the retained resolution still matches; a
+     * fresh ask after a failed resume carries a different `askId` and so
+     * looks up as unresolved. See `ApprovalAffordance` below.
+     */
+    askId?: string,
   ) => void;
   /** Read a resolution retained by the owning chat surface. */
   getApprovalResolution?: (
     approvalKey: string,
     toolCallId?: string,
+    askId?: string,
   ) => ApprovalResolution | null;
   /**
    * Optional host hook invoked in addition to the local "denied" state, e.g.

@@ -87,7 +87,7 @@ templates/*/wrangler.toml
 wrangler.toml
 .claude/scheduled_tasks.lock
 .claude/worktrees/
-# Local editor runtime state; the tracked hook that created this is removed.
+# Local editor runtime state.
 .claude/leases/
 # Per-machine permission allow-lists routinely accumulate real connection
 # strings. Only a global core.excludesFile kept these out of history before.
