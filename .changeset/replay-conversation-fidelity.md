@@ -19,3 +19,12 @@ Keep replayed conversations faithful to what the agent actually did.
   They were silently dropped as an unknown block type, which left the next
   iteration of a tool-use turn sending an assistant turn the API rejects.
   Unrecognized content block types now warn instead of vanishing.
+- Reducing a long thread is Observational Memory's job, but its Observer only
+  engages past 30k unobserved tokens while a 24-message count cap bit long
+  before that, so turns left the request while compaction still had nothing to
+  say about them. The count cap is now a backstop well above that threshold; the
+  two char budgets remain the real bound on what a request carries.
+- A thinking block with no signature is dropped with a warning instead of being
+  sent with an empty one, which the native API rejects outright — failing the
+  whole turn on a provider error that points nowhere near the cause. The Builder
+  gateway path is unchanged, since its tolerance here is unverified.

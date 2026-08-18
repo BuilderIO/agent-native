@@ -153,7 +153,7 @@ const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 // turn or more later. The two char budgets below are the real bound (they cap
 // what a request can carry regardless of message count); this cap only keeps the
 // array from growing without limit.
-const MAX_HISTORY_MESSAGES = 24;
+const MAX_HISTORY_MESSAGES = 80;
 // Every provider prompt cache matches a byte-identical PREFIX. A window that
 // ends at the newest message and starts MAX_HISTORY_MESSAGES back moves its
 // START by one message per turn, so from the first turn past the cap onward no

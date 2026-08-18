@@ -1,9 +1,9 @@
 ---
 name: ship
 description: >-
-  Commit and push the current agent's owned current-branch work, open a ready
-  PR, babysit it, merge when clean, then create a fresh branch. Use when the
-  user asks to ship, publish, or hand off the current agent's changes.
+  Commit and push all nonignored current-branch work, open a ready PR, babysit
+  it, merge when clean, then create a fresh branch. Use when the user asks to
+  ship, publish, or hand off local changes.
 user-invocable: true
 scope: dev
 metadata:
@@ -12,54 +12,39 @@ metadata:
 
 # Ship
 
-Ship the current agent's owned work end-to-end: commit and push only those
-paths, open or update a ready PR, run `/babysit-pr`, merge when its normal gates
-are satisfied, then run `/new-branch` after the merge lands.
+Ship all nonignored work on the current branch end-to-end: commit and push the
+branch snapshot, open or update a ready PR, run `/babysit-pr`, merge when its
+normal gates are satisfied, then run `/new-branch` after the merge lands.
 
-`/ship` means this agent's owned work only. “Ship my latest local changes”
-does not turn every dirty path into this PR: record the shared-checkout
-ownership baseline, and leave unfamiliar or peer-created paths untouched and
-uncommitted. Re-check ownership before every stage, commit, and push.
+`/ship` includes all nonignored local changes on the current branch. Keep the
+routine exclusions out of the shipment: `learnings.md`, `bridge/**`, and
+`data/**`. Re-check the branch snapshot before every commit and push.
 
 ## Non-Negotiable Shipping Invariant
 
-`/ship` ships the current agent's **owned work**, not every dirty path in a
-shared checkout. At the start of the flow, record the status and ownership
-baseline. Commit and push only paths changed for this invocation. If another
-agent changes or adds a path during the flow, leave it untouched and
-uncommitted for that agent; never revert, stash, overwrite, or absorb it. A
-path appearing in `git status` is not ownership evidence and never authorizes
-staging it.
+`/ship` ships the complete nonignored **current-branch snapshot**. At the start
+of the flow, record the status and diff baseline. If the branch changes while
+the flow is running, publish the new snapshot to the same PR rather than
+creating a second PR. Never reset, rebase, force-push, or silently discard
+local work.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
-## Owned-Path Push
+## Whole-Branch Push
 
-A worktree is a valid publishing checkout. When `/ship` is authorized from a
-worktree, use that worktree's current branch and cwd for validation, commit,
-push, and PR creation or update. Do not copy its changes into the shared
-checkout; the same owned-path and no-second-PR rules apply.
+Use the repository checkpoint for the complete current-branch snapshot:
 
 ```bash
-git add -- <owned-paths>
-git commit -m "<message>"
-git push origin HEAD
+corepack pnpm ship:push
 ```
 
-Stage explicit owned paths only. Do not use `pnpm ship:push`, `git add -A`, or
-another whole-worktree helper when peer changes are present: those commands
-publish other agents' local work. Verify the push landed on the current branch
-and read the remote sha back. A dirty worktree containing only peer paths is
-allowed during the flow and is not a reason to stage them.
-
-Treat these as an immediate call to it: `/ship`, "ship our latest local
-changes", or "push up my local changes". Push the first owned safe slice before
-long validation so CI and review can start, then push later owned slices as
-they become coherent. A live file lease means preserve that path, not publish
-it: if it is peer-owned or unexpectedly changed, leave it out of the commit.
+It stages all nonignored paths, excludes `learnings.md`, `bridge/**`, and
+`data/**`, commits without agent attribution, pushes the current branch, and
+verifies the remote SHA. Push the first snapshot before long validation, then
+push later branch snapshots to the same PR as they become coherent.
 
 If the branch updates templates or publishable packages, shipping does not stop
 at merge. Treat the work as shipped only after the affected templates are live in

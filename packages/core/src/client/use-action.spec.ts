@@ -424,6 +424,45 @@ describe("callAction", () => {
     }
   });
 
+  it("sends the caller's default POST even when the action declares DELETE, then fails loudly naming the fix", async () => {
+    // Reproduces the exact repro Alex Bridgeman reported (Slack C0ATH3CCZT4,
+    // 1785293830688019): an action registered as
+    // `defineAction({ http: { method: "DELETE" } })`, called without an
+    // explicit `{ method: "DELETE" }`. The client has no way to look up the
+    // declared method, so it silently sends its POST default — mirroring
+    // mountActionRoutes' real 405 body for a non-frontend-tolerated mismatch.
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { error: "Method not allowed. Use DELETE." },
+        { status: 405 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await callAction("delete-todo", { id: "1" }).catch(
+      (err) => err,
+    );
+
+    // The client did in fact send POST, not the declared DELETE.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/delete-todo",
+      expect.objectContaining({ method: "POST" }),
+    );
+    // The failure must be loud and typed — naming the action, what was sent,
+    // and what the action actually requires — not a bare 405 the caller has
+    // to reverse-engineer.
+    expect(error).toMatchObject({
+      status: 405,
+      code: "action_method_mismatch",
+      sentMethod: "POST",
+      requiredMethod: "DELETE",
+    });
+    expect(String(error.message)).toContain("delete-todo");
+    expect(String(error.message)).toContain('{ method: "DELETE" }');
+    // Deterministic failure — retrying would just resend the wrong verb.
+    expect(defaultActionQueryRetry(0, error)).toBe(false);
+  });
+
   it("times out an unabortable body stream after headers arrive", async () => {
     vi.useFakeTimers();
     try {
