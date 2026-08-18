@@ -1238,7 +1238,7 @@ const TYPE_SUBSTITUTE_KEYS = [
   "not",
 ] as const;
 
-function stripUnsupportedSchemaKeywords<T>(node: T): T {
+export function stripUnsupportedSchemaKeywords<T>(node: T): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
 
