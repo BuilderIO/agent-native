@@ -294,8 +294,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
     runs-on: ubuntu-latest
-    # The targeted Design workspace includes its dependent toolkit and recap
-    # packages. Keep enough room for a cold install and the full serial suite.
+    # A core change expands to its dependent workspace graph (currently 38
+    # projects) and runs those packages serially to keep runner memory bounded.
+    # Keep the bounded execution, but allow the graph to finish before treating
+    # a passing test run as a failure.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
