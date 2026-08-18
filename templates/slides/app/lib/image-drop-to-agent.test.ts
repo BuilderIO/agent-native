@@ -14,7 +14,7 @@ describe("isMissingUploadProviderError", () => {
     expect(
       isMissingUploadProviderError(
         400,
-        "No file upload provider is configured. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+        "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
       ),
     ).toBe(true);
   });
@@ -43,10 +43,14 @@ describe("buildImageDropAgentPayload", () => {
     expect(payload.referenceImagePaths).toEqual([
       "https://cdn.example.com/prd-meme.jpg",
     ]);
-    expect(payload.message).toContain(
+    expect(payload.message).toBe(
+      "place it to the right of the text on this slide.",
+    );
+    expect(payload.context).toContain(
       "Image URL (already uploaded): https://cdn.example.com/prd-meme.jpg",
     );
-    expect(payload.message).toContain(
+    expect(payload.context).toContain("Filename: prd meme.jpg");
+    expect(payload.context).not.toContain(
       "place it to the right of the text on this slide.",
     );
   });
@@ -60,7 +64,7 @@ describe("buildImageDropAgentPayload", () => {
         ok: false,
         status: 503,
         error:
-          "No file upload provider is configured. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+          "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
       },
       dataUrl,
     });
@@ -68,8 +72,11 @@ describe("buildImageDropAgentPayload", () => {
     expect(payload.kind).toBe("inline");
     if (payload.kind !== "inline") return;
     expect(payload.images).toEqual([dataUrl]);
-    expect(payload.message).toContain("upload-image");
-    expect(payload.message).not.toContain("Image URL (already uploaded)");
+    expect(payload.message).toBe(
+      "place it to the right of the text on this slide.",
+    );
+    expect(payload.context).toContain("upload-image");
+    expect(payload.context).not.toContain("Image URL (already uploaded)");
   });
 
   it("throws when upload fails and no data URL is available", () => {

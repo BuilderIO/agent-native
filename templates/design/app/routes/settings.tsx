@@ -1,22 +1,20 @@
-import {
-  SettingsTabsPage,
-  ChangelogSettingsCard,
-  LanguagePicker,
-  useAgentSettingsTabs,
-  useT,
-  type SettingsSearchEntry,
-} from "@agent-native/core/client";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
+import {
+  AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  type SettingsSearchEntry,
+} from "@agent-native/core/client/settings";
+import {
+  CreativeContextSettingsLink,
+  createCreativeContextAgentTab,
+} from "@agent-native/creative-context/client";
 import { useMemo } from "react";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -26,7 +24,9 @@ export function meta() {
 }
 
 export default function SettingsRoute() {
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
   const t = useT();
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
@@ -44,24 +44,25 @@ export default function SettingsRoute() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
       <SettingsTabsPage
+        account={<AccountSettingsCard />}
         extraTabs={agentSettingsTabs}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
-            <Card id="language" className="scroll-mt-16">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.languageTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.languageDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="max-w-xs space-y-1.5">
-                <Label>{t("settings.languageLabel")}</Label>
-                <LanguagePicker label={t("settings.languageLabel")} />
-              </CardContent>
-            </Card>
+            <CreativeContextSettingsLink />
+
+            <SettingsGroup>
+              <SettingsRow
+                id="language"
+                label={t("settings.languageTitle")}
+                description={t("settings.languageDescription")}
+                control={
+                  <div className="w-56">
+                    <LanguagePicker label={t("settings.languageLabel")} />
+                  </div>
+                }
+              />
+            </SettingsGroup>
           </div>
         }
         team={

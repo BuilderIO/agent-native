@@ -1,26 +1,5 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
-/**
- * ReviewPanel — Design Studio accessibility + visual-diff review panel.
- *
- * Displays severity-dot a11y findings from `run-design-audit` /
- * `get-design-review`, and a structural visual-diff section comparing two
- * `design_versions`.
- *
- * The "Fix" button is wired to the `apply-a11y-fix` action for findings that
- * are auto-fixable inline (contrast/color, tap-target, focus-visibility) — the
- * fix reduces to a deterministic style/class edit against the SQL-backed HTML,
- * and the canvas re-renders from the written content.  Findings that need a new
- * attribute (alt / aria-label) or a semantic rewrite stay informational with no
- * Fix affordance.  When no design source (`designId`/`fileId`) is provided the
- * panel falls back to read-only.
- *
- * Layout matches the Review artboard in the canonical plan visual:
- *   <https://plan.agent-native.com/plans/plan-88dc4a09fb0c46bc>
- *
- * shadcn/ui primitives + Tabler icons throughout.  No emojis.
- */
-
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import {
   IconAlertCircle,
   IconArrowsLeftRight,

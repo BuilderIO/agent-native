@@ -1,25 +1,32 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AgentSidebar,
   AppProviders,
-  appPath,
-  CommandMenu,
   createAgentNativeQueryClient,
-  ErrorReportActions,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   getLocaleInitScript,
-  getThemeInitScript,
   type LocaleCode,
   type LocaleMessages,
   type LocalizationPreference,
-  useActionQuery,
-  useCommandMenuShortcut,
   useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import {
+  ErrorReportActions,
+  RouteTransitionIndicator,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import type { ListContentDatabasesResponse } from "@shared/api";
 import {
   IconDatabase,
   IconDeviceDesktop,
+  IconHierarchy2,
   IconFileText,
   IconFolderOpen,
   IconLoader2,
@@ -27,7 +34,14 @@ import {
   IconSun,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Links,
   Meta,
@@ -38,11 +52,14 @@ import {
   useLoaderData,
   useLocation,
   useNavigate,
-  useNavigation,
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
-import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+import type {
+  LinksFunction,
+  LoaderFunctionArgs,
+  ShouldRevalidateFunctionArgs,
+} from "react-router";
 
 // Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -61,6 +78,7 @@ import {
 } from "./lib/content-command-search";
 
 import stylesheet from "./global.css?url";
+import katexStylesheet from "katex/dist/katex.min.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -70,6 +88,7 @@ configureTracking({
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
+  { rel: "stylesheet", href: katexStylesheet },
 ];
 
 interface RootLoaderData {
@@ -96,8 +115,20 @@ export async function loader({
   };
 }
 
+export function shouldRevalidate({
+  defaultShouldRevalidate,
+  formMethod,
+}: ShouldRevalidateFunctionArgs) {
+  return formMethod ? defaultShouldRevalidate : false;
+}
+
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+const LazyAgentSidebar = lazy(async () => {
+  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  return { default: AgentSidebar };
+});
 
 const DEFAULT_LOADER_DATA: RootLoaderData = {
   locale: "en-US",
@@ -157,7 +188,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -182,7 +212,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -208,26 +237,6 @@ function AppSetup() {
   useDbSync();
   useNavigationState();
   return null;
-}
-
-function RouteTransitionIndicator() {
-  const navigation = useNavigation();
-  const pending = navigation.state !== "idle";
-
-  return (
-    <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden"
-      aria-hidden={!pending}
-      role="progressbar"
-      data-pending={pending ? "true" : undefined}
-    >
-      <div
-        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
-          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
-        }`}
-      />
-    </div>
-  );
 }
 
 function ThemeToggleItem() {
@@ -476,15 +485,6 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    if (!window.matchMedia("(min-width: 768px)").matches) return;
-    const id = window.setTimeout(() => {
-      window.dispatchEvent(new Event("agent-panel:open"));
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [mounted]);
-
   const content = <>{children}</>;
 
   if (!mounted) {
@@ -498,19 +498,29 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AgentSidebar
-      position="right"
-      defaultOpen
-      defaultSidebarWidth={420}
-      emptyStateText={t("chat.publicEmptyState")}
-      suggestions={[
-        t("chat.publicSuggestionSummary"),
-        t("chat.publicSuggestionTakeaways"),
-        t("chat.publicSuggestionActionPlan"),
-      ]}
+    <Suspense
+      fallback={
+        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-auto">
+            {content}
+          </div>
+        </div>
+      }
     >
-      {content}
-    </AgentSidebar>
+      <LazyAgentSidebar
+        position="right"
+        defaultOpen={false}
+        defaultSidebarWidth={420}
+        emptyStateText={t("chat.publicEmptyState")}
+        suggestions={[
+          t("chat.publicSuggestionSummary"),
+          t("chat.publicSuggestionTakeaways"),
+          t("chat.publicSuggestionActionPlan"),
+        ]}
+      >
+        {content}
+      </LazyAgentSidebar>
+    </Suspense>
   );
 }
 
@@ -522,6 +532,7 @@ function ContentCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -536,6 +547,12 @@ function ContentCommandMenu({
         />
       )}
     >
+      <CommandMenu.Group heading={t("root.commandContent")}>
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
         <ThemeToggleItem />
       </CommandMenu.Group>
@@ -548,12 +565,7 @@ export default function Root() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  useCommandMenuShortcut(
-    useCallback(() => setCmdkOpen(true), []),
-    {
-      allowContentEditable: true,
-    },
-  );
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.

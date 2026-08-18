@@ -318,7 +318,7 @@ pnpm action db-check-scoping --require-org  # org_id도 필요합니다.
 | OAuth 토큰(구글, GitHub)   | `saveOAuthTokens()`를 통한 `oauth_tokens` 매장           |
 | 세션 토큰                  | 자동(더 나은 인증이 이를 처리함)                         |
 
-사용자별/조직별 자격 증명 및 저장소는 저장 시 `SECRETS_ENCRYPTION_KEY`로 키가 지정된 AES-256-GCM로 암호화됩니다(`BETTER_AUTH_SECRET`로 대체). 생산은 하나 없이는 시작을 거부합니다. 기존 일반 텍스트 자격 증명 행을 암호화하려면 `pnpm action db-migrate-encrypt-credentials`(멱등성, 비파괴)를 실행하세요.
+사용자별/조직별 자격 증명과 vault는 저장 시 AES-256-GCM으로 암호화됩니다. 공유 워크스페이스 vault는 `WORKSPACE_SECRETS_ENCRYPTION_KEY`를 우선하고 `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`에서 파생된 레거시 후보를 사용합니다. 회전 중에는 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`를 설정해 읽기가 행을 마이그레이션하도록 하세요. 기존 평문 행은 `pnpm action db-migrate-encrypt-credentials`(멱등성, 비파괴)로 암호화할 수 있습니다.
 
 `settings`, `application_state`, 소스 코드 또는 작업 응답에 비밀을 저장하지 마세요. 위의 자격 증명/볼트 API를 사용하세요. 암호화와 사용자별 범위 지정을 모두 처리합니다.
 
@@ -361,7 +361,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `BETTER_AUTH_SECRET`는 임의의 32자 이상의 문자열(`openssl rand -hex 32`)로 설정됩니다. 단, `A2A_SECRET`에서 파생된 호스팅 작업공간 배포가 아닌 경우
 - [ ] `OAUTH_STATE_SECRET`는 별도의 임의의 32개 이상의 문자 문자열로 설정됩니다(`BETTER_AUTH_SECRET`를 재사용하지 마세요) — [OAuth State Signing](#oauth-state) 참조
 - [ ] A2A 트래픽을 호출하거나 수신하는 모든 앱에 설정된 `A2A_SECRET` — [A2A Identity Verification](#a2a-identity) 참조
-- [ ] `SECRETS_ENCRYPTION_KEY` 세트(또는 `BETTER_AUTH_SECRET` 대체에 의존) - [Secrets Management](#secrets) 참조
+- [ ] 공유 멀티앱 vault에는 `WORKSPACE_SECRETS_ENCRYPTION_KEY`를 동일하게 설정하고, 앱별 암호화에는 `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` fallback을 유지하세요 - [Secrets Management](#secrets) 참조
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION`는 프로덕션에서 설정되지 **않습니다**(또는 QA 미리보기 배포에만 설정됨)
 
 ### 웹훅 비밀(사용하는 통합에 대한 비밀 설정)

@@ -7,7 +7,7 @@ description: "エージェント チャット コンポーザーでの音声デ�
 
 すべてのエージェント ネイティブ アプリにはチャット コンポーザーにマイクがあります。それをクリックして話すと、あなたの言葉がプロンプトに文字化されます。モバイルで便利、長いプロンプトに便利、手が他のことにあるときに便利。
 
-フレームワークはこれらすべてを自動的に処理します。 Builder に接続しているユーザーは、デフォルトで Builder がホストする Gemini Flash-Lite を取得します。それ以外の場合、ユーザーは独自のプロバイダー キーを持ち込むか、ブラウザーの音声認識にフォールバックできます。
+フレームワークはこれらすべてを自動的に処理します。 Builder に接続しているユーザー（無料プランあり）は、デフォルトで Builder がホストする Gemini Flash-Lite を取得します。それ以外の場合、ユーザーは独自のプロバイダー キーを持ち込むか、ブラウザーの音声認識にフォールバックできます。
 
 ## リアルタイム音声モード {#realtime-speech-mode}
 
@@ -19,7 +19,7 @@ description: "エージェント チャット コンポーザーでの音声デ�
 
 作曲家の音声ボタンはブラウザで音声を録音し、プロバイダを選択します。
 
-1. **Builder Gemini Flash-Lite (Builder が接続されている場合のデフォルト)。** ブラウザは `/_agent-native/transcribe-voice` にオーディオを POST し、`/_agent-native/transcribe-voice` は Gemini Flash-Lite を使用して Builder.io を介してプロキシします。 Google API キーは必要ありません。
+1. **Builder Gemini Flash-Lite (Builder が接続されている場合のデフォルト)。** ブラウザは `/_agent-native/transcribe-voice` にオーディオを POST し、`/_agent-native/transcribe-voice` は Gemini Flash-Lite を使用して Builder.io（無料プランあり）を介してプロキシします。 Google API キーは必要ありません。
 2. **BYOK クラウド プロバイダー。** ユーザーは [設定] から Google Gemini、Groq Whisper、または OpenAI Whisper を選択できます。このルートは、展開認証情報を共有する前に、ユーザー スコープの暗号化されたシークレットを解決します。
 3. **ブラウザ Web 音声 API (フォールバック)。** サーバー プロバイダーが利用できない場合、作曲者はブラウザの組み込み音声認識を使用できます。 Chromium ベースのブラウザ (Chrome、Edge、Arc) および Safari で動作します。精度が低くなります。ライブストリーム。
 
@@ -75,7 +75,7 @@ description: "エージェント チャット コンポーザーでの音声デ�
 
 ## プロバイダの有効化 {#enabling-providers}
 
-Builder が最も簡単なパスです。設定から Builder.io に接続すると、デフォルトのプロバイダーは Builder Gemini Flash-Lite になります。 BYOK プロバイダーの場合は、[設定] → [API キー] で一致するキーを追加します。
+Builder が最も簡単なパスです。設定から Builder.io（無料プランあり）に接続すると、デフォルトのプロバイダーは Builder Gemini Flash-Lite になります。 BYOK プロバイダーの場合は、[設定] → [API キー] で一致するキーを追加します。
 
 ### ユーザーごと (SaaS に推奨)
 

@@ -66,17 +66,7 @@ async function click(element: Element | undefined) {
 }
 
 async function openNewMenu() {
-  const trigger = findButton("New");
-  expect(trigger).toBeTruthy();
-  await act(async () => {
-    trigger!.dispatchEvent(
-      new PointerEvent("pointerdown", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-      }),
-    );
-  });
+  await click(findButton("New"));
 }
 
 describe("SecretsSection", () => {
@@ -155,7 +145,7 @@ describe("SecretsSection", () => {
 
     await openNewMenu();
     const braveItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
+      document.querySelectorAll('[role="option"]'),
     ).find((item) => item.textContent?.includes("Brave Search API Key"));
     await click(braveItem);
 
@@ -167,7 +157,7 @@ describe("SecretsSection", () => {
 
     await openNewMenu();
     const customItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
+      document.querySelectorAll('[role="option"]'),
     ).find((item) => item.textContent?.trim() === "Custom");
     await click(customItem);
 
@@ -177,6 +167,38 @@ describe("SecretsSection", () => {
     expect(container.querySelector('[aria-label="Key name"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Secret value"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Scope"]')).toBeTruthy();
+  });
+
+  it("filters the key list as you search", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    await openNewMenu();
+    const search = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Search keys..."]',
+    );
+    expect(search).toBeTruthy();
+
+    await act(async () => {
+      // React's value tracker ignores a plain assignment; go through the
+      // prototype setter so onChange actually fires.
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(search, "tavily");
+      search!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const optionText = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).map((item) => item.textContent ?? "");
+    expect(optionText.some((text) => text.includes("Tavily API Key"))).toBe(
+      true,
+    );
+    expect(
+      optionText.some((text) => text.includes("Brave Search API Key")),
+    ).toBe(false);
   });
 
   it("reveals and focuses an unset key requested by a deep link", async () => {

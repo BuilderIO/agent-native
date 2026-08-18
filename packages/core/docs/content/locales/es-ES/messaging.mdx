@@ -20,6 +20,7 @@ Conecta tu agente a Slack, Microsoft Teams, interacciones de Discord, correo ele
 - **Envíe un mensaje de texto al agente en Slack**, o `@mention` en cualquier canal.
 - **Envía mensajes al agente por Telegram o WhatsApp** desde tu teléfono.
 - **Mismo agente, misma memoria.** Todo lo que diga en Slack se recordará cuando lo envíe por correo electrónico más tarde. El chat web y los mensajes externos comparten un historial de conversaciones.
+- **Actúa sobre otras herramientas desde un mensaje.** Una @mention puede terminar en una fila de Notion, una incidencia de Jira o un registro de HubSpot: consulta [@mention en Slack → fila en Notion](#slack-to-notion) para ver el ejemplo completo.
 - Para alertas unidireccionales en la aplicación (icono de campana, webhooks), consulte [Notifications](/docs/notifications).
 
 <Diagram id="doc-block-10wl96d" title="Muchos canales, un agente" summary={"Cada plataforma participa en el mismo bucle de agente y el mismo historial de hilos SQL, por lo que un DM Slack y un correo electrónico continúan la misma conversación."}>
@@ -126,7 +127,7 @@ y `link_shared` al controlador de despliegue de clips.
 
 ### Consejos
 
-- **Menciones de canales**: use una @mención para iniciar el trabajo. Las respuestas sin mención solo continúan mientras ese hilo exacto tenga trabajo activo.
+- **Menciones de canales**: use una @mención para iniciar el trabajo. Cada mensaje del canal que deba procesarse debe mencionar explícitamente al agente; las respuestas normales del hilo y la conversación general del canal no lo invocan.
 - **Mensajes directos**: los mensajes directos personales aceptados son conversaciones privadas y requieren un miembro verificado de la organización o una identidad de Slack vinculada.
 - **Identidad**: los mensajes directos pueden vincular un correo de Slack verificado al mismo usuario de la aplicación; los canales administrados usan su identidad de servicio y política.
 - **Listas permitidas de producción**: configure `SLACK_ALLOWED_TEAM_IDS` y, para aplicaciones Slack compartidas, `SLACK_ALLOWED_API_APP_IDS` para que un espacio de trabajo inesperado no pueda reutilizar un secreto de firma válido.
@@ -172,7 +173,7 @@ Event Subscriptions Request URL como
 Interactivity Request URL como
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Suscríbase a `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` y `message.mpim`.
+`message.im`.
 Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` y
 `SLACK_SIGNING_SECRET`; después, en **Configuración → Mensajería**, pulse
 **Add to Slack**. Cada instalación guarda su token cifrado y usa claves de
@@ -191,8 +192,8 @@ verificado de la organización de Agent Native o de una identidad de Slack ya
 vinculada. Las políticas y los presupuestos del principal de servicio del canal
 son independientes.
 
-Las respuestas sin mención solo dirigen un hilo con una tarea activa; el resto
-de la conversación del canal no invoca al agente. Se carga un contexto acotado
+Cada mensaje del canal debe mencionar explícitamente al agente; las respuestas
+normales del hilo y el resto de la conversación del canal no lo invocan. Se carga un contexto acotado
 con reacciones y referencias de archivo, y una tarjeta nativa muestra el plan,
 el progreso, cancelar y aprobar/rechazar. Los mensajes directos usan la identidad
 personal; los canales administrados usan una identidad de servicio explícita y
@@ -202,6 +203,179 @@ presupuestos diarios o mensuales por organización, solicitante y canal se aplic
 con linaje de auditoría. `assistant:write` habilita los eventos de contexto de
 Agent View; `chat:write` permite las respuestas y las actualizaciones de estado
 en directo.
+
+### Ejemplo completo: @mention en Slack → fila en Notion {#slack-to-notion}
+
+Cuando las menciones de Slack ya funcionan, la siguiente petición más habitual es alguna variante de _«cuando haga una @mention al agente en un hilo, que coja lo que he dicho y lo añada a mi base de datos de Notion»_. Eso ya funciona —la entrada de Slack, la API de proveedor de Notion y las acciones de la app vienen incluidas—, pero hay que conectar tres piezas en el orden correcto, y dos de ellas fallan en silencio si te las saltas.
+
+Todo lo que aparece entre `<ANGLE_BRACKETS>` es un marcador de posición. Nunca pegues un secreto real de Notion en el código fuente, en un `.env` versionado ni en un mensaje de chat.
+
+#### 1. Haz que las menciones lleguen a la app
+
+Completa [Configurar Slack](#slack) y comprueba que una `@mention` en un canal recibe respuesta antes de tocar Notion. Dos comportamientos importan para el resto del ejemplo:
+
+- El mensaje con la `@mention` es la invocación, y su texto es lo que ve el agente.
+- Cada mensaje posterior en el mismo hilo debe mencionar explícitamente al agente; una respuesta normal no llega a él. Vuelve a hacer una @mention para cada solicitud nueva.
+
+#### 2. Expón las acciones de la API de proveedor
+
+Core incluye un preajuste del proveedor Notion (URL base, cabecera `Notion-Version`, autenticación, enlaces a documentación), pero las tres acciones que permiten al agente usarlo —`provider-api-catalog`, `provider-api-docs` y `provider-api-request`— son una **exportación de subruta opcional**. Una app que nunca las haya añadido no tiene ninguna vía hacia Notion, y el agente responderá que no dispone de herramienta de Notion. Este es el paso que más gente se salta.
+
+Añade un runtime de proveedor:
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+Después añade un archivo de acción fino por cada identificador de acción. Todas las opciones de la factoría son opcionales, así que cada archivo puede ser una sola llamada:
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+Los archivos de `actions/` se descubren automáticamente: no hay ningún registro que editar. Consulta [Reutilizar las factorías de acciones de Core](/docs/integrations#provider-api-factories) para restringir la lista de proveedores o exponerlas por HTTP.
+
+#### 3. Guarda la clave de Notion en el almacén cifrado, no en `.env`
+
+Crea una integración interna en **[notion.so/my-integrations](https://www.notion.so/my-integrations)** y copia su secreto. Después, en tu app, abre **Settings → API Keys & Connections**, añade una clave llamada exactamente `NOTION_API_KEY`, pega el valor y elige un ámbito:
+
+- **Personal**: solo pueden usarla las ejecuciones que corren en tu nombre.
+- **Workspace**: compartida con la organización. Elige esta opción si alguien que no seas tú va a mencionar al agente, porque una ejecución de Slack corre como propietario de la integración, no como quien escribió el mensaje.
+
+El runtime del proveedor resuelve las credenciales desde el almacén cifrado en ese orden —personal, después organización, después workspace— y **deliberadamente nunca lee `process.env`**, porque una variable de entorno de despliegue sería compartida por todos los usuarios de una app multiinquilino. Una línea `NOTION_API_KEY` en `.env` no se tendrá en cuenta aquí.
+
+#### 4. Comparte la base de datos con la integración
+
+En Notion, abre la base de datos de destino y usa **••• → Connections →** para añadir tu integración. Saltarse esto es el fallo de Notion más habitual y el más engañoso: la API responde **404**, no 403, así que parece un identificador de base de datos incorrecto. La entrada del catálogo incluye ese texto de solución, y `provider-api-request` lo añade al campo `guidance` de cualquier respuesta 401, 403 o 404.
+
+El identificador de la base de datos está en su URL: es la cadena de 32 caracteres anterior al `?`.
+
+#### 5. Pide a tu agente que lo construya
+
+Esta es la parte que ninguna pantalla de configuración te cuenta: no conectas tú las dos mitades, pides el comportamiento. En el chat del agente de la app:
+
+> Añade una acción llamada `add-notion-row` que agregue una fila a la base de datos de Notion `<NOTION_DATABASE_ID>` mediante la API de proveedor. Debe recibir el texto del mensaje, el autor de Slack y un enlace de vuelta al mensaje de Slack. Después actualiza `AGENTS.md` para que, cuando alguien te haga una @mention en Slack y te pida registrar o guardar algo, llames a esa acción y respondas con la URL de la nueva página de Notion.
+
+Lo que el agente debe escribir es **una acción**, no una ruta de Nitro ni un `fetch` desde el navegador:
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+Tres detalles del ejemplo son esenciales:
+
+- Las versiones actuales de Notion cuelgan las filas de una **fuente de datos** dentro de la base de datos, así que lee primero la base de datos y usa su `data_sources[0].id` como elemento padre. Pasar el identificador de la base de datos directamente como padre es la forma de la API antigua.
+- `executeRequest` devuelve los errores del proveedor en lugar de lanzarlos, así que comprueba tú mismo `response.ok` y propaga el `guidance` devuelto: ahí es donde llega la pista de «comparte la base de datos».
+- Los nombres de propiedad (`Name`, `Author`, `Source`) deben coincidir exactamente con las columnas de tu base de datos, y los tipos también. Haz que el agente lea antes las `properties` de la base de datos en lugar de adivinarlas.
+
+La parte de `AGENTS.md` no es opcional. Sin ella el agente tiene la herramienta pero ningún motivo para usarla cuando un mensaje de Slack dice «registra esto».
+
+#### 6. Confirma que funciona y qué revisar cuando no
+
+En un canal de Slack donde esté el agente, escribe `@YourAgent registra esto en Notion: <SOME_TEXT>`. Una ejecución correcta responde en el hilo con la URL de la nueva página, y la fila aparece en Notion.
+
+Cuando no funciona:
+
+| Qué ves                                                             | Dónde mirar                                                                                                                                           |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slack no responde nada                                              | La mención nunca llegó a la app. Revisa la Request URL y el signing secret en [Configurar Slack](#slack): esto no es un problema de Notion.           |
+| El agente responde pero dice que no tiene herramienta de Notion     | Paso 2. Las acciones de la API de proveedor nunca se añadieron a `actions/`.                                                                          |
+| `notion credential not configured. Tried: NOTION_API_KEY`           | Paso 3. La clave está en `.env`, o guardada como **Personal** para una cuenta distinta de aquella con la que se ejecuta. Guárdala como **Workspace**. |
+| Notion responde `404`                                               | Paso 4. La base de datos nunca se compartió con la integración.                                                                                       |
+| Notion responde `400` por las propiedades                           | Los nombres o tipos de propiedad de la acción no coinciden con las columnas de la base de datos.                                                      |
+| Funcionó una vez y luego se ignoró una respuesta posterior del hilo | Es lo esperado. Cada mensaje que deba procesar el agente debe mencionarlo explícitamente: vuelve a hacer una @mention.                                |
 
 ## Configurar Telegrama {#telegram}
 

@@ -11,7 +11,7 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 
 認証は、認証サーバー プラグインの `autoMountAuth(app)` を介して自動的に構成されます。 3 つのモードがあります:
 
-- **デフォルト:** 電子メール/パスワード + ソーシャルプロバイダーによる認証の向上。初回訪問時にオンボーディング ページが表示されます。
+- **デフォルト:** 送信メールの準備ができている場合は Better Auth の magic link を優先し、電子メール/パスワードをフォールバックとしてソーシャルプロバイダーとともに使用します。フォールバックを強制するには `AUTH_MAGIC_LINK=0` を設定します。
 - **リモート MCP OAuth:** Claude コードや ChatGPT コネクタなどの MCP ホスト用の標準 OAuth 2.1。
 - **カスタム:** `getSession` コールバック経由で独自の認証を取得します。
 
@@ -102,11 +102,19 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 
 </Callout>
 
+## ローカル開発のサインイン {#local-development-sign-in}
+
+ループバックの開発サーバーでは、共有サインインページに **Continue as local dev** が最初に表示されます。実際の Better Auth 開発アカウントとセッションを作成または再利用するため、アプリの他の場所と同じ認証済みの経路を使います。
+
+**Show full sign in options** を選ぶと、通常のサインアップ、パスワード、magic link、ソーシャルプロバイダーの選択肢が表示されます。ローカルセッションを作成できない場合は、標準認証を続けられるように、ページがこれらの選択肢を自動的に表示します。
+
+この機能は、開発またはテスト中にブラウザが `localhost`、`127.0.0.0/8`、`::1` を通じて接続した場合のみ利用できます。デプロイプレビューとホストされた本番環境では無効になります。これは認証のバイパスではありません。`AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` を設定すると、この機能を無効にして、ローカル開発で通常のサインインページを表示できます。
+
 ## より良い認証 (デフォルト) {#better-auth}
 
 デフォルトでは、Better Auth が認証を強化します。以下を提供します:
 
-- 電子メール/パスワードの登録とログイン
+- magic link による登録とログイン（電子メール/パスワードをフォールバックとして使用）
 - ソーシャル プロバイダー (Google、GitHub、その他 35 社以上)
 - 役割と招待状を持つ組織
 - API および A2A アクセス用の JWT トークン
@@ -115,6 +123,7 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 Better Auth ルートは `/_agent-native/auth/ba/*` にマウントされます。このフレームワークは、下位互換性のあるエンドポイントも提供します。
 
 - `GET /_agent-native/auth/session` — 現在のセッションを取得
+- `POST /_agent-native/auth/magic-link` — magic link メールをリクエスト
 - `POST /_agent-native/auth/login` — 電子メール/パスワードによるログイン
 - `POST /_agent-native/auth/register` — アカウントを作成
 - `POST /_agent-native/auth/logout` — サインアウト
@@ -219,7 +228,7 @@ ACCESS_TOKENS=token1,token2,token3
 すべてのアプリの MCP エンドポイントは、標準の保護された MCP リソースとして機能できます。 OAuth 対応クライアントは、リモート MCP URL のみで構成できます:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 認証されていない MCP リクエストは、`/.well-known/oauth-protected-resource` を指す `WWW-Authenticate` チャレンジを返します。次に、クライアントはアプリの OAuth メタデータを検出し、パブリック クライアントを動的に登録し、アプリの認証ページを開き、アクセス トークンとリフレッシュ トークンのために認証コードを PKCE と交換します。
@@ -363,8 +372,9 @@ interface AuthSession {
 クライアントで、`useSession()` フックを使用します。
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;
@@ -378,7 +388,7 @@ function MyComponent() {
 **公開ページ** (共有リンク、埋め込み、マーケティング ページ) を含むテンプレートには、多くの場合、匿名の閲覧者にサインインを求め、元のページに戻すページ内 CTA が必要です。フレームワークは、このための単一のエントリ ポイントを提供します。
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 匿名のビューアがこの URL にアクセスすると、フレームワークのログイン ページが表示されます。サインインが成功すると (トークン、電子メール/パスワード、Google OAuth などの任意のフロー)、ブラウザーは `return` に戻ります。
@@ -393,8 +403,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -402,11 +411,13 @@ function SignInCta() {
 
 ### ブックマークされたプライベート パス
 
-通常のアプリページは、すべての訪問者に対して同一の非個人化された公開キャッシュ可能な SSR シェルを使用します。`AppProviders` がクライアントでセッションを確認し、`/dashboard` のような非公開パスでは、非公開 UI をマウントする前に匿名ユーザーを `/_agent-native/sign-in?return=%2Fdashboard` へリダイレクトします。サインイン後は `/dashboard` に戻ります。公開/SEO ルートには `isPublicPath` を、MCP 埋め込みトークンなど別の限定された認証方式を使う画面には `sessionBypass` を指定します。
+通常のアプリページは、すべての訪問者に対して同一の非個人化された公開キャッシュ可能な SSR シェルを使用します。`AppProviders` がクライアントでセッションを確認し、`/dashboard` のような非公開パスでは、非公開 UI をマウントする前に匿名ユーザーを `/sign-in?return=%2Fdashboard` へリダイレクトします。サインイン後は `/dashboard` に戻ります。公開/SEO ルートには `isPublicPath` を、MCP 埋め込みトークンなど別の限定された認証方式を使う画面には `sessionBypass` を指定します。
+
+そのシェルをどれだけキャッシュするかはデプロイメント全体の設定です — `AGENT_NATIVE_SSR_CACHE` については [SSR Caching](/docs/deployment#ssr-caching) を参照してください。キャッシュを短縮または無効化しても変わるのは期間だけであり、SSR は引き続き Cookie を取り除いた匿名ブランチをレンダリングします。
 
 ### 舞台裏: Google OAuth
 
-両方のフロー (明示的な `/_agent-native/sign-in` エントリポイントとブックマークされたパスのケース) は、OAuth 状態を通じてリターン URL をスレッド化します。状態はHMAC署名されているため、輸送中に偽造することはできません。コールバックでは、戻り値 URL はリダイレクトの前に同一オリジンとして再検証されます。そのため、漏洩した署名キーをオープン リダイレクト オラクルに変えることはできません。
+両方のフロー (明示的な `/sign-in` エントリポイントとブックマークされたパスのケース) は、OAuth 状態を通じてリターン URL をスレッド化します。状態はHMAC署名されているため、輸送中に偽造することはできません。コールバックでは、戻り値 URL はリダイレクトの前に同一オリジンとして再検証されます。そのため、漏洩した署名キーをオープン リダイレクト オラクルに変えることはできません。
 
 テンプレートが `/_agent-native/google/auth-url` を直接ラップする場合 (例: 範囲を広げるためにメール テンプレートやカレンダー テンプレートがラップする場合)、`?return=<path>` クエリを受け入れ、`encodeOAuthState` のオプション オブジェクト形式を介して転送します。
 
@@ -443,3 +454,8 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/connect クライアントの静的ベアラー フォールバック。ブラウザ認証ではありません                                                                                                                                  |
 | `ACCESS_TOKENS`                         | MCP/connect クライアントのカンマ区切りの静的ベアラー フォールバック。ブラウザ認証ではありません                                                                                                                    |
 | `A2A_SECRET`                            | JWT 署名付き A2A クロスアプリ ID 検証用の共有シークレット、および存在する場合は MCP OAuth アクセス トークン署名                                                                                                    |
+
+既定で無効な Dispatch の `desktop.workspace-sso` フラグは利用可否だけを制御し、認証、署名、nonce、オリジン、コールバック、セッション、失効の検証は常に必須です。フラグが無効または読み取れない場合、Desktop はアプリごとのサインイン、サインアウト、設定を変更しません。
+User-Agent の Canary マーカーは利用可否のヒントにすぎず、リモートアテステーションではありません。認証と認可はこれを信頼しません。
+正規のホスト型アプリは、アプリごとの ID ハブ環境設定なしでパッケージ版 Desktop SSO Canary のリクエストを認識します。通常のブラウザとセルフホスト型アプリでは、引き続き `AGENT_NATIVE_IDENTITY_HUB_URL` が必要です。安定版 Desktop は、後続リリースが別途承認されるまでブローカーを初期化しません。
+Canary は匿名ユーザーのアプリサインイン画面への遷移を横取りしません。ユーザーは、アクティブな登録済みアプリについて Desktop の設定からワークスペースサインインを明示的に選択する必要があり、通常のアプリサインインが既定の経路のままです。

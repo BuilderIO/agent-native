@@ -1,3 +1,4 @@
+import { IconMessage2Filled } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -14,19 +15,11 @@ export interface ScrubberProps {
   comments?: { id: string; videoTimestampMs: number; content: string }[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
-  excludedRanges?: { startMs: number; endMs: number }[];
 }
 
 export function Scrubber(props: ScrubberProps) {
-  const {
-    currentMs,
-    durationMs,
-    onSeek,
-    comments,
-    chapters,
-    reactions,
-    excludedRanges,
-  } = props;
+  const { currentMs, durationMs, onSeek, comments, chapters, reactions } =
+    props;
   const barRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const [hoverMs, setHoverMs] = useState<number | null>(null);
@@ -164,29 +157,6 @@ export function Scrubber(props: ScrubberProps) {
           style={{ width: pct + "%" }}
         />
 
-        {/* Cut ranges */}
-        {excludedRanges?.map((range, i) => {
-          const startPct =
-            (Math.max(0, range.startMs) / Math.max(1, durationMs)) * 100;
-          const endPct =
-            (Math.min(durationMs, range.endMs) / Math.max(1, durationMs)) * 100;
-          return (
-            <div
-              key={`${range.startMs}-${range.endMs}-${i}`}
-              className="absolute inset-y-0 rounded-sm bg-black/70"
-              style={{
-                left: `${startPct}%`,
-                width: `${Math.max(0.5, endPct - startPct)}%`,
-                backgroundImage:
-                  "repeating-linear-gradient(45deg, rgba(255,255,255,0.2) 0 3px, transparent 3px 7px)",
-              }}
-              title={`Cut: ${msToClock(range.startMs)}-${msToClock(
-                range.endMs,
-              )}`}
-            />
-          );
-        })}
-
         {/* Chapter notches */}
         {chapters?.map((ch, i) => (
           <button
@@ -225,10 +195,17 @@ export function Scrubber(props: ScrubberProps) {
               e.stopPropagation();
               onSeek(ms);
             }}
-            className="absolute -top-1 -translate-x-1/2 h-3.5 w-3.5 rounded-full bg-yellow-400 border-2 border-black/50 hover:scale-125 transition-transform"
+            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md ring-2 ring-background transition-transform hover:scale-125"
             style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             aria-label={`${list.length} comment${list.length > 1 ? "s" : ""}`}
-          />
+          >
+            <IconMessage2Filled className="h-2.5 w-2.5" />
+            {list.length > 1 && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+                {list.length}
+              </span>
+            )}
+          </button>
         ))}
 
         {/* Reaction dots */}

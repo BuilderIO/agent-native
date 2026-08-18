@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addFont,
   analyzeCodeFile,
+  analyzeCodeFiles,
+  CODE_MAX_TOTAL_BYTES,
   classifyFile,
   createCodeAnalysisState,
   detectStylingFramework,
@@ -12,6 +14,7 @@ import {
   fetchGitHubJsonResult,
   fetchGitHubRaw,
   parseCss,
+  parseGitHubRepoReference,
   parseOwnerRepo,
   parseTailwindConfig,
   suggestionsForType,
@@ -49,6 +52,29 @@ describe("design-token GitHub helpers", () => {
     ).toEqual({ owner: "builderio", repo: "agent-native" });
   });
 
+  it("retains branch and folder scope from GitHub tree/blob URLs", () => {
+    expect(
+      parseGitHubRepoReference(
+        "https://github.com/acme/ui/tree/feature%2Fbrand/src/styles?tab=files",
+      ),
+    ).toEqual({
+      owner: "acme",
+      repo: "ui",
+      ref: "feature/brand",
+      subpath: "src/styles",
+    });
+    expect(
+      parseGitHubRepoReference(
+        "https://github.com/acme/ui/blob/main/design.md#readme",
+      ),
+    ).toEqual({
+      owner: "acme",
+      repo: "ui",
+      ref: "main",
+      subpath: "design.md",
+    });
+  });
+
   it("sends the GitHub token only when one is provided", async () => {
     const fetchSpy = vi.fn(async () => {
       return new Response(JSON.stringify([{ name: "package.json" }]), {
@@ -68,6 +94,21 @@ describe("design-token GitHub helpers", () => {
       Authorization: "Bearer github-secret",
       Accept: "application/vnd.github.v3+json",
     });
+  });
+
+  it("encodes GitHub content paths while preserving ref slashes", async () => {
+    const fetchSpy = vi.fn(async () => {
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchGitHubJsonResult("acme", "ui", "src/#tokens.css", {
+      ref: "feature/brand",
+    });
+
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/acme/ui/contents/src/%23tokens.css?ref=feature%2Fbrand",
+    );
   });
 
   it("returns classified GitHub JSON errors without throwing", async () => {
@@ -416,6 +457,33 @@ describe("analyzeCodeFile (routing by filename)", () => {
       type: "json-theme",
       data: { parseError: true },
     });
+  });
+});
+
+describe("analyzeCodeFiles", () => {
+  it("preserves import-code caps and returns the action payload shape", () => {
+    expect(
+      analyzeCodeFiles([
+        {
+          filename: "theme.css",
+          content: ":root { --brand: #123456; }",
+        },
+      ]),
+    ).toMatchObject({
+      source: "code",
+      fileCount: 1,
+      filesAnalyzed: ["theme.css"],
+      colors: { "#123456": "#123456" },
+    });
+  });
+
+  it("counts UTF-8 bytes and stops before an oversized next file", () => {
+    const first = "a".repeat(CODE_MAX_TOTAL_BYTES);
+    const result = analyzeCodeFiles([
+      { filename: "first.css", content: first },
+      { filename: "second.css", content: "b" },
+    ]);
+    expect(result.filesAnalyzed).toEqual(["first.css"]);
   });
 });
 

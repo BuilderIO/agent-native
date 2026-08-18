@@ -13,6 +13,7 @@
     "app/**/*",
     "server/**/*",
     "shared/**/*",
+    "scripts/**/*",
     "react-router.config.ts",
     ".react-router/types/**/*",
     ".generated/**/*"

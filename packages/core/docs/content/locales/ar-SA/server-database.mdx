@@ -1,0 +1,435 @@
+---
+title: "قاعدة البيانات"
+description: "قم بتوصيل قاعدة بيانات SQL محمولة بتطبيقك الأصلي للوكيل: مساعدات المخطط، والترحيلات، وخيارات قواعد البيانات المستضافة."
+---
+
+# قاعدة البيانات
+
+يخزّن كل تطبيق أصلي للوكيل حالته في SQL. تقرأ واجهة المستخدم والوكيل الجداول نفسها وتكتبان إليها عبر Actions نفسها، باستخدام عميل [Drizzle ORM](https://orm.drizzle.team) نفسه. تستخدم المزامنة الحية SSE مع الاستطلاع كخيار احتياطي، لذلك تظهر التغييرات في السطح الآخر دون تحديث يدوي.
+
+<Diagram id="doc-block-9mtx2f" title="كيف تتدفق البيانات إلى قاعدة البيانات" summary="تصل كل من واجهة المستخدم والوكيل إلى قاعدة البيانات عبر طبقة Actions نفسها. يستخدم كلا المستدعيين عميل getDb() نفسه وجداول SQL نفسها. لا توجد خلفية منفصلة لكل منهما.">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">المتصفح / واجهة المستخدم</div>
+    <div class="diagram-node">حلقة الوكيل</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Actions</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    قاعدة بيانات SQL<br /><small class="diagram-muted"
+      >اللهجة من DATABASE_URL</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## خيارات الاستضافة {#hosting}
+
+يكتشف التطبيق الواجهة الخلفية التي سيستخدمها من `DATABASE_URL`. وعندما يكون هذا المتغير غير مضبوط، يعود التطبيق إلى ملف SQLite محلي حتى تتمكن من البدء دون أي إعداد.
+
+### الافتراضي: ملف SQLite {#default-sqlite}
+
+عند عدم ضبط `DATABASE_URL`، ينشئ التطبيق قاعدة بيانات SQLite في `data/app.db`. لا يتطلب أي تكوين. شغّل خادم التطوير وسيُنشأ الملف عند أول تشغيل.
+
+هذا مخصص للتطوير المحلي فقط. قد تعيد الحاويات، والوظائف بدون خادم، وبيئات المعاينة ضبط نظام الملفات الخاص بها بين عمليات إعادة التشغيل، مما يعني أن ملف SQLite المحلي يمكن أن يختفي. اضبط `DATABASE_URL` على قاعدة بيانات مستضافة ومستمرة قبل النشر.
+
+### Postgres محلي: PGlite {#local-pglite}
+
+للتطوير محليًا مقابل لهجة Postgres دون Docker أو قاعدة بيانات مستضافة، ثبّت حزمة PGlite الاختيارية واضبط `DATABASE_URL`:
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+يُشغّل [PGlite](https://pglite.dev/) قاعدة بيانات Postgres مبنية بتقنية WASM داخل العملية نفسها. يتيح لك اكتشاف مشكلات المخطط الخاصة بـ Postgres فقط قبل النشر، مع إبقاء الإعداد بسيطًا مثل الإعداد الافتراضي لـ SQLite. وهو، مثل SQLite، تخزين محلي فقط. لا تستخدمه في الإنتاج أو البيئات المشتركة.
+
+### قاعدة بيانات الإنتاج {#production}
+
+اضبط `DATABASE_URL` في ملف `.env` الخاص بك أو في بيئة موفر النشر للاتصال بقاعدة بيانات مستضافة:
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# Plain Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL). Also requires DATABASE_AUTH_TOKEN.
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+يكتشف إطار العمل اللهجة تلقائيًا من بادئة الرابط ويهيئ Drizzle وفقًا لذلك.
+
+### قاعدة بيانات مُدارة من Builder.io {#builder-managed}
+
+_مخطط له (غير متاح بعد):_ عند الاتصال بـ Builder.io، سيتمكن تطبيقك من استخدام قاعدة بيانات مُدارة يتم توفيرها تلقائيًا، دون الحاجة إلى سلاسل اتصال.
+
+## إعداد قاعدة البيانات {#setup}
+
+يحتاج التطبيق الذي يستخدم قاعدة البيانات إلى ثلاثة ملفات:
+
+- `server/db/schema.ts`: تعريفات الجداول
+- `server/db/index.ts`: مثيل عميل قاعدة البيانات الوحيد المكتوب (typed singleton)
+- `server/plugins/db.ts`: ترحيلات التطبيق الخاصة ببدء التشغيل المحلي
+
+### 1. عرّف مخططك {#schema}
+
+استورد مساعدات المخطط من `@agent-native/core/db/schema`. لا تستورد أبدًا مباشرةً من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core`. تنتج مساعدات إطار العمل تعريفات محايدة اللهجة تعمل عبر جميع الواجهات الخلفية المدعومة.
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| المساعد   | الغرض                                                                    |
+| --------- | ------------------------------------------------------------------------ |
+| `table`   | تحديد جدول؛ يُفوَّض إلى `pgTable` أو `sqliteTable`                       |
+| `text`    | عمود نصي، يدعم `{ enum: [...] }`                                         |
+| `integer` | عمود صحيح، `{ mode: "boolean" }` يُعيَّن إلى قيمة منطقية في Postgres     |
+| `real`    | عمود عائم. يُعيَّن إلى `real` في SQLite، و`double precision` في Postgres |
+| `now`     | طابع زمني حالي محايد اللهجة لاستخدامه في `.default(now())`               |
+
+<DataModel
+  id="doc-block-3hbven"
+  title="جدول tasks"
+  summary={
+    "يُعرَّف مرة واحدة باستخدام مساعدات إطار العمل؛ وتُختار اللهجة وقت التشغيل من DATABASE_URL."
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "جدول نطاق. أضف owner_email (أو ...ownableColumns()) حتى يتمكن تحديد النطاق على مستوى SQL من تصفية الصفوف للمستخدم المصادق عليه.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "القيمة الافتراضية 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "القيمة الافتراضية false؛ تُعيَّن إلى قيمة منطقية في Postgres",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "يفعّل تحديد نطاق البيانات",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "القيمة الافتراضية now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+يجب أن تتضمن الجداول التي تخزّن بيانات خاصة بكل مستخدم عمود `owner_email` حتى يتمكن إطار العمل من تصفية الصفوف للمستخدم المصادق عليه. أما الجداول التي تدعم أيضًا المشاركة مع مستخدمين أو مؤسسات أخرى فينبغي أن تنشر `...ownableColumns()` بدلاً من ذلك، والتي تضيف `owner_email`، و`org_id`، و`visibility` في استدعاء واحد. راجع [تحديد نطاق البيانات للمستخدمين](#scoping) أدناه.
+
+### 2. أنشئ عميل قاعدة البيانات {#db-client}
+
+ينشئ كل تطبيق عميل Drizzle كسولًا ومفردًا (singleton) عن طريق استدعاء `createGetDb(schema)`. الموقع الأساسي هو `server/db/index.ts`:
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+يُرجع `createGetDb` دالة `getDb()` تفتح اتصال قاعدة البيانات عند أول استدعاء، وتُرجع نفس مثيل Drizzle المكتوب (typed) في الاستدعاءات اللاحقة. وهي تقرأ `DATABASE_URL` وقت التشغيل لتحديد الواجهة الخلفية واللهجة المستخدمتين.
+
+استورد `getDb` من هذا المسار المحلي للقالب في actions والمسارات. لا تستورد مباشرةً من `@agent-native/core`. التصدير الأساسي (core) غير مكتوب النوع؛ بينما يحمل التصدير المحلي أنواع مخططك.
+
+### 3. اكتب الترحيلات {#migrations}
+
+أثناء التطوير المحلي، يمكن تطبيق تغييرات المخطط عبر إضافة Nitro في
+`server/plugins/db.ts`. في الإنتاج أو البيئات الخالية من الخادم، شغّل الترحيلات
+في خطوة إصدار أو نشر بدلاً من الطلب الأول. استخدم `runMigrations` من
+`@agent-native/core/db`:
+
+<AnnotatedCode
+  id="doc-block-7qwlpz"
+  title="إضافة ترحيل عند بدء التشغيل"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "جدول إصدارات لكل تطبيق",
+      note: "يتتبع كل تطبيق إصداراته المطبَّقة الخاصة به في جدول منفصل. استخدم اسمًا فريدًا لتطبيقك حتى لا يتعارض مع ترحيلات إطار العمل أو تطبيقات أخرى تشارك قاعدة البيانات نفسها.",
+    },
+    {
+      lines: "7",
+      label: "إنشاء الجدول الأولي",
+      note: "يُعد `CREATE TABLE IF NOT EXISTS` آمنًا لإعادة التشغيل في كل مرة. ضع تعريف الجدول الكامل في الإصدار 1.",
+    },
+    {
+      lines: "17",
+      label: "إضافات أعمدة تراكمية",
+      note: "يُعد `ADD COLUMN IF NOT EXISTS` الطريقة الآمنة لإضافة أعمدة بعد الإنشاء الأولي. لا تقم أبدًا بحذف الأعمدة أو إعادة تسميتها.",
+    },
+    {
+      lines: "22-25",
+      label: "بوابة اللهجة",
+      note: "مرّر كائنًا مفهرسًا حسب اللهجة لتشغيل SQL مختلف لكل واجهة خلفية. استخدم `SELECT 1` كعملية بلا تأثير على اللهجة التي لا تحتاج إلى التغيير.",
+    },
+  ]}
+/>
+
+يشغّل `runMigrations` كل إدخال معلق بالترتيب مرة واحدة، ويسجله كمطبق، ثم
+يتخطاه في عمليات التشغيل اللاحقة. امنح الإدخالات الجديدة اسماً ثابتاً؛ إذ تتبع
+الترحيلات المسماة بشكل مستقل عن رقم الإصدار.
+
+<Callout tone="warning">
+  يوفر قالب Chat الأمر `pnpm migrate:production` لتشغيل الترحيلات كجزء من
+  الإصدار.
+</Callout>
+
+<Callout tone="risk">
+  لا تقم أبدًا بتشغيل `drizzle-kit push` مقابل قاعدة بيانات إنتاج. تُعرّف مخططات
+  القالب جداول التطبيق الخاصة فقط؛ ولا تتضمن جداول إطار العمل المركزية (`user`،
+  و`session`، و`application_state`، وغيرها). سيؤدي تشغيل `drizzle-kit push`
+  مقابل الإنتاج إلى اكتشاف تلك الجداول كجداول غير معروفة ومحاولة حذفها، مما
+  يتسبب في فقدان فوري للبيانات.
+</Callout>
+
+يُهيئ `drizzle.config.ts` الموجود في جذر كل تطبيق أداة drizzle-kit لفحص المخطط أثناء التطوير المحلي:
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+استخدم `pnpm db:generate` لفحص مخططك، و`pnpm db:push` مقابل قاعدة بيانات محلية فقط.
+
+### 4. استعلم داخل actions {#querying}
+
+استدعِ `getDb()` من actions الخاصة بك للحصول على عميل Drizzle المكتوب. استخدم منشئ الاستعلامات في Drizzle والمشغلات المحمولة من `drizzle-orm`:
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## تحديد نطاق البيانات للمستخدمين {#scoping}
+
+يجب تحديد نطاق جميع عمليات القراءة والكتابة على الجداول التي تواجه المستخدم بحيث تقتصر على المستخدم المصادق عليه. يوفر إطار العمل نمطين حسب ما إذا كانت البيانات خاصة أو قابلة للمشاركة.
+
+**البيانات الخاصة:** الجداول التي تخص مستخدمًا واحدًا. أضف `ownerEmail: text("owner_email").notNull()` إلى المخطط وأدرج `eq(table.ownerEmail, userEmail)` في كل استعلام:
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**الموارد القابلة للمشاركة:** الجداول التي يمكن مشاركتها مع مستخدمين أو مؤسسات أخرى. انشر `...ownableColumns()` في المخطط بدلاً من `owner_email` مجردة. يضيف هذا `owner_email`، و`org_id`، و`visibility` في استدعاء واحد، وينشئ جدول مشاركات مرافقًا باستخدام `createSharesTable`:
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+ثم استخدم `accessFilter` من `@agent-native/core/sharing` في استعلامات القوائم بدلاً من فحص `eq` يدوي:
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+يبني `accessFilter` استعلامًا يسمح بالصفوف التي يملكها المستدعي، والصفوف المشتركة مع مؤسسته، والصفوف المشتركة معه صراحةً. ولا يكشف عن صفوف تخص مستخدمين آخرين.
+
+راجع [الأمان — تحديد نطاق البيانات](/docs/security#data-scoping) و[المشاركة](/docs/sharing#building) للاطلاع على النموذج الكامل.
+
+## المزامنة المدعومة بـ SQL {#sync}
+
+لا يعتمد Agent Native على مراقبي نظام الملفات أو الحالة اللاصقة في الذاكرة. فعندما يكتب action إلى قاعدة البيانات، يزداد إصدار المزامنة. يستطلع خطاف العميل `useDbSync()` نقطة النهاية `/_agent-native/poll` ويُبطل ذاكرات React Query المؤقتة عندما يرى إصدارًا أعلى.
+
+يعمل هذا عبر عمليات النشر بدون خادم ومتعددة المثيلات لأن قاعدة البيانات هي نقطة التنسيق. إذا كتبت عمليات تغيير مخصصة خارج actions، استخدم مساعدات إطار العمل أو أصدر إبطال المزامنة المناسب حتى تتحدث واجهات المستخدم المفتوحة.
+
+<Diagram id="doc-block-qhkdv8" title="حلقة المزامنة المدعومة بـ SQL" summary="لا مراقبون، ولا حالة لاصقة. تؤدي عملية الكتابة إلى زيادة إصدار في SQL؛ ويستطلع كل عميل الإصدار ويعيد الجلب.">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / مساعد<br /><small class="diagram-muted">يُغيّر البيانات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>قاعدة بيانات SQL</strong
+    ><small class="diagram-muted">يزداد إصدار المزامنة</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >يستطلع /_agent-native/poll</small
+      >
+    </div>
+    <div class="diagram-pill ok">
+      إبطال الذاكرات المؤقتة &rarr; تحديث واجهة المستخدم
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="نقطة نهاية الاستطلاع" method="GET" path="/_agent-native/poll" summary="إرجاع إصدارات مزامنة قاعدة البيانات الحالية لكل مصدر حتى يتمكن العميل من اكتشاف التغييرات." auth="ملف تعريف ارتباط الجلسة (هوية محددة النطاق للطلب)" responses={[
+  {
+    "status": "200",
+    "description": "إصدارات المزامنة الحالية مفهرسة حسب المصدر."
+  }
+]}>
+
+يستدعي `useDbSync()` هذه النقطة على فترات، ويعود إليها عندما يكون SSE غير متاح. وعندما يكون الإصدار المُرجَع أعلى من آخر قيمة رآها العميل، تُبطَل ذاكرات React Query المطابقة ويُعاد جلبها.
+
+</Endpoint>
+
+## SQL الخام {#raw-sql}
+
+بالنسبة للاستعلامات المتقدمة، أو فحوصات السلامة، أو الصيانة لمرة واحدة التي لا يمكن لمنشئ استعلامات Drizzle التعبير عنها، استخدم `getDbExec` من `@agent-native/core/db`:
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+يحوّل `getDbExec` تلقائيًا معلمات `?` إلى `$1`، و`$2`، وهكذا بالنسبة لـ Postgres. استخدم `isPostgres()` للتفرع حسب اللهجة، و`intType()` لإرجاع نوع العدد الصحيح الصحيح للواجهة الخلفية الحالية. يُفضَّل استخدام منشئ استعلامات Drizzle لعمليات القراءة والكتابة العادية. يتجاوز SQL الخام أمان الأنواع (type safety) ويصعب صيانته.
+
+## متغيرات البيئة {#environment-variables}
+
+| المتغير               | الغرض                                                                                                     |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | سلسلة اتصال SQL مستمرة (غير مضبوط = SQLite محلي؛ `pglite:./data/pglite` = تفعيل اختياري لـ Postgres محلي) |
+| `DATABASE_AUTH_TOKEN` | رمز مصادقة للموفرين الذين يتطلبون رمزًا منفصلاً، مثل Turso/libSQL                                         |
+
+## ما هي الخطوة التالية {#whats-next}
+
+- [**الأمان — تحديد نطاق البيانات**](/docs/security#data-scoping): كيف يحدّ `owner_email` ومساعدات الوصول نطاق القراءات والكتابات
+- [**المشاركة**](/docs/sharing#building): `ownableColumns()` ونموذج الرؤية للموارد المشتركة
+- [**الإضافات**](/docs/server-plugins): دورة حياة إضافة بدء التشغيل حيث تعمل الترحيلات
+- [**Actions**](/docs/actions-overview): السطح الذي تستدعي فيه actions دالة `getDb()` لقراءة البيانات وكتابتها
+- [**النشر**](/docs/deployment#persistent-database): توصيل قاعدة بيانات مستمرة لكل وجهة نشر
+- [**المزامنة الفورية**](/docs/key-concepts#polling-sync): `useDbSync()` والنموذج الكامل للمزامنة من جانب العميل

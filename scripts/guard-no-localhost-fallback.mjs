@@ -152,6 +152,46 @@ const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
 // chain is the dangerous pattern audit 02 found.
 const SYMBOLIC_FALLBACK_RE = /(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b/g;
 
+// Catch the ambient-identity fallback shape:
+//   const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+//   const owner = session?.email || process.env.WORKSPACE_OWNER_EMAIL;
+//   const email = getRequestUserEmail() ?? getAmbientUserEmail();
+//
+// These answer "who is the caller" with a process-wide deploy identity, so a
+// request handler reading one authorizes whoever the env names rather than
+// whoever signed in — it fails open toward more privilege. Only the `??` / `||`
+// fallback position is dangerous: reading the env var to build an admin
+// allowlist (`envEmails("WORKSPACE_OWNER_EMAIL").includes(email)`) asks a
+// different, safe question and is deliberately not matched.
+const AMBIENT_ENV_FALLBACK_RE =
+  /(?:\?\?|\|\|)\s*process\.env\.(?:AGENT_USER_EMAIL|AGENT_ORG_ID|AGENT_USER_NAME|WORKSPACE_OWNER_EMAIL)\b/g;
+const AMBIENT_HELPER_FALLBACK_RE =
+  /(?:\?\?|\|\|)\s*getAmbient(?:UserEmail|OrgId)\s*\(\s*\)/g;
+
+/**
+ * Paths where an ambient/process identity IS the right answer because there is
+ * no request behind the call by construction: CLI entrypoints, cron and
+ * scheduled jobs, seed and QA scripts, tests.
+ */
+const AMBIENT_ALLOWED_PATH_PREDICATES = [
+  // Repo-root and per-template script directories (CLI, seeds, QA, migrations).
+  (rel) => /(?:^|\/)scripts\//.test(rel),
+  // Framework CLI + script entrypoints. `script-helpers.ts` / `script-entries.ts`
+  // exist specifically to serve `pnpm action`-style invocations.
+  (rel) => /(?:^|\/)src\/cli\//.test(rel),
+  (rel) => /(?:^|\/)src\/scripts\//.test(rel),
+  (rel) => /(?:^|\/)script-(?:helpers|entries)\.ts$/.test(rel),
+  // The accessors' own definitions and this guard's ported implementation.
+  (rel) => rel === "packages/core/src/server/request-context.ts",
+  (rel) => rel === "packages/core/src/guards/no-localhost-fallback.ts",
+  (rel) => /^packages\/core\/corpus\//.test(rel),
+  // Tests and seeds.
+  (rel) => /\.spec\.[tj]sx?$/.test(rel),
+  (rel) => /\.test\.[tj]sx?$/.test(rel),
+  (rel) => /\/seed\//.test(rel),
+  (rel) => /\/seeds\//.test(rel),
+];
+
 // SQL DDL `DEFAULT 'local@localhost'` (case-insensitive, any whitespace) is
 // a legitimate schema column default. Drizzle's helper form
 // `.default('local@localhost')` / `.default("local@localhost")` is the same
@@ -180,6 +220,10 @@ async function* walk(dir) {
 
 function isAllowedPath(rel) {
   return ALLOWED_PATH_PREDICATES.some((p) => p(rel));
+}
+
+function isAmbientAllowedPath(rel) {
+  return AMBIENT_ALLOWED_PATH_PREDICATES.some((p) => p(rel));
 }
 
 function lineColForOffset(contents, offset) {
@@ -221,7 +265,9 @@ async function scan() {
     if (!/\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(file)) continue;
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
-    if (isAllowedPath(rel)) continue;
+    const literalAllowed = isAllowedPath(rel);
+    const ambientAllowed = isAmbientAllowedPath(rel);
+    if (literalAllowed && ambientAllowed) continue;
 
     let contents;
     try {
@@ -229,9 +275,53 @@ async function scan() {
     } catch {
       continue;
     }
-    if (!contents.includes("local@localhost")) continue;
 
     const lines = contents.split("\n");
+
+    if (!ambientAllowed) {
+      for (const [re, kind] of [
+        [AMBIENT_ENV_FALLBACK_RE, "env"],
+        [AMBIENT_HELPER_FALLBACK_RE, "helper"],
+      ]) {
+        re.lastIndex = 0;
+        let a;
+        while ((a = re.exec(contents)) !== null) {
+          const { line, col } = lineColForOffset(contents, a.index);
+          const lineText = lines[line - 1] ?? "";
+          if (isCommentLine(lineText)) continue;
+          if (hasValidOptOut(lines, line - 1)) continue;
+          violations.push({
+            file: rel,
+            line,
+            col,
+            snippet: lineText.trim(),
+            ambient: kind,
+          });
+        }
+      }
+    }
+
+    if (literalAllowed) continue;
+
+    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner). Scanned
+    // before the literal bail-out below, because aliasing is exactly how this
+    // shape hides in a file that never spells out the literal itself.
+    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
+    let s;
+    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
+      const { line, col } = lineColForOffset(contents, s.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (hasValidOptOut(lines, line - 1)) continue;
+      violations.push({
+        file: rel,
+        line,
+        col,
+        snippet: lineText.trim(),
+      });
+    }
+
+    if (!contents.includes("local@localhost")) continue;
 
     LITERAL_RE.lastIndex = 0;
     let m;
@@ -254,29 +344,78 @@ async function scan() {
         snippet: lineText.trim(),
       });
     }
-
-    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner).
-    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
-    let s;
-    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
-      const { line, col } = lineColForOffset(contents, s.index);
-      const lineText = lines[line - 1] ?? "";
-      if (isCommentLine(lineText)) continue;
-      if (hasValidOptOut(lines, line - 1)) continue;
-      violations.push({
-        file: rel,
-        line,
-        col,
-        snippet: lineText.trim(),
-      });
-    }
   }
   return violations;
 }
 
 const violations = await scan();
 
-if (violations.length > 0) {
+const ambientViolations = violations.filter((v) => v.ambient);
+const literalViolations = violations.filter((v) => !v.ambient);
+
+if (ambientViolations.length > 0) {
+  const bar = "=".repeat(72);
+  console.error(`\n${bar}`);
+  console.error(
+    "ERROR: ambient process identity used as a request-scoped fallback.",
+  );
+  console.error(bar);
+  console.error("");
+  console.error(
+    "`AGENT_USER_EMAIL` / `WORKSPACE_OWNER_EMAIL` (and `getAmbientUserEmail()`)",
+  );
+  console.error(
+    "name the identity of the DEPLOYMENT, not the identity of the caller.",
+  );
+  console.error("Using one as a fallback — patterns like");
+  console.error("");
+  console.error(
+    "    const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;",
+  );
+  console.error(
+    "    const owner = session?.email || process.env.WORKSPACE_OWNER_EMAIL;",
+  );
+  console.error("");
+  console.error(
+    "— means an admin gate admits whoever the deploy env names rather than",
+  );
+  console.error(
+    "whoever signed in. It fails OPEN toward more privilege. This is the shape",
+  );
+  console.error(
+    "that made every authenticated user an admin across 24 hand-written routes.",
+  );
+  console.error("");
+  for (const v of ambientViolations) {
+    console.error(`  ${v.file}:${v.line}:${v.col}`);
+    if (v.snippet) console.error(`    ${v.snippet}`);
+  }
+  console.error("");
+  console.error(bar);
+  console.error("Fix:");
+  console.error("");
+  console.error(
+    "  - In a request handler, fail closed when there's no caller:",
+  );
+  console.error("      const email = getRequestUserEmail();");
+  console.error("      if (!email) throw createError({ statusCode: 401 });");
+  console.error(
+    "  - If this really is a CLI / cron / seed entrypoint with no request",
+  );
+  console.error(
+    "    behind it, call `getAmbientUserEmail()` from a script path so the",
+  );
+  console.error("    intent is stated rather than inherited.");
+  console.error("");
+  console.error("  Last-resort opt-out (requires reviewer approval):");
+  console.error(
+    "    const x = a ?? process.env.AGENT_USER_EMAIL // guard:allow-localhost-fallback — explain why",
+  );
+  console.error(`${bar}\n`);
+}
+
+if (literalViolations.length > 0) {
+  const violations = literalViolations;
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
   console.error(
@@ -338,9 +477,13 @@ if (violations.length > 0) {
     '    const x = email ?? "local@localhost" // guard:allow-localhost-fallback — explain why',
   );
   console.error(`${bar}\n`);
+}
+
+if (violations.length > 0) {
   process.exit(1);
 }
 
 console.log(
-  'guard-no-localhost-fallback: clean (no "local@localhost" literals in production code).',
+  'guard-no-localhost-fallback: clean (no "local@localhost" literals and no ' +
+    "ambient-identity fallbacks in production code).",
 );

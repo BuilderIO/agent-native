@@ -249,6 +249,13 @@ export default defineAction({
 Use isso para o aplicativo original UI. Mantenha o iframe entre hosts UI em `mcpApp` e mantenha
 execução de consulta arbitrária por trás da leitura digitada actions em vez de SQL bruto no bate-papo.
 
+Dimensione os renderers em unidades absolutas, não em porcentagens. A transcrição
+cresce para acomodar suas mensagens, então o contêiner de um renderer não tem altura
+definida para resolver uma porcentagem — `height: 40%` na barra de um gráfico colapsa
+para zero em vez de gerar erro, o que parece um renderer que falhou ao desenhar. Dê aos
+gráficos e outros visuais dependentes de altura uma base em pixels (ou `rem`); larguras
+em porcentagem funcionam, pois a coluna da transcrição tem largura definida.
+
 ## Tempos de execução do agente BYO {#byo-agent-runtimes}
 
 `AgentChatRuntime` é o contrato traga seu próprio agente para o shell de bate-papo e
@@ -412,7 +419,7 @@ se amadurecer, deverá se adaptar ao mesmo contrato explícito de tempo de execu
 
 ## Documentos relacionados {#related-docs}
 
-- [Actions](/docs/actions) — defina as operações que retornam dados nativos do widget.
+- [Actions](/docs/actions-overview) — defina as operações que retornam dados nativos do widget.
 - [Agent Surfaces](/docs/agent-surfaces): decida se você precisa de um aplicativo headless, chat, sidecar ou completo.
 - [Drop-in Agent](/docs/drop-in-agent) — o tutorial para montar o tempo de execução de chat padrão.
 - [Component API](/docs/components) — o mapa API por exportação para camadas de bate-papo, tempos de execução e renderizadores de ferramentas.

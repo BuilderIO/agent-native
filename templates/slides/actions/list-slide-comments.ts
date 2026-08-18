@@ -27,6 +27,21 @@ export default defineAction({
         ),
       )
       .orderBy(asc(schema.slideComments.createdAt));
-    return { comments: rows };
+    return {
+      comments: rows.map((row) => ({
+        id: row.id,
+        deck_id: row.deckId,
+        slide_id: row.slideId,
+        thread_id: row.threadId,
+        parent_id: row.parentId,
+        content: row.content,
+        quoted_text: row.quotedText,
+        author_email: row.authorEmail,
+        author_name: row.authorName,
+        resolved: row.resolved,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+      })),
+    };
   },
 });

@@ -4,7 +4,7 @@ import {
   useRecentEdits,
   type AttributedRecentEdit,
   type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
 import { useEffect, useMemo } from "react";
 import type { Awareness } from "y-protocols/awareness";
 

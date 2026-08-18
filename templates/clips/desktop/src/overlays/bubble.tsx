@@ -48,7 +48,7 @@ type BubbleSize = "small" | "medium";
  *
  * # Hover controls (Loom-style)
  *
- * On pointerenter, a small horizontal pill fades in under the bubble
+ * On pointerenter, a small horizontal pill fades in above the bubble
  * with two size-dot buttons (small / medium) and an X close button.
  * Clicking a dot calls `set_bubble_size` on the Rust side, which
  * resizes this window and persists the choice to disk. On
@@ -752,7 +752,7 @@ export function Bubble() {
           </svg>
         </button>
       </div>
-      {/* Size control pill — fades in under the bubble on hover. Marked
+      {/* Size control pill — fades in above the bubble on hover. Marked
           `data-no-drag` so clicks land on the onClick handlers. */}
       <div
         className={`bubble-controls ${showControls ? "is-visible" : ""}`}

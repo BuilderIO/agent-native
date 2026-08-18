@@ -16,6 +16,15 @@ import {
 } from "./store.js";
 
 function userKey(email: string, key: string): string {
+  return `u:${email.trim().toLowerCase()}:${key}`;
+}
+
+/**
+ * Pre-normalization spelling. Callers pass the session email verbatim, so the
+ * same user could be written under `Alice@Builder.IO` and read under
+ * `alice@builder.io` — silently losing settings such as `active-org-id`.
+ */
+function legacyUserKey(email: string, key: string): string {
   return `u:${email}:${key}`;
 }
 
@@ -24,7 +33,10 @@ export async function getUserSetting(
   email: string,
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  return getSetting(userKey(email, key));
+  const normalized = await getSetting(userKey(email, key));
+  if (normalized !== null) return normalized;
+  const legacy = legacyUserKey(email, key);
+  return legacy === userKey(email, key) ? null : getSetting(legacy);
 }
 
 /** Write a user-scoped setting. Always writes to the prefixed key. */

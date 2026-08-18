@@ -11,6 +11,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
   availabilityInput,
+  autoDeclineModeInput,
   attachmentsInput,
   attendeesInput,
   buildReminderOverrides,
@@ -20,10 +21,13 @@ import {
   googleColorIdInput,
   ensureOrganizerInAttendees,
   normalizeAttendees,
+  normalizeCreateEventInput,
+  normalizeRecurrence,
   resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
+  validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
@@ -31,9 +35,22 @@ import {
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
   schema: z.object({
-    title: z.string().describe("Event title"),
-    start: z.string().describe("Start time, ISO format"),
-    end: z.string().describe("End time, ISO format"),
+    title: z
+      .string()
+      .optional()
+      .describe(
+        "Event title. Defaults to 'Out of office' for OOO events. Working-location events use Google's generated display title and do not require one.",
+      ),
+    start: z
+      .string()
+      .describe(
+        "Start time in ISO format, or the first inclusive YYYY-MM-DD date for a full-day OOO event.",
+      ),
+    end: z
+      .string()
+      .describe(
+        "End time in ISO format, the last inclusive YYYY-MM-DD date for a full-day OOO event, or the exclusive YYYY-MM-DD date for an all-day working-location event.",
+      ),
     startTimeZone: z
       .string()
       .optional()
@@ -45,6 +62,11 @@ export default defineAction({
     description: z.string().optional().describe("Event description"),
     location: z.string().optional().describe("Event location"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
+    fullDay: cliBoolean
+      .optional()
+      .describe(
+        "For eventType=outOfOffice, cover the inclusive start/end dates while writing Google-compatible timed midnight bounds. Requires an IANA timezone.",
+      ),
     eventType: eventTypeInput.describe(
       "Native Google Calendar event type. Use outOfOffice for OOO, focusTime for focus blocks, and workingLocation for working location. Task and appointment schedules are not Google Calendar event types.",
     ),
@@ -54,6 +76,15 @@ export default defineAction({
     visibility: visibilityInput.describe(
       "Google Calendar visibility: default, public, private, or confidential.",
     ),
+    autoDeclineMode: autoDeclineModeInput.describe(
+      "For eventType=outOfOffice: decline all conflicting invitations, only new conflicts, or none. Defaults to all conflicts.",
+    ),
+    declineMessage: z
+      .string()
+      .optional()
+      .describe(
+        "For eventType=outOfOffice: response sent with declined invitations.",
+      ),
     remindersUseDefault: cliBoolean
       .optional()
       .describe(
@@ -68,6 +99,12 @@ export default defineAction({
     colorId: googleColorIdInput.describe(
       "Google Calendar event color id, 1 through 11.",
     ),
+    recurrence: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe(
+        "Google recurrence rules, such as RRULE:FREQ=DAILY. Pass an empty string or [] for a non-recurring event.",
+      ),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
     ),
@@ -116,12 +153,13 @@ export default defineAction({
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
-    if (
-      (args.eventType === "outOfOffice" || args.eventType === "focusTime") &&
-      args.allDay === true
-    ) {
-      throw new Error("Out of office and focus time events must be timed.");
-    }
+    const normalized = normalizeCreateEventInput(args);
+    validateStatusEventTiming({
+      eventType: args.eventType,
+      allDay: normalized.allDay,
+      start: normalized.start,
+      end: normalized.end,
+    });
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(
@@ -141,24 +179,27 @@ export default defineAction({
       reminderMethod: args.reminderMethod,
       useDefaultReminders: args.remindersUseDefault,
     });
+    const recurrence = normalizeRecurrence(args.recurrence);
     const statusEventFields = buildStatusEventFields({
       eventType: args.eventType,
-      title: args.title,
+      title: normalized.title,
       location: args.location,
+      autoDeclineMode: args.autoDeclineMode,
+      declineMessage: args.declineMessage,
       workingLocationType: args.workingLocationType,
       workingLocationLabel: args.workingLocationLabel,
     });
 
     const calEvent: CalendarEvent = {
       id: "",
-      title: args.title,
+      title: normalized.title,
       description: args.description || "",
       location: args.location || "",
-      start: new Date(args.start).toISOString(),
-      end: new Date(args.end).toISOString(),
-      startTimeZone: args.startTimeZone,
-      endTimeZone: args.endTimeZone ?? args.startTimeZone,
-      allDay: args.allDay ?? false,
+      start: normalized.start,
+      end: normalized.end,
+      startTimeZone: normalized.startTimeZone,
+      endTimeZone: normalized.endTimeZone,
+      allDay: normalized.allDay,
       source: "google",
       accountEmail: acctEmail,
       eventType: args.eventType ?? "default",
@@ -167,6 +208,7 @@ export default defineAction({
       attendees,
       attachments: args.attachments,
       colorId: args.colorId,
+      ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
       ...reminderFields,
       ...statusEventFields,
       createdAt: new Date().toISOString(),

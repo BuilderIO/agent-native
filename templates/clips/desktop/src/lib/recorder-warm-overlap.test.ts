@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 
 describe("planNativeFullscreenWarmOverlap", () => {
-  it("starts transcription immediately and overlaps warm with create-recording", async () => {
+  it("warms the shared audio producer before transcription subscribes", async () => {
     const events: string[] = [];
     let resolveCreate!: (value: {
       id: string;
@@ -41,27 +41,36 @@ describe("planNativeFullscreenWarmOverlap", () => {
       warmMic,
     });
 
-    // Transcription must be kicked off before create resolves.
-    expect(events).toEqual(["transcription-started", "create-started"]);
+    expect(events).toEqual(["create-started"]);
 
     resolveCreate({ id: "rec-1", uploadMode: "streaming" });
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(events).toContain("transcription-started");
+    });
     expect(events).toContain("create-resolved");
     expect(events).toContain("warm-started:rec-1");
 
-    // Warm should not wait for transcription readiness.
-    expect(events.indexOf("warm-started:rec-1")).toBeLessThan(
-      events.indexOf("transcription-resolved") === -1
-        ? Number.POSITIVE_INFINITY
-        : events.indexOf("transcription-resolved"),
-    );
+    await Promise.resolve();
+    expect(events).toEqual([
+      "create-started",
+      "create-resolved",
+      "warm-started:rec-1",
+      "warm-resolved:rec-1",
+      "transcription-started",
+    ]);
 
     resolveTranscription();
     const result = await pending;
     expect(result).toEqual({ id: "rec-1", uploadMode: "streaming" });
     expect(warmMic).toHaveBeenCalledWith("rec-1");
-    expect(events).toContain("transcription-resolved");
-    expect(events).toContain("warm-resolved:rec-1");
+    expect(events).toEqual([
+      "create-started",
+      "create-resolved",
+      "warm-started:rec-1",
+      "warm-resolved:rec-1",
+      "transcription-started",
+      "transcription-resolved",
+    ]);
   });
 
   it("awaits both transcription and warm before resolving", async () => {
@@ -89,6 +98,7 @@ describe("planNativeFullscreenWarmOverlap", () => {
     expect(settled).toBe(false);
 
     resolveWarm();
+    await Promise.resolve();
     await Promise.resolve();
     expect(settled).toBe(false);
 

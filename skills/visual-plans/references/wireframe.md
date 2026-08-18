@@ -192,6 +192,13 @@ create the breathing room. Keep text away from borders: every container, field,
 button, menu item, and annotation needs enough padding and line-height to read
 cleanly in the rendered Plan view.
 
+**Center page-like content inside broad surfaces.** For browser or desktop
+screens, let the outer root provide the full-width frame and padding, then keep
+the page body in a centered wrapper such as
+`width:100%;max-width:720px;margin-inline:auto`. Full-width app bars may span
+the root, but onboarding, auth, settings, and other page-like content should
+not hug the left border unless the real product does.
+
 **For feature-cloud or abundance visuals, optimize the composition over line-by-line
 reading.** Some marketing/product sections need to feel like a large surface area
 of capability rather than a precise app workflow. In those cases, use one padded

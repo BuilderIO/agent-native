@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ Varios proveedores pueden estar activos simultáneamente. Cada evento es para to
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 Activa un evento de análisis. Distribución en abanico para todos los proveedores registrados.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` es el `ctx` de una acción, pasado directamente, o un objeto meta `{ userId, anonymousId, sessionId }` para llamadas que no tienen `ctx`.
+
+La sesión del navegador no es algo que quien llama deba proporcionar: proviene del contexto de solicitud ambiental (`RequestContext.browserSessionId`, establecido a partir de la cabecera `X-Agent-Native-Session-Id` que envían el cliente de acciones, el chat y el `track()` del navegador), de modo que la misma visita se correlaciona tanto si el evento lo desencadenó la interfaz como el agente. Cada proveedor la asigna a su propio campo de sesión: `$session_id` en PostHog, que une el evento con la repetición de sesión; una propiedad `session_id` en Mixpanel y Amplitude; un `sessionId` de nivel superior en webhooks y Agent Native Analytics. Está ausente para llamadas sin navegador (cron, CLI, MCP, A2A), y un `sessionId` en el objeto meta la sobrescribe.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ Identificar un usuario con rasgos. Reenviado a proveedores que lo admiten (PostH
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 ¿Necesita un backend personalizado, el registro de proveedores API o los componentes internos de procesamiento por lotes/singleton? Ver [Advanced: custom providers & internals](#advanced) al final.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // Pasa ctx directamente: el evento se atribuye a ctx.userEmail y se une a
+    // la sesión de navegador desde la que se hizo la llamada.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -176,8 +182,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +201,7 @@ Esto es distinto de la telemetría interna del navegador del marco (`trackEvent(
 Las aplicaciones de Agent Native pueden habilitar la repetición de sesión del navegador de origen sin agregar un segundo SDK de análisis. Llame a `configureTracking()` una vez en la raíz del navegador y pase la clave pública de Analytics más el endpoint del recolector:
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -237,6 +241,8 @@ Los valores predeterminados de privacidad son intencionalmente conservadores per
 - Las zonas sensibles están bloqueadas con selectores como `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, y campos similares a tarjetas de crédito/contraseñas/SSN.
 - Las URL se depuran con el mismo ayudante `scrubUrl()` que utiliza el análisis del navegador.
 - La captura de repetición es solo para web y opcional; no graba pantallas de escritorio nativas.
+
+Los iframes administrados por el framework, incluidas las extensiones y el contenido de correo electrónico renderizado, se incluyen en la captura de repetición. Los mismos selectores de enmascaramiento y bloqueo se aplican dentro de los frames grabados. Un iframe de terceros con origen distinto permanece opaco a menos que su propio documento ejecute un grabador rrweb compatible con la grabación de iframes de origen cruzado habilitada; la página principal no puede eludir los límites de origen del navegador.
 
 Durante la grabación, la repetición de sesión también captura la salida de la consola del navegador (`log`, `info`, `warn`, `error`, `debug`, además de `error`/`unhandledrejection` de la ventana) y los metadatos de solicitudes de red (`fetch` y XHR) como eventos personalizados de rrweb etiquetados, para que los agentes y el visor de repeticiones puedan depurar los problemas reportados por los usuarios. La captura está habilitada de forma predeterminada cuando la repetición está activada; ajuste o desactive con las opciones `sessionReplay.console` y `sessionReplay.network`, cada una acepta un booleano o un objeto de opciones (`{ maxEvents?: number }`, y `network` acepta además `captureErrorBodies` y `maxErrorBodyLength`). Los cuerpos y encabezados de solicitud nunca se capturan; los cuerpos de respuesta solo se capturan como un fragmento acotado y redactado para respuestas 5xx (error del servidor) (`captureErrorBodies`, predeterminado true, limitado a `maxErrorBodyLength` caracteres, predeterminado 2048) — las respuestas que no son 5xx y los fallos de red nunca incluyen un cuerpo. Las URL se depuran, los mensajes se truncan, el propio tráfico de ingesta/seguimiento del grabador se excluye, y los presupuestos por sesión (1000 eventos de consola / 2000 eventos de red) agregan un aviso de truncamiento cuando se superan.
 
@@ -351,6 +357,6 @@ El marco también rastrea `builder connect clicked` desde los CTA de Connect Bui
 
 ## ¿Qué sigue?
 
-- [**Actions**](/docs/actions): donde se originan la mayoría de las llamadas de seguimiento
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` se ejecuta en el complemento core-routes al inicio
+- [**Actions**](/docs/actions-overview): donde se originan la mayoría de las llamadas de seguimiento
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` se ejecuta en el complemento core-routes al inicio
 - [**Seguridad — Gestión de secretos**](/docs/security#secrets): administra claves API para proveedores de seguimiento

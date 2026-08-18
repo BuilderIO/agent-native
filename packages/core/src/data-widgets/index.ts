@@ -282,6 +282,47 @@ export function isDataWidgetResult(value: unknown): value is DataWidgetResult {
   return normalizeDataWidgetResult(value) !== null;
 }
 
+export const DATA_WIDGET_MAX_ROWS = 50;
+export const DATA_WIDGET_MAX_CHART_POINTS = 200;
+
+// Widget rows arrive as tool-call arguments the model decodes token by token, so an
+// uncapped table costs minutes of wall clock before anything renders. Clamp server-side
+// rather than rejecting: the model has already paid for the tokens by the time we see them.
+export function clampDataWidgetRows(
+  result: DataWidgetResult,
+): DataWidgetResult {
+  const source = result as Partial<DataInsightsWidgetResult>;
+  const table = source.table;
+  const chartSeries = source.chartSeries;
+
+  const clampedTable =
+    table && table.rows.length > DATA_WIDGET_MAX_ROWS
+      ? {
+          ...table,
+          rows: table.rows.slice(0, DATA_WIDGET_MAX_ROWS),
+          totalRows: table.totalRows ?? table.rows.length,
+          sampledRows: DATA_WIDGET_MAX_ROWS,
+          truncated: true,
+        }
+      : table;
+
+  const clampedChart =
+    chartSeries && chartSeries.data.length > DATA_WIDGET_MAX_CHART_POINTS
+      ? {
+          ...chartSeries,
+          data: chartSeries.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS),
+          sampled: true,
+        }
+      : chartSeries;
+
+  if (clampedTable === table && clampedChart === chartSeries) return result;
+  return {
+    ...result,
+    ...(clampedTable ? { table: clampedTable } : {}),
+    ...(clampedChart ? { chartSeries: clampedChart } : {}),
+  } as DataWidgetResult;
+}
+
 const dataTableColumnSchema = z
   .object({
     key: z.string().min(1),

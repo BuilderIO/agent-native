@@ -15,8 +15,23 @@ export type {
   IntegrationConversationType,
   IntegrationTriggerKind,
   PlatformRunProgress,
+  PlatformDeliveryReceipt,
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
+export { mergeIntegrationAdapters } from "./adapter-overrides.js";
+export {
+  deliverJsonWebhook,
+  escapeSlackMrkdwn,
+  isWebhookUrlAllowed,
+  type DeliverJsonWebhookOptions,
+  type JsonWebhookDeliveryResult,
+} from "./webhook-delivery.js";
+
+export { resolveDefaultIntegrationExecutionContext } from "./identity.js";
+export {
+  upsertVerifiedIntegrationIdentity,
+  type IntegrationIdentityLink,
+} from "./identity-links-store.js";
 
 export {
   BUILT_IN_INTEGRATION_CATALOG,
@@ -37,13 +52,18 @@ export {
 
 // Plugin
 export {
+  BUILT_IN_INTEGRATION_ADAPTER_FACTORIES,
+  BUILT_IN_INTEGRATION_ADAPTER_IDS,
+  createBuiltInIntegrationAdapters,
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
   enqueueRemoteCommand,
 } from "./plugin.js";
 
 export {
+  createRemoteDevice,
   getRemoteComputerCapabilities,
+  getRemoteExecutionCapabilities,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
   unregisterRemoteDevice,
@@ -51,8 +71,14 @@ export {
 export {
   claimNextComputerCommand,
   enqueueComputerCommand,
+  getRemoteCommand,
+  getRemoteCommandByIdempotencyKey,
   listRemoteCommandsForOwner,
 } from "./remote-commands-store.js";
+export {
+  createRemoteBrowserActionEntries,
+  type CreateRemoteBrowserActionEntriesOptions,
+} from "./remote-browser-actions.js";
 export {
   assertValidComputerCommandEnvelope,
   computeComputerActionHash,
@@ -77,6 +103,7 @@ export {
   unregisterRemotePushRegistrationForOwner,
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
+export { deliverPendingRemotePushNotifications } from "./remote-push-delivery.js";
 export type {
   ComputerApprovalScope,
   ComputerCommandAction,
@@ -85,6 +112,10 @@ export type {
   PublicRemotePushRegistration,
   PublicRemoteDevice,
   RemoteComputerCapabilities,
+  RemoteExecutionCapabilities,
+  RemoteExecutionBackend,
+  RemoteExecutionPersistence,
+  RemoteExecutionWorkload,
   RemoteCommand,
   RemoteDevice,
   RemoteDeviceMetadata,
@@ -95,7 +126,11 @@ export type {
 } from "./remote-types.js";
 
 // Adapters
-export { slackAdapter } from "./adapters/slack.js";
+export {
+  resolveSlackBotTokenForIncoming,
+  slackAdapter,
+  type SlackAdapterOptions,
+} from "./adapters/slack.js";
 export { telegramAdapter } from "./adapters/telegram.js";
 export { whatsappAdapter } from "./adapters/whatsapp.js";
 export { discordAdapter } from "./adapters/discord.js";
@@ -142,6 +177,8 @@ export type {
 } from "./installations-store.js";
 
 export {
+  SLACK_AUTHORIZE_URL,
+  SLACK_TOKEN_URL,
   assertSlackInstallAccess,
   buildSlackAuthorizeUrl,
   exchangeSlackOAuthCode,
@@ -149,6 +186,7 @@ export {
   slackInstallationKey,
   slackOAuthResponseToInstallation,
   testSlackAuth,
+  type SlackOAuthAccessResponse,
 } from "./slack-oauth.js";
 
 export {
@@ -172,6 +210,12 @@ export type {
   IntegrationScopeAccess,
   IntegrationScopePolicy,
 } from "./scope-store.js";
+
+export {
+  resolveIntegrationSourceContext,
+  sourceContextFromPendingTask,
+  type ResolvedIntegrationSourceContext,
+} from "./pending-tasks-store.js";
 
 export {
   getIntegrationBudgetSnapshot,

@@ -59,11 +59,12 @@ class FakeStdio {
   close() {}
 }
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.doMock("@modelcontextprotocol/client", () => ({
   Client: FakeClient,
+  StreamableHTTPClientTransport: FakeStdio,
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+vi.doMock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: FakeStdio,
 }));
 
@@ -102,7 +103,45 @@ describe("mcpToolsToActionEntries", () => {
       // MCP tools must never be auto-exposed as HTTP endpoints.
       expect(entry.http).toBe(false);
       expect(typeof entry.run).toBe("function");
+      expect(typeof entry.planMode?.effect).toBe("function");
     }
+  });
+
+  it("uses the MCP call policy to classify each Plan-mode invocation", async () => {
+    serverFixtures["computer-bin"] = {
+      tools: [{ name: "computer" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { "computer-use-mcp": { command: "computer-bin" } },
+    });
+    await mgr.start();
+    const entry =
+      mcpToolsToActionEntries(mgr)["mcp__computer-use-mcp__computer"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "screenshot" })).toBe("read");
+    expect(effect({ action: "left_click", x: 1, y: 2 })).toBe("write");
+    expect(effect({ action: "custom_gesture" })).toBe("unknown");
+  });
+
+  it("can restrict generated entries to an explicit capability allowlist", async () => {
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "read" }, { name: "write" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+
+    const entries = mcpToolsToActionEntries(mgr, {
+      toolNames: ["mcp__x__read"],
+    });
+
+    expect(Object.keys(entries)).toEqual(["mcp__x__read"]);
   });
 
   it("flattens text content blocks into the tool result string", async () => {

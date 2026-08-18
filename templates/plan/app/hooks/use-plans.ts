@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 import type {
   PlanAuthor,
@@ -135,6 +138,8 @@ export type VisualizePlanInput = {
 
 export type UpdatePlanInput = {
   planId: string;
+  expectedUpdatedAt?: string;
+  allowDestructive?: boolean;
   title?: string;
   brief?: string;
   status?: PlanStatus;
@@ -357,7 +362,7 @@ export type PlanAccessStatusResponse = {
   signedIn: boolean;
   viewerEmail: string | null;
   viewerName: string | null;
-  role: "owner" | "viewer" | "editor" | "admin" | null;
+  role: "owner" | "viewer" | "commenter" | "editor" | "admin" | null;
   orgId: string | null;
   orgName: string | null;
   visibility: "private" | "org" | "public" | null;

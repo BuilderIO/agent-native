@@ -24,7 +24,7 @@ To mention an agent in the chat composer:
 
 There are two agent paths:
 
-- **Custom agents** — local workspace agent profiles in `agents/*.md`. These run inside the current app/runtime using the agent profile's instructions and optional model override.
+- **Custom agents** — local agent-resource profiles in `agents/*.md`. These run inside the current app/runtime using the agent profile's instructions and optional model override.
 - **Connected agents** — remote A2A peers. These are called over the [A2A protocol](/docs/a2a-protocol).
 
 In both cases, your main agent sees the response and can reference or build on it.
@@ -100,7 +100,24 @@ In both cases, your main agent sees the response and can reference or build on i
 
 </Diagram>
 
-## How it works {#how-it-works}
+## Referencing files {#referencing-files}
+
+The `@` popover is not limited to agents. You can also reference:
+
+- **Codebase files** — type `@` and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file.
+- **Agent resources** — reference files defined in the Resources tab. These can be data files, configuration, or any other structured content.
+
+Selecting a file or resource resolves it into the agent's context when the message is sent, the same way an agent mention does.
+
+Skills use a separate trigger: type `/` instead of `@` to reference a skill. Skills provide structured instructions that guide how the agent approaches a task — see [Skills Guide](/docs/skills-guide) for the full authoring format.
+
+## For developers {#for-developers}
+
+The rest of this page covers how mentions resolve on the server, how agents
+become mentionable, and how to extend the mention system — useful if you're
+building or configuring an app, not required to use `@`-mentions day to day.
+
+### How it works {#how-it-works}
 
 When a message containing an `@`-mention is sent, the following happens on the server:
 
@@ -132,17 +149,17 @@ Mentioned-agent output arrives as an `<agent-response agent="…">` block in the
 
 </Callout>
 
-## Adding agents {#adding-agents}
+### Adding agents {#adding-agents}
 
 Agents become available for mentioning through several mechanisms:
 
-- **Custom workspace agents** — create agent profiles in the Workspace tab as `agents/*.md`
+- **Custom agents** — create agent profiles in the Resources tab as `agents/*.md`
 - **Auto-discovery** — the framework automatically discovers connected agents running on known ports or configured URLs
 - **Remote manifests** — add connected-agent manifests as `remote-agents/*.json`
 
-### Custom workspace agents
+#### Custom agents
 
-Custom agents are Markdown files stored in the workspace:
+Custom agents are Markdown files stored in agent resources:
 
 ```markdown
 ---
@@ -154,46 +171,40 @@ model: inherit
 You are a focused design agent.
 ```
 
-See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format (including `tools`, `delegate-default`, and model overrides).
+See [Agent Resources — Custom Agents](/docs/agent-resources#custom-agents) for the full format (including `tools`, `delegate-default`, and model overrides).
 
-You can create them from the Workspace tab using:
+You can create them from the Resources tab using:
 
 - `Create Agent` -> `Describe It`
 - `Create Agent` -> `Fill Form`
 
-### Connected-agent manifests
+#### Connected-agent manifests
 
-Remote A2A agents still use JSON manifests:
+Remote A2A agents still use JSON manifests. Only `name`, `url`, `description`,
+and `color` are actually read — the manifest is discovery metadata, not an
+auth or capability config:
 
 ```json
 // remote-agents/analytics.json
 {
   "name": "Analytics Agent",
   "url": "https://analytics.example.com",
-  "apiKey": "env:ANALYTICS_A2A_KEY",
   "description": "Runs analytics queries and returns data",
-  "skills": ["run-query", "generate-chart"]
+  "color": "#2563EB"
 }
 ```
 
-## Referencing files {#referencing-files}
+Outbound call-time authentication is resolved separately, not from this file
+— see [A2A Protocol](/docs/a2a-protocol) for how server-side caller auth is
+configured.
 
-The `@` popover is not limited to agents. You can also reference:
-
-- **Codebase files** — type `@` and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file.
-- **Workspace resources** — reference files defined in the Workspace tab. These can be data files, configuration, or any other structured content.
-
-Selecting a file or resource resolves it into the agent's context when the message is sent, the same way an agent mention does.
-
-Skills use a separate trigger: type `/` instead of `@` to reference a skill. Skills provide structured instructions that guide how the agent approaches a task — see [Skills Guide](/docs/skills-guide) for the full authoring format.
-
-## Sub-agent selection {#sub-agent-selection}
+### Sub-agent selection {#sub-agent-selection}
 
 The main agent can also use custom agents when spawning sub-agents with `agent-teams` (action: "spawn").
 
 Pass the `agent` parameter to choose a profile from `agents/*.md`. That profile's instructions are added to the delegated run, and its `model` frontmatter can override the default model for that sub-agent.
 
-## For developers: extending mentions {#extending-mentions}
+### Extending mentions {#extending-mentions}
 
 Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the `MentionProvider` interface: a `label` (the section heading shown in the `@` popover) plus a `search(query, event?)` function that returns up to a handful of `MentionProviderItem` matches (`id`, `label`, `description?`, `refType`, `refId?`, `refPath?`, `metadata?`).
 
@@ -240,4 +251,4 @@ Custom mention providers appear alongside the built-in agent and file providers 
 - [**A2A Protocol**](/docs/a2a-protocol) — how connected-agent mentions are resolved over the wire
 - [**Agent Teams**](/docs/agent-teams) — spawn sub-agents and pass the `agent` profile parameter
 - [**Skills Guide**](/docs/skills-guide) — author the skills referenced with `/`
-- [**Workspace**](/docs/workspace#custom-agents) — the full custom-agent profile format
+- [**Agent Resources**](/docs/agent-resources#custom-agents) — the full custom-agent profile format

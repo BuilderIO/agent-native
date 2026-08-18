@@ -1,18 +1,8 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
-/**
- * States & Responsive panel (§6.4).
- *
- * Two-part panel rendered in the right inspector:
- *  1. Breakpoint segmented control — Auto / Mobile / Tablet / Desktop
- *     Sets the active canvas frame and the responsive-class edit scope.
- *  2. State rows — Default, plus any named states/fixtures/captures.
- *     Selecting a row applies the state to the canvas preview.
- *
- * Data is loaded via useActionQuery / useActionMutation so the agent and UI
- * share the same surface (§architecture contract).
- */
-
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   IconCamera,
   IconChevronRight,

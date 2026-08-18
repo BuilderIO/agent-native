@@ -82,8 +82,7 @@ Drei gelesene actions stehen dem Agenten **und** dem Frontend in jeder App zur V
 Erstellen Sie einen Aktivitäts-Feed oder eine „Wer hat das geändert“-Zeile, indem Sie `list-audit-events` vom UI mit `useActionQuery` aufrufen – schreiben Sie niemals einen Abruf in die Prüftabelle von Hand:
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,
@@ -106,7 +105,7 @@ Der Agent kann dieselbe Aktion aufrufen – fragen Sie ihn: „Was haben Sie an 
 
 ## Was kommt als nächstes?
 
-- [**Actions**](/docs/actions) – die `defineAction`-Naht, an der die Erfassung erfolgt
+- [**Actions**](/docs/actions-overview) – die `defineAction`-Naht, an der die Erfassung erfolgt
 - [**Human-in-the-Loop Approvals**](/docs/human-approval) – geschlossenes actions, aufgezeichnet als `denied`
 - [**Security & Data Scoping**](/docs/security) – Die Prüfung des Eigentumsmodells liest Wiederverwendung
 - [**Observability**](/docs/observability) – vom Agenten ausgeführte Telemetrie (das andere „was passiert ist“)

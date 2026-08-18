@@ -15,6 +15,7 @@ export default defineAction({
       .describe("Blog page slug (e.g. micro-frontends)"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     if (!args.slug) return { error: "slug is required" };
     const keywords = await getRankedKeywordsForPage(args.slug, 20);

@@ -1,4 +1,5 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -30,6 +31,8 @@ type ProviderCorpusJobEntry = {
     totalHits: number;
     storedHits: number;
     truncatedHits: boolean;
+    paginationComplete: boolean;
+    paginationStopReason: string | null;
   };
   error: string | null;
   nextResumeAt: string | null;
@@ -116,9 +119,20 @@ function notificationKey(entry: ProviderCorpusJobEntry): string {
     entry.coverage.itemsProcessed,
     entry.coverage.totalHits,
     entry.coverage.storedHits,
+    entry.coverage.paginationComplete,
+    entry.coverage.paginationStopReason ?? "",
     entry.nextResumeAt ?? "",
     entry.error ?? "",
   ].join(":");
+}
+
+export function providerCorpusJobIsIncomplete(
+  entry: ProviderCorpusJobEntry,
+): boolean {
+  return (
+    entry.job.status === "completed" &&
+    entry.coverage.paginationComplete === false
+  );
 }
 
 function showJobToast(
@@ -126,8 +140,10 @@ function showJobToast(
   openAsk: () => void, // i18n-ignore TypeScript helper signature
   t: ReturnType<typeof useT>, // i18n-ignore TypeScript helper type
 ) {
-  const title =
-    entry.job.status === "completed"
+  const incomplete = providerCorpusJobIsIncomplete(entry);
+  const title = incomplete
+    ? t("providerCorpusNotifier.incomplete")
+    : entry.job.status === "completed"
       ? t("providerCorpusNotifier.completed")
       : entry.job.status === "quota_wait"
         ? t("providerCorpusNotifier.quotaWait")
@@ -155,7 +171,7 @@ function showJobToast(
     },
   };
 
-  if (entry.job.status === "failed") {
+  if (entry.job.status === "failed" || incomplete) {
     toast.error(title, options);
   } else if (entry.job.status === "completed") {
     toast.success(title, options);

@@ -1,0 +1,48 @@
+---
+id: F2
+title: Lists, pipelines, and views
+status: done
+order: 2
+---
+
+# F2 — Lists, pipelines, and views
+
+## What it is
+
+A **list** is a local workflow overlay for one record type. It can represent a
+sales pipeline, account segment, onboarding queue, or any other process without
+requiring a write to HubSpot or Salesforce. A record's membership is a list
+entry, and each entry can have its own fields.
+
+## What users can do
+
+<!-- status: done -->
+
+- Create a list for accounts, people, opportunities, or another object type.
+- Add and remove records from a list.
+- Add list-specific fields such as stage, owner, priority, or next step.
+- Move an entry between stages and review the time spent in each stage.
+- Save filters, ordered sorts, columns, and audience settings as a view.
+- Open a saved view as a table or as a board grouped by a status field.
+
+## How it behaves
+
+- Lists, entries, and entry values are local-authoritative in Native SQL and
+  connected modes.
+- One record may have multiple entries when the workflow needs them, such as
+  two opportunities for the same company.
+- A board groups by a managed status attribute; it is another presentation of
+  the same saved view, not a separate copy of the pipeline.
+- A view using `@currentUser` resolves that filter for the person viewing it,
+  so one shared view can show each teammate their own work.
+
+## A typical pipeline
+
+1. Create an **Opportunities** list.
+2. Add a status field with stages such as New, Qualified, Proposal, and Won.
+3. Add records to the list and fill in entry-specific amount, owner, and next
+   step fields.
+4. Save a table view for detailed work and a board view for stage review.
+
+The same workflow works over native records or records mirrored from a
+connected provider.

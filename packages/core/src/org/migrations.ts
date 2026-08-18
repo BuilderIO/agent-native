@@ -102,4 +102,34 @@ export const ORG_MIGRATIONS = [
     name: "org-members-unique-lower-email-idx",
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS org_members_org_lower_email_uidx ON org_members (org_id, LOWER(email))`,
   },
+  {
+    version: 1011,
+    sql: `CREATE TABLE IF NOT EXISTS app_member_roles (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      app_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+  },
+  {
+    // Every guarded action resolves (org_id, app_id, LOWER(email)) on the
+    // request path, and the assignment write upserts on the same key. Unique
+    // rather than plain so a concurrent double-assign is rejected by the
+    // database instead of leaving two rows whose winner depends on read order.
+    version: 1012,
+    name: "app-member-roles-unique-org-app-lower-email-idx",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS app_member_roles_org_app_lower_email_uidx
+          ON app_member_roles (org_id, app_id, LOWER(email))`,
+  },
+  {
+    version: 1013,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS workspace_url TEXT`,
+  },
+  {
+    version: 1014,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT`,
+  },
 ];

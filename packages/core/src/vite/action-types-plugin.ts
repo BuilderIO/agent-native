@@ -17,7 +17,15 @@ import fs from "fs";
  */
 import path from "path";
 
-import type { Plugin } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
+
+/**
+ * Action-file creation/removal changes the generated registry module itself.
+ * Coalesce editor unlink+add pairs into one registry refresh so the Nitro
+ * plugin re-imports the registry and the chat tool set sees the same actions
+ * as the HTTP/frontend surfaces.
+ */
+const ACTION_REGISTRY_REFRESH_DELAY_MS = 300;
 
 /** Files to skip during discovery (matches action-discovery.ts). */
 const SKIP_FILES = new Set([
@@ -39,6 +47,28 @@ const SKIP_FILES = new Set([
  */
 const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
+    name: "get-feature-flags",
+    specifier: "@agent-native/core/feature-flags/actions/get-feature-flags",
+  },
+  {
+    name: "list-feature-flags",
+    specifier: "@agent-native/core/feature-flags/actions/list-feature-flags",
+  },
+  {
+    name: "set-feature-flag",
+    specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
+  },
+  {
+    name: "get-hosted-harness-config",
+    specifier:
+      "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
+  },
+  {
+    name: "set-hosted-harness-enabled",
+    specifier:
+      "@agent-native/core/hosted-harness/actions/set-hosted-harness-enabled",
+  },
+  {
     name: "share-resource",
     specifier: "@agent-native/core/sharing/actions/share-resource",
   },
@@ -57,6 +87,26 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "upload-image",
     specifier: "@agent-native/core/file-upload/actions/upload-image",
+  },
+  {
+    name: "list-workspace-user-groups",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",
+  },
+  {
+    name: "upsert-workspace-user-group",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/upsert-workspace-user-group",
+  },
+  {
+    name: "bulk-update-workspace-user-groups",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/bulk-update-workspace-user-groups",
+  },
+  {
+    name: "delete-workspace-user-group",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/delete-workspace-user-group",
   },
   {
     name: "context-manifest-get",
@@ -88,6 +138,18 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "set-localization-preference",
     specifier:
       "@agent-native/core/localization/actions/set-localization-preference",
+  },
+  {
+    name: "get-usage-alerts",
+    specifier: "@agent-native/core/usage/actions/get-usage-alerts",
+  },
+  {
+    name: "manage-usage-alert",
+    specifier: "@agent-native/core/usage/actions/manage-usage-alert",
+  },
+  {
+    name: "get-usage-metrics",
+    specifier: "@agent-native/core/usage/actions/get-usage-metrics",
   },
   {
     name: "create-resource-version",
@@ -141,6 +203,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "set-review-status",
     specifier: "@agent-native/core/review/actions/set-review-status",
   },
+  {
+    name: "send-review-thread-to-agent",
+    specifier: "@agent-native/core/review/actions/send-review-thread-to-agent",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {
@@ -171,7 +237,15 @@ function scanActionFiles(actionsDir: string): string[] {
       const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
-      if (!content.includes("defineAction") && !reexportsDefaultAction) {
+      const exportsActionFactory =
+        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+          content,
+        );
+      if (
+        !content.includes("defineAction") &&
+        !reexportsDefaultAction &&
+        !exportsActionFactory
+      ) {
         return false;
       }
     } catch {
@@ -193,6 +267,36 @@ function writeIfChanged(outFile: string, content: string): void {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, content);
   }
+}
+
+/**
+ * Refresh the server environment that owns the generated registry without
+ * reloading the browser. Nitro keeps a separate module runner from Vite's
+ * client graph, so invalidating only the legacy graph leaves the chat plugin
+ * holding the previous action snapshot.
+ */
+function refreshActionRegistryInDevServer(
+  server: ViteDevServer,
+  projectRoot: string,
+): boolean {
+  const registryPath = path.resolve(
+    projectRoot,
+    ".generated",
+    "actions-registry.ts",
+  );
+
+  for (const environment of Object.values(server.environments)) {
+    const module = environment.moduleGraph.getModuleById(registryPath);
+    if (!module) continue;
+
+    environment.moduleGraph.invalidateModule(module);
+    if (environment.config.consumer !== "client") {
+      environment.hot.send({ type: "full-reload" });
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findWorkspaceCoreActionsDir(projectRoot: string): string | null {
@@ -342,6 +446,10 @@ declare module "@agent-native/core/client" {
   interface ActionRegistry extends AgentNativeActionRegistry {}
 }
 
+declare module "@agent-native/core/client/hooks" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
+}
+
 export {};
 `;
 
@@ -431,6 +539,47 @@ export function actionTypesPlugin(): Plugin {
 
       // Watch for changes in actions/
       const watcher = server.watcher;
+      let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+      let closed = false;
+      const scheduleActionRegistryRefresh = () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          if (closed) return;
+
+          server.config.logger.info(
+            "[agent-native] Action files changed; refreshing the server action registry so chat and action routes use the updated registry.",
+            { timestamp: true },
+          );
+          try {
+            if (refreshActionRegistryInDevServer(server, projectRoot)) return;
+          } catch (error: unknown) {
+            server.config.logger.warn(
+              `[agent-native] Targeted action registry refresh failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { timestamp: true },
+            );
+          }
+
+          // Vite 7+ exposes separate server environments. Older compatible
+          // hosts may not expose the Nitro graph, so retain a safe fallback.
+          void server.restart().catch((error: unknown) => {
+            server.config.logger.error(
+              `[agent-native] Failed to restart after an action registry change: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { timestamp: true },
+            );
+          });
+        }, ACTION_REGISTRY_REFRESH_DELAY_MS);
+        refreshTimer.unref?.();
+      };
+      server.httpServer?.once("close", () => {
+        closed = true;
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = null;
+      });
       const handleChange = (file: string) => {
         const inAppActions = file.startsWith(actionsDir);
         const inWorkspaceActions = workspaceActionsDir
@@ -438,6 +587,7 @@ export function actionTypesPlugin(): Plugin {
           : false;
         if ((inAppActions || inWorkspaceActions) && /\.(ts|js)$/.test(file)) {
           generateActionArtifacts(actionsDir, projectRoot);
+          scheduleActionRegistryRefresh();
         }
       };
       watcher.add(actionsDir);

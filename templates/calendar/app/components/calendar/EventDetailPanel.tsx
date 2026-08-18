@@ -1,5 +1,5 @@
-import { useT } from "@agent-native/core/client";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconX,
@@ -18,11 +18,13 @@ import { toast } from "sonner";
 
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import { EventCalendarSelect } from "@/components/calendar/EventCalendarSelect";
 import {
   RenderedDescription,
   AutoGrowTextarea,
 } from "@/components/calendar/EventDescription";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { WorkingLocationEditor } from "@/components/calendar/WorkingLocationEditor";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +35,16 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getEditableEventTitle } from "@/lib/event-form-utils";
+import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import { cn } from "@/lib/utils";
+import {
+  buildWorkingLocationUpdate,
+  createWorkingLocationDisplayLabels,
+  getWorkingLocationTitle,
+  isWorkingLocationEvent,
+  type WorkingLocationSelection,
+} from "@/lib/working-location";
 
 function buildEventDetailSlotContext(event: CalendarEvent) {
   return {
@@ -111,6 +122,7 @@ export function EventDetailPanel({
   onTitleSave,
 }: EventDetailPanelProps) {
   const t = useT();
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const { setEventDetailSidebar } = useCalendarContext();
   useViewPreferences();
   const isOpen = event !== null;
@@ -122,9 +134,17 @@ export function EventDetailPanel({
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
   const updateEvent = useUpdateEvent();
+  const [selectedAccountEmail, setSelectedAccountEmail] = useState(
+    event?.accountEmail,
+  );
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const isOverlay = !!event?.overlayEmail;
+  const isWorkingLocation = event ? isWorkingLocationEvent(event) : false;
+  const isOutOfOffice = event ? isOutOfOfficeEvent(event) : false;
+  const isRecurringEvent = !!(
+    event?.recurringEventId || event?.recurrence?.length
+  );
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
   const ownerLabel = event?.ownerName || event?.overlayEmail;
@@ -140,6 +160,10 @@ export function EventDetailPanel({
     setEditDescription(event?.description || "");
     lastSavedDescriptionRef.current = event?.description || "";
   }, [event?.id]);
+
+  useEffect(() => {
+    setSelectedAccountEmail(event?.accountEmail);
+  }, [event?.id, event?.accountEmail]);
 
   useEffect(() => {
     if (isEditingTitle) {
@@ -186,6 +210,47 @@ export function EventDetailPanel({
     setEventDetailSidebar(false);
     onClose();
   };
+
+  const handleAccountChange = useCallback(
+    (targetAccountEmail: string) => {
+      if (
+        !event ||
+        !event.accountEmail ||
+        targetAccountEmail === event.accountEmail ||
+        updateEvent.isPending
+      ) {
+        return;
+      }
+
+      setSelectedAccountEmail(targetAccountEmail);
+      void (async () => {
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+        });
+        if (!guestNotification) {
+          setSelectedAccountEmail(event.accountEmail);
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            targetAccountEmail,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast.success(t("eventForm.eventUpdated")),
+            onError: () => {
+              setSelectedAccountEmail(event.accountEmail);
+              toast.error(t("eventForm.updateFailed"));
+            },
+          },
+        );
+      })();
+    },
+    [event, promptGuestNotification, t, updateEvent],
+  );
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event || updateEvent.isPending) return;
@@ -247,6 +312,16 @@ export function EventDetailPanel({
     [event, promptGuestNotification, updateEvent],
   );
 
+  const handleSaveWorkingLocation = useCallback(
+    (selection: WorkingLocationSelection) => {
+      if (!event) return;
+      updateEvent.mutate(buildWorkingLocationUpdate(event, selection), {
+        onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+      });
+    },
+    [event, t, updateEvent],
+  );
+
   return (
     <TooltipProvider>
       {isOpen && (
@@ -268,7 +343,11 @@ export function EventDetailPanel({
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("eventForm.event")}
+                  {isWorkingLocation
+                    ? t("eventForm.workingLocation")
+                    : isOutOfOffice
+                      ? t("eventForm.outOfOffice")
+                      : t("eventForm.event")}
                 </span>
                 <div className="flex items-center gap-0.5">
                   <Tooltip>
@@ -300,7 +379,7 @@ export function EventDetailPanel({
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {/* Title — click to edit */}
-                {isEditingTitle ? (
+                {isEditingTitle && !isWorkingLocation ? (
                   <input
                     ref={titleInputRef}
                     value={editingTitle}
@@ -309,7 +388,10 @@ export function EventDetailPanel({
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const trimmed = editingTitle.trim();
-                        if (trimmed && trimmed !== event.title) {
+                        if (
+                          trimmed &&
+                          trimmed !== getEditableEventTitle(event)
+                        ) {
                           onTitleSave?.(event.id, trimmed, event.accountEmail);
                         }
                         setIsEditingTitle(false);
@@ -321,7 +403,7 @@ export function EventDetailPanel({
                     }}
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
-                      if (trimmed && trimmed !== event.title) {
+                      if (trimmed && trimmed !== getEditableEventTitle(event)) {
                         onTitleSave?.(event.id, trimmed, event.accountEmail);
                       }
                       setIsEditingTitle(false);
@@ -331,14 +413,26 @@ export function EventDetailPanel({
                   />
                 ) : (
                   <h2
-                    className="text-lg font-semibold text-foreground leading-tight cursor-text rounded px-0.5 -mx-0.5 hover:bg-muted/50"
+                    className={cn(
+                      "-mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground",
+                      !isWorkingLocation && "cursor-text hover:bg-muted/50",
+                    )}
                     onClick={() => {
-                      setEditingTitle(event.title);
+                      if (isWorkingLocation) return;
+                      setEditingTitle(getEditableEventTitle(event));
                       setIsEditingTitle(true);
                     }}
                   >
-                    {event.title}
+                    {getWorkingLocationTitle(event, workingLocationLabels)}
                   </h2>
+                )}
+
+                {!isOverlay && event.source === "google" && (
+                  <EventCalendarSelect
+                    accountEmail={selectedAccountEmail}
+                    onAccountChange={handleAccountChange}
+                    disabled={updateEvent.isPending}
+                  />
                 )}
 
                 {/* Time */}
@@ -368,13 +462,20 @@ export function EventDetailPanel({
                   </div>
                 </div>
 
-                {/* Location */}
-                {event.location && (
+                {isWorkingLocation ? (
+                  <WorkingLocationEditor
+                    event={event}
+                    isRecurring={isRecurringEvent}
+                    readOnly={isOverlay}
+                    disabled={updateEvent.isPending}
+                    onSave={handleSaveWorkingLocation}
+                  />
+                ) : event.location ? (
                   <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
                     <IconMapPin className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{event.location}</span>
                   </div>
-                )}
+                ) : null}
 
                 {event.overlayEmail && ownerLabel && (
                   <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
@@ -391,32 +492,33 @@ export function EventDetailPanel({
                   </div>
                 )}
 
-                {meetingLink ? (
-                  <a
-                    href={safeUrl(meetingLink)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center rounded-lg bg-[#4965E0] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A75F0]"
-                  >
-                    <IconVideo className="mr-2 h-4 w-4 opacity-80" />
-                    {t("eventForm.joinMeeting")}
-                  </a>
-                ) : !isOverlay ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-center gap-1.5"
-                    disabled={updateEvent.isPending}
-                    onClick={handleAddGoogleMeet}
-                  >
-                    <IconVideo className="h-4 w-4" />
-                    {t("eventForm.googleMeet")}
-                  </Button>
-                ) : null}
+                {!isWorkingLocation &&
+                  (meetingLink ? (
+                    <a
+                      href={safeUrl(meetingLink)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center rounded-lg bg-[#4965E0] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A75F0]"
+                    >
+                      <IconVideo className="mr-2 h-4 w-4 opacity-80" />
+                      {t("eventForm.joinMeeting")}
+                    </a>
+                  ) : !isOverlay ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-center gap-1.5"
+                      disabled={updateEvent.isPending}
+                      onClick={handleAddGoogleMeet}
+                    >
+                      <IconVideo className="h-4 w-4" />
+                      {t("eventForm.googleMeet")}
+                    </Button>
+                  ) : null)}
 
                 {/* Description — always shown, editable; hidden for overlay events with no description */}
-                {(!isOverlay || event.description) && (
+                {!isWorkingLocation && (!isOverlay || event.description) && (
                   <div className="flex items-start gap-2.5">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     {isOverlay ? (
@@ -446,53 +548,58 @@ export function EventDetailPanel({
                 )}
 
                 {/* Attachments */}
-                {event.attachments && event.attachments.length > 0 && (
-                  <div className="space-y-1">
-                    {event.attachments.map((att, i) => (
-                      <a
-                        key={i}
-                        href={safeUrl(att.fileUrl)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
-                      >
-                        {att.iconLink ? (
-                          <img
-                            src={safeUrl(att.iconLink)}
-                            alt=""
-                            className="h-4 w-4 shrink-0"
-                          />
-                        ) : (
-                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="truncate text-foreground">
-                          {att.title}
-                        </span>
-                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                      </a>
-                    ))}
-                  </div>
-                )}
+                {!isWorkingLocation &&
+                  event.attachments &&
+                  event.attachments.length > 0 && (
+                    <div className="space-y-1">
+                      {event.attachments.map((att, i) => (
+                        <a
+                          key={i}
+                          href={safeUrl(att.fileUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                        >
+                          {att.iconLink ? (
+                            <img
+                              src={safeUrl(att.iconLink)}
+                              alt=""
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : (
+                            <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="truncate text-foreground">
+                            {att.title}
+                          </span>
+                          <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
 
                 {/* Attendees */}
-                {event.attendees && event.attendees.length > 0 && (
-                  <EventAttendeesSection
-                    event={event}
-                    canEditOptional={!isOverlay}
-                    onToggleOptional={handleToggleAttendeeOptional}
-                  />
-                )}
+                {!isWorkingLocation &&
+                  event.attendees &&
+                  event.attendees.length > 0 && (
+                    <EventAttendeesSection
+                      event={event}
+                      canEditOptional={!isOverlay}
+                      onToggleOptional={handleToggleAttendeeOptional}
+                    />
+                  )}
 
                 {/* Research Meeting */}
-                {event.attendees && event.attendees.length > 0 && (
-                  <ResearchMeetingButton event={event} />
-                )}
+                {!isWorkingLocation &&
+                  event.attendees &&
+                  event.attendees.length > 0 && (
+                    <ResearchMeetingButton event={event} />
+                  )}
 
-                {eventDetailSlotContext && (
+                {!isWorkingLocation && eventDetailSlotContext && (
                   <ExtensionSlot
                     id="calendar.event-detail.bottom"
                     context={eventDetailSlotContext}
-                    showEmptyAffordance
                   />
                 )}
               </div>

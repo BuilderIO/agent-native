@@ -278,6 +278,12 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
+export function resourceDownloadUrl(id: string): string {
+  return agentNativePath(
+    `/_agent-native/resources/${encodeURIComponent(id)}?download=1`,
+  );
+}
+
 export function useResources(scope: ResourceScope = "personal") {
   const query = new URLSearchParams({ scope });
   return useQuery<ResourceMeta[]>({
@@ -394,26 +400,6 @@ export function useDeleteResource() {
         },
       );
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
-    },
-  });
-}
-
-export function useUploadResource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (formData: FormData) => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/resources/upload"),
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
-      if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
-      return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["resources"] });

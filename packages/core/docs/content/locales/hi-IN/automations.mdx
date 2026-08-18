@@ -5,9 +5,9 @@ description: "प्राकृतिक-भाषा स्थितियो�
 
 # स्वचालन
 
-एक **स्वचालन** एक नियम है: _जब एक्स होता है, तो Y_ करें - प्राकृतिक भाषा में वर्णित है। एजेंट निर्देशों को निष्पादित करता है, इसलिए ऑटोमेशन के पास प्रत्येक क्रिया, टूल और MCP सर्वर तक पहुंच होती है जिसे एजेंट इंटरैक्टिव चैट में उपयोग कर सकता है।
+**ऑटोमेशन** एजेंट द्वारा चलाया जाने वाला काम है जो किसी समय-सारणी पर या घटना होने पर शुरू होता है: _जब X हो, तो Y करें_। **Scheduled** और **Event** दो ट्रिगर प्रकार हैं, अलग उत्पाद नहीं।
 
-ऑटोमेशन `web-request` टूल के माध्यम से **इवेंट ट्रिगर्स**, **प्राकृतिक-भाषा स्थितियों**, और **आउटबाउंड HTTP** के साथ [recurring jobs](/docs/recurring-jobs) का विस्तार करते हैं। वे आवर्ती नौकरियों के रूप में समान `jobs/<name>.md` फ़ाइल प्रारूप, भंडारण और "तीन तरीके बनाएं" वर्कफ़्लो का उपयोग करते हैं - साझा प्रारूप के लिए [Recurring Jobs](/docs/recurring-jobs#job-file) देखें। यह पृष्ठ केवल इवेंट-संचालित ऑटोमेशन के लिए जो नया है उसे कवर करता है।
+फ़्रेमवर्क ने मूल रूप से शेड्यूल किए गए ऑटोमेशन को **Recurring Jobs** के रूप में दिखाया था। वह नाम, `jobs/<name>.md` पथ और `manage-jobs` टूल संगतता के लिए बने हुए हैं। नई गाइड **Automations** को व्यापक नाम मानती है; पुराने शेड्यूल किए गए जॉब, संगठन स्कोप या उन्नत फ़ील्ड के लिए [Recurring Jobs](/docs/recurring-jobs) देखें।
 
 <Diagram id="doc-block-umhh0u" title={"जब X हो तो Y करें"} summary={"एक घटना बस में सक्रिय हो जाती है, एक वैकल्पिक प्राकृतिक-भाषा की स्थिति इसे गेट करती है, और एजेंट पूर्ण टूल एक्सेस के साथ ऑटोमेशन बॉडी चलाता है।"}>
 
@@ -72,9 +72,15 @@ description: "प्राकृतिक-भाषा स्थितियो�
 
 एजेंट उपलब्ध घटनाओं का पता लगाता है, योजना की पुष्टि करता है, और आपके लिए स्वचालन लिखता है।
 
-### सेटिंग्स UI से
+### Automations UI से
 
-ऑटोमेशन सेटिंग पैनल में दिखाई देते हैं। उपयोगकर्ता उन्हें वहां देख सकते हैं, सक्षम/अक्षम कर सकते हैं और हटा सकते हैं।
+शेड्यूल और इवेंट-ट्रिगर ऑटोमेशन देखने और प्रबंधित करने के लिए पूर्ण Agent पेज पर **Automations** खोलें। संगतता URL `/agent#jobs` ही रहता है, इसलिए मौजूदा लिंक और बुकमार्क काम करते रहेंगे।
+
+<Callout tone="warning">
+
+`manage-automations` Scheduled और Event ट्रिगर के लिए व्यक्तिगत और संगठन ऑटोमेशन का समर्थन करता है। संगठन Event ऑटोमेशन सदस्यों को दिखाई देते हैं, लेकिन हमेशा अपने निर्माता के रूप में चलते हैं; व्यवस्थापक उस पहचान को बदले बिना उनका प्रबंधन कर सकते हैं।
+
+</Callout>
 
 तीसरा पथ - `resourcePut` के माध्यम से हाथ से `jobs/<name>.md` फ़ाइल लिखना - ठीक उसी तरह काम करता है जैसे यह [recurring jobs](/docs/recurring-jobs#creating) के लिए करता है। इवेंट-संचालित ऑटोमेशन के लिए आप नीचे दिए गए इवेंट-ट्रिगर फ्रंटमैटर को उसी फ़ाइल में जोड़ते हैं। एक इवेंट-ट्रिगर जॉब `schedule: ""` सेट करता है और `triggerType: event`, एक `event` नाम और एक वैकल्पिक `condition` प्रदान करता है:
 
@@ -172,11 +178,11 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-उत्सर्जित मेटाडेटा स्कोप में `owner` जो ऑटोमेशन सक्रिय करता है - केवल उसी उपयोगकर्ता (या साझा ऑटोमेशन) के स्वामित्व वाले ऑटोमेशन का मूल्यांकन किया जाता है।
+इवेंट मेटाडेटा में `owner` तय करता है कि कौन से ऑटोमेशन सक्रिय होंगे। व्यक्तिगत और संगठन Event ऑटोमेशन दोनों का `createdBy` से सटीक मेल होना आवश्यक है।
 
 ## शर्तें {#conditions}
 
@@ -228,7 +234,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## एजेंट उपकरण {#agent-tools}
 
-सभी स्वचालन परिचालनों को `action` पैरामीटर के साथ एक एकल `manage-automations` टूल के माध्यम से एक्सेस किया जाता है:
+व्यक्तिगत और संगठन ऑटोमेशन `action` पैरामीटर के साथ `manage-automations` का उपयोग करते हैं:
 
 | कार्रवाई      | उद्देश्य                                                                               |
 | ------------- | -------------------------------------------------------------------------------------- |
@@ -240,6 +246,8 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `fire-test`   | ऑटोमेशन को सत्यापित करने के लिए एक `test.event.fired` ईवेंट का उत्सर्जन करें           |
 
 अतिरिक्त उपकरण: `web-request` - `${keys.NAME}` प्रतिस्थापन के साथ आउटबाउंड HTTP।
+
+`manage-automations` संगठन स्कोप, मॉडल ओवरराइड और सख्ती से लागू MCP अनुमत-सूचियों का समर्थन करता है। `manage-jobs` पुराने केवल-शेड्यूल इंटीग्रेशन और डिलीवरी मेटाडेटा के लिए संगतता टूल बना रहता है।
 
 ## API समापन बिंदु {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"
@@ -382,6 +392,6 @@ POST to ${keys.NOTIFY_WEBHOOK} with a JSON body:
 ## आगे क्या है
 
 - [**Recurring Jobs**](/docs/recurring-jobs) - शेड्यूल-ट्रिगर ऑटोमेशन उसी शेड्यूलर का पुन: उपयोग करते हैं
-- [**Actions**](/docs/actions) - ऑटोमेशन एजेंट लूप के माध्यम से किसी भी पंजीकृत कार्रवाई को कॉल कर सकता है
+- [**Actions**](/docs/actions-overview) - ऑटोमेशन एजेंट लूप के माध्यम से किसी भी पंजीकृत कार्रवाई को कॉल कर सकता है
 - [**Security**](/docs/security) - इनपुट सत्यापन और गुप्त हैंडलिंग
 - [**Visual Plans — Events**](/docs/template-plan#events) - ईवेंट संदर्भ और स्वचालन व्यंजनों की योजना बनाएं

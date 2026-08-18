@@ -14,6 +14,7 @@ import {
 import { uniqueLayerId } from "./canvas-primitive-insert";
 import { reassignClonedAuthoredIds } from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
+import { isStandaloneHttpUrl } from "./editor-state";
 import {
   applyPortableStyles,
   elementAtPortableStylePath,
@@ -144,6 +145,28 @@ function clearRootLayerPosition(element: Element) {
   host.style.bottom = "";
 }
 
+export function preserveClipboardLayerName(
+  layerHtml: string,
+  layerName: string | null | undefined,
+): string {
+  const normalizedName = layerName?.trim();
+  if (typeof window === "undefined" || !normalizedName) return layerHtml;
+  try {
+    const doc = new DOMParser().parseFromString(
+      `<template>${layerHtml}</template>`,
+      "text/html",
+    );
+    const root = doc.querySelector("template")?.content.firstElementChild;
+    if (!root) return layerHtml;
+    if (!root.hasAttribute("data-agent-native-layer-name")) {
+      root.setAttribute("data-agent-native-layer-name", normalizedName);
+    }
+    return root.outerHTML;
+  } catch {
+    return layerHtml;
+  }
+}
+
 function setRootLayerPosition(
   element: Element,
   position: { x: number; y: number },
@@ -214,6 +237,101 @@ function prepareClonedHtmlLayer(
   return { element: clone, rootNodeId, nodeIdMap };
 }
 
+const ACTIVE_CLONED_LAYER_ELEMENTS =
+  "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set";
+
+function sanitizeClonedHtmlLayer(element: Element): boolean {
+  if (
+    /^(?:body|head|html)$/i.test(element.tagName) ||
+    element.matches(ACTIVE_CLONED_LAYER_ELEMENTS)
+  ) {
+    return false;
+  }
+  element
+    .querySelectorAll(ACTIVE_CLONED_LAYER_ELEMENTS)
+    .forEach((node) => node.remove());
+  [element, ...Array.from(element.querySelectorAll("*"))].forEach((node) => {
+    Array.from(node.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value;
+      if (
+        name.startsWith("on") ||
+        name === "srcdoc" ||
+        name === "autofocus" ||
+        name === "action" ||
+        name === "formaction" ||
+        /(?:javascript|vbscript)\s*:/i.test(value) ||
+        /data\s*:\s*text\/html/i.test(value)
+      ) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
+  return true;
+}
+
+/**
+ * Prepare clipboard subtrees for RuntimeStructureInsertRequest without ever
+ * parsing the URL-backed destination as a document. Runtime snapshots already
+ * contain sanitized provenance and resolved inline styles; those inert
+ * attributes survive while active markup is stripped again at this boundary.
+ */
+export function prepareClonedHtmlLayersForLiveInsert(
+  destinationContent: string,
+  layerHtmls: string[],
+  options: {
+    stripRootPosition?: boolean;
+    positions?: Array<{ x: number; y: number } | null | undefined>;
+    styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
+  } = {},
+): {
+  destinationContent: string;
+  htmlFragments: string[];
+  rootNodeIds: string[];
+  nodeIdMap: Map<string, string>;
+} | null {
+  if (
+    typeof window === "undefined" ||
+    layerHtmls.length === 0 ||
+    !isStandaloneHttpUrl(destinationContent)
+  ) {
+    return null;
+  }
+  try {
+    const doc = document.implementation.createHTMLDocument("");
+    const htmlFragments: string[] = [];
+    const rootNodeIds: string[] = [];
+    const nodeIdMap = new Map<string, string>();
+    layerHtmls.forEach((layerHtml, index) => {
+      const prepared = prepareClonedHtmlLayer(
+        doc,
+        layerHtml,
+        options.styleSnapshots?.[index] ?? undefined,
+      );
+      if (!prepared) return;
+      const position = options.positions?.[index];
+      if (position) {
+        setRootLayerPosition(prepared.element, position);
+      } else if (options.stripRootPosition) {
+        clearRootLayerPosition(prepared.element);
+      }
+      if (!sanitizeClonedHtmlLayer(prepared.element)) return;
+      rootNodeIds.push(prepared.rootNodeId);
+      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+      htmlFragments.push(prepared.element.outerHTML);
+    });
+    if (htmlFragments.length !== layerHtmls.length) return null;
+    return {
+      destinationContent,
+      htmlFragments,
+      rootNodeIds,
+      nodeIdMap,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function insertClonedHtmlLayers(
   content: string,
   layerHtmls: string[],
@@ -236,6 +354,11 @@ export function insertClonedHtmlLayers(
   nodeIdMap: Map<string, string>;
 } | null {
   if (typeof window === "undefined" || layerHtmls.length === 0) return null;
+  // Same hazard appendCanvasPrimitiveToHtml guards: a live screen's stored
+  // content is its route URL, and returning an "edited document" for it means
+  // the caller persists HTML over the URL. Paste, duplicate, and image-drop
+  // all land here, so refuse the shape once rather than at each of them.
+  if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;

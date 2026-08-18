@@ -4,6 +4,7 @@ const messages = {
     searchForms: "フォームを検索",
     appearance: "表示",
     toggleTheme: "テーマを切り替え",
+    openAgent: "エージェントを開く",
   },
   header: {
     settings: "設定",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "フォームに質問する",
     allForms: "すべてのフォーム",
     team: "チーム",
+    agent: "エージェント",
   },
   settings: {
     title: "設定",
@@ -32,10 +34,10 @@ const messages = {
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    agentTitle: "エージェント設定",
+    agentTitle: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    openAgentSettings: "エージェント設定を開く",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    openAgentSettings: "エージェントを管理",
   },
   agent: {
     emptyState: "フォームについて何でも聞いてください",
@@ -86,6 +88,16 @@ const messages = {
     addOption: "オプションを追加",
     min: "分",
     max: "マックス",
+    conditionalVisibility: "条件付き表示",
+    conditionalVisibilityDescription:
+      "前の回答が一致した場合のみ、このフィールドを表示します。",
+    conditionField: "前の回答",
+    conditionOperator: "条件",
+    conditionEquals: "一致する",
+    conditionNotEquals: "一致しない",
+    conditionContains: "含む",
+    conditionValue: "回答",
+    conditionValuePlaceholder: "回答を入力...",
     fieldTypes: {
       text: "短いテキスト",
       email: "電子メール",
@@ -142,6 +154,7 @@ const messages = {
     integrationsTab: "連携",
     settingsSaved: "設定を保存しました",
     integrationsSaved: "連携を保存しました",
+    saveFailed: "変更を保存できませんでした",
     formTitlePlaceholder: "フォームタイトル",
     addDescriptionPlaceholder: "説明を追加...",
     dragToReorder: "ドラッグして並べ替え",
@@ -192,6 +205,9 @@ const messages = {
       anonymousResponses: "匿名の回答",
       anonymousResponsesDescription:
         "IP アドレス、回答者の身元、送信元メタデータを保存しません。",
+      emailNewResponses: "新しい回答をメールで知らせる",
+      emailNewResponsesDescription:
+        "回答が送信されるたびに、フォーム所有者のアカウントのメールアドレスへ通知します。",
       saveSettings: "設定を保存",
     },
     integrations: {
@@ -207,7 +223,7 @@ const messages = {
       googleSheetsBlurb:
         "各回答をチームで共有できるスプレッドシートに反映します。",
       googleSheetsHelp:
-        "POST データを受け取る Apps Script ウェブアプリをデプロイしてください",
+        "デプロイ済みの Apps Script /exec URL を使用し、e.postData.contents の JSON を読み取って行を追加します。",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -254,6 +270,8 @@ const messages = {
     duplicated: "フォームが複製されました",
     duplicateFailed: "フォームの複製に失敗しました",
     movedToArchive: "フォームはアーカイブに移動されました",
+    movingToArchive: "フォームをアーカイブに移動中…",
+    archiveFailed: "フォームをアーカイブに移動できませんでした",
     restored: "フォームが復元されました",
     permanentlyDeleted: "フォームは完全に削除されました",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

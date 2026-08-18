@@ -27,7 +27,7 @@ pnpm action generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 | `--labels`             | JSON array of x-axis labels                                                | required               |
 | `--data`               | JSON array of numbers, OR array of `{label, data, color}` for multi-series | required               |
 | `--color`              | Primary hex color                                                          | `#18B4F4`              |
-| `--theme`              | `dark`, `light`                                                            | auto from `/api/theme` |
+| `--theme`              | `dark`, `light`                                                            | auto from `media/theme.json` |
 | `--stacked`            | `true` for stacked bars                                                    | `false`                |
 | `--filename`           | Output filename (no ext)                                                   | auto from title        |
 | `--width` / `--height` | Image dimensions                                                           | 800x400                |
@@ -88,4 +88,4 @@ When using QuickChart (`https://quickchart.io/chart/create`) with Chart.js v2:
 - **Relative paths do NOT work** — chat UI is on a different origin. Always use the fully qualified URL from script output (uses `APP_ORIGIN`)
 - Cache busting (`?v=<timestamp>`) auto-appended
 - `chartjs-node-canvas` depends on `canvas` native module — `pnpm.onlyBuiltDependencies` must include `"canvas"`. If not built, run `pnpm rebuild canvas`
-- Theme auto-detected from `media/theme.json` (set by sidebar toggle via `POST /api/theme`)
+- Theme auto-detected from `media/theme.json` (set by the sidebar toggle via the `set-theme` action)

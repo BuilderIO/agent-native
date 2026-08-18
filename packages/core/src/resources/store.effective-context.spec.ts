@@ -548,4 +548,39 @@ describe("resourceEffectiveContext", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("drops a conditional write when the resource version is stale", async () => {
+    const {
+      SHARED_OWNER,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutIfCurrent,
+    } = await import("./store.js");
+    const path = `context/conditional-${Date.now()}-${Math.random()}.md`;
+
+    const initial = await resourcePut(SHARED_OWNER, path, "before");
+    const updated = await resourcePutIfCurrent({
+      owner: SHARED_OWNER,
+      path,
+      content: "after",
+      expectedId: initial.id,
+      expectedUpdatedAt: initial.updatedAt,
+      expectedContent: initial.content,
+    });
+    expect(updated?.content).toBe("after");
+
+    await expect(
+      resourcePutIfCurrent({
+        owner: SHARED_OWNER,
+        path,
+        content: "stale",
+        expectedId: initial.id,
+        expectedUpdatedAt: initial.updatedAt,
+        expectedContent: initial.content,
+      }),
+    ).resolves.toBeNull();
+    await expect(resourceGetByPath(SHARED_OWNER, path)).resolves.toMatchObject({
+      content: "after",
+    });
+  });
 });

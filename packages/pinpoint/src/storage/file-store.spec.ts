@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Pin } from "../types/index.js";
 import { FileStore } from "./file-store.js";
@@ -14,6 +14,7 @@ import { FileStore } from "./file-store.js";
 const tmpRoots: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -61,17 +62,24 @@ describe("FileStore", () => {
   });
 
   it("update() overwrites the pin atomically without leaving temp files behind", async () => {
+    // `updatedAt` is wall-clock at millisecond resolution, so two back-to-back
+    // writes can share a timestamp on a fast runner. Drive the clock instead of
+    // assuming it advances between save() and update().
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
     const dataDir = tmpDataDir();
     const store = new FileStore(dataDir);
     const pin = makePin({ comment: "original" });
     await store.save(pin);
 
+    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
     await store.update(pin.id, { comment: "revised" });
 
     const pins = await store.list();
     expect(pins).toHaveLength(1);
     expect(pins[0]?.comment).toBe("revised");
-    expect(pins[0]?.updatedAt).not.toBe(pin.updatedAt);
+    expect(pins[0]?.updatedAt).toBe("2026-01-01T00:00:01.000Z");
 
     // No stray temp/staging files should remain in the data directory.
     const files = fs.readdirSync(dataDir);

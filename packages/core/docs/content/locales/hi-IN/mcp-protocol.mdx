@@ -22,7 +22,7 @@ MCP AI टूल को बाहरी क्षमताओं से जो�
 
 मुख्य अवधारणाएँ:
 
-- **ऑटो-माउंटेड** - प्रत्येक ऐप को मुफ्त में `/_agent-native/mcp` मिलता है, किसी सेटअप की आवश्यकता नहीं है
+- **ऑटो-माउंटेड** - प्रत्येक ऐप को मुफ्त में `/mcp` मिलता है, किसी सेटअप की आवश्यकता नहीं है
 - **स्ट्रीम करने योग्य HTTP** - मानक HTTP (POST + SSE) की तुलना में आधुनिक MCP परिवहन का उपयोग करता है
 - **वही actions** - बिल्कुल वही एक्शन रजिस्ट्री जो एजेंट चैट और A2A को शक्ति प्रदान करती है
 - **`ask-agent` टूल** - एक मेटा-टूल जो जटिल कार्यों के लिए पूर्ण एजेंट लूप को सौंपता है
@@ -41,7 +41,7 @@ MCP AI टूल को बाहरी क्षमताओं से जो�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel">
-    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    <span class="diagram-pill accent">POST /mcp</span
     ><small class="diagram-muted">Streamable HTTP</small
     ><small class="diagram-muted"
       >initialize &rarr; tools/list &rarr; tools/call</small
@@ -94,7 +94,7 @@ MCP AI टूल को बाहरी क्षमताओं से जो�
 | **के लिए सर्वोत्तम** | बाहरी उपकरण आपके ऐप को कॉल कर रहे हैं                                | एजेंट-टू-एजेंट संचार                          |
 | **प्रोटोकॉल**        | MCP स्ट्रीम करने योग्य HTTP                                          | JSON-RPC 2.0                                  |
 | **उपकरण खोज**        | `tools/list`                                                         | `/.well-known/agent-card.json` पर एजेंट कार्ड |
-| **समापनबिंदु**       | `/_agent-native/mcp`                                                 | `/_agent-native/a2a`                          |
+| **समापनबिंदु**       | `/mcp`                                                               | `/_agent-native/a2a`                          |
 | **समर्थित**          | Claude, ChatGPT, Claude कोड, कर्सर, Codex, कोवर्क, और अन्य MCP होस्ट | अन्य एजेंट-मूल ऐप्स                           |
 | **निष्पादन**         | डायरेक्ट टूल कॉल (कोई अतिरिक्त LLM नहीं)                             | पूर्ण एजेंट लूप (LLM तर्क)                    |
 
@@ -105,7 +105,7 @@ MCP AI टूल को बाहरी क्षमताओं से जो�
 अनुशंसित एक-कमांड सेटअप के लिए, [External Agents](/docs/external-agents) का उपयोग करें। यदि आप OAuth-सक्षम क्लाइंट के लिए MCP कॉन्फिगरेशन को हाथ से लिख रहे हैं, तो अपने ऐप को बिना किसी स्थिर हेडर के रिमोट MCP सर्वर के रूप में जोड़ें:
 
 ```bash
-claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+claude mcp add --transport http mail https://mail.example.com/mcp
 ```
 
 या `.mcp.json` (प्रोजेक्ट स्कोप) या `~/.claude.json` (यूजर स्कोप) में हाथ से प्रविष्टि लिखें:
@@ -116,7 +116,7 @@ claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.example.com/_agent-native/mcp",
+      "url": "https://mail.example.com/mcp",
     },
   },
 }
@@ -135,12 +135,12 @@ Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", bod
 कोई भी MCP क्लाइंट जो स्ट्रीम करने योग्य HTTP ट्रांसपोर्ट का समर्थन करता है, कनेक्ट हो सकता है। अंतिमबिंदु है:
 
 ```
-POST https://your-app.example.com/_agent-native/mcp
+POST https://your-app.example.com/mcp
 ```
 
 सर्वर मानक MCP हैंडशेक का समर्थन करता है: `initialize` → `initialized` → `tools/list` → `tools/call`।
 
-<Endpoint id="doc-block-1eenree" title={"MCP समापन बिंदु"} summary={"ऑटो-माउंटेड स्ट्रीमेबल HTTP एंडपॉइंट प्रत्येक एजेंट-नेटिव ऐप को उजागर करता है।"} method="POST" path="/_agent-native/mcp" summary={"MCP स्ट्रीम करने योग्य HTTP समापन बिंदु"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-1eenree" title={"MCP समापन बिंदु"} summary={"ऑटो-माउंटेड स्ट्रीमेबल HTTP एंडपॉइंट प्रत्येक एजेंट-नेटिव ऐप को उजागर करता है।"} method="POST" path="/mcp" summary={"MCP स्ट्रीम करने योग्य HTTP समापन बिंदु"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -204,18 +204,52 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 व्यक्तिगत एक्शन टूल के अलावा, प्रत्येक MCP सर्वर में एक `ask-agent` मेटा-टूल शामिल होता है। यह ऐप के AI एजेंट को एक प्राकृतिक भाषा में संदेश भेजता है और प्रतिक्रिया देता है।
 
+होस्ट किए गए MCP अनुरोध एक सीमित इनलाइन प्रतीक्षा का उपयोग करते हैं ताकि एक लंबा
+एजेंट लूप किसी क्लाइंट या गेटवे टाइमआउट तक एक `tools/call` को खुला न रखे।
+वैकल्पिक `async` तर्क स्थायी टास्क शुरू करता है और तुरंत लौट आता है; इसके बिना,
+सर्वर एक त्वरित समापन के लिए संक्षेप में प्रतीक्षा करता है और फिर अधिक काम बाकी
+रहने पर एक टास्क हैंडल लौटाता है। होस्ट की गई प्रतीक्षा 25 सेकंड तक सीमित है।
+
 जटिल कार्यों के लिए `ask-agent` का उपयोग करें जो एजेंट के तर्क और संदर्भ से लाभान्वित हों:
 
 ```json
 {
   "name": "ask-agent",
   "arguments": {
-    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed",
+    "async": true
   }
 }
 ```
 
-एजेंट इंटरैक्टिव चैट के समान लूप चलाता है - यह कई टूल को कॉल कर सकता है, संदर्भ के बारे में तर्क कर सकता है और एक विचारशील प्रतिक्रिया दे सकता है।
+एजेंट इंटरैक्टिव चैट के समान लूप चलाता है - यह कई टूल को कॉल कर सकता है, संदर्भ के बारे में तर्क कर सकता है और एक विचारशील प्रतिक्रिया दे सकता है। एक टास्क जो पूरा नहीं हुआ है वह `taskId`, `status`, `pollAfterMs` वाला JSON लौटाता है, और:
+
+```json
+{
+  "poll": {
+    "tool": "ask_app_status",
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
+  }
+}
+```
+
+टास्क के अंतिम स्थिति तक पहुंचने तक उन्हीं तर्कों के साथ `ask_app_status` को
+कॉल करें। डिस्पैच का ऐप-स्वामित्व वाला `ask_app` उसी स्थायी टास्क और स्थिति
+अनुबंध का उपयोग करता है, जिसमें चयनित-ऐप अनुदान की जांच सबमिशन और पोलिंग दोनों
+पर की जाती है।
+
+यदि सीमित, अस्थायी स्थिति-पठन उपलब्ध नहीं है, तो `ask_app_status`
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, मूल `app`
+और `taskId`, तथा `pollAfterMs` / `poll` लौटा सकता है। इसका अर्थ है कि स्थिति-पठन
+अनुपलब्ध है, न कि स्थायी टास्क विफल हुआ है। लौटाए गए उन्हीं `poll.arguments` के साथ
+`ask_app_status` को फिर आज़माएँ, और उपलब्ध होने पर `taskHandle` शामिल करें। बिना
+हैंडल वाले पुराने परिणामों में वही `app` और `taskId` दोबारा उपयोग करें; पुनर्प्राप्ति के लिए `ask_app` को कभी फिर से सबमिट
+न करें, क्योंकि सबमिशन काम की नकल कर सकता है। स्थायी प्रमाणीकरण, न मिलने और
+प्रोटोकॉल त्रुटियाँ त्रुटियाँ ही रहती हैं।
 
 ## प्रमाणीकरण {#authentication}
 
@@ -233,7 +267,7 @@ MCP एंडपॉइंट मानक रिमोट MCP OAuth प्लस
 OAuth-सक्षम MCP होस्ट के लिए, बिना किसी स्थिर हेडर के रिमोट सर्वर URL को कॉन्फ़िगर करें:
 
 ```bash
-claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/mcp
 ```
 
 पहला अप्रमाणित MCP अनुरोध प्राप्त होता है:
@@ -249,9 +283,9 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | ----------------------------------------- | ---------------------------------- |
 | `/.well-known/oauth-protected-resource`   | RFC 9728 संरक्षित-संसाधन मेटाडेटा  |
 | `/.well-known/oauth-authorization-server` | OAuth प्राधिकरण सर्वर मेटाडेटा     |
-| `/_agent-native/mcp/oauth/register`       | डायनामिक पब्लिक-क्लाइंट पंजीकरण    |
-| `/_agent-native/mcp/oauth/authorize`      | ब्राउज़र प्राधिकरण + सहमति         |
-| `/_agent-native/mcp/oauth/token`          | प्राधिकरण-कोड और ताज़ा-टोकन अनुदान |
+| `/mcp/oauth/register`                     | डायनामिक पब्लिक-क्लाइंट पंजीकरण    |
+| `/mcp/oauth/authorize`                    | ब्राउज़र प्राधिकरण + सहमति         |
+| `/mcp/oauth/token`                        | प्राधिकरण-कोड और ताज़ा-टोकन अनुदान |
 
 <Diagram id="doc-block-1gzntim" title={"OAuth खोज प्रवाह"} summary={"401 खोज, पंजीकरण और PKCE अधिकृत → टोकन एक्सचेंज को शुरू करता है। बियरर टोकन ऑडियंस-बाउंड और स्कोप्ड है।"}>
 
@@ -351,7 +385,7 @@ export default defineNitroPlugin(async (nitro) => {
 आपके पास `analytics.example.com` पर एक तैनात एनालिटिक्स ऐप है। Claude कोड से:
 
 ```bash
-claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+claude mcp add --transport http analytics https://analytics.example.com/mcp
 ```
 
 या इसे `.mcp.json` में हाथ से जोड़ें:
@@ -362,7 +396,7 @@ claude mcp add --transport http analytics https://analytics.example.com/_agent-n
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.example.com/_agent-native/mcp",
+      "url": "https://analytics.example.com/mcp",
     },
   },
 }

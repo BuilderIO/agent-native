@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { getThemeVars } from "../../extensions/theme.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
@@ -86,6 +87,7 @@ function normalizeRole(value: unknown): ExtensionBridgeRole {
   return value === "owner" ||
     value === "admin" ||
     value === "editor" ||
+    value === "commenter" ||
     value === "viewer"
     ? value
     : "viewer";
@@ -489,7 +491,7 @@ export function InlineExtensionFrame({
         sendToAgentChat({
           message: text,
           context: serializeChatValue((message as any).context),
-          submit: (message as any).submit !== false,
+          submit: (message as any).submit === true,
           openSidebar: (message as any).openSidebar !== false,
         });
         return;
@@ -641,6 +643,7 @@ export function InlineExtensionFrame({
   return (
     <div className={`relative ${className ?? ""}`}>
       <iframe
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
         key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}`}
         src={iframeSrc}

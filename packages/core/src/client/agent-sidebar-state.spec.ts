@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   consumeAgentSidebarUrlOpenOverride,
+  clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
+  getAgentSidebarMaxWidth,
   getAgentSidebarOpenPreferenceKey,
+  getAgentSidebarWideWidth,
   getInitialAgentSidebarOpen,
+  hasChatThreadDeepLink,
   requestAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
   SIDEBAR_STATE_CHANGE_EVENT,
@@ -29,6 +33,23 @@ function stubMatchMedia(matches: boolean) {
   );
 }
 
+describe("agent sidebar width presets", () => {
+  it("uses 75% of the desktop viewport for the wide preset", () => {
+    expect(getAgentSidebarWideWidth(1440)).toBe(1080);
+    expect(getAgentSidebarWideWidth(1024)).toBe(768);
+  });
+
+  it("keeps the existing 700px drag ceiling below the wide preset", () => {
+    expect(getAgentSidebarMaxWidth(800)).toBe(700);
+    expect(getAgentSidebarMaxWidth(1440)).toBe(1080);
+  });
+
+  it("clamps manual widths to the responsive maximum", () => {
+    expect(clampAgentSidebarWidth(1200, 1024)).toBe(768);
+    expect(clampAgentSidebarWidth(100, 1440)).toBe(280);
+  });
+});
+
 describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -38,6 +59,29 @@ describe("getInitialAgentSidebarOpen", () => {
 
   it("uses the provided default when there is no saved preference", () => {
     expect(getInitialAgentSidebarOpen(true)).toBe(true);
+    expect(getInitialAgentSidebarOpen(false)).toBe(false);
+  });
+
+  it("recognizes shared chat thread links", () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+    expect(hasChatThreadDeepLink()).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?threadId=thread-2");
+    expect(hasChatThreadDeepLink()).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?from=sidebar");
+    expect(hasChatThreadDeepLink()).toBe(false);
+  });
+
+  it("opens for a shared chat thread link even when the sidebar defaults closed", () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+    expect(getInitialAgentSidebarOpen(false)).toBe(true);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?thread=thread-1&agentSidebar=closed",
+    );
     expect(getInitialAgentSidebarOpen(false)).toBe(false);
   });
 

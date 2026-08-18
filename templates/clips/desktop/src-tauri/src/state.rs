@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 use std::time::Instant;
-use tauri::Rect;
+use tauri::{AppHandle, Manager, Rect};
 
 use crate::tray_meetings::MeetingItem;
 
@@ -23,8 +23,8 @@ pub struct TrayMeetings(pub Mutex<Vec<MeetingItem>>);
 pub struct PopoverShownAt(pub Mutex<Option<Instant>>);
 
 /// Whether a recording is currently in progress. Set from JS via
-/// `set_recording_state`. Used to re-purpose the tray icon click as a
-/// stop-recording shortcut while recording, matching Loom.
+/// `set_recording_state`. Keeps the parked popover reachable while recording
+/// and enables the explicit Stop item in the tray menu.
 #[derive(Default)]
 pub struct RecordingActive(pub Mutex<bool>);
 
@@ -63,3 +63,29 @@ pub struct VoiceTargetBundle(pub Mutex<Option<String>>);
 /// Last dictation result for "paste last".
 #[derive(Default)]
 pub struct LastTranscript(pub Mutex<Option<String>>);
+
+/// CGDirectDisplayID the user picked in the multi-monitor screen picker,
+/// applying for the whole lifetime of the recording it was picked for (not
+/// just the first read) — `tray_display_id` and `tray_monitor_physical_rect`
+/// both read it via `get`. Cleared via `set(app, None)` by `show_monitor_picker`
+/// (next pick), `hide_recording_chrome` (stop), and
+/// `native_fullscreen_recording_cancel` (aborted start) — a stale pick must
+/// never leak into a later recording that skipped the picker (e.g. only one
+/// monitor connected).
+#[derive(Default)]
+pub struct SelectedRecordingDisplay(pub Mutex<Option<u32>>);
+
+impl SelectedRecordingDisplay {
+    pub fn get(app: &AppHandle) -> Option<u32> {
+        app.try_state::<Self>()
+            .and_then(|s| s.0.lock().ok().and_then(|g| *g))
+    }
+
+    pub fn set(app: &AppHandle, display_id: Option<u32>) {
+        if let Some(state) = app.try_state::<Self>() {
+            if let Ok(mut guard) = state.0.lock() {
+                *guard = display_id;
+            }
+        }
+    }
+}
