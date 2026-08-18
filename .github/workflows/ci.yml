@@ -328,7 +328,7 @@ jobs:
           while IFS= read -r filter; do
             filters+=(--filter "$filter")
           done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
-          pnpm -r --no-bail --if-present --workspace-concurrency=1 "${filters[@]}" run test -- \
+          pnpm -r --no-bail --if-present --workspace-concurrency=1 "${filters[@]}" run test \
             --exclude "**/*.db.test.ts" \
             --exclude "**/*.integration.spec.ts" \
             --exclude "**/*.integration.test.ts" \
