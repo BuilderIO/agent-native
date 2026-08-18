@@ -229,18 +229,25 @@ function shallowEqualNavigationState(left: unknown, right: unknown): boolean {
   return true;
 }
 
-function stringifyForWriteDedup(value: unknown): string | symbol {
+/**
+ * Dedup token for the navigation write. Unserializable state falls back to the
+ * state's own identity, never a fresh symbol: the caller's `navigationKeys` is
+ * usually a new array each render, so a symbol recomputed here would never
+ * match the last one and every re-render would issue another failing write.
+ * Identity still lets a genuinely different state reach the write path.
+ */
+function navigationWriteDedupToken(
+  keys: readonly string[],
+  state: unknown,
+): unknown {
   try {
-    const serialized = JSON.stringify(value);
-    return typeof serialized === "string"
-      ? serialized
-      : Symbol("unserializable navigation state");
+    const serialized = JSON.stringify({ keys, state });
+    if (typeof serialized === "string") return serialized;
   } catch {
-    // Do not turn a serialization failure into a reusable string key. A
-    // distinct token lets a changed unserializable state reach the write path
-    // and surface its real error instead of being silently deduplicated.
-    return Symbol("unserializable navigation state");
+    // coercion-ok: deferred, not dropped — the write below still rejects with
+    // this error and reports it through `onError`.
   }
+  return state;
 }
 
 function resolveAgentChatViewTransitionOption<NavigateCommand>(
@@ -292,11 +299,7 @@ export function useSemanticNavigationState<
   );
   const navigationState = options.state ?? null;
   const navigationWriteDedup = useMemo(
-    () =>
-      stringifyForWriteDedup({
-        keys: navigationKeys,
-        state: navigationState,
-      }),
+    () => navigationWriteDedupToken(navigationKeys, navigationState),
     [navigationKeys, navigationState],
   );
 
@@ -307,7 +310,9 @@ export function useSemanticNavigationState<
   onCommandRef.current = options.onCommand;
   onErrorRef.current = options.onError;
 
-  const lastNavigationWriteRef = useRef<string | symbol | null>(null);
+  // `null` is safe as "never written": a null state serializes to a string, so
+  // the token itself is never null.
+  const lastNavigationWriteRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!enabled) return;
