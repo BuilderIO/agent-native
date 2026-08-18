@@ -1,5 +1,9 @@
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
+  getDisabledDefaultPlugins,
+  isDefaultPluginDisabled,
+} from "./default-plugins.js";
+export {
   BETTER_AUTH_MIGRATIONS,
   runBetterAuthMigrations,
 } from "./better-auth-migrations.js";

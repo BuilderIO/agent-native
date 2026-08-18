@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import {
   getH3App,
@@ -81,6 +82,8 @@ describe("framework request handler", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS;
+    delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
+    resetAppConfigForTests();
     vi.restoreAllMocks();
   });
 
@@ -348,6 +351,19 @@ describe("framework request handler", () => {
   it("does not auto-mount a default plugin slot marked as provided at runtime", async () => {
     const nitroApp = createNitroApp();
     markDefaultPluginProvided(nitroApp, "agent-chat");
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("does not auto-mount a default plugin slot refused by plugins.disabled", async () => {
+    process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chat";
+    resetAppConfigForTests();
+    const nitroApp = createNitroApp();
     vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
 
     getH3App(nitroApp);

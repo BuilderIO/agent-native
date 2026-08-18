@@ -7,6 +7,7 @@ import {
   sendRedirect,
 } from "h3";
 import { getRequestHeader } from "h3";
+import type { EventHandler } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import {
@@ -15,6 +16,7 @@ import {
   isInBackgroundFunctionRuntime,
 } from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
+import { getAppConfig } from "../app-config/index.js";
 import { isServerlessRuntime } from "../db/client.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -422,6 +424,32 @@ export const BUILT_IN_INTEGRATION_ADAPTER_IDS = Object.freeze(
 
 export function createBuiltInIntegrationAdapters(): PlatformAdapter[] {
   return BUILT_IN_INTEGRATION_ADAPTER_FACTORIES.map(({ create }) => create());
+}
+
+/**
+ * Narrow the adapter set to `integrations.platforms`, when a deployment
+ * declares one.
+ *
+ * A configured name that matches no adapter throws instead of being ignored:
+ * the whole point of the allow-list is that the operator knows which platforms
+ * are live, and silently mounting a set nobody named — or mounting nothing
+ * because of a typo — is the failure this switch is supposed to prevent.
+ */
+export function applyConfiguredPlatformAllowList(
+  adapters: PlatformAdapter[],
+): PlatformAdapter[] {
+  const allowed = getAppConfig().integrations.platforms;
+  if (!allowed) return adapters;
+  const available = new Set(adapters.map((adapter) => adapter.platform));
+  const unknown = allowed.filter((platform) => !available.has(platform));
+  if (unknown.length > 0) {
+    throw new Error(
+      `[agent-native] integrations.platforms names ${unknown.join(", ")}, which no mounted adapter provides. ` +
+        `Available: ${[...available].join(", ") || "(none)"}.`,
+    );
+  }
+  const allowedSet = new Set(allowed);
+  return adapters.filter((adapter) => allowedSet.has(adapter.platform));
 }
 
 const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp, etc.).
@@ -844,12 +872,13 @@ export function createIntegrationsPlugin(
   }
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "integrations");
-    const adapters =
+    const adapters = applyConfiguredPlatformAllowList(
       options?.adapters ??
-      mergeIntegrationAdapters(
-        createBuiltInIntegrationAdapters(),
-        options?.adapterOverrides,
-      );
+        mergeIntegrationAdapters(
+          createBuiltInIntegrationAdapters(),
+          options?.adapterOverrides,
+        ),
+    );
     const adapterMap = new Map<string, PlatformAdapter>();
     for (const adapter of adapters) {
       adapterMap.set(adapter.platform, adapter);
@@ -898,6 +927,21 @@ export function createIntegrationsPlugin(
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+
+    // Routes mounted under a platform's own name rather than reached through
+    // the `/:platform/...` catch-all. The catch-all 404s a platform the
+    // allow-list dropped because it resolves an adapter first; these are
+    // registered by literal path, so they would outlive the platform they
+    // belong to unless the same allow-list gates the registration.
+    const allowedPlatforms = getAppConfig().integrations.platforms;
+    const mountForPlatform = (
+      platform: string,
+      path: string,
+      handler: EventHandler,
+    ) => {
+      if (allowedPlatforms && !allowedPlatforms.includes(platform)) return;
+      h3.use(path, handler);
+    };
 
     async function enqueueSystemNotice(
       event: any,
@@ -2523,7 +2567,8 @@ export function createIntegrationsPlugin(
     );
 
     // ─── Slack native action controls ─────────────────────────────
-    h3.use(
+    mountForPlatform(
+      "slack",
       `${P}/slack/interactions`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
@@ -2834,7 +2879,8 @@ export function createIntegrationsPlugin(
     );
 
     // ─── Managed Slack OAuth ──────────────────────────────────────
-    h3.use(
+    mountForPlatform(
+      "slack",
       `${P}/slack/manifest`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
@@ -2874,7 +2920,8 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    h3.use(
+    mountForPlatform(
+      "slack",
       `${P}/slack/oauth/install`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {
@@ -2943,7 +2990,8 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    h3.use(
+    mountForPlatform(
+      "slack",
       `${P}/slack/oauth/callback`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "GET") {

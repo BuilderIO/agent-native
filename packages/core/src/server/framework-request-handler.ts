@@ -19,6 +19,7 @@ import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
+import { getDisabledDefaultPlugins } from "./default-plugins.js";
 import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
@@ -762,9 +763,12 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const provided = nitroApp[PROVIDED_PLUGIN_STEMS_KEY] as
       | Set<string>
       | undefined;
-    const missing = provided
+    const undiscovered = provided
       ? discoveredMissing.filter((stem) => !provided.has(stem))
       : discoveredMissing;
+    const disabled: readonly string[] = getDisabledDefaultPlugins();
+    const missing = undiscovered.filter((stem) => !disabled.includes(stem));
+    const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;
 
     // Lazy import to avoid circular dependency at module load time
@@ -850,7 +854,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
 
     if (process.env.DEBUG)
       console.log(
-        `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}`,
+        `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}` +
+          (refused.length > 0
+            ? ` (refused by plugins.disabled: ${refused.join(", ")})`
+            : ""),
       );
 
     for (const stem of missing) {

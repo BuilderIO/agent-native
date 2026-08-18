@@ -1015,9 +1015,18 @@ ${["post", "put", "delete"]
         `import { ${defaultExportName} as ${varName} } from "${EDGE_SERVER_ENTRYPOINT}";`,
       );
     }
-    pluginCalls.push(`  if (typeof ${varName} === "function") {
+    // The worker entry mounts defaults statically, so the `plugins.disabled`
+    // check that `bootstrapDefaultPlugins` runs has to happen here too —
+    // otherwise the same config withholds a plugin on Node hosts and mounts it
+    // on the edge.
+    pluginCalls.push(`  if (typeof ${varName} === "function" && !isDefaultPluginDisabled(${JSON.stringify(stem)})) {
     await ${varName}(nitroApp);
   }`);
+  }
+  if (edgeDefaultStems.length > 0) {
+    pluginImports.unshift(
+      `import { isDefaultPluginDisabled } from "${EDGE_SERVER_ENTRYPOINT}";`,
+    );
   }
   const generatedPluginMarks =
     providedPluginStems.size > 0
