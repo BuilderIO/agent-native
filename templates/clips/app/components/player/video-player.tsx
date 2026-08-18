@@ -1573,7 +1573,7 @@ function CenterPlaybackOverlay({
               }}
               className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
-              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
+              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
             </button>
 
             <div

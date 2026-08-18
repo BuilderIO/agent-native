@@ -271,6 +271,40 @@ describe("EventDetailPopover characterization", () => {
     );
   });
 
+  it("uses the event timezone when seeding the time editor", () => {
+    const event = baseEvent({
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      startTimeZone: "America/New_York",
+      endTimeZone: "America/New_York",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const timeSummary = findByExactText("span", shortTimeLabel(event.start));
+    expect(timeSummary).toBeTruthy();
+    act(() => {
+      (timeSummary as HTMLElement).click();
+    });
+
+    const timeInputs = document.querySelectorAll<HTMLInputElement>(
+      'input[type="time"]',
+    );
+    expect(timeInputs).toHaveLength(2);
+    expect(timeInputs[0].value).toBe("12:00");
+    expect(timeInputs[1].value).toBe("13:00");
+  });
+
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {
     const event = baseEvent({
       id: "event-2",

@@ -921,7 +921,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
   commentsPanel: {
     disabled: "Kommentare sind für diese Aufzeichnung deaktiviert.",
     beFirst: "Schreibe den ersten Kommentar",
-    leaveNotePanel: "Hinterlasse oben in diesem Bereich eine Notiz.",
+    leaveNotePanel: "Hinterlasse unten in diesem Bereich eine Notiz.",
     leaveNoteTimestamp: "Hinterlasse eine Notiz am aktuellen Zeitstempel.",
     leaveComment: "Kommentar hinterlassen...",
     signInToComment: "Melde dich an, um einen Kommentar zu hinterlassen.",

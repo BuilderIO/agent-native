@@ -903,7 +903,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
   commentsPanel: {
     disabled: "この録画ではコメントが無効です。",
     beFirst: "最初にコメントする",
-    leaveNotePanel: "このパネルの上部にメモを残します。",
+    leaveNotePanel: "このパネルの下部にメモを残します。",
     leaveNoteTimestamp: "現在のタイムスタンプにメモを残します。",
     leaveComment: "コメントを残す...",
     signInToComment: "コメントするにはサインインしてください。",

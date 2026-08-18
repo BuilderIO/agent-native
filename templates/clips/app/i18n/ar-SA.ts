@@ -896,7 +896,7 @@ const messages = {
   commentsPanel: {
     disabled: "تم تعطيل التعليقات لهذا التسجيل.",
     beFirst: "كن أول من يعلق",
-    leaveNotePanel: "اترك ملاحظة في أعلى هذه اللوحة.",
+    leaveNotePanel: "اترك ملاحظة في أسفل هذه اللوحة.",
     leaveNoteTimestamp: "اترك ملاحظة عند الطابع الزمني الحالي.",
     leaveComment: "اترك تعليقًا...",
     signInToComment: "سجّل الدخول لترك تعليق.",

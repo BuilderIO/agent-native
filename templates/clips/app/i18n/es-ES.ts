@@ -914,7 +914,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
   commentsPanel: {
     disabled: "Los comentarios están desactivados para esta grabación.",
     beFirst: "Sé la primera persona en comentar",
-    leaveNotePanel: "Deja una nota en la parte superior de este panel.",
+    leaveNotePanel: "Deja una nota en la parte inferior de este panel.",
     leaveNoteTimestamp: "Deja una nota en la marca de tiempo actual.",
     leaveComment: "Deja un comentario...",
     signInToComment: "Inicia sesión para dejar un comentario.",
