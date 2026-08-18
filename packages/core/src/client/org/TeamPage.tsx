@@ -944,8 +944,13 @@ function WorkspaceAppPrivacySettingsSection({
   return (
     <SettingsRow
       id="workspace-app-default-visibility"
-      label="New app privacy"
-      description="Choose whether new workspace apps start private to their creator or visible to the organization."
+      label={t("org.workspaceAppsDefaultPrivacy", {
+        defaultValue: "New app privacy",
+      })}
+      description={t("org.workspaceAppsDefaultPrivacyDescription", {
+        defaultValue:
+          "Choose whether new workspace apps start private to their creator or visible to the organization.",
+      })}
       control={
         <Select
           value={visibility}

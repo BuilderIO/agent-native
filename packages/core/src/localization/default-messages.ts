@@ -983,6 +983,9 @@ const messages = {
     owner: "Owner",
     admin: "Admin",
     member: "Member",
+    workspaceAppsDefaultPrivacy: "New app privacy",
+    workspaceAppsDefaultPrivacyDescription:
+      "Choose whether new workspace apps start private to their creator or visible to the organization.",
     workspaceAppsOrganization: "Organization",
     workspaceAppsCreatorOnly: "Creator only",
     members: "Members",
