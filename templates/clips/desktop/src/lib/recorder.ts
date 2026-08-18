@@ -2793,7 +2793,7 @@ async function tryStartRewindFullscreenRecording(
       });
     }
   } catch (err) {
-    await invoke("hide_preparing").catch(() => {});
+    await boundedCleanup(invoke("hide_preparing"));
     transcriptionAborted = true;
     // Cast: `transcriptionCapture` is only assigned inside the
     // `startRewindTranscription` closure, which TS's control-flow analysis
