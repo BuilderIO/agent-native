@@ -30,6 +30,11 @@ Detailed event, availability, booking, storage, and UI rules live in
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route
   requires the signed-in browser session.
+- Satisfy a multi-event request with one batch call, never a loop of per-event
+  writes: `delete-events` handles every "remove all …" / "clear …" request,
+  including day-of-week filters, and `delete-event` is for exactly one event.
+  Preview with `dryRun` first, then report the returned `deleted` / `failed` /
+  `skipped` counts. See `event-management` and `reliable-mutations`.
 - The action schema is authoritative when a parameter is unclear.
 - Use the current date from runtime context, not a visible calendar date, when
   the user says today/tomorrow/yesterday.

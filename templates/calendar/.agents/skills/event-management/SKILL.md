@@ -346,6 +346,55 @@ pnpm action delete-event --id google-event-id --scope thisAndFollowing
 pnpm action delete-event --id google-event-id --removeOnly true
 ```
 
+One event only. For more than one, use `delete-events`.
+
+### delete-events
+
+Every "remove all …" / "clear …" request goes here, in **one** call. Looping
+`delete-event` per event cannot finish a real weekend cleanup inside a hosted
+foreground run — that is the failure a user sees as "the agent stopped before
+finishing" — and a partial loop leaves the calendar half-cleaned with no record
+of which events survived. See the `reliable-mutations` skill.
+
+Select by range plus `--daysOfWeek` and/or `--query`, or pass explicit `--ids`.
+Preview with `--dryRun true`, show the user the matched list, then repeat the
+same call without `--dryRun`.
+
+```bash
+# What would go?
+pnpm action delete-events \
+  --from 2026-04-01 --to 2026-05-01 \
+  --daysOfWeek saturday,sunday \
+  --dryRun true
+
+# Delete it
+pnpm action delete-events \
+  --from 2026-04-01 --to 2026-05-01 \
+  --daysOfWeek saturday,sunday
+
+# Explicit ids from a previous list-events/search-events
+pnpm action delete-events --ids google-a,google-b --accountEmail secondary@example.com
+```
+
+`--daysOfWeek` accepts full or 3-letter day names, `weekend`, or `weekdays`, and
+resolves each event's day in the **calendar's** timezone — a Sunday 5pm
+America/Los_Angeles meeting is Monday in UTC, so a UTC comparison deletes the
+wrong day. Pass `--timezone` to override.
+
+The result is a per-event report, not a boolean. Read `deleted`, `failed`, and
+`skipped` and give the user the counts; a `failed` entry carries the provider
+error and a `skipped` entry says why the app cannot delete it (ICS feeds are
+read-only, overlaid calendars are not yours, bookings are cancelled from the
+booking). Never report a bulk delete as done from the absence of a thrown error.
+
+The action refuses rather than guesses when the calendar read was incomplete (an
+expired account token) or when more than 200 events match — narrow the filter
+and run again. An `unreadableSources` entry means an ICS feed could not be read,
+so mention that the sweep did not cover it.
+
+`delete-events` cannot touch an overlaid person's calendar; it only reads the
+signed-in user's own accounts, bookings, and subscribed feeds.
+
 ### rsvp-event
 
 Accept, decline, or tentatively accept an invitation with the event's
@@ -428,6 +477,8 @@ When the user says:
 | "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
 | "add Zoom to this meeting"                     | `update-event --id ... --addZoom=true`                                       |
 | "delete/remove a meeting"                      | `delete-event --id ...`                                                      |
+| "remove all Saturday and Sunday meetings"      | `delete-events --from ... --to ... --daysOfWeek saturday,sunday`             |
+| "clear my calendar next week"                  | `delete-events --from ... --to ...` (preview with `--dryRun true` first)     |
 | "remove weekends from a daily recurring event" | `update-event --id ... --recurrence "RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR"` |
 | "what's coming up"                             | `list-events` (uses default 30-day forward window)                           |
 
