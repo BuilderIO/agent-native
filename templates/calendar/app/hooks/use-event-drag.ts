@@ -201,6 +201,7 @@ export function useEventDrag({
       getScrollTop,
       startHour,
       hourHeight,
+      timezone,
     ],
   );
 
@@ -349,6 +350,7 @@ export function useEventDrag({
     days,
     startHour,
     onEventTimeChange,
+    timezone,
   ]);
 
   const cancelDrag = useCallback(() => {
