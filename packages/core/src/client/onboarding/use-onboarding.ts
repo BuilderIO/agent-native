@@ -42,8 +42,15 @@ export interface UseOnboardingResult {
   reopen: () => Promise<void>;
   /** True until the post-signup full-screen flow is completed. */
   firstRun: boolean;
-  /** Clear the post-signup full-screen flow marker. */
+  /** Clear the post-signup full-screen flow marker. Rejects instead of
+   *  resolving silently when the server call fails — see
+   *  `completeFirstRunError` for the message to show the user. */
   completeFirstRun: () => Promise<void>;
+  /** Set when the last `completeFirstRun()` call failed. Cleared on the next
+   *  attempt (success or failure). Distinct from `error` (the initial steps
+   *  load failure) so a failed Skip/Continue doesn't swap the whole screen
+   *  for an unrelated "could not load" message. */
+  completeFirstRunError: string | null;
 }
 
 export function useOnboarding(
@@ -57,6 +64,9 @@ export function useOnboarding(
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [firstRun, setFirstRun] = useState(preview || initialFirstRun);
+  const [completeFirstRunError, setCompleteFirstRunError] = useState<
+    string | null
+  >(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -183,17 +193,30 @@ export function useOnboarding(
       }
       return;
     }
-    const response = await fetch(
-      agentNativePath("/_agent-native/onboarding/first-run/complete"),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      },
-    );
+    setCompleteFirstRunError(null);
+    // Both a rejected fetch (offline, dropped connection) and a non-ok
+    // response are real failures — neither may look like success to the
+    // caller, so both throw instead of returning as if the step advanced.
+    let response: Response;
+    try {
+      response = await fetch(
+        agentNativePath("/_agent-native/onboarding/first-run/complete"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "first-run completion request failed";
+      setCompleteFirstRunError(message);
+      throw e instanceof Error ? e : new Error(message);
+    }
     if (!response.ok) {
-      setError(`first-run completion: ${response.status}`);
-      return;
+      const message = `first-run completion failed: ${response.status}`;
+      setCompleteFirstRunError(message);
+      throw new Error(message);
     }
     setFirstRun(false);
     if (typeof window !== "undefined") {
@@ -227,6 +250,7 @@ export function useOnboarding(
     reopen,
     firstRun,
     completeFirstRun,
+    completeFirstRunError,
   };
 }
 

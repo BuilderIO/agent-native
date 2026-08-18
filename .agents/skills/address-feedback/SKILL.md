@@ -54,7 +54,7 @@ the right abstraction, not the most general one.
    | Public URL | Web browsing |
    | Pasted text | Read directly |
 
-   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For threads, read the parent and all replies; note when there are no replies, and inspect linked files or newer follow-ups when the source refers to them. Check every linked artifact that is accessible, but track permission-gated, expired, or otherwise unreadable artifacts separately from evidence that is absent. Before asking for clarification, write down the evidence already present across the parent, replies, attachments, and linked artifacts. Ask only for a detail that remains absent, or for access/a fresh replacement when an inaccessible artifact is the actual blocker, using casual, collaborative wording rather than a terse demand.
+   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For threads, read the parent and all replies; note when there are no replies, and inspect linked files or newer follow-ups when the source refers to them.
 
 2. Check whether this defect has already been reported.
 
@@ -94,19 +94,6 @@ the right abstraction, not the most general one.
    - **UX suggestion**: Design, discoverability, workflow, or feature feedback. Propose the cleanest version first unless the user explicitly asked you to implement UX changes.
    - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect. Ask or flag it.
    - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
-
-   A clarification request is valid only after a fresh full-thread read. Check
-   the parent, every reply, attachments, and linked runs for the URL, surface,
-   repro, exact error, screenshot, and IDs before asking. Keep inaccessible
-   linked evidence separate from evidence that is absent; if the inaccessible
-   artifact is needed, ask for access or a fresh/replacement link rather than
-   asking for information already contained there. If a later reply supplies
-   one of those fields, re-read the thread and use the new evidence; never
-   repeat a question that the thread already answered. Thank the reporter by
-   name when it is available, and phrase the ask as help needed to investigate
-   - for example, a deck URL and/or request ID. When useful, point out that at
-   the end of chat they can hit the three dots and share the request ID if that
-   option is available, without making it sound mandatory.
 
 4. For data, permissions, or resource-lifecycle feedback, verify the whole capability boundary before calling it UX.
 

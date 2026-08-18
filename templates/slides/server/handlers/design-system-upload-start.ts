@@ -1,11 +1,13 @@
 import {
   FeatureNotConfiguredError,
-  getSession,
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
-import { withSlidesRequestContext } from "./request-auth-context.js";
+import {
+  resolveSlidesRequestAuth,
+  withSlidesRequestContext,
+} from "./request-auth-context.js";
 
 const MAX_FIG_BYTES = 512 * 1024 * 1024;
 
@@ -21,8 +23,13 @@ interface AttachmentInput {
  * server; the file bytes never do.
  */
 export const designSystemUploadStart = defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -66,8 +73,10 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
   }
 
   try {
-    const uploads = await withSlidesRequestContext(event, () =>
-      startBuilderDesignSystemUpload(attachments),
+    const uploads = await withSlidesRequestContext(
+      event,
+      () => startBuilderDesignSystemUpload(attachments),
+      session,
     );
     return { uploads };
   } catch (err) {

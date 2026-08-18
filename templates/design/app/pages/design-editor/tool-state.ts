@@ -1,7 +1,7 @@
 import type { CreationTool } from "@/components/design/design-canvas/creation";
 
 import {
-  SHOW_DESIGN_CODE_LEFT_PANEL,
+  isDesignLeftPanelEnabled,
   type DesignLeftPanel,
   type DesignTool,
   type EditorMode,
@@ -10,18 +10,10 @@ import {
 export function normalizeDesignLeftPanel(
   value: unknown,
 ): DesignLeftPanel | undefined {
-  if (value === "extensions") return "tools";
-  if (value === "code") {
-    return SHOW_DESIGN_CODE_LEFT_PANEL ? "code" : undefined;
+  if (value === "extensions") {
+    return isDesignLeftPanelEnabled("tools") ? "tools" : undefined;
   }
-  return value === "file" ||
-    value === "agent" ||
-    value === "assets" ||
-    value === "tools" ||
-    value === "tokens" ||
-    value === "import"
-    ? value
-    : undefined;
+  return isDesignLeftPanelEnabled(value) ? value : undefined;
 }
 
 export const MOVE_GROUP_TOOL_PRESENTATIONS = {

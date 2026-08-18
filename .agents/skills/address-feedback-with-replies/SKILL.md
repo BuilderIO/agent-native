@@ -20,6 +20,13 @@ them into one similar-feedback cluster and use one Builder thread for the
 cluster, while still replying in every in-scope Slack thread that needs a
 status.
 
+Every actionable Slack parent that receives `👀` is in scope for the reply
+ledger. The reaction is only the first external action - it never counts as a
+reply, ownership marker, or completion. Before finishing, re-read every
+eye-marked parent and confirm that Steve posted either **Fixed** or
+**Clarification needed** in that thread. A bot forward, another person's
+reply, or a generic acknowledgement does not satisfy the ledger.
+
 ## Prerequisites
 
 - Read `address-feedback`, `concurrent-agents`, and `verifying-changes` first.
@@ -68,6 +75,13 @@ but internal verification is unavailable, leave the reaction in place, post no
 external status, and let the next run re-read the thread before scanning newer
 feedback. Remove the pending state only after verification and the final
 user-facing status are complete.
+
+The reply obligation is still immediate for the current run: do not end a run
+with an eye-only actionable thread. Continue the investigation until a final
+reply is ready, or ask the one concrete reporter/product question that is truly
+missing. Internal test, deployment, or tooling gaps are not reporter questions;
+keep working on them and do not claim the sweep is complete while the ledger is
+unresolved.
 
 Every actionable thread must end in exactly one external state: **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
@@ -120,7 +134,8 @@ missing value. A `Clarification needed` reply is invalid when the requested
    or browser path. Keep source-tested, built, installed, deployed, and live
    observations separate.
 5. Before posting, prepare one short status for every in-scope feedback item
-   or thread that was addressed - not only the newest report:
+   and every Slack parent marked `👀` - not only the newest report or the item
+   whose code changed:
    - **Fixed** - say only that it is fixed and when it should be live.
    - **Clarification needed** - ask one concrete, plain-language question that
      unblocks the next investigation, only when reporter or product input is
@@ -147,15 +162,26 @@ missing value. A `Clarification needed` reply is invalid when the requested
    details, run IDs, session IDs, tool names, database/history details, and
    internal ownership boundaries from the posted reply. Those belong in the
    investigation, not in the reporter's thread. If the fix is complete but
-   internal verification is unavailable, post nothing yet; keep only the
-   investigation marker and resume from that thread on the next pass after
-   verification is available.
+   internal verification is unavailable, do not claim **Fixed** and do not ask
+   the reporter to solve an internal tooling or deployment gap; keep working
+   until the check is available. The run is incomplete while that parent has
+   only `👀`.
 6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the
-   reply landed. If a reporter replies after the post, re-read the entire
-   thread again before deciding whether to fix, close, or ask anything else.
-7. If the user says earlier replies were too technical, harsh, or incomplete,
+   reply landed. Before ending the run, mechanically audit the reply ledger:
+   for every `👀` parent, record the Steve-authored reply timestamp and whether
+   it is **Fixed** or **Clarification needed**. If any parent has only `👀`, a
+   bot forward, or another person's reply, keep working and post the missing
+   reply before finishing.
+   If a reporter replies after the post, re-read the entire thread again before
+   deciding whether to fix, close, or ask anything else.
+7. If a reporter answers a clarification question, re-read the full thread and
+   use that new evidence in the same follow-up pass. Attempt the fix now; do
+   not repeat the question unless one specific required detail is still
+   missing. Replace an open clarification with a **Fixed** reply once the fix
+   is verified.
+8. If the user says earlier replies were too technical, harsh, or incomplete,
    search for every reply authored in this sweep and edit the bad replies in
    place. Do not fix only the newest example or leave the other addressed
    threads with the old wording.
@@ -243,6 +269,8 @@ the posted follow-up unless the reporter asks for them.
 - Run focused checks for every changed surface and `git diff --check`.
 - Re-read the Slack threads after posting and confirm each requested reply is
   present under the intended parent.
+- Include the eye-to-reply ledger in the recap so no marked thread silently
+  disappears from the handoff.
 - Report repeat reports and any similar-feedback cluster handled as one Builder
   thread, along with the fixed items, flagged items, clarification questions,
   verification gaps, and the exact release state.

@@ -13,10 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       site:
-        description: Site to prioritize
+        description: Site to prioritize, or all production sites
         required: true
         type: choice
+        default: all
         options:
+          - all
           - assets
           - brain
           - design
@@ -31,6 +33,7 @@ on:
           - content
           - calendar
           - analytics
+          - factory
           - fw
       clear_others:
         description: Cancel other sites' queued (not in-progress) production deploys to free build slots
@@ -77,8 +80,11 @@ jobs:
             }
 
             const target = process.env.TARGET;
-            const targetId = sites[target];
-            if (!targetId) {
+            const ref = 'main';
+            const targets = target === 'all'
+              ? Object.entries(sites)
+              : [[target, sites[target]]];
+            if (targets.some(([, id]) => !id)) {
               core.setFailed(`Unknown site: ${target}`);
               return;
             }
@@ -86,7 +92,66 @@ jobs:
             const clearOthers = process.env.CLEAR_OTHERS === 'true';
             const rebuild = process.env.REBUILD === 'true';
             const headers = { Authorization: `Bearer ${token}` };
+            const API = 'https://api.netlify.com/api/v1';
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
+            let failed = false;
+
+            async function readJson(response, label) {
+              const text = await response.text();
+              let body;
+              try {
+                body = text ? JSON.parse(text) : null;
+              } catch {
+                body = text;
+              }
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+              }
+              return body;
+            }
+
+            async function buildAndPublish(name, id) {
+              const query = new URLSearchParams({ branch: ref });
+              const build = await readJson(
+                await fetch(`${API}/sites/${id}/builds?${query}`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] build trigger`,
+              );
+              if (!build?.id) {
+                throw new Error(`[${name}] Netlify did not return a build id.`);
+              }
+              core.info(`[${name}] queued production build ${build.id} for branch ${ref}.`);
+
+              const deadline = Date.now() + 30 * 60 * 1000;
+              let completed = build;
+              while (!completed.done && Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, 10_000));
+                completed = await readJson(
+                  await fetch(`${API}/builds/${build.id}`, { headers }),
+                  `[${name}] build status`,
+                );
+              }
+              if (!completed.done) {
+                throw new Error(`[${name}] build ${build.id} did not finish within 30 minutes.`);
+              }
+              if (completed.error) {
+                throw new Error(`[${name}] build ${build.id} failed: ${completed.error}`);
+              }
+              if (!completed.deploy_id) {
+                throw new Error(`[${name}] build ${build.id} completed without a deploy id.`);
+              }
+
+              await readJson(
+                await fetch(`${API}/sites/${id}/deploys/${completed.deploy_id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] publish deploy ${completed.deploy_id}`,
+              );
+              core.info(`[${name}] published deploy ${completed.deploy_id} from ${ref}.`);
+            }
 
             async function cancelQueuedProductionDeploys(name, id, options = {}) {
               const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?per_page=100`;
@@ -134,7 +199,7 @@ jobs:
               return ok;
             }
 
-            if (clearOthers) {
+            if (clearOthers && target !== 'all') {
               const others = Object.entries(sites).filter(([name]) => name !== target);
               let freed = 0;
               await Promise.all(others.map(async ([name, id]) => {
@@ -143,19 +208,21 @@ jobs:
               core.info(`Cleared ${freed} queued production deploys across other sites.`);
             }
 
-            if (rebuild) {
-              const r = await fetch(`https://api.netlify.com/api/v1/sites/${targetId}/builds`, { method: 'POST', headers });
-              if (r.ok) {
-                core.info(`[${target}] triggered a fresh production build.`);
-              } else {
-                core.setFailed(`[${target}] build trigger failed: ${r.status} ${await r.text()}`);
-                return;
+            for (const [name, targetId] of targets) {
+              if (rebuild) {
+                try {
+                  await buildAndPublish(name, targetId);
+                } catch (error) {
+                  core.setFailed(error?.message || String(error));
+                  failed = true;
+                  continue;
+                }
               }
-              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
-              core.info(`[${target}] cleared ${freedTarget} older queued deploys after rebuild trigger.`);
-            } else {
-              const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
-              core.info(`[${target}] rebuild not requested; cleared ${freedTarget} older queued deploys so the newest existing deploy runs sooner.`);
+              const freedTarget = await cancelQueuedProductionDeploys(name, targetId, { keepNewest: true });
+              core.info(`[${name}] ${rebuild ? 'cleared' : 'rebuild not requested; cleared'} ${freedTarget} older queued deploys.`);
             }
 
-            core.info(`Promotion complete for ${target} (clear_others=${clearOthers}, rebuild=${rebuild}).`);
+            core.info(`Promotion complete for ${target} (ref=${ref}, clear_others=${clearOthers}, rebuild=${rebuild}).`);
+            if (failed) {
+              core.setFailed('One or more production site promotions failed.');
+            }

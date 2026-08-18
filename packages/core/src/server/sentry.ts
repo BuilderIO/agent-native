@@ -223,7 +223,7 @@ export function setSentryRequestContext(ctx: {
 export function captureAuthError(
   error: unknown,
   context: {
-    route: "login" | "signup" | "logout" | "magic-link";
+    route: "login" | "signup" | "logout" | "magic-link" | "verify-email";
     email?: string;
   },
 ): string | undefined {

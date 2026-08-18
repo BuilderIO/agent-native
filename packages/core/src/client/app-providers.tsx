@@ -61,6 +61,7 @@ import {
 } from "../shared/document-title.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
+import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
@@ -352,6 +353,7 @@ export function AppProviders({
           ) : (
             <FirstRunOnboardingStartupGate>
               {children}
+              <EnvironmentBadge />
             </FirstRunOnboardingStartupGate>
           )}
         </RequireSession>
