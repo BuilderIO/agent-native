@@ -246,6 +246,7 @@ export interface WorkspaceAppFrameApp {
 
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
+  navigateToTopWindow?: (href: string) => void;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
   /** Chat-first app surfaces own the parent chat rail around the iframe. */
@@ -255,6 +256,7 @@ interface WorkspaceAppFrameProps {
 
 export function WorkspaceAppFrame({
   app,
+  navigateToTopWindow = navigateToWorkspaceApp,
   embedPath,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
@@ -323,8 +325,8 @@ export function WorkspaceAppFrame({
 
   useEffect(() => {
     if (!openInTopWindow || !topWindowHref) return;
-    navigateToWorkspaceApp(topWindowHref);
-  }, [openInTopWindow, topWindowHref]);
+    navigateToTopWindow(topWindowHref);
+  }, [navigateToTopWindow, openInTopWindow, topWindowHref]);
 
   useEffect(() => {
     if (!embedInput || openInTopWindow) return;
@@ -440,7 +442,13 @@ export function WorkspaceAppFrame({
   );
 }
 
-export function WorkspaceAppHost({ appId }: { appId?: string }) {
+export function WorkspaceAppHost({
+  appId,
+  navigateToTopWindow = navigateToWorkspaceApp,
+}: {
+  appId?: string;
+  navigateToTopWindow?: (href: string) => void;
+}) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
@@ -591,7 +599,10 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
       className="flex h-full min-h-0 flex-col bg-background"
     >
       <div className="min-h-0 flex-1 bg-muted/20">
-        <WorkspaceAppFrame app={app} />
+        <WorkspaceAppFrame
+          app={app}
+          navigateToTopWindow={navigateToTopWindow}
+        />
       </div>
     </div>
   );

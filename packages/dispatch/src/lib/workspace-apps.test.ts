@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  navigateToWorkspaceApp,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
 } from "./workspace-apps";
@@ -59,6 +61,37 @@ describe("workspaceAppDirectHref", () => {
   it("rejects an unsafe target path", () => {
     expect(workspaceAppDirectHref({ path: "/atlas" }, "//evil.example")).toBe(
       null,
+    );
+  });
+});
+
+describe("navigateToWorkspaceApp", () => {
+  afterEach(() => {
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: window,
+    });
+  });
+
+  it("uses the top window when Dispatch is embedded", () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    navigateToWorkspaceApp("/mail");
+
+    expect(topWindow.location.href).toBe(
+      new URL("/mail", window.location.href).href,
     );
   });
 });
