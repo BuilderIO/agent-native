@@ -86,16 +86,14 @@ jobs:
         if: steps.snapshot.outputs.changed == 'true'
         env:
           WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
-          SOURCE_REF: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           : "${WORKSPACE_TOKEN:?Builder workspace token is required for beta rebuilds}"
 
           payload="$(jq -cn \
-            --arg ref "$SOURCE_REF" \
             --arg run "$RUN_URL" \
-            '{event_type:"agent-native-beta-published",client_payload:{ref:$ref,sourceRunUrl:$run}}')"
+            '{event_type:"agent-native-beta-published",client_payload:{ref:"main",sourceRunUrl:$run}}')"
           response_file="$RUNNER_TEMP/workspace-beta-dispatch-response"
           delay=2
           for attempt in 1 2 3 4 5; do
