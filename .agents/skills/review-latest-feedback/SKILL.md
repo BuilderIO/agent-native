@@ -135,9 +135,9 @@ failure modes, surfaces, or owners.
 
 ## Investigation workflow
 
-1. Record the start cursor and ownership baseline with `git status --short`,
-   the current branch, worktrees, and leases. Treat unfamiliar dirty paths as
-   peer-owned. Never reset, clean, stash, switch, rebase, or overwrite them.
+1. Record the start cursor with `git status --short`, the current branch, and
+   worktrees. Read existing local changes before editing. Never reset, clean,
+   stash, switch, rebase, or overwrite them without explicit authorization.
 2. Read Slack threads, GitHub issues, and Sentry evidence in parallel when
    their write sets are independent. Search recent Slack, Git history, merged
    PRs, GitHub issues, and Sentry fingerprints for repeats or an existing fix
@@ -178,9 +178,8 @@ failure modes, surfaces, or owners.
 A worktree is a valid PR source. When this skill is run in an authorized
 worktree, use that worktree's current branch and cwd for its tests, commit,
 push, and PR creation or update. Do not copy changes into the shared checkout.
-The same ownership rules apply: stage explicit paths only, never `git add -A`,
-never use a whole-worktree ship helper when peer paths are present, and update
-an existing PR rather than opening a second one.
+When publishing is authorized, use `corepack pnpm ship:push` for the complete
+nonignored snapshot and update an existing PR rather than opening a second one.
 
 This skill may prepare a ready PR when the invocation grants publish
 authority. It must not merge or auto-approve its own fix unless the user also

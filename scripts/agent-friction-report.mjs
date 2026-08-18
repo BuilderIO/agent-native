@@ -72,7 +72,7 @@ const PATTERNS = [
   {
     key: "collision",
     label: "Agents clobbering each other in the shared checkout",
-    fixedBy: ".agents/skills/concurrent-agents + scripts/hooks/file-lease.mjs",
+    fixedBy: ".agents/skills/concurrent-agents",
     re: /\b(collision|overwrit\w+|clobber\w*|reverted (my|our|their) work|lost (my|our) (work|edits)|another agent (is|was) (shipping|editing))\b/i,
   },
   {

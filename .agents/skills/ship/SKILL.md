@@ -83,10 +83,10 @@ branch, stay on it.
    shared/platform-managed worktrees; ship the branch belonging to this
    worktree.
 
-2. **Check local changes**: run `git status --short` and `git diff --stat` to
-   establish the owned-path baseline. Multiple agents may have added work;
-   preserve those paths, but do not stage or push them automatically. If you
-   cannot establish ownership, leave the path out of this ship.
+2. **Check local changes**: run `git status --short` and `git diff --stat`
+   to establish the complete branch snapshot. Include every nonignored local
+   change in the next checkpoint; the repository helper handles the routine
+   exclusions.
 
    Then confirm the base is current, before validating or pushing anything. A
    worktree can be created from a stale ref, and its local `main` ref is stale
@@ -112,16 +112,14 @@ branch, stay on it.
    record the exact failure, keep pushing stable slices, and let GitHub Actions
    be the validation gate that `/babysit-pr` monitors.
 
-4. **Publish the owned snapshot**: stage only the paths owned by this agent,
-   commit, and push the current branch. Never add `Co-Authored-By` or other
-   agent attribution.
+4. **Publish the complete snapshot**: run `corepack pnpm ship:push` to stage,
+   commit, and push all nonignored current-branch work. Never add
+   `Co-Authored-By` or other agent attribution.
 
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or
-   additional concurrent work. Later commits update that same PR and let CI
-   and review run in parallel with the rest of the ship workflow. Push each
-   later owned slice as soon as it is coherent; do not wait for peer files to
-   become commit-ready, and do not include them in an owned slice.
+   additional concurrent work. Later checkpoints update that same PR and let
+   CI and review run in parallel with the rest of the ship workflow.
 
 5. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
@@ -133,9 +131,9 @@ branch, stay on it.
 
 6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 checks ownership first, pushes only owned paths and
-   already-created owned commits, then checks mergeability, every unaddressed
-   review comment by reply state, and CI. Keep going until the PR is either
+   the PR. Its Step 0 pushes the complete nonignored branch snapshot, then
+   checks mergeability, every unaddressed review comment by reply state, and
+   CI. Keep going until the PR is either
    merged/closed or the user explicitly tells you to stop.
 
 7. **Merge when allowed**: because `/ship` includes merge authorization, merge
@@ -169,10 +167,8 @@ branch, stay on it.
 ## Important
 
 - **Multiple agents run concurrently.** There will often be locally changed
-  files you didn't generate. This is normal. Preserve those paths and move
-  forward with explicit owned-path commits. Don't revert other agents' work or
-  publish it as part of this ship; fix real bugs if CI or review feedback flags
-  them.
+  files you didn't generate. This is normal. The branch-wide checkpoint
+  publishes them together; don't revert local work or silently discard it.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.

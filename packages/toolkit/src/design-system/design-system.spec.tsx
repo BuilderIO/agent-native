@@ -12,7 +12,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
-import { ActionButton } from "./components.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import { ActionButton, IconButton } from "./components.js";
 import { defaultDesignSystemComponents } from "./default-adapter.js";
 import { defineDesignSystem } from "./definition.js";
 import { defineTheme } from "./theme.js";
@@ -254,6 +255,54 @@ describe("design-system contract", () => {
       expect(trigger?.dataset.state).toBe("closed");
     },
   );
+
+  it("forwards a native ref passed to ActionButton to the real DOM button node", () => {
+    let node: HTMLButtonElement | null = null;
+
+    act(() => {
+      root.render(
+        <ActionButton
+          ref={(el) => {
+            node = el;
+          }}
+        >
+          Save
+        </ActionButton>,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(node).toBe(button);
+  });
+
+  it("resolves a Radix asChild Popover trigger's ref to the real IconButton DOM node", async () => {
+    // Radix positions a popover by measuring the DOM node its `asChild`
+    // Slot clones a ref onto. If that ref is dropped, Radix has nothing to
+    // measure and falls back to an unpositioned, off-screen placement.
+    let node: HTMLButtonElement | null = null;
+
+    await act(async () => {
+      root.render(
+        <Popover>
+          <PopoverTrigger asChild>
+            <IconButton
+              label="Manage"
+              icon={<span />}
+              ref={(el) => {
+                node = el;
+              }}
+            />
+          </PopoverTrigger>
+          <PopoverContent>Content</PopoverContent>
+        </Popover>,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(node).toBe(button);
+  });
 
   it("isolates a broken customer component and renders the default control", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
