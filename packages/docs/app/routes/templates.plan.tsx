@@ -271,16 +271,16 @@ export default function PlanTemplate() {
           </div>
         }
       >
-        <div className="flex w-full min-w-0 items-center gap-6 rounded-md border border-[var(--docs-border)] bg-[var(--code-bg)] px-4 py-3 sm:px-5">
-          <code className="min-w-0 flex-1 overflow-x-auto font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
+        <div className="flex w-full min-w-0 items-center gap-3">
+          <span className="min-w-0 flex-1 overflow-x-auto font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
             <span className="text-[var(--fg-secondary)]">$ </span>
             {INSTALL_COMMAND}
-          </code>
+          </span>
           <button
             type="button"
             onClick={handleCopyInstallCommand}
             aria-label="Copy install command"
-            className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            className="inline-flex size-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
             {installCommandCopied ? (
               <IconCheck aria-hidden="true" className="size-[18px]" />
