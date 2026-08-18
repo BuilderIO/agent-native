@@ -1,19 +1,19 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowLeft,
+  IconArrowRight,
   IconBrandVisualStudio,
   IconBraces,
   IconCheck,
+  IconCopy,
   IconFolders,
   IconHierarchy,
   IconLayoutKanban,
   IconLink,
 } from "@tabler/icons-react";
-import { Link } from "react-router";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
-import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
   TemplateActivationFrame,
   TemplateCapabilityGrid,
@@ -62,13 +62,119 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "plan")!;
 
-const activationLinkClassName = "secondary-button";
+const INSTALL_COMMAND = "npx @agent-native/core@latest skills add visual-plan";
+const AGENT_PROMPT = `Install the Agent-Native Plans skill
+(${INSTALL_COMMAND}),
+then run /visual-plan on my current branch before writing any code.`;
 
-const primaryLinkClassName = "primary-button";
+const PLAN_VIDEO_PREVIEWS = [
+  {
+    title: "Steve visual plans 1",
+    href: "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
+    thumbnail: "https://clips.agent-native.com/api/thumbnail/F5l6RppFaQDF",
+  },
+  {
+    title: "Steve visual plans 2",
+    href: "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
+    thumbnail: "https://clips.agent-native.com/api/thumbnail/F6SlN9TdlK30",
+  },
+  {
+    title: "Steve visual plans 3",
+    href: "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
+    thumbnail: "https://clips.agent-native.com/api/thumbnail/YuM1nM1pcX3e",
+  },
+];
+
+type PlanVideoCarouselHandle = {
+  scroll: (direction: -1 | 1) => void;
+};
+
+const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
+  function PlanVideoCarousel(_props, ref) {
+    const sliderRef = useRef<HTMLDivElement>(null);
+
+    function scroll(direction: -1 | 1) {
+      const slider = sliderRef.current;
+      if (!slider) return;
+      const isRtl = getComputedStyle(slider).direction === "rtl";
+      slider.scrollBy({
+        left: direction * slider.clientWidth * 0.8 * (isRtl ? -1 : 1),
+        behavior: "smooth",
+      });
+    }
+
+    useImperativeHandle(ref, () => ({ scroll }), []);
+
+    return (
+      <div
+        ref={sliderRef}
+        aria-label="Visual plan videos"
+        className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] bg-[var(--bg)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {PLAN_VIDEO_PREVIEWS.map((video, index) => (
+          <a
+            key={video.href}
+            href={video.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[var(--bg)] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-1/3 ${
+              index > 0 ? "border-s border-[var(--docs-border)]" : ""
+            }`}
+            onClick={() =>
+              trackEvent("view plan video preview", {
+                clip: video.href,
+                location: "landing_page_video_carousel",
+              })
+            }
+          >
+            <img
+              src={video.thumbnail}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="aspect-video w-full border-b border-[var(--docs-border)] object-cover"
+            />
+            <div className="flex flex-1 items-center justify-between gap-4 p-6 sm:p-8">
+              <h3 className="m-0 text-xl font-medium leading-[1.15] text-[var(--fg)]">
+                {video.title}
+              </h3>
+              <IconArrowRight
+                aria-hidden="true"
+                className="size-[18px] shrink-0 transition-transform group-hover:translate-x-1"
+              />
+            </div>
+          </a>
+        ))}
+      </div>
+    );
+  },
+);
 
 export default function PlanTemplate() {
   const t = useT();
-  const { locale } = useLocale();
+  const [installCommandCopied, setInstallCommandCopied] = useState(false);
+  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
+  const videoCarouselRef = useRef<PlanVideoCarouselHandle>(null);
+
+  function handleCopyInstallCommand() {
+    navigator.clipboard.writeText(INSTALL_COMMAND);
+    setInstallCommandCopied(true);
+    trackEvent("copy cli command", {
+      template: template.slug,
+      location: "landing_page_activation",
+    });
+    setTimeout(() => setInstallCommandCopied(false), 2000);
+  }
+
+  function handleCopyAgentPrompt() {
+    navigator.clipboard.writeText(AGENT_PROMPT);
+    setAgentPromptCopied(true);
+    trackEvent("copy agent prompt", {
+      template: template.slug,
+      location: "landing_page_final_cta",
+    });
+    setTimeout(() => setAgentPromptCopied(false), 2000);
+  }
   const capabilities = [
     {
       icon: IconLayoutKanban,
@@ -143,7 +249,7 @@ export default function PlanTemplate() {
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe39b2c295c0043ff876da8745215763d?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc10d18af4ff8475a8ad69acf2b4452e5?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.plan.s001")}
             loading="lazy"
@@ -165,27 +271,23 @@ export default function PlanTemplate() {
           </div>
         }
       >
-        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
-          <a
-            href="https://plan.agent-native.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("try live demo", {
-                template: "plan",
-                location: "landing_page",
-              });
-            }}
+        <div className="flex w-full min-w-0 items-center gap-6 rounded-md border border-[var(--docs-border)] bg-[var(--code-bg)] px-4 py-3 sm:px-5">
+          <code className="min-w-0 flex-1 overflow-x-auto font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
+            <span className="text-[var(--fg-secondary)]">$ </span>
+            {INSTALL_COMMAND}
+          </code>
+          <button
+            type="button"
+            onClick={handleCopyInstallCommand}
+            aria-label="Copy install command"
+            className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
           >
-            {t("templateLanding.plan.s017")}
-          </a>
-          <TemplateDocsLink
-            template={template}
-            location="landing_page"
-            className={activationLinkClassName}
-          />
+            {installCommandCopied ? (
+              <IconCheck aria-hidden="true" className="size-[18px]" />
+            ) : (
+              <IconCopy aria-hidden="true" className="size-[18px]" />
+            )}
+          </button>
         </div>
       </TemplateActivationFrame>
 
@@ -474,6 +576,38 @@ export default function PlanTemplate() {
         />
       </section>
 
+      <section
+        id="watch-plans"
+        className="border-t border-[var(--docs-border)]"
+      >
+        <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
+            Watch visual plans take shape
+          </h2>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              aria-label="Previous video"
+              onClick={() => videoCarouselRef.current?.scroll(-1)}
+              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            >
+              <IconArrowLeft aria-hidden="true" className="size-[18px]" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next video"
+              onClick={() => videoCarouselRef.current?.scroll(1)}
+              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            >
+              <IconArrowRight aria-hidden="true" className="size-[18px]" />
+            </button>
+          </div>
+        </div>
+        <div className="border-x border-[var(--docs-border)] pb-16">
+          <PlanVideoCarousel ref={videoCarouselRef} />
+        </div>
+      </section>
+
       <TemplateFinalCta
         eyebrow={
           <span
@@ -485,23 +619,23 @@ export default function PlanTemplate() {
         }
         title={t("templateLanding.plan.s057")}
         actions={
-          <>
-            <a
-              href={`${template.demoUrl}/_agent-native/sign-in`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={primaryLinkClassName}
+          <div className="flex w-full min-w-0 items-center gap-6 rounded-md border border-[var(--docs-border)] bg-[var(--code-bg)] px-4 py-3 sm:px-5">
+            <p className="m-0 min-w-0 flex-1 whitespace-pre-wrap font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
+              {AGENT_PROMPT}
+            </p>
+            <button
+              type="button"
+              onClick={handleCopyAgentPrompt}
+              aria-label="Copy agent prompt"
+              className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
             >
-              {t("common.signIn")}
-            </a>
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className={activationLinkClassName}
-            >
-              View more apps
-            </Link>
-          </>
+              {agentPromptCopied ? (
+                <IconCheck aria-hidden="true" className="size-[18px]" />
+              ) : (
+                <IconCopy aria-hidden="true" className="size-[18px]" />
+              )}
+            </button>
+          </div>
         }
       >
         <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
