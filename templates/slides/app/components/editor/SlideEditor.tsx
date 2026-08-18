@@ -965,11 +965,13 @@ function MultiSelectOutline({
 }
 
 /** Translucent rectangle drawn while marquee-dragging */
+type MarqueeSelectionRect = { x: number; y: number; w: number; h: number };
+
 function MarqueeRect({
   rect,
   viewportRect,
 }: {
-  rect: { x: number; y: number; w: number; h: number };
+  rect: MarqueeSelectionRect;
   viewportRect: DOMRect | null;
 }) {
   return (
@@ -1204,12 +1206,7 @@ export default function SlideEditor({
   /** Anchor rect for the floating chip (the slide canvas) */
   const [chipAnchorRect, setChipAnchorRect] = useState<DOMRect | null>(null);
   /** Active marquee rectangle (viewport coords). null = not dragging. */
-  const [marquee, setMarquee] = useState<{
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  } | null>(null);
+  const [marquee, setMarquee] = useState<MarqueeSelectionRect | null>(null);
   const [activeAlignmentGuides, setActiveAlignmentGuides] = useState<{
     guides: SlideAlignmentGuide[];
     viewport: AlignmentGuideViewport;
@@ -1502,6 +1499,8 @@ export default function SlideEditor({
   }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  /** Latest marquee geometry, readable by the stable window pointer handlers. */
+  const marqueeRef = useRef<MarqueeSelectionRect | null>(null);
   /** Set right before placing a text box so the click event that follows the
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
@@ -4432,7 +4431,12 @@ export default function SlideEditor({
       marqueeOriginRef.current = { x: e.clientX, y: e.clientY };
       marqueeAdditiveRef.current = e.shiftKey || e.metaKey || e.ctrlKey;
       marqueePrevSelectionRef.current = new Set(multiSelection);
-      setMarquee({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+      const initialMarquee = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+      marqueeRef.current = initialMarquee;
+      setMarquee(initialMarquee);
+      if (e.pointerId >= 0) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }
 
       // Clear single-select feedback when starting a marquee on whitespace
       // (non-additive). Additive marquee preserves the existing selection.
@@ -4462,25 +4466,28 @@ export default function SlideEditor({
     ],
   );
 
-  // Window-level pointermove / pointerup so the drag still tracks if the
-  // pointer leaves the slide.
+  // Keep these listeners stable while React re-renders the marquee overlay.
+  // Re-attaching them whenever marquee state changes can lose a fast
+  // pointermove/pointerup between the effect cleanup and re-install.
   useEffect(() => {
-    if (!marquee) return;
     const onMove = (e: PointerEvent) => {
       const origin = marqueeOriginRef.current;
-      if (!origin) return;
+      if (!origin || !marqueeRef.current) return;
       const x = Math.min(origin.x, e.clientX);
       const y = Math.min(origin.y, e.clientY);
       const w = Math.abs(e.clientX - origin.x);
       const h = Math.abs(e.clientY - origin.y);
-      setMarquee({ x, y, w, h });
+      const nextMarquee = { x, y, w, h };
+      marqueeRef.current = nextMarquee;
+      setMarquee(nextMarquee);
     };
-    const onUp = () => {
+    const finish = (cancelled: boolean) => {
       const origin = marqueeOriginRef.current;
-      const current = marquee;
+      const current = marqueeRef.current;
       marqueeOriginRef.current = null;
+      marqueeRef.current = null;
       setMarquee(null);
-      if (!origin || !current) return;
+      if (cancelled || !origin || !current) return;
 
       const slideContent = getSlideContent();
       if (!slideContent) return;
@@ -4518,13 +4525,18 @@ export default function SlideEditor({
 
       applyMultiSelection(hits);
     };
+
+    const onUp = () => finish(false);
+    const onCancel = () => finish(true);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
-  }, [marquee, getSlideContent, applyMultiSelection]);
+  }, [getSlideContent, applyMultiSelection]);
 
   /** Send the current selection to the agent chat composer */
   const sendSelectionToAgent = useCallback(() => {
