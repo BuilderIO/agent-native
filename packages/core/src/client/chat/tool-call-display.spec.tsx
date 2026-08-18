@@ -2378,8 +2378,9 @@ describe("ApprovalAffordance", () => {
               );
             },
             getApprovalResolution: (approvalKey, toolCallId, ask) =>
-              resolutionsByIdentity.get(identity(approvalKey, toolCallId, ask)) ??
-              null,
+              resolutionsByIdentity.get(
+                identity(approvalKey, toolCallId, ask),
+              ) ?? null,
           }}
         >
           <ToolCallDisplay

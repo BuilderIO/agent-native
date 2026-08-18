@@ -5906,7 +5906,8 @@ export async function runAgentLoop(opts: {
           // re-rendered" apart from "a fresh ask after the grant didn't land"
           // — without it, a stale client-side "approved" mark permanently
           // hides Approve/Deny with no way to retry.
-          const askId = (await opts.onApprovalRequired?.(approvalBinding)) || undefined;
+          const askId =
+            (await opts.onApprovalRequired?.(approvalBinding)) || undefined;
           send({
             type: "tool_start",
             id: toolCall.id,
