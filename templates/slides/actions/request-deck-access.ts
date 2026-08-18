@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core";
+import { notify } from "@agent-native/core/notifications";
 import {
   emailStrong,
   isEmailConfigured,
@@ -10,8 +13,7 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { currentAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -32,6 +34,21 @@ function displayNameForEmail(email: string): string {
     .slice(0, 2)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function accessRequestEventId(deckId: string, requesterEmail: string): string {
+  return (
+    "access-request-" +
+    createHash("sha256")
+      .update(deckId)
+      .update("\0")
+      .update(requesterEmail)
+      .digest("hex")
+  );
 }
 
 function cleanSubjectPart(value: string): string {
@@ -76,10 +93,11 @@ export default defineAction({
   }),
   agentTool: false,
   run: async ({ deckId }) => {
-    const requesterEmail = getRequestUserEmail();
-    if (!requesterEmail) {
+    const rawRequesterEmail = getRequestUserEmail();
+    if (!rawRequesterEmail) {
       throw httpError("Sign in to request access to this deck.", 401);
     }
+    const requesterEmail = normalizeEmail(rawRequesterEmail);
 
     const db = getDb();
     const [deck] = await db
@@ -106,35 +124,106 @@ export default defineAction({
       };
     }
 
-    const requesterName =
-      getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
-    const requestId = `req-${nanoid()}`;
-    const requestedAt = new Date().toISOString();
-
-    await db.insert(schema.deckEvents).values({
-      id: requestId,
-      deckId,
-      type: "deck.access_requested",
-      message: `${requesterEmail} requested access to this deck.`,
-      payload: JSON.stringify({
-        requestId,
-        requesterEmail,
-        requesterName,
-        requestedAt,
-      }),
-      createdBy: "human",
-      createdAt: requestedAt,
+    const previousRequests = await db
+      .select({ payload: schema.deckEvents.payload })
+      .from(schema.deckEvents)
+      .where(
+        and(
+          eq(schema.deckEvents.deckId, deckId),
+          eq(schema.deckEvents.type, "deck.access_requested"),
+        ),
+      );
+    const alreadyRequested = previousRequests.some((event) => {
+      try {
+        const payload = JSON.parse(event.payload ?? "") as {
+          requesterEmail?: string;
+        };
+        return (
+          typeof payload.requesterEmail === "string" &&
+          normalizeEmail(payload.requesterEmail) === requesterEmail
+        );
+      } catch {
+        // coercion-ok: malformed historical event payload cannot represent a matching requester.
+        return false;
+      }
     });
 
-    let notifiedOwner = false;
-    try {
-      notifiedOwner = await notifyOwner({
+    if (alreadyRequested) {
+      return {
+        ok: true as const,
+        alreadyHasAccess: false,
+        alreadyRequested: true,
+        notifiedOwner: false,
+        message: "Your access request is already with the deck owner.",
+      };
+    }
+
+    const requesterName =
+      getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
+    const requestId = accessRequestEventId(deckId, requesterEmail);
+    const requestedAt = new Date().toISOString();
+
+    const [insertedRequest] = await db
+      .insert(schema.deckEvents)
+      .values({
+        id: requestId,
         deckId,
-        deckTitle: deck.title,
-        ownerEmail: deck.ownerEmail ?? null,
-        requesterEmail,
-        requesterName,
-      });
+        type: "deck.access_requested",
+        message: `${requesterEmail} requested access to this deck.`,
+        payload: JSON.stringify({
+          requestId,
+          requesterEmail,
+          requesterName,
+          requestedAt,
+        }),
+        createdBy: "human",
+        createdAt: requestedAt,
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.deckEvents.id });
+
+    if (!insertedRequest) {
+      return {
+        ok: true as const,
+        alreadyHasAccess: false,
+        alreadyRequested: true,
+        notifiedOwner: false,
+        message: "Your access request is already with the deck owner.",
+      };
+    }
+
+    let notifiedOwner = false;
+    const ownerEmail = deck.ownerEmail ? normalizeEmail(deck.ownerEmail) : null;
+    try {
+      if (ownerEmail && ownerEmail !== requesterEmail) {
+        const notification = await notify(
+          {
+            severity: "info",
+            title: "Deck access requested",
+            body: `${requesterName} requested access to “${deck.title}”.`,
+            metadata: {
+              deckId,
+              requesterEmail,
+              link: getDeckUrl(deckId),
+            },
+          },
+          { owner: ownerEmail },
+        );
+        notifiedOwner = Boolean(notification);
+      }
+    } catch (error) {
+      console.warn("[deck-access] in-app notification failed:", error);
+    }
+
+    try {
+      notifiedOwner =
+        (await notifyOwner({
+          deckId,
+          deckTitle: deck.title,
+          ownerEmail,
+          requesterEmail,
+          requesterName,
+        })) || notifiedOwner;
     } catch (error) {
       console.warn("[deck-access] access request notification failed:", error);
     }

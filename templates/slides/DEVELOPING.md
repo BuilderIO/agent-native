@@ -123,10 +123,11 @@ can explain the denial without exposing deck data. The private-deck pane uses
 that metadata to show the Google-Docs-style "This deck is private" state.
 
 Signed-in viewers can call `request-deck-access`. That action records a
-`deck.access_requested` event in `deck_events` and notifies the deck owner by
-email when outbound email is configured. It never grants access; the owner
-must use the existing Share controls. Anonymous viewers are sent through the
-normal sign-in flow first.
+`deck.access_requested` event in `deck_events`, adds an owner-scoped in-app
+notification, and emails the deck owner when outbound email is configured.
+Requests are idempotent per deck and requester. It never grants access; the
+owner must use the existing Share controls. Anonymous viewers are sent through
+the normal sign-in flow first.
 
 ## Build & Dev Commands
 

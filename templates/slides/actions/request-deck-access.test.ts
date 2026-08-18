@@ -10,6 +10,9 @@ const state = vi.hoisted(() => ({
   } as { id: string; title: string; ownerEmail: string | null } | undefined,
   access: null as { role?: string } | null,
   emailConfigured: true,
+  inAppNotification: true,
+  insertConflict: false,
+  previousRequests: [] as { payload: string | null }[],
   insertedRows: [] as Record<string, unknown>[],
 }));
 
@@ -17,20 +20,35 @@ const limitSelect = vi.hoisted(() =>
   vi.fn(async () => (state.deck ? [state.deck] : [])),
 );
 const insertValues = vi.hoisted(() =>
-  vi.fn(async (row: Record<string, unknown>) => {
+  vi.fn((row: Record<string, unknown>) => {
     state.insertedRows.push(row);
+    return {
+      onConflictDoNothing: () => ({
+        returning: async () =>
+          state.insertConflict ? [] : [{ id: row.id as string }],
+      }),
+    };
   }),
 );
 const db = vi.hoisted(() => ({
-  select: vi.fn(() => ({
+  select: vi.fn((selection: Record<string, unknown>) => ({
     from: vi.fn(() => ({
-      where: vi.fn(() => ({ limit: limitSelect })),
+      where: vi.fn(() =>
+        selection.payload
+          ? Promise.resolve(state.previousRequests)
+          : { limit: limitSelect },
+      ),
     })),
   })),
   insert: vi.fn(() => ({ values: insertValues })),
 }));
 
 const sendEmail = vi.hoisted(() => vi.fn(async () => undefined));
+const notify = vi.hoisted(() =>
+  vi.fn(async () =>
+    state.inAppNotification ? { id: "notification-1" } : undefined,
+  ),
+);
 const renderEmail = vi.hoisted(() =>
   vi.fn(() => ({ html: "<p>request</p>", text: "request" })),
 );
@@ -62,6 +80,8 @@ vi.mock("@agent-native/core/server", () => ({
   sendEmail,
 }));
 
+vi.mock("@agent-native/core/notifications", () => ({ notify }));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => state.requesterEmail,
   getRequestUserName: () => state.requesterName,
@@ -73,14 +93,13 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => conditions,
   eq: (column: unknown, value: unknown) => ({ column, value }),
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({
     strings,
     values,
   })),
 }));
-
-vi.mock("nanoid", () => ({ nanoid: () => "abc123" }));
 
 vi.mock("./_app-url.js", () => ({
   getDeckUrl: (deckId: string) => `https://slides.example/deck/${deckId}`,
@@ -99,6 +118,9 @@ beforeEach(() => {
   };
   state.access = null;
   state.emailConfigured = true;
+  state.inAppNotification = true;
+  state.insertConflict = false;
+  state.previousRequests = [];
   state.insertedRows = [];
 });
 
@@ -110,17 +132,17 @@ describe("request-deck-access", () => {
       ok: true,
       alreadyHasAccess: false,
       notifiedOwner: true,
-      requestId: "req-abc123",
+      requestId: expect.stringMatching(/^access-request-[a-f0-9]{64}$/),
     });
     expect(state.insertedRows).toHaveLength(1);
     expect(state.insertedRows[0]).toMatchObject({
-      id: "req-abc123",
+      id: expect.stringMatching(/^access-request-[a-f0-9]{64}$/),
       deckId: "deck-1",
       type: "deck.access_requested",
       createdBy: "human",
     });
     expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
-      requestId: "req-abc123",
+      requestId: expect.stringMatching(/^access-request-[a-f0-9]{64}$/),
       requesterEmail: "requester@example.com",
       requesterName: "Requester",
     });
@@ -129,6 +151,13 @@ describe("request-deck-access", () => {
         to: "owner@example.com",
         subject: expect.stringContaining("requested access"),
       }),
+    );
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Deck access requested",
+        metadata: expect.objectContaining({ deckId: "deck-1" }),
+      }),
+      { owner: "owner@example.com" },
     );
     expect(renderEmail).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -140,7 +169,7 @@ describe("request-deck-access", () => {
     );
   });
 
-  it("keeps the durable request when owner email delivery fails", async () => {
+  it("keeps the durable request and in-app notice when owner email fails", async () => {
     sendEmail.mockRejectedValueOnce(new Error("SMTP unavailable"));
 
     const result = await action.run({ deckId: "deck-1" });
@@ -148,10 +177,43 @@ describe("request-deck-access", () => {
     expect(result).toMatchObject({
       ok: true,
       alreadyHasAccess: false,
-      notifiedOwner: false,
-      requestId: "req-abc123",
+      notifiedOwner: true,
+      requestId: expect.stringMatching(/^access-request-[a-f0-9]{64}$/),
     });
     expect(state.insertedRows).toHaveLength(1);
+  });
+
+  it("does not duplicate a request already recorded for this requester", async () => {
+    state.previousRequests = [
+      {
+        payload: JSON.stringify({ requesterEmail: "REQUESTER@example.com" }),
+      },
+    ];
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toEqual({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: true,
+      notifiedOwner: false,
+      message: "Your access request is already with the deck owner.",
+    });
+    expect(state.insertedRows).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not notify twice when concurrent requests collide", async () => {
+    state.insertConflict = true;
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toEqual({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: true,
+      notifiedOwner: false,
+      message: "Your access request is already with the deck owner.",
+    });
+    expect(notify).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("does not create a request for a viewer who already has access", async () => {
