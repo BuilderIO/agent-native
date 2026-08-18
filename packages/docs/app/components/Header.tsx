@@ -216,7 +216,7 @@ export default function Header() {
                   alt="Agent-Native"
                   width={1286}
                   height={317}
-                  className="hidden aspect-[1286/317] h-8 w-auto min-[380px]:block dark:hidden"
+                  className="hidden aspect-[1286/317] h-[38.4px] w-auto min-[380px]:block dark:hidden"
                   loading="lazy"
                   decoding="async"
                 />
@@ -225,7 +225,7 @@ export default function Header() {
                   alt="Agent-Native"
                   width={1286}
                   height={317}
-                  className="hidden aspect-[1286/317] h-8 w-auto min-[380px]:dark:block"
+                  className="hidden aspect-[1286/317] h-[38.4px] w-auto min-[380px]:dark:block"
                   loading="lazy"
                   decoding="async"
                 />
